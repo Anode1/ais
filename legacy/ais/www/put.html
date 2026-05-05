@@ -1,0 +1,118 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN" "http://www.w3.org/TR/html4/strict.dtd">
+<html>
+<head>
+	<title>Indexing Service Web Interace</title>
+    <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">	
+	<meta http-equiv="Pragma" content="no-cache">
+	<meta http-equiv="Expires" content="0">
+	<link href="theme/common.css" rel="stylesheet" type="text/css"/>
+	
+<script type="text/javascript">
+var index="";
+<!--DATA-->
+<!--/DATA-->
+</script>
+	
+</head>
+<body>
+<br>
+<form action="main" method="post" name="localForm" charset="UTF-8">
+	<table align="center">
+		<tr>
+			<td>
+				<p align="center">
+					<img src="images/logo.gif" alt="AIS">
+				</p>
+			</td>
+		</tr>
+	</table>
+
+	<table align="center">	
+		<tr>	
+			<td>
+			</td>
+		    <td class=menu>
+	   			<a href="main?cmd=advanced.html">Advanced</a>
+		   	</td>
+		</tr>
+		<tr>
+			<input type="hidden" name="cmd" size="0" value="put">
+			<td style="text-align: right;">
+				Keywords
+			</td>
+			<td>
+				<input type="text" id="keys" align="center" name="keys"	size="80">
+			</td>
+			<td style="vertical-align: top;">
+				<a href="get.html" class="getputlinks">Get</a>			
+			</td>
+									
+		</tr>
+	</table>
+		
+	<br/>
+			
+	<table align="center">
+		
+		<tr>
+			<td>
+			</td>
+			<td>
+<div class="helpline">Put URI first - if it is a linkable resource, 
+optionally - with the following comments. Or just type free text here (for memos). 
+</div>
+			</td>
+		</tr>					
+		<tr>
+			<td>
+				Resource
+			</td>
+			<td>
+				<textarea name="value" id="value" cols="80" rows="8"></textarea>
+			</td>
+		</tr>
+		
+		<tr>
+			<td>
+			</td>		
+			<td style="text-align: center;">
+<code>Repository:&nbsp; 
+	<input name="index" value="private" id="radioprivate" checked="checked"	type="radio">
+	<label for="radioprivate">private</label> 
+	<input name="index" value="public" id="radiopublic" type="radio">
+	<label for="radiopublic">public</label>
+</code>	
+			</td>
+		</tr>			
+		
+		<tr>
+			<td>
+			</td>
+			<td style="text-align: center">
+				<br/>
+				<input type="submit" value="Save" id="Search">
+			</td>
+		</tr>
+	</table>
+	
+	<script>document.write('<input type="hidden" name="rand" value="'+Math.random()+'">');</script>
+</form>
+
+
+<script>
+	document.localForm.keys.focus();
+	
+	if(index=="public") 
+		document.localForm.index[1].checked=true;
+	else 
+		document.localForm.index[0].checked=true;
+	
+</script>
+
+      <br>
+      <br>
+      <br>
+      <br>
+<center><small><small>&copy;2004&nbsp;&nbsp;SourcePortal</small></small></center>
+</body>
+</html>

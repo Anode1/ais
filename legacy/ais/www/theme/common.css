@@ -1,0 +1,53 @@
+/*
+ * This is common css used for general styling (not YUI-specific) 
+ */
+
+.memo { 
+	background-color: #e6e6fa;
+	font-family: arial;
+	font-size: 80%;
+	text-indent: 5px;
+	padding: 5px;
+}
+
+.title { 
+	font-family: sans-serif;
+	font-size: 120%;
+}
+	/*	
+table#results {
+	padding:25px 
+}*/
+
+.entry {
+	padding-top:8px;
+	padding-bottom:8px;
+}
+
+.menu {
+	padding-left:5px;
+	font-family: sans-serif;
+	font-size: 70%;
+	text-align:left;
+}
+
+.getputlinks {
+	padding-left:5px;
+	font-family: sans-serif;
+	font-size: +1;
+	text-align:center;
+}
+
+
+/* ID/URI line - under an entry */
+.greenlink {
+	color: #008000;
+	font-size: 80%;
+}
+
+/* help text */
+.helpline {
+	color: #008000;
+	text-align: center;
+	font-size: 80%;
+}

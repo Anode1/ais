@@ -1,0 +1,167 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN" "http://www.w3.org/TR/html4/strict.dtd">
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+<title>Insert title here</title>
+<link href="theme/common.css" rel="stylesheet" type="text/css"/>
+
+<script type="text/javascript">
+<!--DATA-->
+<!--/DATA-->
+</script>
+
+</head>
+<body>
+<br/><br/>
+<center>
+<img src="images/logo.gif" alt="AIS">
+</center>
+
+<div style="text-align: center;">
+
+<h3>Advanced</h3>
+
+
+<form action="main" method="post" name="f1" charset="UTF-8">
+	<input name="cmd" size="0" value="delete" type="hidden"/>
+	<input name="referer" size="0" value="advanced.html" type="hidden"/>
+	<table align="center">
+		<tr>
+			<td>
+			</td>
+			<td style="text-align: left;">
+			<div class="getputlinks">
+				<a href="get.html">Get</a>&nbsp;
+				<a href="put.html">Put</a>
+			</div>
+			</td>
+		</tr>
+		<tr>
+			<td style="text-align: center;">
+				Delete By ID:
+			</td>
+			<td style="text-align: center;">
+				<input name="value" size="60" type="text"/>
+			</td>
+			<td style="text-align: center;">
+				<input value="Delete" type="submit"/>
+			</td>
+		</tr>
+		
+		<tr>
+		    <td></td>
+			<td style="text-align: center;">
+<code>Repository:&nbsp; 
+	<input name="index" value="private" id="radiois" checked="checked"	type="radio">
+	<label for="radiois">private</label> 
+	<input name="index" value="public" id="radioweb" type="radio">
+	<label for="radioweb">public</label>
+</code>	
+			</td>
+		</tr>	
+		<tr>
+			<td style="text-align: center;">
+				&nbsp;
+			</td>
+		</tr>	
+
+	</table>
+	<script>document.write('<input type="hidden" name="rand" value="'+Math.random()+'"/>');</script>	
+</form>
+
+
+<script>
+	document.f1.value.focus();
+</script>
+
+
+<form action="main" method="post" name="f2" charset="UTF-8">
+	<input name="cmd" size="0" value="delete" type="hidden"/>
+	<input name="referer" size="0" value="advanced.html" type="hidden"/>
+	
+	<table align="center">
+		<tr>
+			<td style="text-align: center;">
+				Delete By Key:
+			</td>
+			<td style="text-align: center;">
+				<input name="keys" size="60" type="text"/>
+			</td>
+			<td style="text-align: center;">
+				<input value="Delete All" type="submit"/>
+			</td>			
+		</tr>
+		<tr>
+		    <td></td>
+			<td style="text-align: center;">
+<code>Repository:&nbsp; 
+	<input name="index" value="private" id="radiois" checked="checked"	type="radio">
+	<label for="radiois">private</label> 
+	<input name="index" value="public" id="radioweb" type="radio">
+	<label for="radioweb">public</label>
+</code>	
+			</td>
+		</tr>
+		<tr>
+			<td style="text-align: center;">
+				&nbsp;
+			</td>
+		</tr>	
+				
+	</table>
+	<script>document.write('<input type="hidden" name="rand" value="'+Math.random()+'"/>');</script>	
+</form>
+
+
+<form action="main" method="post" name="f3" charset="UTF-8">
+	<input name="cmd" size="0" value="index" type="hidden"/>
+	
+	<table align="center">
+		<tr>
+			<td style="text-align: center;">
+				Index all files in Directory:
+			</td>
+			<td style="text-align: center;">
+				<input name="dir" size="60" type="text"/>
+			</td>
+			<td style="text-align: center;">
+				<input value="Start" type="submit"/>
+			</td>			
+		</tr>
+		<tr>
+		    <td></td>
+			<td style="text-align: center;">
+<code>Repository:&nbsp; 
+	<input name="index" value="private" id="radioprivate" checked="checked"	type="radio">
+	<label for="radioprivate">private</label> 
+	<input name="index" value="public" id="radiopublic" type="radio">
+	<label for="radiopublic">public</label>
+</code>	
+			</td>
+		</tr>	
+		<tr>
+			<td style="text-align: center;">
+				&nbsp;
+			</td>
+		</tr>	
+	</table>
+	<script>document.write('<input type="hidden" name="rand" value="'+Math.random()+'"/>');</script>	
+</form>
+
+<script>
+	if(index=="public") 
+		document.f3.index[1].checked=true;
+	else 
+		document.f3.index[0].checked=true;
+</script>
+
+
+      <br>
+      <br>
+      <br>
+      <br>
+</div>
+
+<center><small><small>&copy;2004&nbsp;&nbsp;SourcePortal</small></small></center>
+</body>
+</html>

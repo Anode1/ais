@@ -1,0 +1,23 @@
+/*
+ * Here we have YUI-specific styles (necessary for or customizing YUI components).
+ * In case of not using YUI - this css may be removed
+ */
+
+body, h1 { /* needed for known issue with Dom.getXY() in safari for absolute elements in positioned containers */ 
+	margin:0;
+	padding:0; 
+}
+
+#search { 
+	text-align:center; 
+}
+
+#textinput { /* to center, set static and explicit width: */ 
+	position:static;
+	width:40em; 
+}
+
+#container { /* to center, set left-align and explicit width: */
+ 	text-align:left;
+ 	width:40em; 
+ } 

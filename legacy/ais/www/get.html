@@ -1,0 +1,91 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN" "http://www.w3.org/TR/html4/strict.dtd">
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+<title>Insert title here</title>
+<link href="theme/common.css" rel="stylesheet" type="text/css"/>
+
+<script type="text/javascript">
+<!--DATA-->
+<!--/DATA-->
+</script>
+
+</head>
+<body>
+<br/><br/>
+<center>
+<img src="images/logo.gif" alt="AIS">
+</center>
+
+<!-- GET -->
+
+<div style="text-align: center;">
+
+<form action="main" method="post" name="localForm" charset="UTF-8">
+	<input name="cmd" size="0" value="get" type="hidden">
+	<script>document.write('<input type="hidden" name="rand" value="'+Math.random()+'">');</script>
+	
+	<table align="center">
+	    <tr>
+	    	<td class=menu>
+		   		<a href="main?cmd=advanced.html">Advanced</a>
+		   	</td>
+	    </tr>
+	
+		<tr>
+			<td style="text-align: center;">
+				<input id="keys" name="keys" size="60" type="text"/>
+				<a href="put.html" class="getputlinks">Put</a>
+			</td>
+		</tr>
+
+
+		<tr>
+			<td style="text-align: center;">
+<code>Repository:&nbsp; 
+	<input name="index" value="private" id="radioprivate" checked="checked"	type="radio">
+	<label for="radioprivate">private</label> 
+	<input name="index" value="public" id="radiopublic" type="radio">
+	<label for="radiopublic">public</label>
+</code>	
+			</td>
+		</tr>	
+		<tr>
+			<td style="text-align: center;">
+				&nbsp;
+			</td>
+		</tr>		
+		<tr>
+			<td style="text-align: center;">
+				<input value="Search" id="Search" type="submit"/>
+			</td>
+		</tr>
+	
+
+	</table>
+	
+	
+</form>
+
+
+<script>
+	document.localForm.keys.focus();
+	
+	if(index=="public") 
+		document.localForm.index[1].checked=true;
+	else 
+		document.localForm.index[0].checked=true;
+		
+</script>
+
+<!-- /GET -->
+
+      <br>
+      <br>
+      <br>
+      <br>
+</div>
+
+<center><small><small>&copy;2004&nbsp;&nbsp;SourcePortal</small></small></center>
+</body>
+</html>

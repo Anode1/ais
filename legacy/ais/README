@@ -1,0 +1,52 @@
+---------------------------------------------
+I. Web interface:
+
+1) Run server on default port 8080* 
+
+ windows:
+	C:\ais> server
+	(or just double-click on server.bat)
+ unix:
+    $ . server.sh 
+        or
+    $ sh server
+        or
+    $ chmod u+x server; ./server.sh
+
+2) Open browser on http://localhost:8080
+
+
+---------------------------------------------
+II. command-line interface:
+
+ windows:
+    C:\ais> ais --help
+ unix:
+    $ ./ais --help
+
+---------------------------------------------
+III. java native GUI (swing) client:
+
+ windows:
+    C:\ais> swing (or double-click on swing.bat)
+ unix:
+    $ ./swing
+---------------------------------------------
+IV. piping an output from a program to AIS (under Unix only):
+
+	$ cat dump.out | ./ais
+		or
+	$ echo "/etc/samba/smb.conf samba config" | ais
+---------------------------------------------
+V. automatic indexing of C:\ drive under Windows, from command-line 
+(can be put under cron-like utility):
+	C:\ais> ais -d C:/
+
+ This took 4 hours for indexing 98G of files on remote drive at my work
+ (mostly text, word end excel docs etc) and 2.5 hours - for indexing 
+ local workstation (40G of files, mostly windows, binaries).
+ Incremental runs took 30 minutes in 1st case, and 20 minutes - in the 
+ second one.
+
+
+	

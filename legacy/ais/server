@@ -1,0 +1,37 @@
+#!/bin/sh
+#
+# Wrapper script for starting of embedded server (currently Jetty).
+# If you want to run the server under Tomcat or JBoss, use application war
+#
+#################################################################################
+
+cygwin=false
+case "`uname`" in
+ CYGWIN*) cygwin=true;;
+esac
+
+
+CP=.
+CP=${CP}:./classes
+CP=${CP}:./www/WEB-INF/lib/ais.jar
+CP=${CP}:./www/WEB-INF/lib/log4j.jar
+CP=${CP}:./www/WEB-INF/lib/lucene-core-2.4.1.jar
+CP=${CP}:./lib/org.mortbay.jetty.jar
+CP=${CP}:./lib/commons-logging.jar
+CP=${CP}:./lib/servlet-api.jar
+#CP=${CP}:./lib/jetty-6.1.19.jar
+#CP=${CP}:./lib/jetty-util-6.1.19.jar
+CP=${CP}:./lib/servlet-api.jar
+
+
+
+# For Cygwin, switch paths to Windows format before running java
+if $cygwin; then
+  JAVA_HOME=`cygpath --path --windows "$JAVA_HOME"`
+  CLASSPATH=`cygpath --path --windows "$CLASSPATH"`
+fi
+
+JAVACMD=java
+
+${JAVACMD} -classpath "${CP}:${CLASSPATH}" org.is.EmbeddedServer "$@"
+

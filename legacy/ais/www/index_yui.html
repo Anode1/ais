@@ -1,0 +1,43 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN" "http://www.w3.org/TR/html4/strict.dtd">
+<html>
+<head>
+    <meta http-equiv="content-type" content="text/html; charset=utf-8">
+    
+<title>get_yui</title>
+
+<link href="theme/yui.css" rel="stylesheet" type="text/css"/>
+<link href="theme/common.css" rel="stylesheet" type="text/css"/>
+
+<script type="text/javascript" src="build/yuiloader/yuiloader-min.js"></script>
+<script type="text/javascript" src="js/ais.js"></script>
+
+</head>
+
+<body class=" yui-skin-sam">
+
+<form name="theForm" id=theForm method=post action="main">
+
+<table>
+<tr>
+<td>
+<img src="images/logo.gif" alt="AIS">
+</td>
+<td>
+
+	<input name="cmd" size="0" value="get" type="hidden">
+	<input name="output" size="0" value="json" type="hidden">
+    <div id="search">
+		<label>Search:</label>
+		<input id="textinput" type="text" name="keys">
+		<input id="submit" type="submit" value="Search">
+		<div id="container"></div>
+    </div>
+	<script>document.write('<input type="hidden" name="rand" value="'+Math.random()+'">');</script>   
+</td>
+</tr>
+</table>
+
+</form>
+
+</body>
+</html>

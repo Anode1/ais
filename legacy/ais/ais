@@ -1,0 +1,12 @@
+#!/bin/sh
+
+CP=.
+CP=${CP}:./classes
+CP=${CP}:./www/WEB-INF/lib/ais.jar
+CP=${CP}:./www/WEB-INF/lib/log4j.jar
+CP=${CP}:./www/WEB-INF/lib/commons-logging.jar
+CP=${CP}:./www/WEB-INF/lib/lucene-core-2.4.1.jar
+
+#Set JVM parameters here - such as -Xmx1024 etc
+java -classpath "${CP}:${CLASSPATH}" org.is.Main "$@"
+

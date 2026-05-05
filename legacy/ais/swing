@@ -1,0 +1,4 @@
+#
+# Script for running swing client under Unix/Linux
+#
+./ais --gui
