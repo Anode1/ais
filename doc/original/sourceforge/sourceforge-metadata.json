@@ -1,0 +1,37 @@
+{
+  "source": "SourceForge",
+  "project_url": "https://sourceforge.net/projects/ais/",
+  "title": "AIS - Associative Indexing Service",
+  "description": "AIS - Associative Indexing Service, an application for storing bookmarks, memos, indexing of big (lifetime) archives for fast future access to the data by (personalized) keywords. In other words - it is an extension of human associative memory :)",
+  "categories": [
+    "Search Engines",
+    "Library Management",
+    "Archiving"
+  ],
+  "license": "Apache License V2.0",
+  "intended_audience": [
+    "Advanced End Users",
+    "End Users/Desktop"
+  ],
+  "user_interface": [
+    "Console/Terminal",
+    "Web-based"
+  ],
+  "programming_language": [
+    "C",
+    "Java",
+    "Unix Shell"
+  ],
+  "related_categories": [
+    "Unix Shell Search Engines",
+    "Unix Shell Library Management Software",
+    "Unix Shell Archiving Software",
+    "C Search Engines",
+    "C Library Management Software",
+    "C Archiving Software",
+    "Java Search Engines",
+    "Java Library Management Software",
+    "Java Archiving Software"
+  ],
+  "registered": "2004-11-22"
+}
