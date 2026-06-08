@@ -90,8 +90,17 @@ external artifacts (notes, code, archives). External storage lets a prior *compo
 years, which is why human knowledge accumulates and a single animal's does not. Tools that pack
 accumulated knowledge into a compact, recallable form extend the prior. **AIS** is one such tool: a
 personal, plain-text store where a short key addresses a body of content, so recall by a short key is
-itself a small compression (cf. Gavrilov, atree). On the machine side, bounded session-memory
-protocols do the same for an AI's working knowledge (Gavrilov, *Context Renormalization*). None of
+itself a small compression (cf. Gavrilov, atree). On the machine side, the author has called for a stable, human-controlled ledger for an AI's working
+knowledge (Gavrilov, *Context Renormalization*), and proposes a version built on AIS: a collection of
+plain-text files, each reached by a short key. The content can sit anywhere, even on the open web,
+held by reference (a URL), so one store indexes a person's files and the web alike, and serves both a
+person's notes and an AI's working knowledge. What is personal and scarce is not the content but the
+*index* over it — the person's own associations, a living map of concepts grown to fit present
+understanding, not adopted ready-made: the bias made concrete. Control is human, not the model's:
+what the ledger keeps or drops is a human decision (append-only like a lifetime archive, or curated
+by hand), unlike a running context a machine compacts by algorithm. The structure is not new
+(associative and graph memories exist); what is proposed is the specific human-curated, plain-text,
+reference-indexed form, and the point that the index is the bias. None of
 these manufacture the prior; they lower the cost of keeping the scarce thing.
 
 ## What is new here, and what is not
@@ -99,8 +108,10 @@ Every block above is established and named: combinatorial/recombinant growth (We
 the collapse to a few canonical forms (Thom; Arnold; Wolfram); compression as the mark of interest
 (Schmidhuber); culture as parallel contagion with attractors (Sperber; Rogers); variation and
 selection (Campbell; Boyd & Richerson); the bias–variance split (Geman et al.); No-Free-Lunch
-(Wolpert); cheap prediction, scarce judgement (Agrawal et al.). The contribution claimed here is only
-the **assembly** — seeing all of these as one process under a single lens. No part is a new result.
+(Wolpert); cheap prediction, scarce judgement (Agrawal et al.). Two things are claimed: the **assembly** —
+seeing all of these as one process under a single lens — and one concrete **proposal**, the
+human-controlled, plain-text, reference-indexed ledger of §6 (its structure is not new; the specific
+stable, human-curated form and the index-is-bias point are). No part is a new theorem.
 
 ## Closing
 To write this is to take many separate, named results and squeeze them into one short structure. That
@@ -110,7 +121,7 @@ instance of the thing it maps.
 ---
 
 ### References
-Agrawal, Gans & Goldfarb (2018), *Prediction Machines* · Arnold (1984), *Catastrophe Theory* · Boyd &
+Agrawal, Gans & Goldfarb (2018), *Prediction Machines* · Arnold (1984), *Catastrophe Theory*; (1973), *Ordinary Differential Equations* · Boyd &
 Richerson (1985), *Culture and the Evolutionary Process* · Campbell (1960), *Psychological Review*
 67(6) · Dawkins (1976), *The Selfish Gene* · Geman, Bienenstock & Doursat (1992), *Neural Computation*
 4(1) · Kauffman (2000), *Investigations* · Kuhn (1962), *The Structure of Scientific Revolutions* ·
@@ -119,5 +130,5 @@ Rogers (2003), *Diffusion of Innovations* · Schmidhuber (2010), *IEEE TAMD* 2(3
 (2014), *Zero to One* · Thom (1975), *Structural Stability and Morphogenesis* · Weitzman (1998), *QJE*
 113(2) · Wolfram (2002), *A New Kind of Science* · Wolpert (1996), *Neural Computation* 8(7) · Gavrilov
 (self): *Intelligence Is the Discovery of Compressors*; *Emergence Does Not Care About Substrate*;
-*Machines Can Generalize. Humans Still Innovate.*; atree (Zenodo 10.5281/zenodo.20587716); *Context
+*Machines Can Generalize. Humans Still Innovate.*; atree (Zenodo concept DOI 10.5281/zenodo.20587715, latest version); *Context
 Renormalization*.
