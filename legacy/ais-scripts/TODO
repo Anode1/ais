@@ -1,0 +1,14 @@
+$Id: TODO,v 1.1 2005/01/28 00:23:51 sourcer Exp $
+
+This is TODO list - for ais-scripts (script-version of ais)
+
+* 'Unmatched single quote' in xargs in dump.sh - when filename contains '
+-- escape such chars from filenames (keywords)
+* implement -e (sentence passed in quotes)
+* add more consistent tests into unit_tests such as get already put values (on different levels) and check whether all of them actually exists
+* add to unit_test check on duplicate keys. Duplicate keys must never exist!
+(but they may be inserted manually)
+* Write untilite which concatenates duplicates - if user inserted some keys by hand
+* 'merge' 2 INDICES utilite. Actually this is get all of the keys from one INDEX and from another one and populate the third one (let's not corrupt the original ones)
+
+

@@ -1,0 +1,68 @@
+#!/bin/sh
+
+source common
+source pump.sh
+
+[ ! -n "$KEY" ] && {
+	echo "no keys passed???"
+	exit $E_WRONGARGS
+}
+
+if [ -n "$VALUE" ] ;then
+	if [ -n "$*" ] ;then
+		#we have values in both -v and in arguments as in put -v v1 v2 v3
+		#so we need to concatenate them
+		set -- "$VALUE" "$@"
+	else #no keys in arguments
+		set -- "$VALUE" 
+	fi
+else
+    [ ! -n "$*" ] && {  
+		#neither passed in -v nor as arguments
+		echo "No values passed?"
+		exit $E_WRONGARGS
+	}
+fi
+
+#encoding the key
+KEY=`echo "$KEY" | tr 'A-Z' 'a-z' | tr ' ' '_' | tr '\t' '_'` 
+
+findPathForKey "$KEY"
+
+if [ ! -f "$KEYPATH/$KEY" ] ;then #otherwise - no problem: just append
+
+    #here we may have 3 situations:
+
+	#1. new terminal node (leaf) - just create new file on this level
+	if [ `expr length "$KEY"` -le $depth ] ;then
+		:
+	else
+
+    	#2. already expanded diectory (only this file dir is not existing
+		if [ -f "$KEYPATH/AIS" ] ;then
+			#for future clarity depth probably should be calculated here rather
+			#than reusing global var relying on late findPathForKey() call 
+			
+		    currentLetter=`expr substr "$KEY" $depth 1 | tr 'a-z' 'A-Z'`
+			KEYPATH="$KEYPATH/$currentLetter"
+			[ ! -d "$KEYPATH" ] && mkdir $KEYPATH
+			
+		#not expanded: number of files was below threshold
+		else
+		    #check whether it is below
+		    filesInDir=`ls "$KEYPATH" | wc -l` 
+			#we could cache filesInDir in AIS and increment - if it is worth
+			if [ $filesInDir -ge $MAX_FILES_IN_DIR ] ;then
+		    	expandIfNeeded #notice that $KEYPATH will be updated as needed
+
+				#the same as before
+		    	currentLetter=`expr substr "$KEY" $depth 1 | tr 'a-z' 'A-Z'`
+				KEYPATH="$KEYPATH/$currentLetter"
+				[ ! -d "$KEYPATH" ] && mkdir $KEYPATH
+			fi		
+		fi
+	fi
+fi
+
+echo "$@" >> "$KEYPATH"/"$KEY"
+[ $DEBUG -gt 0 ] && echo "key $KEY saved in $KEYPATH"

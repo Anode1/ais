@@ -1,0 +1,38 @@
+#!/bin/sh
+############################################################
+#
+# Script for removing lines from file-based database for 
+# particular resource. 
+#
+# Usage: ./delete pattern
+# (pattern should be escaped in regular way)
+# 
+# Example (if external ISROOT is used, under cygwin): 
+# ./delete -i /mount/archives/ISROOT 'mydoc20041224'
+#
+# $Id: delete,v 1.1.1.1 2005/01/20 15:19:38 sourcer Exp $
+############################################################
+
+source common
+
+#all the rest is the pattern to find
+REGEXP="$@"
+
+[ -z "$REGEXP" ] && {
+	echo -n "REGEXP for lines to be removed not set, please enter it now "
+	read REGEXP
+}
+
+echo "Removing records containing \"$REGEXP\" from database at $INDEX"
+echo
+# print filenames only not descending into RCS, CVS and .svn dirs
+find "$INDEX" -name RCS -prune -o -name CVS -prune -o -name ".svn" -prune -o -print0 | xargs grep -r0l "${REGEXP}" |
+while read file
+do
+	line=`sed -ne "/${REGEXP}/p" "${file}"`
+	sed -e "/${REGEXP}/d" "${file}" > "${file}.tmp"
+	mv "${file}.tmp" "${file}"
+	echo
+	echo "From ${file}:"
+	echo "$line"
+done

@@ -1,0 +1,14 @@
+$Id: README,v 1.4 2005/01/28 00:39:43 sourcer Exp $
+
+This is a set of shell scripts for creating/updating of file-based index for resources such as file repositories, archive volumes, remote URLs or just personal records.
+This was more likely as a prototype for berkleyDB or RDB implementation in C and/or java but scripts advantage is simplicity and text-based index have multiple valuable advantages, so I've out it as a separate tool.
+Especially if XFS or JFS are used ;)
+
+for usage consult with:
+$./get -h
+
+Changes:
+this is an initial release (alpha?) based on what I was doing before by hand (echo, sed, grep etc) against text-based index database - wrapped into scripts for convenience.
+
+default $INDEX is "INDEX" in the same directory (unit_test.sh uses it's own index saved in "tmp" directory - not to break main "INDEX").
+It is possible to have many of them - just redefine $INDEX env variable pointing to the correct directory 

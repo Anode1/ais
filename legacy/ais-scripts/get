@@ -1,0 +1,35 @@
+#!/bin/sh
+
+source common
+
+if [ -n "$KEY" ] ;then
+	if [ -n "$*" ] ;then
+		#we have keys in both -k and in arguments as in get -k k1 k2 k3
+		#so we need to concatenate them
+		set -- "$KEY" "$@"
+	else #no keys in arguments
+		set -- "$KEY" 
+	fi
+else
+    [ ! -n "$*" ] && {  
+		#neither passed in -k nor as arguments
+		echo "No keys passed?"
+		exit $E_WRONGARGS
+	}
+fi
+
+[ -n "$VALUE" ] && { 
+	echo "VALUE has been passed to get??? Use 'put' - for saving"
+	exit $E_WRONGARGS
+}
+
+for aKey in "$@" ;do
+    #encode first:
+	aKey=`echo "$aKey" | tr 'A-Z' 'a-z' | tr ' ' '_' | tr '\t' '_'` 
+	findPathForKey $aKey
+	cat "$KEYPATH/$aKey" 2>/dev/null | sed -e '/^[ \t]*$/d'
+	#[ $? ] && {
+	#	echo "not found"
+	#}
+	echo
+done

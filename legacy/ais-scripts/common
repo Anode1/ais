@@ -1,0 +1,151 @@
+#!/bin/sh
+############################################################
+#
+# Common file sourced to all the scripts manipulating file
+# based database
+#
+# $Id: common,v 1.6 2005/01/28 00:27:25 sourcer Exp $
+############################################################
+
+DEFAULT_INDEX="INDEX"
+
+
+#where to find INDEX. Set default if not passed in INDEX env var
+[ ! -n "$INDEX" ] && {
+    #echo "WARN: $INDEX env var is not set." 
+	#echo "You can set it through: export INDEX=/dir/of/index"
+	#echo "The default will be used"
+	#echo
+
+#if we are putting this set of scripts into java/c versions - we
+#should use INDEX database which is above one level
+	if [ -f "../server" ] ;then
+		INDEX="../ISROOT/INDEX"
+	else
+		INDEX="$DEFAULT_INDEX"
+	fi
+}
+
+
+[ ! -n "$MAX_FILES_IN_DIR" ] && {
+	MAX_FILES_IN_DIR=100 #max files in a dir. Needed for non XFS/jfs fs
+	#actual number will be bigger on alphabet (MAX_FILES_IN_DIR+alphabet_size)
+	#because one-letter words for 1 level, 2-letter words for 2nd level should be placed somewhere anyway ;)
+}
+
+DEFAULT_LEVEL=0
+[ ! -n $DEBUG ] && DEBUG=$DEFAULT_LEVEL
+
+COMMON_DEFINED=yes
+#exit codes
+E_WRONGARGS=2
+E_INTERNAL=3
+
+DEBUG=0
+
+#short usage examples list
+usage(){
+	cat << EOF
+Usage: 
+
+   get <key>
+                   (get resources indexed by <key>)
+   get -k <key>
+                   (the same as before)
+   get -e "<sentence as a key>"
+                   (the whole sentence used as a <key>)
+   get <key1> <key2> <key3>
+                   (key1 & key2 & key3 must be in the text)
+   put -k <key> -v <value>
+                   (put value indexing it by <key>)    
+   put -k key value
+                   (the same as before)
+   put -k <key1> <key2> <key3> -v <value>
+   
+   put -e -k "<sentence as a key>" -v <value>
+
+EOF
+}
+
+help(){
+	cat << EOF
+	
+Options:
+    -h         Print this help screen
+    -d         Debug this script
+    -i <PATH>  Redefine INDEX location
+    -k <KEY>   Pass the key (with 'get' or 'put')
+    -v <VALUE> Pass the value (with 'put')
+    -e         Treat passed keys as a sentence (one key vs set of keys) *
+    -m         Redefine max files in directories (for non-scalable fs)
+            * not implemented yet	
+EOF
+}
+
+IS_SENTENCE=
+
+while getopts i:k:v:m:hde o
+do	case "$o" in
+	i)	INDEX="$OPTARG"
+		;;
+	k)	KEY="$OPTARG"
+		;;
+	v)	VALUE="$OPTARG"
+		;;
+	m)	MAX_FILES_IN_DIR="$OPTARG"
+		;;
+	h)	help
+		exit 0
+		;;
+	d)	DEBUG=1
+		;;
+	e)	IS_SENTENCE=1
+		;;
+	[?]) #usage
+		exit $E_WRONGARGS
+		;;
+	esac
+done
+
+#decrement MAX_FILES_IN_DIR since we have a special file + the_same_dir_word which are not included into the count
+MAX_FILES_IN_DIR=`expr $MAX_FILES_IN_DIR - 2`
+
+case "$DEBUG" in 7 ) set -x ;; esac
+
+#verify whether INDEX (database of indices) exists
+[ ! -d "$INDEX" ] && {
+	echo "Directory $INDEX does not exist! Either create it or export in INDEX env variable the path to the index. Alternatively option -i can be used for passing the path"
+	exit $E_WRONGARGS
+}
+
+shift `expr $OPTIND - 1`
+
+#FindPath $KEY where KEY is encoded ('_' as spaces) key
+#This function is used in both 'get' and 'put' so it is here
+#KEYPATH is global var used for value returning and collecting the result
+#it is depth-first search.
+findPathForKey(){
+	local keyLength=`expr length "$1"`
+	KEYPATH="$INDEX" #begin from the root
+	depth=1
+  	while [ true ] ;do
+
+        #even for get we need writable otherwise we'll have inconsistency 
+		#[ -w "$KEYPATH/$1" ] && { #if file exists and writable - no need to go deeper
+		#	return 
+		#}
+
+		[ $keyLength -le $depth ] && { #key length not shorter than depth
+			return 
+		}
+	    
+		local prefix=`expr substr "$1" $depth 1 | tr 'a-z' 'A-Z'`
+		local newPath="$KEYPATH/$prefix"
+		if [ -d "$newPath" ] ;then
+			KEYPATH="$newPath"
+			depth=`expr $depth + 1`
+		else
+			return
+		fi
+ 	done
+}

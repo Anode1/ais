@@ -1,0 +1,34 @@
+# =====================================================================
+#  AIS  --  .gitignore
+#  Keep: source, docs, and the legacy/ preservation snapshot.
+#  Never commit: build artifacts, binaries, or personal index files.
+# =====================================================================
+
+# ---- C engine (c/): build artifacts & binaries ----
+*.o
+*.d
+/c/ais
+/c/ais_ut
+
+# ---- runtime / data: personal indexes are not part of the code repo ----
+# (the plain-text store belongs in a separate data repo; force-add a seed
+#  with `git add -f` if you ever want one here)
+*.db
+/data/
+
+# ...but DO track the committed seed/sample index (test fixture + usage example)
+!/testdata/seed.db
+
+# ---- Java web service (java/): build output only ----
+# Scoped to java/ so the preserved legacy/ jars and the future java/lib
+# dependencies are NOT ignored.
+/java/build/
+/java/dist/
+/java/bin/
+/java/**/*.class
+/java/**/*.war
+
+# ---- editor / OS noise ----
+*~
+*.swp
+.DS_Store
