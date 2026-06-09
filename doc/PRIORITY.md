@@ -25,10 +25,10 @@ This document is a dated, citable record of authorship and conceptual priority f
 ## 1. Claimed ideas, with earliest dates
 
 ### 1.1 AIS -- Associative Indexing Service
-An associative, key->content personal-memory store: a "personalised Google" over one's own information. Keys (keywords) index **content** that is a URI or free text, and a record may carry several links -- a *set* of URIs / a small **graph** of related concepts. Retrieval is by **union and intersection of keys**. The storage backend is intended to be pluggable (filesystem, key-value store, RDB, Lucene, SQLite). First conceived **~2001** (Tier C; see the 2004 third-party anchor in section 2).
+An associative, key->content personal-memory store: a "personalised Google" over one's own information. Keys (keywords) index **content** that is a URI or free text, and a record may carry several links -- a *set* of URIs / a small **graph** of related concepts. Retrieval is by **union and intersection of keys**. The storage backend is intended to be pluggable (filesystem, key-value store, RDB, Lucene, SQLite). First conceived **~2001** (Tier C; see the 2004 third-party anchor in section 2). This externalized, plain-text, key-addressed approach to a person's (and an AI's) working context predates the industry's per-session instruction- and skill-file approach (Anthropic's Agent Skills / `SKILL.md`, standardized 2025); the ledger proposal is offered as a stable, human-controlled alternative, **not** a claim to have originated skill files.
 
 ### 1.2 Filesystem-as-index -- manual implementation of AIS
-Before AIS was a program, the author ran it **by hand on the filesystem**: an `INDEX/` directory tree (`A/`, `B/`, ...), **filenames as keys**, file contents being a list of URIs/links forming a graph. When a directory exceeded a threshold (~100 keys) -- on early-Pentium, pre-B-tree-filesystem hardware -- he **split it into subdirectories, manually balancing the tree** for logarithmic access. The **content archive was immutable** (photos, documents, books -- write-once) and copied verbatim across **4 redundant disks (3-2-1+)**; only the small `INDEX/` was tended. (This independently prefigures: Git's hash-prefix object sharding; the plain-text linked-note / Zettelkasten model; and the LOCKSS "lots of copies" preservation principle.) Practised from **~2001** (Tier C). The underlying problem -- long-term preservation and format compatibility of life archives -- is itself a named grand challenge in computer science (see section 6 and References).
+Before AIS was a program, the author ran it **by hand on the filesystem**: an `INDEX/` directory tree (`A/`, `B/`, ...), **filenames as keys**, file contents being a list of URIs/links forming a graph. When a directory exceeded a threshold (~100 keys) -- on early-Pentium, pre-B-tree-filesystem hardware -- he **split it into subdirectories, manually balancing the tree** for logarithmic access. The **content archive was immutable** (photos, documents, books -- write-once) and copied verbatim across **4 redundant disks (3-2-1+)**, kept in step by redundant synchronization (`rsync -avu --delete` locally, `aws s3 sync --delete` for the offsite copy); over the years **three disks failed with zero byte lost**, and only the small `INDEX/` was tended. (This independently prefigures: Git's hash-prefix object sharding; the plain-text linked-note / Zettelkasten model; and the LOCKSS "lots of copies" preservation principle.) Practised from **~2001** (Tier C). The underlying problem -- long-term preservation and format compatibility of life archives -- is itself a named grand challenge in computer science (see section 6 and References).
 
 ### 1.3 Wearable / "glasses" ambient personal memory
 A head-worn capture-and-recall device feeding a personal associative memory -- conceived **~2001-2006**, years before Google Glass (developer "Explorer Edition", 2013, which the author considered purchasing). (Tier C; corroborated by witnesses and the 2001 VC discussions, section 3.)
@@ -37,7 +37,7 @@ A head-worn capture-and-recall device feeding a personal associative memory -- c
 The thesis that intelligence is the discovery of compressors whose inductive bias fits the data; that "the compressor function is the understanding"; substrate-independence of emergence. Developed across the author's work and formalised in the 2026 papers (section 2). (Tier B.)
 
 ### 1.5 Content-addressed, scattered-memory recovery
-A scheme for surviving institutional mortality: encrypt memories, address them by content hash, disperse redundant copies across the public commons, and recover them by a compact local set of hooks/keys -- independent of any single company's survival. Recorded here **2026** (Tier B).
+A scheme for surviving institutional mortality: encrypt memories, address them by content hash, disperse redundant copies across the public commons, and recover them by a compact local set of hooks/keys -- independent of any single company's survival. Content-hash addressing itself is **not** claimed as novel -- it is widely prior (content-addressable stores), and a peer independently used MD5 content-identifiers in 2004 (see section 3); the claim here is the *composition*: encrypt, disperse across the public commons, and recover by a compact local key-set. Recorded here **2026** (Tier B).
 
 ---
 
@@ -57,6 +57,7 @@ A scheme for surviving institutional mortality: encrypt memories, address them b
 | [TODO] | Facebook article(s) on the indexing approach | [TODO: URLs + dates] | A/B | later public description |
 | 2013 | AIS (Associative Indexing Service) personal indexing tool | per 2026 papers; [TODO: artifact] | B/C | extended-memory tool in use |
 | 2025 | Context Renormalization protocol | github.com/Anode1/context-renormalization (releases) | A/B | bounded-context compression protocol |
+| 2025-11/12 | Documented that machine recompression of the v1 ledger silently dropped human-marked semantic priorities (which items are *key* vs *restatable*); v1 dropped. Motivated the open-call request for reserved "strong words" to preserve content | [TODO: locate the exact note/date] | B | the human-prior-vs-machine-objective failure, observed firsthand |
 | 2026 | Paper: *Emergence Does Not Care About Substrate* | currently Substack (popular but **volatile** -- not a citation anchor); formal DOI deposit planned | B | compression/emergence thesis |
 | 2026 | Paper: *Intelligence Is the Discovery of Compressors* | currently Substack (volatile); to be consolidated into a formal, DOI'd paper | B | full synthesis |
 | 2022-05-13 | Internet Archive snapshot of the SourceForge AIS project page (pre-existing third-party capture) | http://web.archive.org/web/20220513005530/https://sourceforge.net/projects/ais/ | A | independent archived copy of the AIS page, well predating this record |
@@ -70,11 +71,13 @@ Supporting public repositories (GitHub `Anode1`): `ais`, `aisconfig`, `ansi_c_co
 
 The following people were told these concepts (AIS / personal associative memory / wearable capture) at or before the dates indicated. Short signed, dated statements from any of them materially strengthen this record.
 
-- [TODO: Witness 1 -- name/initials, role, approx. year first told]
-- [TODO: Witness 2 -- ...]
-- [TODO: Witness 3 -- ...]
-- [TODO: Witness 4 -- ...]
-- Spouse -- has known the concept since [TODO: year].
+- **Oleg Kalessin** -- peer; the author met him several times and discussed the AIS concept on a couple of occasions (~2004). Around the **2004-11-22** SourceForge registration (within ±2 days), Oleg independently implemented an **MD5 content-identifier for resources**; rather than contribute to AIS he pursued that idea as his own separate project. He can attest to the AIS discussions of that period. [TODO: current contact; a short signed/dated statement; URL or date of Oleg's MD5 project, which would be a Tier-A timing anchor.]
+- **Leonid Liansky** -- fellow programmer; the author told him on several occasions about the AIS work he was doing in his spare time, and he should recall it. [TODO: current contact; approximate years; a short signed/dated statement.]
+- **Spouse** -- has known the concept since the project's inception (~2001).
+- **Former coworkers (close colleagues)** -- saw the author's `INDEX` / personal knowledge base in active, day-to-day use at work; can attest it existed and was used. [TODO: names/initials, employer, approximate years.]
+- **Former manager** -- likely to recall the AIS / knowledge base if reminded. [TODO: name/initials, employer, period.]
+
+**Possible artifact lead.** A backup or disk image of the author's former work computer -- which held the `INDEX` in daily use -- may survive in a former (government) employer's IT archive. If retrievable, it would be a dated record of the INDEX in real workplace use; retrievability is uncertain (access, retention policy, privacy), so this is noted as a lead, not a confirmed artifact. [TODO: employer, period, feasibility of a records request.]
 
 **2001 venture-capital meetings.** The author presented the personal-memory / wearable concept to [TODO: VC firm(s) / individuals] in [TODO: dates], over two meetings, and was advised on the missing business case (business plan, revenue model, return on investment). Any surviving email, calendar entry, or pitch document from that period is Tier-A evidence and should be attached.
 
@@ -115,9 +118,9 @@ The problem the author was addressing by hand in section 1.2 -- long-term preser
 
 *Citation policy: cite stable DOIs where already published; the author's Substack essays are popular but volatile and are not used as citation anchors -- a consolidated formal paper (with a DOI) including these ideas is planned. DOIs below are marked [verify] where recalled from memory and should be confirmed before formal deposit.*
 
-1. Gray, J. (2003). "What Next? A Dozen Information-Technology Research Goals." *Journal of the ACM* 50(1): 41-57. Originally the 1998 ACM A. M. Turing Award Lecture; also Microsoft Research Technical Report MSR-TR-99-50 (June 1999). DOI: 10.1145/602382.602401 [verify].
-2. O'Hara, K., Morris, R., Shadbolt, N., Hitch, G. J., Hall, W., & Beagrie, N. (2006). "Memories for life: a review of the science and technology." *Journal of the Royal Society Interface* 3(8): 351-365. Arising from the UKCRC "Memories for Life" Grand Challenge (2003). DOI: 10.1098/rsif.2006.0125 [verify].
-3. Rothenberg, J. (1995). "Ensuring the Longevity of Digital Documents." *Scientific American* 272(1): 42-47. Expanded as a CLIR report, "Ensuring the Longevity of Digital Information" (1998/1999). DOI: 10.1038/scientificamerican0195-42 [verify].
+1. Gray, J. (2003). "What Next? A Dozen Information-Technology Research Goals." *Journal of the ACM* 50(1): 41-57. Originally the 1998 ACM A. M. Turing Award Lecture; also Microsoft Research Technical Report MSR-TR-99-50 (June 1999). DOI: 10.1145/602382.602401.
+2. O'Hara, K., Morris, R., Shadbolt, N., Hitch, G. J., Hall, W., & Beagrie, N. (2006). "Memories for life: a review of the science and technology." *Journal of the Royal Society Interface* 3(8): 351-365. Arising from the UKCRC "Memories for Life" Grand Challenge (2003). DOI: 10.1098/rsif.2006.0125.
+3. Rothenberg, J. (1995). "Ensuring the Longevity of Digital Documents." *Scientific American* 272(1): 42-47. Expanded as a CLIR report, "Ensuring the Longevity of Digital Information" (1998/1999). DOI: 10.1038/scientificamerican0195-42.
 
 ---
 

@@ -1,263 +1,533 @@
-/**
- * Copyright (C) 2001 Vasili Gavrilov <vgavrilov AAAATTTTT users.sourceforge.net>
+/* tests.c -- AIS regression bundle. Linear, inline, one comment per test.
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or any later version.
- *
- * ============================================================================
- *  AIS regression tests -- ALL CURRENT TESTS ARE HERE: ADD MORE!
- * ============================================================================
- *  Style mirrors the KUL project's Tests.java: a flat, inline list of small
- *  feature tests, each with a comment, run as a batch by `make ut`.
- *
- *  Tests are IDEMPOTENT (KUL rule): in-memory tests allocate and free; db
- *  tests use a temp file (UT_DB) and remove() it before and after, so the
- *  suite can be run anywhere, repeatedly, leaving nothing behind.
- *
- *  Covered so far:
- *    set : add (sorted+unique), contains, remove, intersect (AND), union (OR)
- *    db  : put/get AND, get OR, value lookup, delete, persistence (reload),
- *          empty-keys record (memo) survives save/reload,
- *          multi-link records (several values per record) persist + reload
- *    seed: read-only queries against the committed testdata/seed.db fixture
- *
- *  Build & run:   make ut && ./ais        (then `make` to rebuild the real CLI)
- *  Exit code is non-zero if any check fails (CI-friendly).
- * ============================================================================
+ * Compiled only under -DUNIT_TEST (see `make ut`); invisible to the normal
+ * build. Independent black-box tests of the ais.h contract plus a few pure
+ * helpers (key.h). Mutating tests use a fresh scratch INDEX under /tmp, wiped
+ * before and after, so the suite is idempotent and never touches the committed
+ * fixture tests/INDEX/store.
  */
-
 #ifdef UNIT_TEST
 
-#include "common.h"
-#include "set.h"
-#include "db.h"
+#include <stdarg.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 
-#define UT_DB "ut_tmp.db"
-#define SEED_DB "../testdata/seed.db"   /* repo-level fixture; cwd is c/ under make ut */
+#include "ais.h"
+#include "key.h"
+#include "post.h"
+#include "store.h"
+#include "compact.h"
+
+#define FIXTURE_STORE "../tests/INDEX/store"   /* cwd is c/ under `make ut` */
 
 static int ut_pass = 0;
 static int ut_fail = 0;
 
 /* flat assert: one line per check; never aborts, so every test still runs */
 #define CHECK(cond, msg) do { \
-		if(cond){ ut_pass++; printf("  ok   %s\n", (msg)); } \
-		else    { ut_fail++; printf("  FAIL %s  (%s:%d)\n", (msg), __FILE__, __LINE__); } \
-	} while(0)
+        if (cond) { ut_pass++; printf("  ok   %s\n", (msg)); } \
+        else      { ut_fail++; printf("  FAIL %s  (%s:%d)\n", (msg), __FILE__, __LINE__); } \
+    } while (0)
 
-/* ---- set: add keeps the array sorted and unique ---- */
-static void test_set_add_sorted_unique(void){
-	set* s = set_new();
-	set_add(s, 5); set_add(s, 1); set_add(s, 3); set_add(s, 1); /* 1 is a dup */
-	CHECK(s->n == 3, "set_add dedups (n==3)");
-	CHECK(s->ids[0]==1 && s->ids[1]==3 && s->ids[2]==5, "set_add stays sorted");
-	CHECK(set_contains(s, 3) == TRUE,  "set_contains finds a present id");
-	CHECK(set_contains(s, 9) == FALSE, "set_contains rejects an absent id");
-	set_free(s);
+/* ---- scratch index helpers -------------------------------------------- */
+
+/* rm -rf DIR via the shell (test-only convenience; not in the shipped code) */
+static void scratch_rm(const char *dir)
+{
+    char cmd[AIS_PATH_MAX + 16];
+    snprintf(cmd, sizeof(cmd), "rm -rf '%s'", dir);
+    (void)system(cmd);
 }
 
-/* ---- set: remove drops an element and is a no-op when absent ---- */
-static void test_set_remove(void){
-	set* s = set_new();
-	set_add(s,1); set_add(s,2); set_add(s,3);
-	set_remove(s, 2);
-	CHECK(s->n==2 && s->ids[0]==1 && s->ids[1]==3, "set_remove drops middle, keeps order");
-	set_remove(s, 42);
-	CHECK(s->n==2, "set_remove of an absent id is a no-op");
-	set_free(s);
+/* ---- collectors: gather ids / values emitted by the streaming callbacks - */
+
+struct idvec { long ids[256]; int n; };
+
+static int collect_id(long id, void *ctx)
+{
+    struct idvec *v = ctx;
+    if (v->n < (int)(sizeof(v->ids) / sizeof(v->ids[0])))
+        v->ids[v->n++] = id;
+    return 0;
 }
 
-/* ---- set: intersect == AND ---- */
-static void test_set_intersect(void){
-	set* a=set_new(); set* b=set_new(); set* r;
-	set_add(a,1); set_add(a,2); set_add(a,3);
-	set_add(b,2); set_add(b,3); set_add(b,4);
-	r = set_intersect(a,b);
-	CHECK(r->n==2 && r->ids[0]==2 && r->ids[1]==3, "intersect {1,2,3} & {2,3,4} == {2,3}");
-	set_free(a); set_free(b); set_free(r);
+struct valvec { char vals[16][AIS_LINE_MAX]; int n; };
+
+static int collect_val(long id, const char *value, void *ctx)
+{
+    struct valvec *v = ctx;
+    (void)id;
+    if (v->n < 16)
+        snprintf(v->vals[v->n++], AIS_LINE_MAX, "%s", value);
+    return 0;
 }
 
-/* ---- set: union == OR (sorted, deduped) ---- */
-static void test_set_union(void){
-	set* a=set_new(); set* b=set_new(); set* r;
-	set_add(a,1); set_add(a,3);
-	set_add(b,2); set_add(b,3);
-	r = set_union(a,b);
-	CHECK(r->n==3 && r->ids[0]==1 && r->ids[1]==2 && r->ids[2]==3, "union {1,3} | {2,3} == {1,2,3}");
-	set_free(a); set_free(b); set_free(r);
+struct keyvec { char keys[64][AIS_KEY_MAX]; int n; };
+
+static int collect_key(const char *key, void *ctx)
+{
+    struct keyvec *v = ctx;
+    if (v->n < 64)
+        snprintf(v->keys[v->n++], AIS_KEY_MAX, "%s", key);
+    return 0;
 }
 
-/* ---- db: put then get with AND (intersection of keys) ---- */
-static void test_db_put_get_and(void){
-	db* d; set* r; long id1; char* k1[1]; char* k2[2];
-	remove(UT_DB);
-	d = db_open(UT_DB);
-	id1 = db_put(d, "samba config network", "uri1");
-	(void)db_put(d, "nfs network", "uri2");
-	k1[0] = "samba";
-	r = db_get(d, k1, 1, FALSE);
-	CHECK(r->n==1 && r->ids[0]==id1, "get [samba] -> {1}");
-	set_free(r);
-	k2[0] = "network"; k2[1] = "nfs";
-	r = db_get(d, k2, 2, FALSE);   /* AND */
-	CHECK(r->n==1 && r->ids[0]==2, "get AND [network nfs] -> {2}");
-	set_free(r);
-	db_close(d);
-	remove(UT_DB);
+/* run an AND/OR query, capturing the emitted ids in V */
+static void query(ais *a, ais_mode mode, struct idvec *v, int nkeys, ...)
+{
+    char *keys[AIS_KEYS_MAX];
+    va_list ap;
+    int i;
+
+    va_start(ap, nkeys);
+    for (i = 0; i < nkeys; i++)
+        keys[i] = va_arg(ap, char *);
+    va_end(ap);
+
+    v->n = 0;
+    ais_get(a, keys, nkeys, mode, collect_id, v);
 }
 
-/* ---- db: get with OR (union of keys) ---- */
-static void test_db_get_or(void){
-	db* d; set* r; char* k[2];
-	remove(UT_DB);
-	d = db_open(UT_DB);
-	(void)db_put(d, "samba", "u1");
-	(void)db_put(d, "nfs",   "u2");
-	k[0] = "samba"; k[1] = "nfs";
-	r = db_get(d, k, 2, TRUE);     /* OR */
-	CHECK(r->n==2, "get OR [samba nfs] -> 2 records");
-	set_free(r);
-	db_close(d);
-	remove(UT_DB);
+/* exact, ordered id-set compare */
+static int ids_eq(const struct idvec *v, const long *want, int n)
+{
+    int i;
+    if (v->n != n)
+        return 0;
+    for (i = 0; i < n; i++)
+        if (v->ids[i] != want[i])
+            return 0;
+    return 1;
 }
 
-/* ---- db: value lookup and delete (and its effect on retrieval) ---- */
-static void test_db_value_and_delete(void){
-	db* d; const char* v; set* r; long id1; char* k[1];
-	remove(UT_DB);
-	d = db_open(UT_DB);
-	id1 = db_put(d, "a b", "val1");
-	(void)db_put(d, "b c", "val2");
-	v = db_value(d, id1);
-	CHECK(v!=NULL && strcmp(v,"val1")==0, "db_value returns the stored value");
-	CHECK(db_delete(d, id1)==TRUE,  "db_delete of an existing id -> TRUE");
-	CHECK(db_delete(d, 999)==FALSE, "db_delete of a missing id -> FALSE");
-	k[0] = "a";
-	r = db_get(d, k, 1, FALSE);
-	CHECK(r->n==0, "after delete, key 'a' yields nothing");
-	set_free(r);
-	db_close(d);
-	remove(UT_DB);
+/* Read a key's posting file (idx/<p>/<key>) into OUT; return count, -1 if no
+ * file. Also reports whether the ids are strictly ascending via *ascending. */
+static int read_posting(const char *dir, const char *enc_key,
+                        long *out, int outmax, int *ascending)
+{
+    char pre[3];
+    char path[AIS_PATH_MAX];
+    char line[64];
+    FILE *fp;
+    int n = 0;
+
+    *ascending = 1;
+    if (key_prefix(enc_key, pre, sizeof(pre)) != 0)
+        return -1;
+    snprintf(path, sizeof(path), "%s/idx/%s/%s", dir, pre, enc_key);
+    fp = fopen(path, "r");
+    if (fp == NULL)
+        return -1;
+    while (fgets(line, sizeof(line), fp) != NULL && n < outmax) {
+        long v = atol(line);
+        if (n > 0 && v <= out[n - 1])
+            *ascending = 0;
+        out[n++] = v;
+    }
+    fclose(fp);
+    return n;
 }
 
-/* ---- db: persistence -- a saved db reloads with its index and maxid ---- */
-static void test_db_persistence(void){
-	db* d; set* r; char* k[1];
-	remove(UT_DB);
-	d = db_open(UT_DB);
-	(void)db_put(d, "alpha beta", "v");
-	db_save(d);
-	db_close(d);
-	d = db_open(UT_DB);            /* reopen */
-	k[0] = "beta";
-	r = db_get(d, k, 1, FALSE);
-	CHECK(r->n==1, "reloaded db finds the record by key");
-	CHECK(d->maxid==1, "reloaded db restores maxid");
-	set_free(r);
-	db_close(d);
-	remove(UT_DB);
+/* Build the standard 6-record fixture index by put() into a fresh dir. */
+static void build_fixture(ais *a, const char *dir)
+{
+    scratch_rm(dir);
+    ais_open(a, dir);
+    ais_put(a, "linux samba config network", "/etc/samba/smb.conf");
+    ais_put(a, "linux nfs export network",   "/etc/exports");
+    ais_put(a, "c ansi build make",          "https://www.gnu.org/software/make/");
+    ais_put(a, "c ansi compression kolmogorov",
+               "https://en.wikipedia.org/wiki/Kolmogorov_complexity");
+    ais_put(a, "memory archive longevity",   "Plain UTF-8 text outlives every binary format.");
+    ais_put(a, "memory archive sdcard",      "Soft-link the INDEX dir into the app.");
 }
 
-/* ---- db: a keyless memo (empty keys) survives save/reload ---- */
-static void test_db_empty_keys(void){
-	db* d;
-	remove(UT_DB);
-	d = db_open(UT_DB);
-	(void)db_put(d, "", "just a memo");
-	db_save(d);
-	db_close(d);
-	d = db_open(UT_DB);
-	CHECK(d->nrecs==1, "empty-keys record persists");
-	CHECK(d->recs[0].nvalues==1 && strcmp(d->recs[0].values[0],"just a memo")==0, "empty-keys value intact");
-	db_close(d);
-	remove(UT_DB);
+/* ====================================================================== */
+
+/* ---- key encoding: lowercase, whitespace -> '_' ---- */
+static void test_key_encode(void)
+{
+    char out[AIS_KEY_MAX];
+    CHECK(key_encode("Linux", out, sizeof(out)) == 0 && strcmp(out, "linux") == 0,
+          "key_encode lowercases");
+    CHECK(key_encode("C ANSI", out, sizeof(out)) == 0 && strcmp(out, "c_ansi") == 0,
+          "key_encode space -> '_'");
+    CHECK(key_encode("a\tb", out, sizeof(out)) == 0 && strcmp(out, "a_b") == 0,
+          "key_encode tab -> '_'");
+    CHECK(key_encode("", out, sizeof(out)) == -1, "key_encode empty -> -1");
 }
 
-/* ---- db: multi-link record -- one record holds several values (links/URIs) ---- */
-static void test_db_multilink(void){
-	db* d; long id; char* k[1]; set* r;
-	remove(UT_DB);
-	d = db_open(UT_DB);
-	id = db_put(d, "project docs", "https://a");
-	CHECK(db_add(d, id, "https://b")==TRUE, "db_add appends a link to a record");
-	CHECK(db_add(d, id, "file:///c")==TRUE, "db_add a second link");
-	CHECK(db_add(d, 999, "x")==FALSE,        "db_add to a missing id -> FALSE");
-	CHECK(db_nvalues(d, id)==3, "record now carries 3 links");
-	CHECK(db_value(d,id) && strcmp(db_value(d,id),"https://a")==0, "db_value returns the first link");
-	CHECK(db_value_at(d,id,2) && strcmp(db_value_at(d,id,2),"file:///c")==0, "db_value_at(2) == third link");
-	CHECK(db_value_at(d,id,3)==NULL, "db_value_at past the end -> NULL");
-	db_save(d);
-	db_close(d);
-	d = db_open(UT_DB);              /* reload: all links survive, in order */
-	k[0] = "docs";
-	r = db_get(d, k, 1, FALSE);
-	CHECK(r->n==1 && r->ids[0]==id, "reloaded: key still finds the record");
-	CHECK(db_nvalues(d, id)==3, "reloaded: all 3 links persisted");
-	CHECK(db_value_at(d,id,1) && strcmp(db_value_at(d,id,1),"https://b")==0, "reloaded: link order preserved");
-	set_free(r);
-	db_close(d);
-	remove(UT_DB);
+/* ---- key prefix: first one or two encoded chars (navigable shard) ---- */
+static void test_key_prefix(void)
+{
+    char pre[3];
+    CHECK(key_prefix("linux", pre, sizeof(pre)) == 0 && strcmp(pre, "li") == 0,
+          "key_prefix multi-char -> first two");
+    CHECK(key_prefix("c", pre, sizeof(pre)) == 0 && strcmp(pre, "c") == 0,
+          "key_prefix single char -> one");
+    CHECK(key_prefix("", pre, sizeof(pre)) == -1, "key_prefix empty -> -1");
 }
 
-/* ---- seed fixture: read-only queries against the committed sample db ---- */
-/* Idempotent by construction: opens the fixture read-only (no save/delete),
- * so the committed testdata/seed.db is never modified. Gives the suite real
- * data and shows contributors the store format. Run via `make ut` (cwd = c/). */
-static void test_seed_fixture(void){
-	db* d; set* r; const char* v; char* k1[1]; char* k2[2];
-	d = db_open(SEED_DB);
-	if(d->nrecs == 0){
-		ut_fail++;
-		printf("  FAIL seed not loaded -- run via `make ut` (expects %s)\n", SEED_DB);
-		db_close(d);
-		return;
-	}
-	CHECK(d->nrecs == 6, "seed loads 6 records");
-	CHECK(d->maxid  == 6, "seed maxid == 6");
-	k2[0]="c"; k2[1]="ansi";
-	r = db_get(d, k2, 2, FALSE);
-	CHECK(r->n==2 && r->ids[0]==3 && r->ids[1]==4, "seed AND [c ansi] -> {3,4}");
-	set_free(r);
-	k2[0]="linux"; k2[1]="network";
-	r = db_get(d, k2, 2, FALSE);
-	CHECK(r->n==2 && r->ids[0]==1 && r->ids[1]==2, "seed AND [linux network] -> {1,2}");
-	set_free(r);
-	k1[0]="samba";
-	r = db_get(d, k1, 1, FALSE);
-	CHECK(r->n==1 && r->ids[0]==1, "seed [samba] -> {1}");
-	set_free(r);
-	v = db_value(d, 1);
-	CHECK(v && strcmp(v, "/etc/samba/smb.conf")==0, "seed value(1) == /etc/samba/smb.conf");
-	k2[0]="samba"; k2[1]="nfs";
-	r = db_get(d, k2, 2, TRUE);
-	CHECK(r->n==2, "seed OR [samba nfs] -> 2 records");
-	set_free(r);
-	db_close(d);
+/* ---- put: ids strictly monotonic; posting created and ascending ---- */
+static void test_put_monotonic(void)
+{
+    ais a;
+    long id1, id2, id3;
+    long ids[16];
+    int n, asc;
+    const char *dir = "/tmp/ais_ut_mono";
+
+    scratch_rm(dir);
+    ais_open(&a, dir);
+    id1 = ais_put(&a, "alpha beta", "v1");
+    id2 = ais_put(&a, "beta gamma", "v2");
+    id3 = ais_put(&a, "alpha gamma", "v3");
+    CHECK(id1 == 1 && id2 == 2 && id3 == 3, "put ids strictly monotonic (1,2,3)");
+
+    /* "alpha" was filed for id1 and id3 -> {1,3}, ascending */
+    n = read_posting(dir, "alpha", ids, 16, &asc);
+    CHECK(n == 2 && ids[0] == 1 && ids[1] == 3, "posting 'alpha' == {1,3}");
+    CHECK(asc, "posting 'alpha' ascending");
+    ais_close(&a);
+    scratch_rm(dir);
 }
 
-int main(void){
-	printf("AIS regression tests (make ut)\n");
-	printf("set:\n");
-	test_set_add_sorted_unique();
-	test_set_remove();
-	test_set_intersect();
-	test_set_union();
-	printf("db:\n");
-	test_db_put_get_and();
-	test_db_get_or();
-	test_db_value_and_delete();
-	test_db_persistence();
-	test_db_empty_keys();
-	test_db_multilink();
-	printf("seed (testdata/seed.db):\n");
-	test_seed_fixture();
-	printf("----\n%d passed, %d failed\n", ut_pass, ut_fail);
-	return ut_fail == 0 ? 0 : 1;
+/* ---- idempotent put: same value -> same id, no dup record/posting ---- */
+static void test_put_idempotent(void)
+{
+    ais a;
+    long id1, id2;
+    long ids[16];
+    int n, asc;
+    struct idvec v;
+    const char *dir = "/tmp/ais_ut_idem";
+
+    scratch_rm(dir);
+    ais_open(&a, dir);
+    id1 = ais_put(&a, "alpha beta", "same-value");
+    id2 = ais_put(&a, "alpha beta", "same-value");   /* identical re-put */
+    CHECK(id1 == id2, "re-put same value -> same id");
+    CHECK(a.next_id == 2, "re-put did not consume a new id");
+
+    /* no duplicate posting for 'alpha' */
+    n = read_posting(dir, "alpha", ids, 16, &asc);
+    CHECK(n == 1 && ids[0] == id1, "re-put: no duplicate posting");
+
+    /* no duplicate record line */
+    query(&a, AIS_AND, &v, 1, "alpha");
+    CHECK(v.n == 1 && v.ids[0] == id1, "re-put: single record only");
+    ais_close(&a);
+    scratch_rm(dir);
+}
+
+/* ---- idempotent put under a NEW key: ordered insert keeps file ascending - */
+static void test_put_new_key_ordered_insert(void)
+{
+    ais a;
+    long idA, idB, idC, again;
+    long ids[16];
+    int n, asc;
+    struct idvec v;
+    const char *dir = "/tmp/ais_ut_oins";
+
+    scratch_rm(dir);
+    ais_open(&a, dir);
+    idA = ais_put(&a, "zeta", "valA");   /* id 1, only under 'zeta' */
+    idB = ais_put(&a, "omega", "valB");  /* id 2 */
+    idC = ais_put(&a, "omega", "valC");  /* id 3; 'omega' file now {2,3} */
+
+    /* re-put valA (old id 1) under existing key 'omega' -> same id, in order */
+    again = ais_put(&a, "omega", "valA");
+    CHECK(again == idA, "re-put existing value under new key -> same id");
+    CHECK(a.next_id == 4, "ordered-insert re-put consumed no new id");
+
+    /* 'omega' now finds id 1, and the file is ascending {1,2,3} */
+    query(&a, AIS_AND, &v, 1, "omega");
+    {
+        long want[3] = {idA, idB, idC};
+        CHECK(ids_eq(&v, want, 3), "new key 'omega' now finds the old id, ascending");
+    }
+    n = read_posting(dir, "omega", ids, 16, &asc);
+    CHECK(n == 3 && asc && ids[0] == 1 && ids[1] == 2 && ids[2] == 3,
+          "'omega' posting file ascending after ordered insert");
+    ais_close(&a);
+    scratch_rm(dir);
+}
+
+/* ---- get AND / OR over the 6-record fixture (the spec oracle) ---- */
+static void test_get_and_or(void)
+{
+    ais a;
+    struct idvec v;
+    const char *dir = "/tmp/ais_ut_andor";
+
+    build_fixture(&a, dir);
+
+    query(&a, AIS_AND, &v, 2, "c", "ansi");
+    { long w[2] = {3, 4}; CHECK(ids_eq(&v, w, 2), "AND [c ansi] -> {3,4}"); }
+
+    query(&a, AIS_AND, &v, 2, "linux", "network");
+    { long w[2] = {1, 2}; CHECK(ids_eq(&v, w, 2), "AND [linux network] -> {1,2}"); }
+
+    query(&a, AIS_AND, &v, 1, "samba");
+    { long w[1] = {1}; CHECK(ids_eq(&v, w, 1), "AND [samba] -> {1}"); }
+
+    query(&a, AIS_AND, &v, 2, "memory", "archive");
+    { long w[2] = {5, 6}; CHECK(ids_eq(&v, w, 2), "AND [memory archive] -> {5,6}"); }
+
+    query(&a, AIS_AND, &v, 2, "linux", "nfs");
+    { long w[1] = {2}; CHECK(ids_eq(&v, w, 1), "AND [linux nfs] -> {2}"); }
+
+    query(&a, AIS_OR, &v, 2, "samba", "nfs");
+    { long w[2] = {1, 2}; CHECK(ids_eq(&v, w, 2), "OR [samba nfs] -> {1,2}"); }
+
+    query(&a, AIS_OR, &v, 2, "longevity", "sdcard");
+    { long w[2] = {5, 6}; CHECK(ids_eq(&v, w, 2), "OR [longevity sdcard] -> {5,6}"); }
+
+    /* a key with no matches -> empty */
+    query(&a, AIS_AND, &v, 1, "nonexistent");
+    CHECK(v.n == 0, "absent key -> empty");
+
+    /* AND including an absent key -> empty */
+    query(&a, AIS_AND, &v, 2, "linux", "nonexistent");
+    CHECK(v.n == 0, "AND with an absent key -> empty");
+
+    ais_close(&a);
+    scratch_rm(dir);
+}
+
+/* ---- multi-link add: ais_record returns all values of a record ---- */
+static void test_add_multilink(void)
+{
+    ais a;
+    long id;
+    struct valvec vv;
+    const char *dir = "/tmp/ais_ut_multi";
+
+    scratch_rm(dir);
+    ais_open(&a, dir);
+    id = ais_put(&a, "project docs", "https://a");
+    CHECK(ais_add(&a, id, "https://b") == 0, "add a second link");
+    CHECK(ais_add(&a, id, "file:///c") == 0, "add a third link");
+    CHECK(ais_add(&a, 999, "x") == -1, "add to a missing id -> -1");
+
+    vv.n = 0;
+    ais_record(&a, id, collect_val, &vv);
+    CHECK(vv.n == 3, "ais_record returns all 3 links");
+    CHECK(vv.n == 3 && strcmp(vv.vals[0], "https://a") == 0
+          && strcmp(vv.vals[1], "https://b") == 0
+          && strcmp(vv.vals[2], "file:///c") == 0, "links preserved in order");
+    ais_close(&a);
+    scratch_rm(dir);
+}
+
+/* ---- del: get and dump no longer yield the id; del idempotent ---- */
+static void test_del(void)
+{
+    ais a;
+    struct idvec v;
+    char dumpbuf[4096];
+    FILE *fp;
+    size_t got;
+    const char *dir = "/tmp/ais_ut_del";
+
+    build_fixture(&a, dir);
+
+    CHECK(ais_del(&a, 1) == 0, "del id 1 -> 0");
+
+    /* get no longer yields id 1 */
+    query(&a, AIS_AND, &v, 1, "samba");
+    CHECK(v.n == 0, "after del, get [samba] is empty");
+    query(&a, AIS_AND, &v, 2, "linux", "network");
+    { long w[1] = {2}; CHECK(ids_eq(&v, w, 1), "after del, AND [linux network] -> {2}"); }
+
+    /* dump no longer shows id 1 */
+    fp = fopen("/tmp/ais_ut_del_dump", "w");
+    ais_dump(&a, fp);
+    fclose(fp);
+    fp = fopen("/tmp/ais_ut_del_dump", "r");
+    got = fread(dumpbuf, 1, sizeof(dumpbuf) - 1, fp);
+    dumpbuf[got] = '\0';
+    fclose(fp);
+    CHECK(strstr(dumpbuf, "smb.conf") == NULL, "after del, dump omits id 1");
+    CHECK(strstr(dumpbuf, "/etc/exports") != NULL, "dump still shows surviving id 2");
+    remove("/tmp/ais_ut_del_dump");
+
+    /* double-del and del of an absent id are no-ops (still 0) */
+    CHECK(ais_del(&a, 1) == 0, "double-del is a no-op");
+    CHECK(ais_del(&a, 4242) == 0, "del of an absent id is a no-op");
+    query(&a, AIS_AND, &v, 1, "samba");
+    CHECK(v.n == 0, "after double-del, [samba] still empty");
+
+    ais_close(&a);
+    scratch_rm(dir);
+}
+
+/* ---- compact: id physically gone, idx rebuilt+ascending, next_id kept ---- */
+static void test_compact(void)
+{
+    ais a;
+    struct idvec v;
+    long ids[16];
+    int n, asc;
+    long next_before;
+    const char *dir = "/tmp/ais_ut_compact";
+
+    build_fixture(&a, dir);
+    next_before = a.next_id;        /* 7 */
+
+    ais_del(&a, 1);
+    CHECK(ais_compact(&a) == 0, "compact -> 0");
+
+    /* id 1 physically gone from the store */
+    {
+        long got = 0;
+        int found = store_find_value(&a, "/etc/samba/smb.conf", &got);
+        CHECK(found == 0, "compact: deleted value gone from store");
+    }
+
+    /* surviving records still answer */
+    query(&a, AIS_AND, &v, 2, "linux", "network");
+    { long w[1] = {2}; CHECK(ids_eq(&v, w, 1), "compact: survivors answer (AND linux network)"); }
+    query(&a, AIS_AND, &v, 2, "c", "ansi");
+    { long w[2] = {3, 4}; CHECK(ids_eq(&v, w, 2), "compact: survivors answer (AND c ansi)"); }
+
+    /* rebuilt posting is ascending and free of id 1 */
+    n = read_posting(dir, "network", ids, 16, &asc);
+    CHECK(n == 1 && asc && ids[0] == 2, "compact: 'network' rebuilt to {2}, ascending");
+
+    /* 'samba' posting should be gone (the only id was removed) */
+    n = read_posting(dir, "samba", ids, 16, &asc);
+    CHECK(n <= 0, "compact: 'samba' posting removed");
+
+    /* next_id preserved (max surviving id 6 -> next 7) */
+    CHECK(a.next_id == next_before, "compact: next_id preserved (7)");
+    ais_close(&a);
+    scratch_rm(dir);
+}
+
+/* ---- next_id recovery: delete next_id, reopen, new ids continue max+1 ---- */
+static void test_next_id_recovery(void)
+{
+    ais a;
+    long id;
+    char path[AIS_PATH_MAX];
+    const char *dir = "/tmp/ais_ut_nextid";
+
+    build_fixture(&a, dir);     /* ids 1..6, next_id 7 */
+    ais_close(&a);
+
+    /* remove the cached next_id file -> force recovery from the store */
+    snprintf(path, sizeof(path), "%s/next_id", dir);
+    remove(path);
+
+    ais_open(&a, dir);
+    CHECK(a.next_id == 7, "recovered next_id == max(id)+1 (7)");
+    id = ais_put(&a, "fresh key", "brand-new-value");
+    CHECK(id == 7, "new id continues from max+1 (no reuse)");
+    ais_close(&a);
+    scratch_rm(dir);
+}
+
+/* ---- rebuild from store: store is the source of truth; idx is derived ---- */
+static void test_rebuild_from_store(void)
+{
+    ais a;
+    struct idvec v;
+    char cmd[AIS_PATH_MAX * 2];
+    const char *dir = "/tmp/ais_ut_rebuild";
+
+    /* fresh scratch INDEX seeded from a COPY of the committed fixture store */
+    scratch_rm(dir);
+    snprintf(cmd, sizeof(cmd), "mkdir -p '%s' && cp '%s' '%s/store'",
+             dir, FIXTURE_STORE, dir);
+    if (system(cmd) != 0) {
+        ut_fail++;
+        printf("  FAIL could not seed rebuild scratch from %s\n", FIXTURE_STORE);
+        return;
+    }
+
+    /* open (no idx/ yet) then materialize idx/ from the store via compact */
+    ais_open(&a, dir);
+    CHECK(ais_compact(&a) == 0, "rebuild: compact materializes idx/ from store");
+
+    /* the AND/OR oracle must hold against the rebuilt index */
+    query(&a, AIS_AND, &v, 2, "c", "ansi");
+    { long w[2] = {3, 4}; CHECK(ids_eq(&v, w, 2), "rebuild AND [c ansi] -> {3,4}"); }
+    query(&a, AIS_AND, &v, 2, "linux", "network");
+    { long w[2] = {1, 2}; CHECK(ids_eq(&v, w, 2), "rebuild AND [linux network] -> {1,2}"); }
+    query(&a, AIS_AND, &v, 1, "samba");
+    { long w[1] = {1}; CHECK(ids_eq(&v, w, 1), "rebuild AND [samba] -> {1}"); }
+    query(&a, AIS_AND, &v, 2, "memory", "archive");
+    { long w[2] = {5, 6}; CHECK(ids_eq(&v, w, 2), "rebuild AND [memory archive] -> {5,6}"); }
+    query(&a, AIS_AND, &v, 2, "linux", "nfs");
+    { long w[1] = {2}; CHECK(ids_eq(&v, w, 1), "rebuild AND [linux nfs] -> {2}"); }
+    query(&a, AIS_OR, &v, 2, "samba", "nfs");
+    { long w[2] = {1, 2}; CHECK(ids_eq(&v, w, 2), "rebuild OR [samba nfs] -> {1,2}"); }
+    query(&a, AIS_OR, &v, 2, "longevity", "sdcard");
+    { long w[2] = {5, 6}; CHECK(ids_eq(&v, w, 2), "rebuild OR [longevity sdcard] -> {5,6}"); }
+
+    ais_close(&a);
+    scratch_rm(dir);
+}
+
+/* ---- keys: every distinct key, ascending; absent idx/ -> none ---- */
+static void test_keys(void)
+{
+    ais a;
+    struct keyvec v;
+    const char *dir = "/tmp/ais_ut_keys";
+
+    /* absent idx/ (fresh, never put) -> no keys, returns 0 */
+    scratch_rm(dir);
+    ais_open(&a, dir);
+    v.n = 0;
+    CHECK(ais_keys(&a, collect_key, &v) == 0 && v.n == 0, "keys: empty index -> none");
+
+    /* two records with overlapping keys -> distinct, sorted union */
+    ais_put(&a, "linux config", "/etc/hosts");
+    ais_put(&a, "linux nfs",    "/etc/exports");
+    v.n = 0;
+    ais_keys(&a, collect_key, &v);
+    CHECK(v.n == 3
+          && strcmp(v.keys[0], "config") == 0
+          && strcmp(v.keys[1], "linux")  == 0
+          && strcmp(v.keys[2], "nfs")    == 0,
+          "keys: distinct + sorted {config,linux,nfs}");
+    ais_close(&a);
+    scratch_rm(dir);
+}
+
+int main(void)
+{
+    printf("AIS regression tests (make ut)\n");
+    printf("key:\n");
+    test_key_encode();
+    test_key_prefix();
+    printf("put:\n");
+    test_put_monotonic();
+    test_put_idempotent();
+    test_put_new_key_ordered_insert();
+    printf("get:\n");
+    test_get_and_or();
+    printf("add:\n");
+    test_add_multilink();
+    printf("del:\n");
+    test_del();
+    printf("keys:\n");
+    test_keys();
+    printf("compact:\n");
+    test_compact();
+    printf("recovery:\n");
+    test_next_id_recovery();
+    printf("rebuild-from-store:\n");
+    test_rebuild_from_store();
+    printf("----\n%d passed, %d failed\n", ut_pass, ut_fail);
+    return ut_fail == 0 ? 0 : 1;
 }
 
 #endif /* UNIT_TEST */
 
-/* keep this translation unit non-empty in normal (non-UNIT_TEST) builds so
- * -pedantic does not warn about an empty file. */
+/* keep this translation unit non-empty in normal (non-UNIT_TEST) builds */
 typedef int ais_tests_translation_unit_not_empty;

@@ -17,7 +17,6 @@
 /data/
 
 # ...but DO track the committed seed/sample index (test fixture + usage example)
-!/testdata/seed.db
 
 # ---- Java web service (java/): build output only ----
 # Scoped to java/ so the preserved legacy/ jars and the future java/lib
@@ -32,3 +31,7 @@
 *~
 *.swp
 .DS_Store
+tests/INDEX/idx/
+tests/INDEX/next_id
+tests/INDEX/tomb
+tests/INDEX/lock

@@ -91,7 +91,8 @@ years, which is why human knowledge accumulates and a single animal's does not. 
 accumulated knowledge into a compact, recallable form extend the prior. **AIS** is one such tool: a
 personal, plain-text store where a short key addresses a body of content, so recall by a short key is
 itself a small compression (cf. Gavrilov, atree). On the machine side, the author has called for a stable, human-controlled ledger for an AI's working
-knowledge (Gavrilov, *Context Renormalization*), and proposes a version built on AIS: a collection of
+knowledge (Gavrilov, *Context Renormalization*, with an open call to the model vendors), and
+proposes a second version built on AIS (github.com/Anode1/ais): a collection of
 plain-text files, each reached by a short key. The content can sit anywhere, even on the open web,
 held by reference (a URL), so one store indexes a person's files and the web alike, and serves both a
 person's notes and an AI's working knowledge. What is personal and scarce is not the content but the
@@ -131,4 +132,6 @@ Rogers (2003), *Diffusion of Innovations* · Schmidhuber (2010), *IEEE TAMD* 2(3
 113(2) · Wolfram (2002), *A New Kind of Science* · Wolpert (1996), *Neural Computation* 8(7) · Gavrilov
 (self): *Intelligence Is the Discovery of Compressors*; *Emergence Does Not Care About Substrate*;
 *Machines Can Generalize. Humans Still Innovate.*; atree (Zenodo concept DOI 10.5281/zenodo.20587715, latest version); *Context
-Renormalization*.
+Renormalization* (stable PDF: github.com/Anode1/context-renormalization/releases/download/v1.0/context_renormalization.pdf;
+with the open call to the model vendors, a Substack follow-up); *AIS: Associative Indexing Service*
+(github.com/Anode1/ais).

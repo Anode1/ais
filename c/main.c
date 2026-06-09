@@ -1,158 +1,233 @@
-/**
- * Copyright (C) 2001 Vasili Gavrilov <vgavrilov AAAATTTTT users.sourceforge.net>
+/* main.c -- the AIS command-line front end (getopt_long).
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or any later version.
+ * get is the default verb: bare positional args are query keys (AND; -o = OR).
+ * Mutations are explicit verbs: put, add, del, dump, compact. Dispatch is
+ * verb-first: if argv after options begins with a known verb, run it; else
+ * treat all positionals as get keys.
  *
- * AIS (2026): POSIX argv front end. verb + keys; value as arg or on stdin.
- * Designed to be exec'd from a web layer over stdin/stdout (the old pattern).
- *
- * main() is wrapped in #ifndef UNIT_TEST so `make ut` can substitute the
- * regression-test main() from tests.c. The debug/trace globals stay outside
- * the guard so the test build links them.
+ * INDEX location precedence: -f/--index DIR > $AIS_INDEX > ./INDEX.
+ * The CLI front-end (this file and feed.c) calls die(); the engine modules
+ * return codes.
  */
-
-#include "common.h"
-#include "db.h"
+#define _DEFAULT_SOURCE      /* getopt_long */
 #include <getopt.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 
-#define KEYS_BUF_MAX 65536
+#include "ais.h"
+#include "help.h"
+#include "log.h"
+#include "feed.h"
 
-int debug = 0;
-int trace = 0;
+#define AIS_VERSION "0.1"
 
 #ifndef UNIT_TEST
 
-static void help(void);
+/* ---- get / record output ------------------------------------------------ */
 
-int main(int argc, char** argv){
-	int   c;
-	char* path = "ais.db";
-	BOOL  or_mode = FALSE;
-	char* verb;
-	db*   d;
+/* For each surviving id, print its record's values (one line per link),
+ * "id|value". A keyed record with no link yet prints "id|". */
+struct get_ctx {
+    ais *a;
+    int  printed_any;   /* per-id: did ais_record emit at least one value?   */
+};
 
-	while((c = getopt(argc, argv, "f:odh")) != -1){
-		switch(c){
-			case 'f': path = optarg;  break;
-			case 'o': or_mode = TRUE; break;
-			case 'd': debug = 1;      break;
-			case 'h': help(); return 0;
-			default : help(); return -1;
-		}
-	}
-
-	if(optind >= argc){ help(); return -1; }
-	verb = argv[optind++];
-
-	d = db_open(path);
-
-	if(strcmp(verb, "put") == 0){
-		char  keysbuf[KEYS_BUF_MAX];
-		char* value;
-		long  id;
-		int    i;
-		size_t used = 0;
-		keysbuf[0] = '\0';
-		if(optind < argc && strcmp(argv[optind], "-") != 0){
-			value = argv[optind++];
-			for(i = 0; optind < argc; optind++){
-				const char* k    = argv[optind];
-				size_t      klen = strlen(k);
-				size_t      need = klen + (i ? 1 : 0);  /* +1 for separating space */
-				if(used + need >= sizeof(keysbuf)){      /* keep room for the '\0' */
-					fprintf(stderr, "ais: key list exceeds %d bytes\n", KEYS_BUF_MAX - 1);
-					db_close(d);
-					return -1;
-				}
-				if(i++) keysbuf[used++] = ' ';
-				memcpy(keysbuf + used, k, klen);
-				used += klen;
-				keysbuf[used] = '\0';
-			}
-			id = db_put(d, keysbuf, value);
-		} else {
-			/* stdin, the old pipe idiom: first token = value (URI), rest = keys */
-			static char line[KEYS_BUF_MAX];
-			char* sp;
-			if(fgets(line, sizeof(line), stdin) == NULL){
-				fprintf(stderr, "ais: nothing on stdin\n");
-				db_close(d);
-				return -1;
-			}
-			rtrim(line, '\n');
-			rtrim(line, '\r');
-			sp = strchr(line, ' ');
-			if(sp){ *sp = '\0'; value = line; id = db_put(d, sp + 1, value); }
-			else  { value = line;             id = db_put(d, "", value); }
-		}
-		db_save(d);
-		printf("%ld\n", id);
-	}
-	else if(strcmp(verb, "add") == 0){
-		/* attach another link (value) to an existing record: add <id> <value> */
-		if(optind + 1 < argc){
-			long id = atol(argv[optind]);
-			if(db_add(d, id, argv[optind + 1])){ db_save(d); printf("%ld\n", id); }
-			else fprintf(stderr, "ais: no record id %ld\n", id);
-		} else {
-			fprintf(stderr, "ais: add needs <id> <value>\n");
-		}
-	}
-	else if(strcmp(verb, "get") == 0){
-		set* r = db_get(d, &argv[optind], argc - optind, or_mode);
-		long i;
-		for(i = 0; i < r->n; i++){
-			long id = r->ids[i];
-			int  nv = db_nvalues(d, id), k;
-			if(nv == 0) printf("%ld|\n", id);               /* keyed record, no links yet */
-			for(k = 0; k < nv; k++)
-				printf("%ld|%s\n", id, db_value_at(d, id, k));   /* one line per link */
-		}
-		set_free(r);
-	}
-	else if(strcmp(verb, "del") == 0){
-		if(optind < argc){
-			long id = atol(argv[optind]);
-			if(db_delete(d, id)) db_save(d);
-			else fprintf(stderr, "ais: no record id %ld\n", id);
-		} else {
-			fprintf(stderr, "ais: del needs an id\n");
-		}
-	}
-	else if(strcmp(verb, "dump") == 0){
-		db_dump(d, stdout);
-	}
-	else {
-		fprintf(stderr, "ais: unknown command '%s'\n", verb);
-		help();
-		db_close(d);
-		return -1;
-	}
-
-	db_close(d);
-	return 0;
+static int print_value(long id, const char *value, void *vp)
+{
+    struct get_ctx *g = vp;
+    printf("%ld|%s\n", id, value);
+    g->printed_any = 1;
+    return 0;
 }
 
-static void help(void){
-	fprintf(stdout,
-"\nAIS - Associative Indexing Service (re-engineering, ANSI C / C99)\n\n"
-"SYNOPSIS\n"
-"    ais [-f FILE] [-o] [-d] <command> [args]\n\n"
-"COMMANDS\n"
-"    put <value> <key1> <key2> ...   store value (URI or text) under keys\n"
-"    put -                           read 'value key1 key2 ...' from stdin\n"
-"    add <id> <value>                attach another link (value) to record <id>\n"
-"    get <key1> <key2> ...           AND of keys (default); -o = OR (union)\n"
-"    del <id>                        delete record by id\n"
-"    dump                            print all records (id|keys|value...)\n\n"
-"OPTIONS\n"
-"    -f FILE   index file (default: ais.db)\n"
-"    -o        OR / union retrieval for 'get' (default is AND / intersection)\n"
-"    -d        debug\n"
-"    -h        this help\n\n");
+static int on_id(long id, void *vp)
+{
+    struct get_ctx *g = vp;
+    g->printed_any = 0;
+    ais_record(g->a, id, print_value, g);
+    if (!g->printed_any)
+        printf("%ld|\n", id);   /* keyed but value-less */
+    return 0;
+}
+
+/* Join argv[from..argc) into BUF as space-separated keys. Returns 0/-1. */
+static int join_keys(char *const argv[], int from, int argc,
+                     char *buf, size_t bufsz)
+{
+    size_t used = 0;
+    int i;
+
+    buf[0] = '\0';
+    for (i = from; i < argc; i++) {
+        int n = snprintf(buf + used, bufsz - used, "%s%s",
+                         (i > from) ? " " : "", argv[i]);
+        if (n < 0 || used + (size_t)n >= bufsz)
+            return -1;
+        used += (size_t)n;
+    }
+    return 0;
+}
+
+/* ---- keys --------------------------------------------------------------- */
+
+/* Print one key per line to stdout (the ais_keys callback). */
+static int print_key(const char *key, void *vp)
+{
+    FILE *out = vp;
+    fputs(key, out);
+    fputc('\n', out);
+    return 0;
+}
+
+/* ---- verbs -------------------------------------------------------------- */
+
+static int is_verb(const char *s)
+{
+    return strcmp(s, "put") == 0 || strcmp(s, "add") == 0 ||
+           strcmp(s, "del") == 0 || strcmp(s, "get") == 0 ||
+           strcmp(s, "dump") == 0 || strcmp(s, "compact") == 0 ||
+           strcmp(s, "keys") == 0;
+}
+
+static void do_get(ais *a, char *const keys[], int nkeys, ais_mode mode)
+{
+    struct get_ctx g;
+    g.a = a;
+    g.printed_any = 0;
+    if (ais_get(a, keys, nkeys, mode, on_id, &g) < 0)
+        die("get failed");
+}
+
+static void do_put(ais *a, int argc, char **argv, int idx)
+{
+    char keys[AIS_LINE_MAX];
+
+    /* put -R DIR KEY... : index every file under DIR (recursive) */
+    if (idx < argc && strcmp(argv[idx], "-R") == 0) {
+        if (idx + 1 >= argc)
+            die("put -R needs a directory");
+        if (idx + 2 >= argc)
+            die("put -R needs at least one key");
+        if (join_keys(argv, idx + 2, argc, keys, sizeof(keys)) != 0)
+            die("key list too long");
+        feed_dir(a, argv[idx + 1], keys);
+        return;
+    }
+
+    /* put - KEY... : file each stdin line (a value) under KEY... */
+    if (idx < argc && strcmp(argv[idx], "-") == 0) {
+        if (idx + 1 >= argc)
+            die("put - needs at least one key");
+        if (join_keys(argv, idx + 1, argc, keys, sizeof(keys)) != 0)
+            die("key list too long");
+        feed_stdin(a, keys);
+        return;
+    }
+
+    /* put VALUE KEY... : a single value */
+    if (idx >= argc)
+        die("put needs a VALUE and at least one KEY");
+    if (idx + 1 >= argc)
+        die("put needs at least one KEY after the value");
+    if (join_keys(argv, idx + 1, argc, keys, sizeof(keys)) != 0)
+        die("key list too long");
+    {
+        long id = ais_put(a, keys, argv[idx]);
+        if (id < 0)
+            die("put failed");
+        printf("%ld\n", id);
+    }
+}
+
+static void do_add(ais *a, int argc, char **argv, int idx)
+{
+    long id;
+    if (idx + 1 >= argc)
+        die("add needs an ID and a VALUE");
+    id = atol(argv[idx]);
+    if (ais_add(a, id, argv[idx + 1]) != 0)
+        die("add: no record id %ld", id);
+}
+
+static void do_del(ais *a, int argc, char **argv, int idx)
+{
+    if (idx >= argc)
+        die("del needs an ID");
+    if (ais_del(a, atol(argv[idx])) != 0)
+        die("del failed");
+}
+
+/* ---- main --------------------------------------------------------------- */
+
+int main(int argc, char **argv)
+{
+    static const struct option longopts[] = {
+        { "index", required_argument, NULL, 'f' },
+        { "or",    no_argument,       NULL, 'o' },
+        { "debug", no_argument,       NULL, 'd' },
+        { "help",    no_argument,     NULL, 'H' },   /* long-only: full help */
+        { "version", no_argument,     NULL, 'V' },
+        { NULL,      0,               NULL,  0  }
+    };
+    const char *dir = NULL;
+    ais_mode mode = AIS_AND;
+    ais a;
+    int c, idx;
+
+    /* '+': stop option parsing at the first non-option, so a value or key that
+     * looks like an option (rare) is not eaten; verbs/keys follow. */
+    while ((c = getopt_long(argc, argv, "+f:odhV", longopts, NULL)) != -1) {
+        switch (c) {
+        case 'f': dir = optarg;             break;
+        case 'o': mode = AIS_OR;            break;
+        case 'd': ais_debug_flag = 1;       break;
+        case 'h': usage_short(stdout);      return 0;
+        case 'H': usage_long(stdout);       return 0;
+        case 'V': printf("ais %s\n", AIS_VERSION); return 0;
+        default:  usage_short(stderr);      return 2;
+        }
+    }
+
+    if (dir == NULL)
+        dir = getenv("AIS_INDEX");
+    if (dir == NULL || dir[0] == '\0')
+        dir = "INDEX";
+
+    if (optind >= argc) {
+        usage_short(stderr);
+        return 2;
+    }
+
+    if (ais_open(&a, dir) != 0)
+        die("cannot open index '%s' (in use, or unwritable)", dir);
+
+    idx = optind;
+    if (is_verb(argv[idx])) {
+        const char *verb = argv[idx++];
+        if (strcmp(verb, "put") == 0)
+            do_put(&a, argc, argv, idx);
+        else if (strcmp(verb, "add") == 0)
+            do_add(&a, argc, argv, idx);
+        else if (strcmp(verb, "del") == 0)
+            do_del(&a, argc, argv, idx);
+        else if (strcmp(verb, "dump") == 0)
+            ais_dump(&a, stdout);
+        else if (strcmp(verb, "keys") == 0) {
+            if (ais_keys(&a, print_key, stdout) < 0)
+                die("keys failed");
+        }
+        else if (strcmp(verb, "compact") == 0) {
+            if (ais_compact(&a) != 0)
+                die("compact failed");
+        } else   /* "get" */
+            do_get(&a, &argv[idx], argc - idx, mode);
+    } else {
+        do_get(&a, &argv[idx], argc - idx, mode);
+    }
+
+    ais_close(&a);
+    return 0;
 }
 
 #endif /* UNIT_TEST */

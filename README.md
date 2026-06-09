@@ -16,7 +16,8 @@ Design in one line: an **immutable content store** plus a small, **rebuildable k
 | `c/` | The **ANSI C / C99 reference implementation** — the current tool. |
 | `legacy/` | The preserved original project: the **2005 shell scripts** (`ais-scripts`, the earliest implementation) and the **2009 Java/Lucene** release, plus screenshots and SourceForge metadata. |
 | `doc/PRIORITY.md` | Authorship and provenance record (priority trail, 2001 → 2026). |
-| `testdata/seed.db` | A small sample index — unit-test fixture and a worked example of the store format. |
+| `doc/STYLE.md` | Coding style and ideology: C99, stack/streaming discipline, append-only sharded storage. |
+| `tests/INDEX/store` | A small sample index — the test fixture and a worked example of the store format. |
 
 ## Build and use (the C tool)
 
@@ -58,6 +59,18 @@ spaces) and does not occur in well-formed values (a conformant URI encodes a lit
 `%7C`). Keys within the keys field are space-separated; a record carries one or more values
 (links). The on-disk index is fully rebuilt from this file on open, so the file is the source
 of truth and the index is disposable.
+
+## Design philosophy
+
+Performance is traded for **universality, robustness, and longevity** — the store is built to outlive its own tools.
+
+- **Plain text over binary.** A binary index (the 2009 Lucene release) is fast but fragile, and structured text is no safer: one missing brace makes a JSON or XML document unparseable in full. Line-oriented plain text degrades *gracefully* — a damaged byte costs a character or a line, and natural-language content is redundant enough to reconstruct the rest. The honest claim is *locality*: corruption stays local and the store stays usable, not that any single identifier self-heals.
+- **Compression at the key, redundancy in the file.** A short key addressing a body of content is the compression; the file itself stays redundant on purpose. They sit at different layers, so robustness and compression never compete.
+- **Reference, not copy.** A record points to content by URI; data is never duplicated and may be read in place, even from a shared, read-only store.
+- **Associative index, not a hierarchy or a database.** Encoding keys into directory names is a hierarchical database (filesystems descend from the IBM hierarchical model); it forces one tree per item and endless reorganizing. Here a record carries many keys and is retrieved by their algebra (union/intersection). A full RDBMS (a reference table in Oracle) is the same idea but overkill for one person; later filesystems (ReiserFS, XFS) improved storage without making keys-as-indices-with-algebra easy.
+- **A personal prior — shareable but forkable.** One person's index is their own ordering of the world (their bias). It can be handed to another as a map into an unfamiliar tree — *read these first, in this order* — transmitting accumulated knowledge cheaply, but the recipient adapts it rather than inheriting an imposed ontology. The tool preserves a plurality of priors; it does not replace many with one.
+- **Human-curated, not model-rewritten.** A machine asked to recompress the store optimizes its own objective and drops what the keeper marked essential — it cannot tell, from its own context, which items are load-bearing rather than restatable. So the ledger is curated by human decision, never silently rewritten by the model. (This failure, observed while recompressing an early ledger, motivates the author's open call for reserved keys — "strong words" — that a recompressor must preserve verbatim.)
+- **Versioned evolution.** Kept under version control, the index lives its own life: branches and merges are cheap variation and recombination, and the history records its compression over time. Version control supplies the cheap half (variation); what survives is still chosen by people and use.
 
 ## Status
 

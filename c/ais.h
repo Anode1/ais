@@ -1,0 +1,83 @@
+/* ais.h -- AIS public API: a plain-text associative index.
+ *
+ * An INDEX is a directory (see doc/LAYOUT.md). Open it, then put/get/del/etc.
+ * All calls use fixed, stack-sized buffers; memory never scales with the data.
+ * get() streams matching ids through a callback, so a query over a 10 GB store
+ * costs the same memory as over a 10 KB one.
+ */
+#ifndef AIS_H
+#define AIS_H
+
+#include <stdio.h>
+#include "common.h"
+
+/* Open handle. Holds only the path, the id counter, and the writer lock.
+ * Declare one on the stack:  ais a; ais_open(&a, dir); ... ais_close(&a); */
+typedef struct ais {
+    char dir[AIS_PATH_MAX];   /* the INDEX directory                         */
+    long next_id;             /* next id to assign (monotonic)               */
+    int  lock_fd;             /* single-writer advisory lock; -1 if not held */
+} ais;
+
+/* Open (creating if absent) the INDEX directory `dir`, taking a single-writer
+ * advisory lock for the lifetime of the handle.
+ * Returns 0 on success, -1 on error (including the lock being held). */
+int  ais_open(ais *a, const char *dir);
+
+/* Release the lock and flush the id counter. */
+void ais_close(ais *a);
+
+/* Put VALUE under one or more whitespace-separated KEYS.
+ * Idempotent on VALUE: if VALUE is already stored, its existing record is
+ * reused (and any new keys added to it); identical re-puts change nothing.
+ * Returns the record id (> 0), or -1 on error. */
+long ais_put(ais *a, const char *keys, const char *value);
+
+/* Attach another value/link to an existing record (the multi-link case).
+ * Returns 0 on success, -1 if `id` is unknown. */
+int  ais_add(ais *a, long id, const char *value);
+
+/* Tombstone a record. Idempotent (deleting an absent id is a no-op).
+ * Space is reclaimed later by ais_compact(). Returns 0. */
+int  ais_del(ais *a, long id);
+
+/* Retrieval mode for ais_get(). */
+typedef enum { AIS_AND, AIS_OR } ais_mode;
+
+/* Callback for ais_get(): receives each surviving id. Return 0 to continue,
+ * negative to stop early (ais_get then returns that value). */
+typedef int (*ais_id_cb)(long id, void *ctx);
+
+/* Get records filed under the given keys, as a streaming k-way merge over the
+ * keys' sorted posting lists. AIS_AND = intersection, AIS_OR = union.
+ * Each surviving id is emitted once, ascending, tombstones merged out.
+ * Memory is O(nkeys). Returns 0, or the callback's stop code. */
+int  ais_get(ais *a, char *const keys[], int nkeys, ais_mode mode,
+             ais_id_cb cb, void *ctx);
+
+/* Callback for ais_record(): receives each value/link of one record. */
+typedef int (*ais_val_cb)(long id, const char *value, void *ctx);
+
+/* Resolve a record by id, emitting each of its values (a record may hold
+ * several links). Bounded line buffer; forward scan. Returns 0. */
+int  ais_record(ais *a, long id, ais_val_cb cb, void *ctx);
+
+/* Callback for ais_keys(): receives each distinct key. Return 0 to continue,
+ * negative to stop early (ais_keys then returns that value). */
+typedef int (*ais_key_cb)(const char *key, void *ctx);
+
+/* Emit every DISTINCT key once, in ascending (sorted) order, via CB. Keys are
+ * the filenames under idx/<p>/<key>; the walk covers all prefix dirs. If idx/
+ * is absent, emits nothing and returns 0. Returns 0, or the callback's stop
+ * code. Buffers the key names (bounded by AIS_KEY_MAX each) to sort them --
+ * acceptable for a listing command, keys are not astronomically many. */
+int  ais_keys(ais *a, ais_key_cb cb, void *ctx);
+
+/* Stream every live record (tombstones merged out) to `out`, one per line. */
+void ais_dump(ais *a, FILE *out);
+
+/* Reclaim space: streaming rewrite of the store dropping tombstoned records,
+ * rebuild the posting index, clear the tombstone log. Returns 0 on success. */
+int  ais_compact(ais *a);
+
+#endif /* AIS_H */

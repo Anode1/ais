@@ -6,7 +6,7 @@
 # as published by the Free Software Foundation; either version 2
 # of the License, or any later version.
 #
-# AIS re-engineering (2026): ANSI C / C99, SQLite-ready pluggable backend.
+# AIS re-engineering (2026): ANSI C / C99, plain-text sharded store (no binary backend).
 #
 
 SHELL=/bin/sh
@@ -53,12 +53,13 @@ all release debug pedantic: $(BIN)
 $(BIN): $(OBJS)
 	$(LINK) $(FLAGS) -o $(BIN) $(OBJS) $(LFLAGS)
 
-# ut: build a SEPARATE test binary straight from sources (its own flags) and
-# run it. Standalone + .PHONY, so it ALWAYS executes -- never the shared-$(BIN)
-# "Nothing to be done" staleness. Mirrors kul's `ut` (compile + run); exit is
-# non-zero if any check fails.
-ut:
+# The test binary ($(TESTBIN)) is built from all sources with -DUNIT_TEST, so it
+# rebuilds only when a source changes. `ut` is .PHONY, so it ALWAYS runs the tests
+# (rebuilding first if needed). Mirrors kul's `ut`; exit non-zero on any failure.
+$(TESTBIN): $(SOURCES.c)
 	$(CC) $(NOCYGWIN) -std=c99 -W -Wall -g -DUNIT_TEST $(INCLUDES) $(SOURCES.c) -o $(TESTBIN) $(LFLAGS)
+
+ut: $(TESTBIN)
 	./$(TESTBIN)
 
 clean:
