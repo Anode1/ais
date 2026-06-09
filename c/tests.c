@@ -18,6 +18,7 @@
 #include "post.h"
 #include "store.h"
 #include "compact.h"
+#include "stats.h"
 
 #define FIXTURE_STORE "../tests/INDEX/store"   /* cwd is c/ under `make ut` */
 
@@ -499,6 +500,77 @@ static void test_keys(void)
     scratch_rm(dir);
 }
 
+/* ---- stats: records/keys/deleted counts; del bumps deleted, drops records - */
+static void test_stats(void)
+{
+    ais a;
+    FILE *fp;
+    char buf[1024];
+    size_t got;
+    const char *dir = "/tmp/ais_ut_stats";
+
+    scratch_rm(dir);
+    ais_open(&a, dir);
+    ais_put(&a, "linux config", "/etc/hosts");   /* id 1; keys linux,config */
+    ais_put(&a, "linux nfs",    "/etc/exports");  /* id 2; keys linux,nfs   */
+    ais_put(&a, "memory",       "note");          /* id 3; key  memory      */
+
+    /* 3 live records; 4 distinct keys (config,linux,memory,nfs); 0 deleted */
+    fp = tmpfile();
+    CHECK(ais_stats(&a, fp) == 0, "stats -> 0");
+    rewind(fp);
+    got = fread(buf, 1, sizeof(buf) - 1, fp);
+    buf[got] = '\0';
+    fclose(fp);
+    CHECK(strstr(buf, "records: 3") != NULL, "stats: records: 3");
+    CHECK(strstr(buf, "keys: 4") != NULL, "stats: keys: 4");
+    CHECK(strstr(buf, "deleted: 0") != NULL, "stats: deleted: 0");
+
+    /* delete one record: records drops to 2, deleted rises to 1 */
+    CHECK(ais_del(&a, 2) == 0, "stats: del id 2 -> 0");
+    fp = tmpfile();
+    CHECK(ais_stats(&a, fp) == 0, "stats -> 0 after del");
+    rewind(fp);
+    got = fread(buf, 1, sizeof(buf) - 1, fp);
+    buf[got] = '\0';
+    fclose(fp);
+    CHECK(strstr(buf, "records: 2") != NULL, "stats: records: 2 after del");
+    CHECK(strstr(buf, "deleted: 1") != NULL, "stats: deleted: 1 after del");
+    ais_close(&a);
+    scratch_rm(dir);
+}
+
+/* ---- del_key: tombstones all under a key; count right; other key survives - */
+static void test_del_key(void)
+{
+    ais a;
+    struct idvec v;
+    const char *dir = "/tmp/ais_ut_delkey";
+
+    scratch_rm(dir);
+    ais_open(&a, dir);
+    ais_put(&a, "shared one",   "v1");   /* id 1 under 'shared' */
+    ais_put(&a, "shared two",   "v2");   /* id 2 under 'shared' */
+    ais_put(&a, "shared three", "v3");   /* id 3 under 'shared' */
+    ais_put(&a, "other",        "v4");   /* id 4 under 'other'  */
+
+    /* del_key('shared') tombstones all 3 filed under it */
+    CHECK(ais_del_key(&a, "shared") == 3, "del_key 'shared' -> 3");
+
+    /* get of the shared key is now empty */
+    query(&a, AIS_AND, &v, 1, "shared");
+    CHECK(v.n == 0, "del_key: get [shared] now empty");
+
+    /* the other key's record still answers */
+    query(&a, AIS_AND, &v, 1, "other");
+    { long w[1] = {4}; CHECK(ids_eq(&v, w, 1), "del_key: [other] still -> {4}"); }
+
+    /* del_key of an absent key tombstones nothing */
+    CHECK(ais_del_key(&a, "nonexistent") == 0, "del_key absent key -> 0");
+    ais_close(&a);
+    scratch_rm(dir);
+}
+
 int main(void)
 {
     printf("AIS regression tests (make ut)\n");
@@ -515,8 +587,11 @@ int main(void)
     test_add_multilink();
     printf("del:\n");
     test_del();
+    test_del_key();
     printf("keys:\n");
     test_keys();
+    printf("stats:\n");
+    test_stats();
     printf("compact:\n");
     test_compact();
     printf("recovery:\n");

@@ -41,6 +41,12 @@ int  ais_add(ais *a, long id, const char *value);
  * Space is reclaimed later by ais_compact(). Returns 0. */
 int  ais_del(ais *a, long id);
 
+/* Tombstone every record currently filed under KEY, by streaming the key's
+ * posting list and tombstoning each id (the same mechanism ais_del uses).
+ * Idempotent; a key with no records is a no-op. Returns the number of records
+ * tombstoned (>= 0), or -1 on error. */
+int  ais_del_key(ais *a, const char *key);
+
 /* Retrieval mode for ais_get(). */
 typedef enum { AIS_AND, AIS_OR } ais_mode;
 

@@ -134,6 +134,29 @@ int ais_del(ais *a, long id)
     return 0;
 }
 
+int ais_del_key(ais *a, const char *key)
+{
+    post_stream s;
+    int n = 0, rc;
+
+    if (post_open(a, key, &s) != 0)
+        return -1;
+
+    for (; s.alive; post_next(&s)) {
+        if (tomb_append(a, s.head) != 0) {
+            rc = -1;
+            goto cleanup;
+        }
+        n++;
+    }
+    rc = n;
+
+cleanup:
+    post_close(&s);
+    debug("del_key: '%s' tombstoned %d records", key, n);
+    return rc;
+}
+
 int ais_get(ais *a, char *const keys[], int nkeys, ais_mode mode,
             ais_id_cb cb, void *ctx)
 {
