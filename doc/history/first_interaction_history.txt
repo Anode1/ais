@@ -1,0 +1,30 @@
+❯ can we try to use my new program ais (look into ~/ais) for context? This is my memory ledger, and I'm going to    
+  add memories into it. If I ask you to give me a memory from my index ais - you just invoke ais and get what you   
+  get on inboking ais with the key I'm asking to retrieve. I'm thinking to improve the program as we work, and it   
+  will become a new extension of my memory and a new tool for both of us (in addition to the main project context)  
+
+● Let me look at ~/ais to understand how to invoke it:
+
+● Bash(cd ~/ais 2>/dev/null && pwd && echo "---- listing ----" && ls -la
+      echo ""…)
+  ⎿  /home/vas/ais
+     ---- listing ----
+     total 92
+     … +28 lines (ctrl+o to expand)
+  ⎿  Shell cwd was reset to /home/vas/kul
+
+● Let me read the docs — AGENTS.md (likely written for agents like me) and README.md:
+
+● Bash(cd ~/ais
+      echo "======================== AGENTS.md ========================"…)
+  ⎿  ======================== AGENTS.md ========================
+     # AGENTS.md -- how to develop AIS (for humans and AI agents)
+     … +157 lines (ctrl+o to expand)
+  ⎿  Shell cwd was reset to /home/vas/kul
+
+● This is a neat design — an associative index (keys → content, retrieved by union/intersection), plain-text and
+  rebuildable. I understand the CLI from the README. Let me confirm the binary is built and see how to invoke it
+  against your store:
+  
+● Bash(cd ~/ais
+

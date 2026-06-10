@@ -16,4 +16,13 @@ void feed_dir(ais *a, const char *dir, const char *keys);
  * /dev/tty -- or from $AIS_TTY (a file) if set, for scripting and testing. */
 void feed_interactive(ais *a, const char *base);
 
+/* Import "keys|value" lines from stdin, putting each (the inverse of dump).
+ * Blank lines and lines starting with '#' are skipped; idempotent via ais_put. */
+void feed_import(ais *a);
+
+/* doc: read a (possibly large, multi-line) document from stdin, save it as a
+ * blob file <index>/blobs/<id>.txt, and put that relative path as a value under
+ * KEYS. The engine stores only the path; the bytes live in the file. */
+void feed_doc(ais *a, const char *keys);
+
 #endif /* AIS_FEED_H */

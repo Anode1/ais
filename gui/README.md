@@ -23,19 +23,20 @@ One subdirectory per toolkit, each a self-contained wrapper:
 
 ## Demo wrappers (committed)
 
-Two equivalent ~50-line "put one record" demos, same layout and behavior --
-a keys entry, a value text area, a Put button, a status label:
+Two equivalent ~50-line demos, same layout and behavior -- a keys entry, a
+**values box (one value per line)**, a Put button, a status label:
 
     wish gui/ais-put.tcl        # pure Tcl/Tk; most self-contained
     python3 gui/ais-put.py      # Python/Tkinter twin, stdlib only
 
 Both locate the binary the same way (`ais` on PATH, else
-`/home/vas/ais/c/ais`) and call `ais put VALUE KEY...` via their language's
-argument-list exec (Tcl `exec`, Python `subprocess.run`) -- never a shell
-string, so spaces in the value are safe. The store is line-oriented (one
-record per line), so a **value must be a single line**: embedded newlines are
-flattened to spaces before the put, and the status line says so when it
-happens.
+`/home/vas/ais/c/ais`) and feed the box to `ais put - KEY...` via their
+language's argument-list exec (Tcl `exec`, Python `subprocess.run`), never a
+shell string. The store is line-oriented, so **each non-blank line is a
+separate value**, all filed under the keys -- e.g. two `curl` lines under
+`kul dev version` recall together. A second **Document box** saves a multi-line
+block as a file via `ais doc KEY...` (the index stores its relative path). (For
+varied keys per line, the CLI `ais import` reads `keys|value` files.)
 
 Recommendation: **Tcl/Tk or Python/Tkinter** for portability -- both run on
 Linux, Windows, and macOS with no extra dependencies. Because the wrapper only
@@ -56,4 +57,4 @@ Production GUIs (GTK for GNOME, Qt for KDE, native Windows/macOS) are expected t
 be written per-environment by whoever needs them -- again, as thin callers of
 `ais`, not as forks of the engine.
 
-(No wrapper is committed yet; this directory marks where they go.)
+(The two demos above are committed; richer/per-toolkit wrappers go in subdirs.)

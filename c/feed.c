@@ -5,11 +5,13 @@
  * Front-end code: it may die() on error, the same as main.c (the engine
  * modules only return codes). */
 #define _XOPEN_SOURCE 700      /* nftw */
+#include <errno.h>
 #include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <ftw.h>
+#include <sys/stat.h>
 
 #include "feed.h"
 #include "log.h"
@@ -181,4 +183,83 @@ void feed_interactive(ais *a, const char *base)
             die("put -i: failed on '%s'", value);
     }
     fclose(tty);
+}
+
+void feed_import(ais *a)
+{
+    char line[AIS_LINE_MAX];
+    long n = 0;
+
+    /* Each line is "keys|value" (the inverse of dump's id|keys|value). The
+     * store already forbids '|' in a value, so the first '|' is the split.
+     * Blank lines and #-comments are skipped, so the file stays hand-editable. */
+    while (fgets(line, sizeof(line), stdin) != NULL) {
+        char *bar, *keys, *val, *e;
+
+        chomp(line);
+        if (line[0] == '\0' || line[0] == '#')
+            continue;
+        bar = strchr(line, '|');
+        if (bar == NULL) {
+            fprintf(stderr, "import: no '|', skipped: %s\n", line);
+            continue;
+        }
+        *bar = '\0';
+
+        keys = line;
+        while (*keys == ' ' || *keys == '\t')
+            keys++;                            /* trim around the separator so */
+        for (e = bar - 1; e >= keys && (*e == ' ' || *e == '\t'); e--)
+            *e = '\0';                         /* "keys | value" works too     */
+        val = bar + 1;
+        while (*val == ' ' || *val == '\t')
+            val++;
+
+        if (*keys == '\0') {
+            fprintf(stderr, "import: empty keys, skipped: %s\n", val);
+            continue;
+        }
+        if (ais_put(a, keys, val) < 0)
+            die("import: failed on '%s'", val);
+        n++;
+    }
+    fprintf(stderr, "imported %ld\n", n);
+}
+
+void feed_doc(ais *a, const char *keys)
+{
+    char dirpath[AIS_PATH_MAX], blobpath[AIS_PATH_MAX], relval[AIS_PATH_MAX];
+    long id = a->next_id;                  /* the id this new value will get */
+    FILE *bf;
+    char buf[8192];
+    size_t n;
+    long got;
+
+    if (snprintf(dirpath, sizeof(dirpath), "%s/blobs", a->dir) >= (int)sizeof(dirpath))
+        die("doc: path too long");
+    if (mkdir(dirpath, 0777) != 0 && errno != EEXIST)
+        die("doc: cannot create '%s'", dirpath);
+    if (snprintf(blobpath, sizeof(blobpath), "%s/blobs/%ld.txt", a->dir, id)
+            >= (int)sizeof(blobpath))
+        die("doc: path too long");
+
+    /* stream stdin into the blob file -- bounded memory, any size */
+    bf = fopen(blobpath, "w");
+    if (bf == NULL)
+        die("doc: cannot write '%s'", blobpath);
+    while ((n = fread(buf, 1, sizeof(buf), stdin)) > 0)
+        if (fwrite(buf, 1, n, bf) != n) {
+            fclose(bf);
+            die("doc: write failed");
+        }
+    if (fclose(bf) != 0)
+        die("doc: close failed");
+
+    /* store the path relative to the index dir; the value is unique, so the
+     * put gets exactly the id we named the blob with. */
+    snprintf(relval, sizeof(relval), "blobs/%ld.txt", id);
+    got = ais_put(a, keys, relval);
+    if (got < 0)
+        die("doc: put failed");
+    printf("%ld|%s\n", got, relval);
 }

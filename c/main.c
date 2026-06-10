@@ -92,7 +92,9 @@ static int is_verb(const char *s)
            strcmp(s, "dump") == 0 || strcmp(s, "compact") == 0 ||
            strcmp(s, "keys") == 0 ||
            strcmp(s, "stats") == 0 || strcmp(s, "del-key") == 0 ||
-           strcmp(s, "find") == 0 || strcmp(s, "init") == 0;
+           strcmp(s, "find") == 0 || strcmp(s, "init") == 0 ||
+           strcmp(s, "import") == 0 || strcmp(s, "doc") == 0 ||
+           strcmp(s, "where") == 0;
 }
 
 static void do_get(ais *a, char *const keys[], int nkeys, ais_mode mode)
@@ -291,6 +293,20 @@ int main(int argc, char **argv)
         else if (strcmp(verb, "init") == 0) {
             /* ais_open already created/validated the dir; just confirm it. */
             printf("initialized AIS index: %s\n", dir);
+        }
+        else if (strcmp(verb, "import") == 0) {
+            feed_import(&a);
+        }
+        else if (strcmp(verb, "doc") == 0) {
+            char dkeys[AIS_LINE_MAX];
+            if (idx >= argc)
+                die("doc needs at least one KEY");
+            if (join_keys(argv, idx, argc, dkeys, sizeof(dkeys)) != 0)
+                die("key list too long");
+            feed_doc(&a, dkeys);
+        }
+        else if (strcmp(verb, "where") == 0) {
+            printf("%s\n", dir);
         }
         else if (strcmp(verb, "del-key") == 0) {
             if (idx >= argc)

@@ -1,0 +1,38 @@
+AIS limitations (for developers)
+================================
+Hard limits (c/common.h) and design constraints. Plain text, fixed stack
+buffers, no heap in the data path (the `keys` listing is the one bounded malloc;
+see ais.c). Peak memory is a function of these sizes, never of the data.
+
+Sizes (compile-time, c/common.h)
+  AIS_LINE_MAX   65536   one store line "id|keys|value" -- so a single VALUE,
+                         or the whole keys field, maxes near 64 KB.
+  AIS_KEY_MAX      512   one encoded key (a path component / filename).
+  AIS_KEYS_MAX      64   keys per record AND per query (the k-way merge width).
+  AIS_PATH_MAX    4096   any built path (dir + "idx/" + prefix + key).
+  AIS_OFF_WIDTH     12   "off" entry = 11-digit (offset+1): the store is capped
+                         near 90 GB before offsets overflow (raise to lift it).
+
+Value rules
+  - A value is ONE line: no newline, and no '|' (the reserved field delimiter).
+  - Multi-line or large text -> `ais doc` (saved as a blob file under blobs/;
+    only its relative path is stored as the value).
+  - `find` searches VALUES only, not blob CONTENT -- blobs are recalled by keys.
+
+Keys
+  - Encoded = lowercase + whitespace -> '_'. Case-folding is ASCII-only, so a
+    non-ASCII key (Cyrillic, etc.) must already be lowercase. UTF-8 is stored
+    byte-transparently; the 2-byte shard prefix is its first letter.
+
+Concurrency / scale
+  - Single writer: ais_open takes an flock; concurrent writers are out of scope.
+    Readers are unaffected (the store is append-only).
+  - Idempotent put scans the store, O(n) per put: fine interactively (~50 ms at
+    1M records), but BULK import of N records is O(n^2) -- the known TODO.
+  - get is O(matches) via the "off" id->offset index once `compact` has built it
+    (a pre-"off" index falls back to a scan until you compact).
+
+Files (in the index directory)
+  store is the source of truth. idx/ off multi tomb are DERIVED -- delete any of
+  them and `compact` rebuilds it. blobs/ holds documents and is REAL DATA (not
+  rebuildable). next_id is the id counter; lock is the writer flock.

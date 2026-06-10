@@ -39,6 +39,22 @@ ais \- associative index: store values under keys, retrieve them by keys
 .RI [ ARG ...]
 .br
 .B ais init
+.br
+.B ais
+.RB [ \-f
+.IR DIR ]
+.B import
+.br
+.B ais
+.RB [ \-f
+.IR DIR ]
+.B doc
+.I KEY ...
+.br
+.B ais
+.RB [ \-f
+.IR DIR ]
+.B where
 .SH DESCRIPTION
 .B ais
 is a personal, plain-text associative index. A value (a URL, a path, or free
@@ -126,6 +142,22 @@ Print live records whose value contains TEXT (a plain substring), as
 Create a local
 .I .ais
 index in the current directory (then found from any subdirectory, like git).
+.TP
+.B import
+Read
+.IR keys | value
+lines from standard input and put each (the inverse of
+.BR dump ;
+blank lines and #-comments are skipped). Lines sharing keys recall together.
+.TP
+.B doc \fIKEY ...\fR
+Save standard input as a document: write it to
+.I <index>/blobs/<id>.txt
+and put that relative path as a value under the keys. For multi-line or large
+text that cannot be a single-line value.
+.TP
+.B where
+Print the resolved index directory (e.g. to locate a blob file).
 .SH EXAMPLES
 .nf
 ais put ~/photos/IMG_3920.jpg italy venice 2023
@@ -156,6 +188,11 @@ ids carrying more than one value line.
 .TP
 .I tomb
 Tombstoned (deleted) ids.
+.TP
+.I blobs/<id>.txt
+Documents saved by
+.B doc
+(real data; not rebuildable).
 .SH ENVIRONMENT
 .TP
 .B AIS_INDEX

@@ -13,6 +13,7 @@ is hashed: every file is plain text, readable, greppable, repairable by hand.
       off             id->offset accelerator: line k = byte offset of id k
       multi           ids carrying >1 value line (from add)
       tomb            tombstones: deleted ids, one per line
+      blobs/<id>.txt  documents saved by `doc` (real data; not rebuildable)
       lock            single-writer advisory lock (flock)
 
 ### store -- the source of truth (append-only)
@@ -85,6 +86,22 @@ Stream `store` dropping tombstoned ids into `store.new`; rebuild `idx/`, `off`
 (first-line offset per id, `0` sentinels for gaps) and `multi` in the same pass;
 rename atomically; clear `tomb`; recompute `next_id`. Bounded buffers throughout.
 
+### import -- the editable batch format (inverse of dump)
+`ais import` reads `keys|value` lines from stdin and `put`s each -- the inverse
+of `ais dump` (drop the leading `id|`), so an index round-trips:
+`ais dump | sed 's/^[0-9]*|//' | ais import`. Blank lines and `#`-comments are
+skipped (the file stays hand-editable); idempotent re-import changes nothing.
+Lines that share keys recall together.
+
+### doc, blobs/ -- large or multi-line values
+A value is one line, so multi-line/large text can't be inline. `ais doc KEYS`
+reads a document from stdin, writes it to `blobs/<id>.txt` (named by the record
+id it gets), and `put`s that relative path as the value. The engine stays
+oblivious -- it stores a path like any other; the front-end (feed.c) owns blob
+placement. `blobs/` is the only REAL DATA besides `store` (not rebuildable);
+`find` searches the path, not the blob's contents (tags-only). `ais where`
+prints the index dir so a front-end can resolve `blobs/<id>.txt`.
+
 ### Concurrency
 Single-writer: `ais_open` takes an advisory `flock` on `INDEX/lock`. One writer
 at a time; the append-only design leaves readers unaffected. Concurrent writers
@@ -116,6 +133,10 @@ it; otherwise treat all args as get keys.
     ais [-f DIR] put VALUE KEY...   put            (-R DIR: index a whole folder)
     ais [-f DIR] add ID VALUE
     ais [-f DIR] del ID
+    ais [-f DIR] find TEXT          search values by substring
+    ais [-f DIR] import < FILE      add keys|value lines (inverse of dump)
+    ais [-f DIR] doc KEY... < FILE  save a multi-line document as a blob file
+    ais [-f DIR] where              print the resolved index dir
     ais [-f DIR] dump | compact
 
 INDEX location precedence: `-f/--index DIR` > `$AIS_INDEX` > nearest `.ais/`

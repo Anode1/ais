@@ -155,5 +155,34 @@ case "$out" in
 esac
 rm -rf "$II"
 
+# 10. import: keys|value lines; same keys recall together; round-trips dump
+IM=$(mktemp -d "${TMPDIR:-/tmp}/ais_import.XXXXXX") || exit 2
+printf 'a b|first\na b|second\nc|third\n# comment\n\nnobar-skip\n' | "$AIS" -f "$IM" import 2>/dev/null
+out=$("$AIS" -f "$IM" a b)
+ok "import: same-keys recall both"     "first"  "$out"
+ok "import: same-keys recall both (2)" "second" "$out"
+out=$("$AIS" -f "$IM" c)
+ok "import: distinct-key record"       "third"  "$out"
+# dump (strip id) | import into a fresh index reproduces the values
+IM2=$(mktemp -d "${TMPDIR:-/tmp}/ais_import2.XXXXXX") || exit 2
+"$AIS" -f "$IM" dump | sed 's/^[0-9]*|//' | "$AIS" -f "$IM2" import 2>/dev/null
+out=$("$AIS" -f "$IM2" a b)
+ok "import: dump|import round-trips"    "second" "$out"
+rm -rf "$IM" "$IM2"
+
+# 11. doc: a multi-line document becomes a blob file; the value is its path
+DC=$(mktemp -d "${TMPDIR:-/tmp}/ais_doc.XXXXXX") || exit 2
+printf 'line one\nline two\nline three\n' | "$AIS" -f "$DC" doc kul memo >/dev/null 2>&1
+out=$("$AIS" -f "$DC" kul memo)
+ok "doc: value is the blob path"     "blobs/1.txt" "$out"
+if [ -f "$DC/blobs/1.txt" ]; then
+    pass=$((pass + 1)); echo "  ok   doc: blob file created"
+else
+    fail=$((fail + 1)); echo "  FAIL doc: blob file missing"
+fi
+okeq "doc: blob preserved 3 lines"   "3" "$(wc -l < "$DC/blobs/1.txt")"
+ok "where: prints the index dir"     "$DC" "$("$AIS" -f "$DC" where)"
+rm -rf "$DC"
+
 echo "---- $pass passed, $fail failed"
 [ "$fail" -eq 0 ]
