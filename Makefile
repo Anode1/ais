@@ -20,8 +20,23 @@ INSTALL_PROGRAM ?= $(INSTALL) -m 755
 INSTALL_DATA    ?= $(INSTALL) -m 644
 
 .PHONY: all ut clean static install install-strip uninstall distclean check checkcli
-all ut clean static:
-	$(MAKE) -C c $@
+
+# Build the engine in c/, then copy the binary up to the repo root as ./ais, so
+# from a source checkout you can run ./ais instead of ./c/ais.
+all:
+	$(MAKE) -C c all
+	@cp -f c/ais ais && echo "built ./ais"
+
+static:
+	$(MAKE) -C c static
+	@cp -f c/ais ais && echo "built ./ais (static)"
+
+ut:
+	$(MAKE) -C c ut
+
+clean:
+	$(MAKE) -C c clean
+	-rm -f ais
 
 # check = C unit tests (the ais.h API) + CLI/streaming tests (the binary).
 check: all

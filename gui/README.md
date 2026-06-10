@@ -26,8 +26,8 @@ One subdirectory per toolkit, each a self-contained wrapper:
 Two equivalent ~50-line demos, same layout and behavior -- a keys entry, a
 **values box (one value per line)**, a Put button, a status label:
 
-    wish gui/ais-put.tcl        # pure Tcl/Tk; most self-contained
-    python3 gui/ais-put.py      # Python/Tkinter twin, stdlib only
+    wish gui/ais-put.tcl        # the MAINTAINED demo (pure Tcl/Tk; just `wish`)
+    python3 gui/ais-put.py      # a Python/Tkinter reference twin (may lag)
 
 Both locate the binary the same way (`ais` on PATH, else
 `/home/vas/ais/c/ais`) and feed the box to `ais put - KEY...` via their
@@ -37,6 +37,11 @@ separate value**, all filed under the keys -- e.g. two `curl` lines under
 `kul dev version` recall together. A second **Document box** saves a multi-line
 block as a file via `ais doc KEY...` (the index stores its relative path). (For
 varied keys per line, the CLI `ais import` reads `keys|value` files.)
+
+**One maintained GUI.** Both files are Tk (so identical on screen); to avoid
+double work, **`ais-put.tcl` is canonical** -- new features land there, and
+`ais-put.py` is a same-idea reference that may lag. The CLI is the real
+contract; either wrapper is ~120 forkable lines.
 
 Recommendation: **Tcl/Tk or Python/Tkinter** for portability -- both run on
 Linux, Windows, and macOS with no extra dependencies. Because the wrapper only
@@ -50,8 +55,11 @@ For a minimal, portable-enough REFERENCE (not a production GUI):
 - **Python + Tkinter** -- ships with Python, cross-platform, still maintained;
   the successor to the Tcl/Tk approach with far less setup. A few hundred lines:
   an entry for keys, a list for results, buttons that run `ais` and show output.
-- **A local web page** -- the most universal surface (any browser, any OS), if a
-  tiny local bridge to the CLI is acceptable.
+- **A local web page** -- the most universal surface (any browser, any OS). Now
+  committed in **`gui/web/`**: a ~50-line Python-stdlib bridge (`ais-serve.py`)
+  that shells out to `ais`, plus a static `index.html`. No web framework, no
+  build step, no database -- the CLI is the backend. Binds 127.0.0.1 only.
+  Run: `python3 gui/web/ais-serve.py`.
 
 Production GUIs (GTK for GNOME, Qt for KDE, native Windows/macOS) are expected to
 be written per-environment by whoever needs them -- again, as thin callers of

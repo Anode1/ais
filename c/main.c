@@ -22,6 +22,7 @@
 #include "stats.h"
 #include "find.h"
 #include "locate.h"
+#include "serve.h"
 
 #define AIS_VERSION "0.1"
 
@@ -94,7 +95,7 @@ static int is_verb(const char *s)
            strcmp(s, "stats") == 0 || strcmp(s, "del-key") == 0 ||
            strcmp(s, "find") == 0 || strcmp(s, "init") == 0 ||
            strcmp(s, "import") == 0 || strcmp(s, "doc") == 0 ||
-           strcmp(s, "where") == 0;
+           strcmp(s, "where") == 0 || strcmp(s, "serve") == 0;
 }
 
 static void do_get(ais *a, char *const keys[], int nkeys, ais_mode mode)
@@ -307,6 +308,13 @@ int main(int argc, char **argv)
         }
         else if (strcmp(verb, "where") == 0) {
             printf("%s\n", dir);
+        }
+        else if (strcmp(verb, "serve") == 0) {
+            int port = (idx < argc) ? atoi(argv[idx]) : 8765;
+            if (port <= 0)
+                port = 8765;
+            if (ais_serve(&a, port) != 0)
+                die("serve: cannot bind 127.0.0.1:%d", port);
         }
         else if (strcmp(verb, "del-key") == 0) {
             if (idx >= argc)
