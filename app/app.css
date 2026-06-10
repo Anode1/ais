@@ -1,28 +1,54 @@
-/* app.css -- mobile-first look for the AIS phone web app. Plain CSS, editable;
-   the page links it, the service worker caches it. */
-:root { --accent: #1a0dab; --line: #ddd; --muted: #777; }
+/* app.css -- AIS phone web app, styled close to the Flutter client:
+   a frosted recall header, a clean results list, and a value-first Add sheet. */
+:root { --accent: #1a0dab; --line: #e3e3ea; --muted: #6b6b75; --bg: #efeff6; }
 * { box-sizing: border-box; }
-body {
-  font: 17px/1.45 system-ui, sans-serif; color: #111;
-  max-width: 680px; margin: 0 auto;
-  padding: env(safe-area-inset-top) 1rem 2rem;
+body { font: 16px/1.45 system-ui, sans-serif; color: #14141a; background: var(--bg); margin: 0; }
+
+/* frosted header (recall-first): title + count, then the search row */
+#bar {
+  position: sticky; top: 0; z-index: 5;
+  padding: calc(env(safe-area-inset-top) + 12px) 16px 12px;
+  background: rgba(255, 255, 255, 0.62);
+  backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+  border-bottom: 1px solid var(--line);
 }
-header h1 { font-size: 1.4rem; margin: 1rem 0; }
+.titlerow { display: flex; align-items: baseline; gap: .5rem; }
+.brand { font-size: 1.35rem; font-weight: 700; }
+.muted { color: var(--muted); }
+#count { margin-left: auto; font-size: .8rem; }
 
-.bar { display: flex; gap: .5rem; position: sticky; top: 0; background: #fff; padding: .5rem 0; }
-#q { flex: 1; font: inherit; padding: .7rem .8rem; border: 1px solid var(--line); border-radius: .6rem; }
-button { font: inherit; cursor: pointer; }
-.icon { width: 3rem; border: 1px solid var(--line); border-radius: .6rem; background: #fafafa; }
-#mic:active { background: #e8e8ff; }
+.searchrow { display: flex; align-items: center; gap: .4rem; margin-top: .6rem;
+  background: #fff; border: 1px solid var(--line); border-radius: 28px; padding: 0 .8rem; }
+.sicon { color: var(--muted); }
+#q { flex: 1; font: inherit; border: 0; outline: none; background: transparent; padding: .7rem .4rem; }
+.iconbtn { border: 0; background: transparent; font-size: 1.2rem; cursor: pointer; padding: .3rem; }
 
-#out { margin-top: 1rem; }
-.hit { padding: .9rem .2rem; border-bottom: 1px solid var(--line); }
+/* results */
+#out { max-width: 720px; margin: 0 auto; padding: .5rem 1rem 6rem; }
+.hit { padding: .85rem .2rem; border-bottom: 1px solid var(--line); word-break: break-word; }
 .hit:last-child { border-bottom: 0; }
-.hit a { color: var(--accent); text-decoration: none; word-break: break-all; }
-.muted { color: var(--muted); font-size: .9rem; }
+.hit a { color: var(--accent); text-decoration: none; }
+.empty { color: var(--muted); text-align: center; margin-top: 3rem; }
 
-#addbtn { margin-top: 2rem; background: none; border: 0; color: var(--accent); padding: 0; }
-#add { display: none; margin-top: .5rem; border-top: 1px solid #eee; padding-top: 1rem; }
-#add.open { display: block; }
-#add textarea { width: 100%; font: inherit; padding: .6rem; height: 6rem; border: 1px solid var(--line); border-radius: .6rem; }
-#add button { margin-top: .5rem; padding: .6rem 1rem; border: 1px solid var(--line); border-radius: .6rem; background: #fafafa; }
+/* the Add FAB */
+.fab {
+  position: fixed; right: 18px; bottom: calc(env(safe-area-inset-bottom) + 18px);
+  border: 0; border-radius: 30px; padding: .9rem 1.3rem; cursor: pointer;
+  font: inherit; font-weight: 600; color: #fff; background: var(--accent);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, .25);
+}
+
+/* value-first Add sheet */
+#sheet { position: fixed; inset: 0; z-index: 10; background: rgba(0, 0, 0, .35);
+  display: flex; align-items: flex-end; justify-content: center; }
+.card { width: 100%; max-width: 560px; background: #fff;
+  border-radius: 18px 18px 0 0; padding: 1.2rem 1.2rem calc(env(safe-area-inset-bottom) + 1.2rem); }
+@media (min-width: 600px) { #sheet { align-items: center; } .card { border-radius: 18px; } }
+.card h2 { margin: 0 0 1rem; font-size: 1.15rem; }
+.card textarea, .card input { width: 100%; font: inherit; padding: .7rem .8rem;
+  border: 1px solid var(--line); border-radius: 10px; margin-bottom: .8rem; background: #fafafc; }
+.card textarea { resize: vertical; }
+.actions { display: flex; justify-content: flex-end; gap: .6rem; margin-top: .3rem; }
+.actions button { font: inherit; padding: .6rem 1.1rem; border-radius: 10px; cursor: pointer; }
+.ghost { border: 1px solid var(--line); background: #fff; }
+.primary { border: 0; background: var(--accent); color: #fff; font-weight: 600; }

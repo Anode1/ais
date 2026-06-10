@@ -1,8 +1,12 @@
-// main.dart -- AIS native client. Recall-first (like the web/Tk GUIs): a search
-// box, a mic (native speech-to-text), a results list, and a "+" to put. All the
-// logic is the C engine via AisEngine (ais_ffi.dart); this is just the surface.
+// main.dart -- AIS native client. Recall-first: a frosted search header, a
+// results list, and a clear "Add" form. All logic is the C engine via AisEngine
+// (ais_ffi.dart); this is just the surface. The header is a translucent
+// (glassy) strip ABOVE the list -- never an overlay, so the list is always
+// visible.
 import 'dart:io';
+import 'dart:ui';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:speech_to_text/speech_to_text.dart';
 import 'ais_ffi.dart';
@@ -14,7 +18,12 @@ class AisApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) => MaterialApp(
         title: 'AIS',
-        theme: ThemeData(useMaterial3: true, colorSchemeSeed: const Color(0xFF1A0DAB)),
+        debugShowCheckedModeBanner: false,
+        theme: ThemeData(
+          useMaterial3: true,
+          colorSchemeSeed: const Color(0xFF1A0DAB),
+          scaffoldBackgroundColor: const Color(0xFFEFEFF6),
+        ),
         home: const RecallPage(),
       );
 }
@@ -31,6 +40,7 @@ class _RecallPageState extends State<RecallPage> {
   AisEngine? _ais;
   List<String> _results = const [];
   bool _voice = false;
+  bool _searched = false;
   String _status = 'opening index…';
   String _query = '';
   int _ms = 0;
@@ -41,8 +51,8 @@ class _RecallPageState extends State<RecallPage> {
     _init();
   }
 
-  // Desktop shares the user's REAL index (same default the CLI uses), so the app
-  // sees the data you already stored. Mobile uses the app's private dir.
+  // Desktop shares the user's REAL index (same default the CLI uses); mobile
+  // uses the app's private dir.
   Future<String> _indexDir() async {
     if (Platform.isAndroid || Platform.isIOS) {
       final docs = await getApplicationDocumentsDirectory();
@@ -61,12 +71,12 @@ class _RecallPageState extends State<RecallPage> {
       final dir = await _indexDir();
       Directory(dir).createSync(recursive: true);
       _ais = AisEngine(dir);
-      _status = 'index: $dir';
+      _status = 'Type keys, then search. Tap Add to store.';
     } catch (e) {
       _status = 'cannot open index: $e';
     }
     try {
-      _voice = await _speech.initialize(); // unsupported on desktop -> stays false
+      _voice = await _speech.initialize(); // unsupported on desktop -> false
     } catch (_) {
       _voice = false;
     }
@@ -80,6 +90,7 @@ class _RecallPageState extends State<RecallPage> {
     final r = _ais!.recall(keys);
     setState(() {
       _query = keys;
+      _searched = true;
       _ms = DateTime.now().difference(t0).inMilliseconds;
       _results = r;
     });
@@ -93,84 +104,165 @@ class _RecallPageState extends State<RecallPage> {
     });
   }
 
+  bool _isUrl(String v) => v.startsWith('http://') || v.startsWith('https://');
+
   @override
   Widget build(BuildContext context) {
-    final muted = TextStyle(color: Colors.grey.shade600, fontSize: 13);
-    final feedback = _query.isEmpty
-        ? _status
-        : '${_results.length} result${_results.length == 1 ? '' : 's'} for "$_query"  ·  $_ms ms';
+    final cs = Theme.of(context).colorScheme;
     return Scaffold(
-      appBar: AppBar(title: const Text('AIS')),
-      body: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-          Row(children: [
-            Expanded(
-              child: TextField(
-                controller: _q,
-                autofocus: true,
-                textInputAction: TextInputAction.search,
-                decoration: const InputDecoration(
-                    hintText: 'ask or type keys…', border: OutlineInputBorder()),
-                onSubmitted: (_) => _recall(),
-              ),
-            ),
-            if (_voice)
-              IconButton(icon: const Icon(Icons.mic), tooltip: 'Speak', onPressed: _listen),
-            IconButton(icon: const Icon(Icons.search), tooltip: 'Recall', onPressed: _recall),
-          ]),
-          const SizedBox(height: 10),
-          Text(feedback, style: muted),       // always-visible feedback line
-          const SizedBox(height: 6),
-          Expanded(
-            child: ListView.separated(
-              itemCount: _results.length,
-              separatorBuilder: (_, __) => const Divider(height: 1),
-              itemBuilder: (_, i) => ListTile(
-                dense: true,
-                title: SelectableText(_results[i]),
+      body: SafeArea(
+        child: Column(children: [
+          // frosted header strip (sized to its content; list goes below it)
+          ClipRect(
+            child: BackdropFilter(
+              filter: ImageFilter.blur(sigmaX: 14, sigmaY: 14),
+              child: Container(
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+                color: Colors.white.withValues(alpha: 0.6),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(children: [
+                      Text('AIS', style: Theme.of(context).textTheme.titleLarge),
+                      const Spacer(),
+                      if (_searched)
+                        Text(
+                          '${_results.length} result${_results.length == 1 ? '' : 's'} · $_ms ms',
+                          style: TextStyle(color: cs.outline, fontSize: 12),
+                        ),
+                    ]),
+                    const SizedBox(height: 8),
+                    TextField(
+                      controller: _q,
+                      autofocus: true,
+                      textInputAction: TextInputAction.search,
+                      onSubmitted: (_) => _recall(),
+                      decoration: InputDecoration(
+                        hintText: 'type keys to recall…',
+                        prefixIcon: const Icon(Icons.search),
+                        filled: true,
+                        fillColor: Colors.white.withValues(alpha: 0.85),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(28),
+                          borderSide: BorderSide.none,
+                        ),
+                        suffixIcon: _voice
+                            ? IconButton(icon: const Icon(Icons.mic), onPressed: _listen)
+                            : null,
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
           ),
+
+          // results (always visible, fills the rest)
+          Expanded(
+            child: _results.isEmpty
+                ? Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(24),
+                      child: Text(
+                        _searched ? 'No results for "$_query"' : _status,
+                        textAlign: TextAlign.center,
+                        style: TextStyle(color: cs.outline),
+                      ),
+                    ),
+                  )
+                : ListView.separated(
+                    padding: const EdgeInsets.only(bottom: 88),
+                    itemCount: _results.length,
+                    separatorBuilder: (_, __) => const Divider(height: 1),
+                    itemBuilder: (_, i) {
+                      final v = _results[i];
+                      return ListTile(
+                        title: SelectableText(
+                          v,
+                          style: TextStyle(color: _isUrl(v) ? cs.primary : null),
+                        ),
+                        trailing: IconButton(
+                          icon: const Icon(Icons.copy, size: 18),
+                          tooltip: 'Copy',
+                          onPressed: () {
+                            Clipboard.setData(ClipboardData(text: v));
+                            ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(content: Text('Copied')));
+                          },
+                        ),
+                      );
+                    },
+                  ),
+          ),
         ]),
       ),
-      floatingActionButton: FloatingActionButton(
-        tooltip: 'Put',
+      floatingActionButton: FloatingActionButton.extended(
         onPressed: _ais == null ? null : _showAdd,
-        child: const Icon(Icons.add),
+        icon: const Icon(Icons.add),
+        label: const Text('Add'),
       ),
     );
   }
 
+  // The Add form: value first (the thing to remember), keys second (optional,
+  // prefilled from the search box). No hidden dependency on the search field.
   void _showAdd() {
-    final v = TextEditingController();
-    final keys = _q.text.trim();
+    final valCtrl = TextEditingController();
+    final keysCtrl = TextEditingController(text: _q.text.trim());
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
+      showDragHandle: true,
       builder: (ctx) => Padding(
         padding: EdgeInsets.only(
-            bottom: MediaQuery.of(ctx).viewInsets.bottom, left: 16, right: 16, top: 16),
-        child: Column(mainAxisSize: MainAxisSize.min, children: [
-          Text(keys.isEmpty ? 'Type keys first, then +' : 'Put under: $keys'),
-          const SizedBox(height: 8),
-          TextField(
-            controller: v,
-            decoration: const InputDecoration(hintText: 'value', border: OutlineInputBorder()),
-          ),
-          const SizedBox(height: 8),
-          ElevatedButton(
-            onPressed: () {
-              if (keys.isNotEmpty && v.text.trim().isNotEmpty) {
-                _ais?.store(keys, v.text.trim());
+            bottom: MediaQuery.of(ctx).viewInsets.bottom + 16,
+            left: 16, right: 16, top: 4),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const Text('Add to your memory',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600)),
+            const SizedBox(height: 14),
+            TextField(
+              controller: valCtrl,
+              autofocus: true,
+              minLines: 1,
+              maxLines: 5,
+              decoration: const InputDecoration(
+                labelText: 'What to remember',
+                hintText: 'a link, a note, a phone number…',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: keysCtrl,
+              decoration: const InputDecoration(
+                labelText: 'Keys (space-separated, optional)',
+                hintText: 'e.g. venice italy hotel',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 16),
+            FilledButton.icon(
+              icon: const Icon(Icons.check),
+              label: const Text('Save'),
+              onPressed: () {
+                final value = valCtrl.text.trim();
+                if (value.isEmpty || _ais == null) return;
+                final keys = keysCtrl.text.trim();
+                _ais!.store(keys, value);
                 Navigator.pop(ctx);
-                _recall();
-              }
-            },
-            child: const Text('Put'),
-          ),
-          const SizedBox(height: 16),
-        ]),
+                _q.text = keys;
+                _recall(); // show what was just saved
+                ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                    content: Text(keys.isEmpty ? 'Saved (no keys)' : 'Saved under: $keys')));
+              },
+            ),
+          ],
+        ),
       ),
     );
   }

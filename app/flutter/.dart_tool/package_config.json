@@ -80,12 +80,6 @@
       "languageVersion": "3.3"
     },
     {
-      "name": "js",
-      "rootUri": "file:///home/vas/.pub-cache/hosted/pub.dev/js-0.7.2",
-      "packageUri": "lib/",
-      "languageVersion": "3.7"
-    },
-    {
       "name": "json_annotation",
       "rootUri": "file:///home/vas/.pub-cache/hosted/pub.dev/json_annotation-4.12.0",
       "packageUri": "lib/",
@@ -170,12 +164,6 @@
       "languageVersion": "3.2"
     },
     {
-      "name": "pedantic",
-      "rootUri": "file:///home/vas/.pub-cache/hosted/pub.dev/pedantic-1.11.1",
-      "packageUri": "lib/",
-      "languageVersion": "2.12"
-    },
-    {
       "name": "platform",
       "rootUri": "file:///home/vas/.pub-cache/hosted/pub.dev/platform-3.1.6",
       "packageUri": "lib/",
@@ -213,19 +201,19 @@
     },
     {
       "name": "speech_to_text",
-      "rootUri": "file:///home/vas/.pub-cache/hosted/pub.dev/speech_to_text-6.6.2",
+      "rootUri": "file:///home/vas/.pub-cache/hosted/pub.dev/speech_to_text-7.4.0",
       "packageUri": "lib/",
-      "languageVersion": "3.0"
-    },
-    {
-      "name": "speech_to_text_macos",
-      "rootUri": "file:///home/vas/.pub-cache/hosted/pub.dev/speech_to_text_macos-1.1.0",
-      "packageUri": "lib/",
-      "languageVersion": "3.0"
+      "languageVersion": "3.3"
     },
     {
       "name": "speech_to_text_platform_interface",
       "rootUri": "file:///home/vas/.pub-cache/hosted/pub.dev/speech_to_text_platform_interface-2.4.0",
+      "packageUri": "lib/",
+      "languageVersion": "3.0"
+    },
+    {
+      "name": "speech_to_text_windows",
+      "rootUri": "file:///home/vas/.pub-cache/hosted/pub.dev/speech_to_text_windows-1.0.1",
       "packageUri": "lib/",
       "languageVersion": "3.0"
     },
@@ -252,6 +240,12 @@
       "rootUri": "file:///home/vas/.pub-cache/hosted/pub.dev/vector_math-2.2.0",
       "packageUri": "lib/",
       "languageVersion": "3.1"
+    },
+    {
+      "name": "web",
+      "rootUri": "file:///home/vas/.pub-cache/hosted/pub.dev/web-1.1.1",
+      "packageUri": "lib/",
+      "languageVersion": "3.4"
     },
     {
       "name": "xdg_directories",

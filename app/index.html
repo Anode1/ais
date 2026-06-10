@@ -8,77 +8,87 @@
 <link rel="stylesheet" href="/app.css">
 <title>AIS</title>
 
-<header><h1>AIS</h1></header>
+<!-- frosted header: title + count, then a rounded search row (recall-first) -->
+<header id="bar">
+  <div class="titlerow"><span class="brand">AIS</span><span id="count" class="muted"></span></div>
+  <div class="searchrow">
+    <span class="sicon">&#128269;</span>
+    <input id="q" type="search" enterkeyhint="search" placeholder="type keys to recall…" autocomplete="off" autofocus>
+    <button id="mic" class="iconbtn" title="Speak" hidden>&#127908;</button>
+  </div>
+</header>
 
-<div class="bar">
-  <input id="q" type="search" enterkeyhint="search" placeholder="ask or type keys…" autocomplete="off" autofocus>
-  <button id="mic" class="icon" title="Speak" aria-label="Speak">🎤</button>
-  <button id="go" class="icon" title="Recall" aria-label="Recall">↵</button>
-</div>
+<main id="out"><p class="empty">Type keys, then Enter. Tap + Add to store.</p></main>
 
-<div id="out"></div>
+<button id="addbtn" class="fab">+ Add</button>
 
-<button id="addbtn">+ add</button>
-<div id="add">
-  <textarea id="v" placeholder="values, one per line"></textarea>
-  <button id="putbtn">Put values</button> <span id="m" class="muted"></span>
+<!-- value-first Add sheet: what to remember, then optional keys -->
+<div id="sheet" hidden>
+  <div class="card">
+    <h2>Add to your memory</h2>
+    <textarea id="v" rows="3" placeholder="What to remember &mdash; a link, a note, a number&hellip;"></textarea>
+    <input id="vk" placeholder="Keys (space-separated, optional)">
+    <div class="actions">
+      <button id="cancel" class="ghost">Cancel</button>
+      <button id="save" class="primary">Save</button>
+    </div>
+  </div>
 </div>
 
 <script>
-// Thin client over `ais serve`: same /api/get and /api/put the desktop page uses.
-// No framework, no build step -- plain files, edit and reload.
 var $ = function (i) { return document.getElementById(i); };
 
+function isUrl(v){ return v.slice(0,7)=='http://' || v.slice(0,8)=='https://'; }
+
 function render(text, q, ms) {
-  var b = $('out'); b.innerHTML = '';
-  var lines = text.split('\n').filter(function (s) { return s.length; });
-  var h = document.createElement('div'); h.className = 'muted';
-  h.textContent = lines.length + ' result' + (lines.length == 1 ? '' : 's') +
-                  (q ? ' for ' + q : '') + ' · ' + ms.toFixed(0) + ' ms';
-  b.appendChild(h);
+  var lines = text.split('\n').filter(function (s){ return s.length; });
+  $('count').textContent = lines.length + ' result' + (lines.length==1?'':'s') + ' · ' + ms.toFixed(0) + ' ms';
+  var out = $('out'); out.innerHTML = '';
+  if (!lines.length) { out.innerHTML = '<p class="empty">No results for "' + q + '"</p>'; return; }
   lines.forEach(function (ln) {
-    var p = ln.indexOf('|'), v = p >= 0 ? ln.slice(p + 1) : ln;
-    var d = document.createElement('div'); d.className = 'hit';
-    if (v.slice(0, 4) == 'http') {
-      var a = document.createElement('a');
-      a.href = v; a.target = '_blank'; a.rel = 'noopener'; a.textContent = v;
-      d.appendChild(a);
-    } else { d.textContent = v; }
-    b.appendChild(d);
+    var p = ln.indexOf('|'), v = p>=0 ? ln.slice(p+1) : ln;
+    var row = document.createElement('div'); row.className = 'hit';
+    var span = document.createElement(isUrl(v) ? 'a' : 'span');
+    span.textContent = v;
+    if (isUrl(v)) { span.href = v; span.target = '_blank'; span.rel = 'noopener'; }
+    row.appendChild(span);
+    out.appendChild(row);
   });
 }
 
-async function get() {
+async function recall() {
   var q = $('q').value.trim(); if (!q) return;
   var t0 = performance.now();
   var t = await (await fetch('/api/get?keys=' + encodeURIComponent(q))).text();
   render(t, q, performance.now() - t0);
 }
-async function put() {
-  $('m').textContent = await (await fetch('/api/put?keys=' + encodeURIComponent($('q').value),
-                       { method: 'POST', body: $('v').value })).text();
-  $('v').value = '';
+
+function openSheet(){ $('vk').value = $('q').value.trim(); $('sheet').hidden = false; $('v').focus(); }
+function closeSheet(){ $('sheet').hidden = true; $('v').value = ''; }
+
+async function save() {
+  var value = $('v').value.trim(); if (!value) return;
+  var keys = $('vk').value.trim();
+  await fetch('/api/put?keys=' + encodeURIComponent(keys), { method:'POST', body:value });
+  closeSheet();
+  $('q').value = keys; recall();          // show what was just saved
 }
 
-$('go').onclick = get;
-$('putbtn').onclick = put;
-$('addbtn').onclick = function () { $('add').classList.toggle('open'); };
-$('q').addEventListener('keydown', function (e) { if (e.key == 'Enter') get(); });
+$('q').addEventListener('keydown', function (e){ if (e.key=='Enter') recall(); });
+$('addbtn').onclick = openSheet;
+$('cancel').onclick = closeSheet;
+$('save').onclick = save;
+$('sheet').addEventListener('click', function(e){ if (e.target == $('sheet')) closeSheet(); });
 
-// Voice: the browser's own speech-to-text -> keys -> recall. Chrome/Android have
-// it; where it's absent (iOS Safari) we hide the mic and typing still works.
-// Needs a secure context (https or localhost) -- see app/README.md.
+// voice: the browser's speech-to-text -> keys -> recall (Android Chrome; absent
+// on iOS Safari, where we just hide the mic). Needs a secure context.
 var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
 if (SR) {
-  var rec = new SR();
-  rec.lang = navigator.language || 'en-US';
-  rec.interimResults = false; rec.maxAlternatives = 1;
-  $('mic').onclick = function () { try { rec.start(); } catch (e) {} };
-  rec.onresult = function (e) { $('q').value = e.results[0][0].transcript; get(); };
-} else {
-  $('mic').style.display = 'none';
+  var rec = new SR(); rec.lang = navigator.language || 'en-US'; rec.interimResults = false;
+  $('mic').hidden = false;
+  $('mic').onclick = function(){ try { rec.start(); } catch(e){} };
+  rec.onresult = function(e){ $('q').value = e.results[0][0].transcript; recall(); };
 }
 
-if ('serviceWorker' in navigator)
-  navigator.serviceWorker.register('/sw.js').catch(function () {});
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(function(){});
 </script>
