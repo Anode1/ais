@@ -35,3 +35,4 @@ tests/INDEX/idx/
 tests/INDEX/next_id
 tests/INDEX/tomb
 tests/INDEX/lock
+/ais

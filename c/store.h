@@ -27,6 +27,10 @@ void store_close(ais *a);
 /* Persist A->next_id to INDEX/next_id. Returns 0 on success, -1 on error. */
 int store_save_next_id(const ais *a);
 
+/* Write INDEX/version = the current AIS_FORMAT_VERSION. Returns 0/-1.
+ * store_open stamps a new/legacy index; compact refreshes it. */
+int store_write_version(const ais *a);
+
 /* Append one record line "id|keys|value\n" to INDEX/store.
  * Returns 0 on success, -1 on error. */
 int store_append(const ais *a, long id, const char *keys, const char *value);

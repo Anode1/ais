@@ -21,4 +21,8 @@
  * so 0 is the "absent" sentinel. 11 digits hold offsets up to ~90 GB. */
 #define AIS_OFF_WIDTH     12   /* 11-digit (offset+1) + '\n'            */
 
+/* On-disk format version (INDEX/version). Bump only if the canonical store
+ * format changes; derived files (idx/off/multi) are rebuilt by compact. */
+#define AIS_FORMAT_VERSION 1
+
 #endif /* AIS_COMMON_H */

@@ -52,6 +52,42 @@ static int store_parse(char *line, long *id, char **keys, char **value)
     return 0;
 }
 
+/* The on-disk format version (INDEX/version). 0 if the file is absent (a legacy
+ * index predating versioning). Returns the version, or -1 on error. */
+static long store_read_version(const ais *a)
+{
+    char path[AIS_PATH_MAX];
+    char buf[32];
+    FILE *fp;
+    long v = 0;
+
+    if (store_path(a, "version", path, sizeof(path)) != 0)
+        return -1;
+    fp = fopen(path, "r");
+    if (fp == NULL)
+        return (errno == ENOENT) ? 0 : -1;
+    if (fgets(buf, sizeof(buf), fp) != NULL)
+        v = atol(buf);
+    fclose(fp);
+    return v;
+}
+
+int store_write_version(const ais *a)
+{
+    char path[AIS_PATH_MAX];
+    FILE *fp;
+
+    if (store_path(a, "version", path, sizeof(path)) != 0)
+        return -1;
+    fp = fopen(path, "w");
+    if (fp == NULL)
+        return -1;
+    fprintf(fp, "%d\n", AIS_FORMAT_VERSION);
+    if (fclose(fp) != 0)
+        return -1;
+    return 0;
+}
+
 int store_open(ais *a, const char *dir)
 {
     char lockpath[AIS_PATH_MAX];
@@ -98,6 +134,21 @@ int store_open(ais *a, const char *dir)
                 goto fail;
             a->next_id = nid;
         }
+    }
+
+    /* format version: stamp a new or legacy index; refuse a future format
+     * rather than risk misreading an index a newer ais wrote. */
+    {
+        long v = store_read_version(a);
+        if (v < 0)
+            goto fail;
+        if (v > AIS_FORMAT_VERSION) {
+            fprintf(stderr, "ais: index format v%ld is newer than this ais "
+                            "(format v%d); upgrade ais\n", v, AIS_FORMAT_VERSION);
+            goto fail;
+        }
+        if (v == 0 && store_write_version(a) != 0)
+            goto fail;
     }
     return 0;
 

@@ -1,68 +1,32 @@
-# gui/ -- reference GUI wrappers
+# gui/ -- GUI wrappers (thin front ends over the `ais` CLI)
 
-AIS is a command-line tool; the CLI is the portable, stable core. GUIs for
-non-CLI users live here as **thin wrappers that shell out to the `ais` binary and
-parse its plain-text output** -- they never reimplement the engine. This keeps the
-core portable, keeps the GUI optional and replaceable, and lets anyone add a
-wrapper for their environment (GNOME, KDE, web, ...) without touching the engine.
+AIS is a command-line tool; the CLI is the portable, stable core. A GUI is a
+thin front end that drives `ais` and renders its plain-text output -- it never
+reimplements the engine, so it stays optional and replaceable.
 
-## Why thin wrappers over the CLI
+## Two GUIs, both recall-first
 
-- The CLI is the contract: `ais get k1 k2` -> `id|value` lines; plus `ais dump`,
-  `ais keys`, `ais put ...`. A wrapper runs these and renders the result.
-- No GUI toolkit lasts forever (Tcl/Tk wrappers fine in 2005 were fragile by the
-  2010s). The CLI is the invariant; the GUI is the variance. Betting the
-  application on one toolkit is the mistake; thin, swappable wrappers are the
-  hedge.
+Layout follows the v1 search look: a keys box on top, **Get** (or Enter) lists
+the results one value per line with a `N results for Q - T ms` header; an
+expandable **+ add** panel below holds put/doc (adding is the rarer action).
 
-## Layout convention
+- **Desktop (Tk):** `wish gui/ais-put.tcl`  (or `./gui/ais-put.tcl`)
+  Pure Tcl/Tk -- needs only `wish`. The maintained GUI. Values box (one per
+  line) with **File…/Folder…** pickers, plus a Document box (`ais doc`).
 
-One subdirectory per toolkit, each a self-contained wrapper:
+- **Web:** `ais serve`  -- then open <http://127.0.0.1:8765/>
+  Built INTO the binary (`c/serve.c`): no Python, no framework, no extra files.
+  A tiny localhost HTTP loop serving an embedded page that calls the engine
+  directly. The most portable surface (any browser); on macOS it needs only the
+  built binary plus a browser. Binds 127.0.0.1 only (single user; do not expose).
 
-    gui/<toolkit>/        e.g. gui/tkinter/, gui/web/, gui/gtk/, gui/qt/
+## Why so thin
 
-## Demo wrappers (committed)
+The CLI is the contract (`ais KEY...` -> `id|value` lines; `ais put -`,
+`ais doc`, `ais dump`, ...). No GUI toolkit lasts forever, so the engine never
+depends on one -- betting the app on a toolkit is the mistake; a thin, swappable
+wrapper is the hedge. A GTK / Qt / Cocoa front end is equally possible: port the
+~150 lines, keep the command line.
 
-Two equivalent ~50-line demos, same layout and behavior -- a keys entry, a
-**values box (one value per line)**, a Put button, a status label:
-
-    wish gui/ais-put.tcl        # the MAINTAINED demo (pure Tcl/Tk; just `wish`)
-    python3 gui/ais-put.py      # a Python/Tkinter reference twin (may lag)
-
-Both locate the binary the same way (`ais` on PATH, else
-`/home/vas/ais/c/ais`) and feed the box to `ais put - KEY...` via their
-language's argument-list exec (Tcl `exec`, Python `subprocess.run`), never a
-shell string. The store is line-oriented, so **each non-blank line is a
-separate value**, all filed under the keys -- e.g. two `curl` lines under
-`kul dev version` recall together. A second **Document box** saves a multi-line
-block as a file via `ais doc KEY...` (the index stores its relative path). (For
-varied keys per line, the CLI `ais import` reads `keys|value` files.)
-
-**One maintained GUI.** Both files are Tk (so identical on screen); to avoid
-double work, **`ais-put.tcl` is canonical** -- new features land there, and
-`ais-put.py` is a same-idea reference that may lag. The CLI is the real
-contract; either wrapper is ~120 forkable lines.
-
-Recommendation: **Tcl/Tk or Python/Tkinter** for portability -- both run on
-Linux, Windows, and macOS with no extra dependencies. Because the wrapper only
-calls `ais put`, a GTK, Qt, Cocoa, or web front end is equally possible; port
-the ~50 lines, keep the command line.
-
-## Suggested reference wrapper
-
-For a minimal, portable-enough REFERENCE (not a production GUI):
-
-- **Python + Tkinter** -- ships with Python, cross-platform, still maintained;
-  the successor to the Tcl/Tk approach with far less setup. A few hundred lines:
-  an entry for keys, a list for results, buttons that run `ais` and show output.
-- **A local web page** -- the most universal surface (any browser, any OS). Now
-  committed in **`gui/web/`**: a ~50-line Python-stdlib bridge (`ais-serve.py`)
-  that shells out to `ais`, plus a static `index.html`. No web framework, no
-  build step, no database -- the CLI is the backend. Binds 127.0.0.1 only.
-  Run: `python3 gui/web/ais-serve.py`.
-
-Production GUIs (GTK for GNOME, Qt for KDE, native Windows/macOS) are expected to
-be written per-environment by whoever needs them -- again, as thin callers of
-`ais`, not as forks of the engine.
-
-(The two demos above are committed; richer/per-toolkit wrappers go in subdirs.)
+(Python wrappers -- a Tkinter twin and a stdlib web bridge -- were dropped once
+`ais serve` gave a dependency-free web GUI, to avoid double maintenance.)

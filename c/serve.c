@@ -34,10 +34,10 @@
  * This is the web wrapper's user interface, embedded as a string so the binary
  * is self-contained. The cramped one-string-literal-per-line shape is simply
  * how you paste a web page into a C source file -- it is NOT the project's C
- * style, and it is not part of the engine. To change the UI, edit the canonical
- * page gui/web/index.html and mirror it here (or edit here directly). Vanilla
- * JS; the API is form-encoded keys + a plain-text body/reply (no JSON, and a
- * text/plain POST is a "simple" request, so no CORS preflight). */
+ * style, and it is not part of the engine. To change the UI, edit the PAGE
+ * string below directly -- it is the only copy. Vanilla JS; the API is
+ * form-encoded keys + a plain-text body/reply (no JSON, and a text/plain POST
+ * is a "simple" request, so no CORS preflight). */
 static const char PAGE[] =
 "<!doctype html><meta charset=utf-8>"
 "<meta name=viewport content='width=device-width,initial-scale=1'><title>AIS</title>"
