@@ -36,26 +36,31 @@ grid .f.status -row 4 -column 0 -columnspan 2 -sticky ew -pady {8 0}
 grid columnconfigure .f 0 -weight 1
 grid rowconfigure    .f 1 -weight 1
 
-# --- ADD panel (hidden until "+ add") -------------------------------------
+# --- ADD panel (hidden until "+ add"): value-first, with its OWN keys field
+# (prefilled from search, but editable; keys are optional). ------------------
 ttk::frame  .f.p
-ttk::label  .f.p.vlab -text "Values (one per line)"
+ttk::label  .f.p.klab -text "Keys (space-separated, optional)"
+ttk::entry  .f.p.keys
+ttk::label  .f.p.vlab -text "What to remember (one value per line)"
 text        .f.p.val  -height 4 -wrap word -relief solid -borderwidth 1 -padx 6 -pady 6
 ttk::frame  .f.p.vb
 ttk::button .f.p.vb.file -text "File…"   -command browse_file
 ttk::button .f.p.vb.dir  -text "Folder…" -command browse_dir
-ttk::button .f.p.vb.put  -text "Put values" -command do_put
+ttk::button .f.p.vb.put  -text "Save" -command do_put
 pack .f.p.vb.file -side left
 pack .f.p.vb.dir  -side left -padx {6 0}
 pack .f.p.vb.put  -side right
-ttk::label  .f.p.dlab -text "Document (saved as a file)"
+ttk::label  .f.p.dlab -text "…or a document (saved as a file)"
 text        .f.p.doc  -height 4 -wrap word -relief solid -borderwidth 1 -padx 6 -pady 6
-ttk::button .f.p.dput -text "Add document" -command do_doc
-grid .f.p.vlab -row 0 -column 0 -sticky w  -pady {0 3}
-grid .f.p.val  -row 1 -column 0 -sticky ew
-grid .f.p.vb   -row 2 -column 0 -sticky ew -pady {3 10}
-grid .f.p.dlab -row 3 -column 0 -sticky w  -pady {0 3}
-grid .f.p.doc  -row 4 -column 0 -sticky ew
-grid .f.p.dput -row 5 -column 0 -sticky e  -pady {3 0}
+ttk::button .f.p.dput -text "Save document" -command do_doc
+grid .f.p.klab -row 0 -column 0 -sticky w  -pady {0 3}
+grid .f.p.keys -row 1 -column 0 -sticky ew -ipady 3
+grid .f.p.vlab -row 2 -column 0 -sticky w  -pady {8 3}
+grid .f.p.val  -row 3 -column 0 -sticky ew
+grid .f.p.vb   -row 4 -column 0 -sticky ew -pady {3 10}
+grid .f.p.dlab -row 5 -column 0 -sticky w  -pady {0 3}
+grid .f.p.doc  -row 6 -column 0 -sticky ew
+grid .f.p.dput -row 7 -column 0 -sticky e  -pady {3 0}
 grid columnconfigure .f.p 0 -weight 1
 
 bind .f.q <Return> do_get
@@ -97,17 +102,17 @@ proc toggle_add {} {
         .f.add configure -text "+ add"
         set ADDSHOWN 0
     } else {
+        .f.p.keys delete 0 end
+        .f.p.keys insert 0 [string trim [.f.q get]]   ;# prefill from search
         grid .f.p -row 3 -column 0 -columnspan 2 -sticky ew -pady {10 0}
         .f.add configure -text "− add"
         set ADDSHOWN 1
+        focus .f.p.val
     }
 }
 
-proc keys_or_warn {} {
-    set keys [string trim [.f.q get]]
-    if {$keys eq ""} { .f.status configure -text "type keys in the search box first" }
-    return $keys
-}
+proc add_keys {} { return [string trim [.f.p.keys get]] }   ;# may be empty (keyless)
+proc where_txt {keys} { return [expr {$keys eq "" ? "(no keys)" : $keys}] }
 
 proc add_path {p} {
     if {$p ne ""} { .f.p.val insert end "$p\n"; .f.status configure -text "added path: $p" }
@@ -117,32 +122,31 @@ proc browse_dir  {} { add_path [tk_chooseDirectory] }
 
 proc do_put {} {
     global AIS
-    set keys [keys_or_warn]
-    if {$keys eq ""} return
+    set keys [add_keys]
     set values {}
     foreach ln [split [.f.p.val get 1.0 end] "\n"] {
         set ln [string trim $ln]
         if {$ln ne ""} { lappend values $ln }
     }
-    if {[llength $values] == 0} { .f.status configure -text "enter one value per line"; return }
+    if {[llength $values] == 0} { .f.status configure -text "enter at least one value"; return }
     if {[catch {exec $AIS -v - {*}$keys << [join $values "\n"]} err]} {
         .f.status configure -text "error: $err"
     } else {
-        .f.status configure -text "stored [llength $values] value(s) under: $keys"
+        .f.status configure -text "stored [llength $values] value(s) under: [where_txt $keys]"
         .f.p.val delete 1.0 end
+        if {$keys ne ""} { .f.q delete 0 end; .f.q insert 0 $keys; do_get }
     }
 }
 
 proc do_doc {} {
     global AIS
-    set keys [keys_or_warn]
-    if {$keys eq ""} return
+    set keys [add_keys]
     set text [.f.p.doc get 1.0 end]
     if {[string trim $text] eq ""} { .f.status configure -text "the document is empty"; return }
     if {[catch {exec $AIS --doc {*}$keys << $text} out]} {
         .f.status configure -text "error: $out"
     } else {
-        .f.status configure -text "saved document $out under: $keys"
+        .f.status configure -text "saved document under: [where_txt $keys]"
         .f.p.doc delete 1.0 end
     }
 }

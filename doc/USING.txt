@@ -1,0 +1,54 @@
+How to use AIS
+==============
+
+AIS remembers things for you. You save anything (a link, a note, a phone
+number, a document) under one or more keywords, and get it back by typing those
+keywords. Think of a private search box over your own stuff.
+
+
+OPEN IT
+-------
+
+  Windows   Double-click  ais-web.bat
+  macOS     Double-click  ais-web.command
+            (the first time: right-click it, choose Open, and confirm once)
+  Linux     Double-click  ais-web.desktop , or type  ais --serve  in a terminal
+
+Each one opens AIS in your web browser at  http://127.0.0.1:8765 . A small
+window may stay open while AIS runs; close it when you are done.
+
+(On Linux there is also a plain desktop window:  wish gui/ais-put.tcl )
+
+
+USE IT
+------
+
+There are only two things to do.
+
+  Recall    Type keywords in the search box and press Enter. Matching items
+            appear, one per line; links are clickable.
+            Example: type   venice italy   to see everything filed under both.
+
+  Add       Click  + Add . Type what you want to remember in the top box, add a
+            few keywords below if you like (optional), then Save. It appears
+            right away.
+
+That is the whole program: type to recall, "+ Add" to remember.
+
+
+PREFER TYPING? (Linux and macOS)
+--------------------------------
+
+  ais venice italy                  recall items under BOTH keywords
+  ais -o venice rome                recall items under EITHER keyword
+  ais -v "Hotel Danieli" venice     save a value under keywords
+  ais --help                        the full list of commands
+
+
+WHERE YOUR THINGS ARE SAVED
+---------------------------
+
+Plain text files on your own computer, in your home folder under
+.local/share/ais . Type  ais --where  to see the exact location. They are
+yours: copy them, back them up to a USB stick, or delete them. Nothing is ever
+uploaded anywhere.

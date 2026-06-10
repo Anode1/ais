@@ -25,6 +25,7 @@ make                 # build ./ais
 
 | Read | For |
 |------|-----|
+| [`doc/USING.txt`](doc/USING.txt) | How to use it, GUI on every OS (plain steps, no jargon). |
 | [`doc/about.txt`](doc/about.txt) | What AIS is, and what it is not. |
 | [`doc/OVERVIEW.md`](doc/OVERVIEW.md) | Design philosophy, status, provenance. |
 | [`doc/dev/LAYOUT.md`](doc/dev/LAYOUT.md) | On-disk format and module map. |

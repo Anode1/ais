@@ -72,11 +72,14 @@ build_bin() {
     fi
     [ -f COPYING ]      && cp COPYING      "$stage/"
     [ -f doc/about.txt ] && cp doc/about.txt "$stage/"
+    [ -f doc/USING.txt ] && cp doc/USING.txt "$stage/"
     [ -f man/ais.1 ]    && cp man/ais.1    "$stage/"
     [ -f "$launcher" ]  && cp "$launcher"  "$stage/"
 
     cat > "$stage/README.txt" <<EOF
 AIS $VERSION  ($pretty/$arch)
+
+New here? Open USING.txt for a one-minute guide.
 
 Run the GUI:   ./ais --serve      (starts a local server, opens your browser)
 Command line:  ./ais --help
