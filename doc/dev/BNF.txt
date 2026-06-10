@@ -78,10 +78,10 @@ INDEX/blobs/<timestamp>.txt -- a document saved by `doc`
 the blob's contents.)
 
 
----- editable batch format (dump / import) -----------------------------------
-`ais dump` emits <record> lines. `ais import` reads <import_line> (a <record>
+---- editable batch format (--dump / --import) -------------------------------
+`ais --dump` emits <record> lines. `ais --import` reads <import_line> (a <record>
 with the leading "<id> |" dropped), skipping blanks and "#" comments. Round-trip:
-   ais dump | sed 's/^[0-9]*|//' | ais import
+   ais --dump | sed 's/^[0-9]*|//' | ais --import
 Keys are "|"-free (key_encode), so import splits on the FIRST "|"; a value that
 itself contains "|" therefore round-trips dump -> import unchanged.
 <import_input> ::= ( <import_line> "\n" )*

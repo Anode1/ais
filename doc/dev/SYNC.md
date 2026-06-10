@@ -9,7 +9,7 @@ spec. See LAYOUT.md (format), BNF.txt (grammar).
 - URL/URI/inline text: same string = same resource (keys merge); different string
   = different resource. NO normalization (a query param can mean a different
   page). [implemented]
-- Blob (`doc`): identified by OCCURRENCE, not content. Each doc is its own
+- Blob (`--doc`): identified by OCCURRENCE, not content. Each doc is its own
   resource, like a post -- duplicates are intentional and kept, NEVER
   content-deduped. Name = timestamp + a device/random tag, so two devices never
   alias two different posts and a replicated post keeps one name. [name tag: planned]
@@ -25,24 +25,24 @@ spec. See LAYOUT.md (format), BNF.txt (grammar).
   multi-day sync cadence).
 - Only a LEADING `-` is the sign; `-` elsewhere is literal (use `+key` to bind a
   key that literally starts with `-`). [+/- and propagation: planned; today
-  `del-key` removes locally only, no traveling marker]
+  `--del-key` removes locally only, no traveling marker]
 
 ## Delete -- soft, via Trash
 - Delete a resource = unbind ALL its keys -> keyless -> Trash. Keyless is
-  unreachable by `get`, still visible to `dump`/`find`.
-- Manual empty (`compact`) physically purges keyless resources and spent `-key`
+  unreachable by recall, still visible to `--dump`/`--find`.
+- Manual empty (`--compact`) physically purges keyless resources and spent `-key`
   markers. GC is a HUMAN decision (empty only when all devices have synced), so
   there is no distributed consensus and no resurrection. [planned; `tomb` exists
   for ids today]
 
 ## Sync -- bidirectional dump/import
-- Merge = `dump` one side, `import` the other, both ways. The +/- patch is the
+- Merge = `--dump` one side, `--import` the other, both ways. The +/- patch is the
   interchange format.
 - Adds union losslessly (a grow-only CRDT, no clock). Removes propagate as
   `-key`, latest-sign-wins. Deletes are untag-all -> Trash.
 - Blobs sync as files (rsync-style), device-tagged names, never content-deduped.
-- Git or a file-sync app may TRANSPORT the bytes, but the MERGE must be `import`
-  (value-aware). Never trust git's textual merge of `store` -- it id-collides.
+- Git or a file-sync app may TRANSPORT the bytes, but the MERGE must be `--import`
+  (value-aware). Never trust git's textual merge of `store`, it id-collides.
 - Idempotent and resumable: a partial/interrupted sync just re-runs to converge.
 
 ## GUI / UX
