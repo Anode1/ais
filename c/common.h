@@ -17,4 +17,8 @@
 #define AIS_KEY_MAX      512   /* one encoded key (a path component)    */
 #define AIS_KEYS_MAX      64   /* keys per record / query (merge width) */
 
+/* The "off" id->offset index: one fixed-width line per id, value = (offset+1)
+ * so 0 is the "absent" sentinel. 11 digits hold offsets up to ~90 GB. */
+#define AIS_OFF_WIDTH     12   /* 11-digit (offset+1) + '\n'            */
+
 #endif /* AIS_COMMON_H */

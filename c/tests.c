@@ -652,6 +652,44 @@ static void test_find(void)
     scratch_rm(dir);
 }
 
+/* ---- ais_record fast path: off resolves single records; multi & gaps OK -- */
+static void test_record_fastpath(void)
+{
+    ais a;
+    struct valvec v;
+    long id1, id2, id3;
+    const char *dir = "/tmp/ais_ut_off";
+
+    scratch_rm(dir);
+    ais_open(&a, dir);
+    id1 = ais_put(&a, "k1", "alpha");   /* id 1, single line */
+    id2 = ais_put(&a, "k2", "beta");    /* id 2 */
+    id3 = ais_put(&a, "k3", "gamma");   /* id 3 */
+
+    /* single-value records resolve to their value (fast path via off) */
+    v.n = 0; ais_record(&a, id1, collect_val, &v);
+    CHECK(v.n == 1 && strcmp(v.vals[0], "alpha") == 0, "record: id1 -> alpha (off)");
+    v.n = 0; ais_record(&a, id3, collect_val, &v);
+    CHECK(v.n == 1 && strcmp(v.vals[0], "gamma") == 0, "record: id3 -> gamma (off)");
+
+    /* add a 2nd value to id2 -> multi -> the scan path returns BOTH values */
+    ais_add(&a, id2, "beta2");
+    v.n = 0; ais_record(&a, id2, collect_val, &v);
+    CHECK(v.n == 2 && strcmp(v.vals[0], "beta") == 0 &&
+          strcmp(v.vals[1], "beta2") == 0, "record: multi id2 -> beta, beta2");
+
+    /* delete id1, compact -> a gap at id1; survivors still resolve correctly */
+    ais_del(&a, id1);
+    CHECK(ais_compact(&a) == 0, "record: compact -> 0");
+    v.n = 0; ais_record(&a, id3, collect_val, &v);
+    CHECK(v.n == 1 && strcmp(v.vals[0], "gamma") == 0, "record: id3 after compact");
+    v.n = 0; ais_record(&a, id2, collect_val, &v);
+    CHECK(v.n == 2, "record: multi id2 still 2 values after compact");
+
+    ais_close(&a);
+    scratch_rm(dir);
+}
+
 int main(void)
 {
     printf("AIS regression tests (make ut)\n");
@@ -676,6 +714,8 @@ int main(void)
     test_stats();
     printf("find:\n");
     test_find();
+    printf("record:\n");
+    test_record_fastpath();
     printf("compact:\n");
     test_compact();
     printf("recovery:\n");

@@ -73,8 +73,14 @@ long ais_put(ais *a, const char *keys, const char *value)
     }
 
     id = a->next_id;
-    if (store_append(a, id, keys, value) != 0)
-        return -1;
+    {
+        long off = store_bytes(a);          /* offset the new line gets */
+        int  ok  = (off >= 0) && off_consistent(a);
+        if (store_append(a, id, keys, value) != 0)
+            return -1;
+        if (ok && off_append(a, off) != 0)  /* keep "off" in lockstep */
+            return -1;
+    }
     if (ais_post_keys(a, keys, id) != 0)
         return -1;
     a->next_id = id + 1;
@@ -121,6 +127,8 @@ int ais_add(ais *a, long id, const char *value)
     /* continuation line: same id, same keys field, the new value. Keys are
      * already posted to this id, so no re-post. */
     if (store_append(a, id, L.keys, value) != 0)
+        return -1;
+    if (multi_append(a, id) != 0)           /* id now has >1 line */
         return -1;
     debug("add: appended link to id=%ld", id);
     return 0;
@@ -206,6 +214,15 @@ static int record_seek(long id, const char *keys, const char *value, void *vp)
 int ais_record(ais *a, long id, ais_val_cb cb, void *ctx)
 {
     struct record_ctx R;
+    long offset;
+
+    /* Fast path: a single-line record whose first-line offset is in "off".
+     * Multi-line records (ais_add) and any miss fall through to the scan, and
+     * store_value_at re-checks the line's id, so this can never be wrong. */
+    if (multi_contains(a, id) == 0 && off_get(a, id, &offset) == 1 &&
+        store_value_at(a, id, offset, cb, ctx) == 1)
+        return 0;
+
     R.id = id;
     R.cb = cb;
     R.ctx = ctx;

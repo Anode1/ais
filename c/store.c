@@ -228,3 +228,151 @@ long store_recover_next_id(const ais *a)
     fclose(fp);
     return maxid + 1;
 }
+
+/* --- record fast path: "off" (id->offset) and "multi" (multi-line ids) ----- */
+
+long store_bytes(const ais *a)
+{
+    char path[AIS_PATH_MAX];
+    struct stat st;
+
+    if (store_path(a, "store", path, sizeof(path)) != 0)
+        return -1;
+    if (stat(path, &st) != 0)
+        return (errno == ENOENT) ? 0 : -1;   /* no store yet -> offset 0 */
+    return (long)st.st_size;
+}
+
+void off_write(FILE *fp, long offset)
+{
+    fprintf(fp, "%011ld\n", (offset < 0) ? 0L : offset + 1);   /* +1: 0 = absent */
+}
+
+int off_append(const ais *a, long offset)
+{
+    char path[AIS_PATH_MAX];
+    FILE *fp;
+
+    if (store_path(a, "off", path, sizeof(path)) != 0)
+        return -1;
+    fp = fopen(path, "a");
+    if (fp == NULL)
+        return -1;
+    off_write(fp, offset);
+    if (fclose(fp) != 0)
+        return -1;
+    return 0;
+}
+
+int off_consistent(const ais *a)
+{
+    char path[AIS_PATH_MAX];
+    struct stat st;
+    long want = (a->next_id - 1) * (long)AIS_OFF_WIDTH;
+
+    if (store_path(a, "off", path, sizeof(path)) != 0)
+        return 0;
+    if (stat(path, &st) != 0)
+        return (errno == ENOENT && want == 0) ? 1 : 0;   /* fresh index: ok */
+    return (st.st_size == want) ? 1 : 0;
+}
+
+int off_get(const ais *a, long id, long *offset)
+{
+    char path[AIS_PATH_MAX];
+    char buf[AIS_OFF_WIDTH + 1];
+    FILE *fp;
+    long v;
+
+    if (id <= 0)
+        return 0;
+    if (store_path(a, "off", path, sizeof(path)) != 0)
+        return -1;
+    fp = fopen(path, "r");
+    if (fp == NULL)
+        return (errno == ENOENT) ? 0 : -1;   /* no off -> caller scans */
+    if (fseek(fp, (long)(id - 1) * AIS_OFF_WIDTH, SEEK_SET) != 0) {
+        fclose(fp);
+        return 0;
+    }
+    if (fread(buf, 1, AIS_OFF_WIDTH, fp) != (size_t)AIS_OFF_WIDTH) {
+        fclose(fp);
+        return 0;                            /* short: id beyond the index */
+    }
+    fclose(fp);
+    buf[AIS_OFF_WIDTH] = '\0';
+    v = atol(buf);
+    if (v == 0)
+        return 0;                            /* sentinel: absent (a gap) */
+    *offset = v - 1;
+    return 1;
+}
+
+int store_value_at(const ais *a, long id, long offset, ais_val_cb cb, void *ctx)
+{
+    char path[AIS_PATH_MAX];
+    char line[AIS_LINE_MAX];
+    FILE *fp;
+    long lid;
+    char *keys, *val;
+
+    if (store_path(a, "store", path, sizeof(path)) != 0)
+        return -1;
+    fp = fopen(path, "r");
+    if (fp == NULL)
+        return -1;
+    if (fseek(fp, offset, SEEK_SET) != 0) {
+        fclose(fp);
+        return 0;
+    }
+    if (fgets(line, sizeof(line), fp) == NULL) {
+        fclose(fp);
+        return 0;
+    }
+    fclose(fp);
+    if (store_parse(line, &lid, &keys, &val) != 0)
+        return 0;
+    if (lid != id)
+        return 0;                            /* offset stale: caller scans */
+    (void)keys;
+    cb(id, val, ctx);
+    return 1;
+}
+
+int multi_append(const ais *a, long id)
+{
+    char path[AIS_PATH_MAX];
+    FILE *fp;
+
+    if (store_path(a, "multi", path, sizeof(path)) != 0)
+        return -1;
+    fp = fopen(path, "a");
+    if (fp == NULL)
+        return -1;
+    fprintf(fp, "%ld\n", id);
+    if (fclose(fp) != 0)
+        return -1;
+    return 0;
+}
+
+int multi_contains(const ais *a, long id)
+{
+    char path[AIS_PATH_MAX];
+    char line[64];
+    FILE *fp;
+    int found = 0;
+
+    if (store_path(a, "multi", path, sizeof(path)) != 0)
+        return -1;
+    fp = fopen(path, "r");
+    if (fp == NULL)
+        return (errno == ENOENT) ? 0 : -1;   /* no multi -> none are multi */
+    while (fgets(line, sizeof(line), fp) != NULL) {
+        if (atol(line) == id) {
+            found = 1;
+            break;
+        }
+    }
+    fclose(fp);
+    return found;
+}

@@ -11,6 +11,7 @@ Dataset
   keys      4,000 distinct          (human active vocab ~10-20K => key-space BOUNDED)
   postings  1.8M total; hottest key = 270,360 ids; median key = 69 ids
   meta      1,000,000 lines  "id|epoch"  spanning 1996..2026
+  off       12 MB  (id->offset index, 12 B/id); multi 0 (no add'd records)
 
 Timings (wall, one core)
   compact  (build whole index)        7.9  s    one streaming pass, 4000 lists
@@ -19,23 +20,28 @@ Timings (wall, one core)
   stats (streaming, ids only)         0.04 s
   put (single, at n=1M)               0.05 s    one O(n) idempotent store scan
   timeline: awk date-range on meta    0.37 s    33,520 records in ~2007
-  get rare key (19 ids)               1.02 s    <-- O(matches x store)
-  get hot key (270k ids)              hours     <-- killed; O(matches x store)
+  get rare key (19 ids)               1.02 s -> 0.009 s   (id->offset index)
+  get hot key (270k ids)              hours  -> 2.2 s     (id->offset index)
   generate (Python, NOT C)            132  s    the generator is the slow part
 
 Reading
   - single-pass reads (find/dump/stats/timeline) are I/O-bound = grep/cat class. GOOD.
   - put is 50 ms interactively (a few/day = invisible). O(n^2) only on BULK import.
-  - GET is the bottleneck: ais_record re-scans the store per matched id, so
-    get = O(matches x store). 19 results = 1 s; a common key = minutes/hours.
+  - GET *was* the bottleneck: ais_record re-scanned the store per matched id
+    (O(matches x store)). FIXED by the id->offset index "off": get is now
+    O(matches) seeks -- rare 1.02s -> 9 ms, hot (270k) hours -> 2.2 s.
 
 Root cause (get AND bulk-put)
   No way to find a record by id except scanning the store.
 
 Fix direction (keeps plain text, no hashing, all streaming)
-  1. id->byte-offset index, built at compact (store grouped by id, contiguous reads)
-     => ais_record = seek; get = O(matches). Sub-ms small gets, ~0.1 s hot key.
-  2. put: O(1) append + batch dedup (sort-based), not a per-put O(n) scan.
+  1. DONE (2026-06-09): id->offset index "off" (+ "multi" for add'd records),
+     built at compact, maintained by put; ais_record falls back to a scan when
+     absent/stale/multi, and re-checks the line id, so it is never wrong.
+     Measured: rare 1.02s -> 9 ms; hot 270k hours -> 2.2 s. Cost: 12 MB off for
+     1M ids; compact +2 s. (Remaining time on huge gets is fopen-per-result;
+     cache the off/store handles if a 270k-row get must beat ~2 s.)
+  2. TODO: put O(1) append + batch dedup (sort-based), not a per-put O(n) scan.
   Net: every op becomes a seek or one streaming pass = find/rsync class.
 
 Watch

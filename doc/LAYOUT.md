@@ -10,6 +10,8 @@ is hashed: every file is plain text, readable, greppable, repairable by hand.
       store           append-only records:  id|keys|value     (one per line)
       next_id         a single line: the next id to assign
       idx/<p>/<key>   posting list for a key: ids, one per line, ascending
+      off             id->offset accelerator: line k = byte offset of id k
+      multi           ids carrying >1 value line (from add)
       tomb            tombstones: deleted ids, one per line
       lock            single-writer advisory lock (flock)
 
@@ -21,8 +23,9 @@ INDEX portable). Records are only appended, never rewritten except by
 compaction. Because ids are monotonic, the store is physically in id order.
 
 A record may hold several values (multi-link): `add` appends another
-`id|keys|value` line with the same id. `ais_record(id)` reconstructs the value
-set by collecting every store line bearing that id.
+`id|keys|value` line with the same id. `ais_record(id)` resolves a single-value
+record by one seek via `off` (below); a multi-value id falls back to a store
+scan that collects every line bearing that id.
 
 ### next_id -- monotonic id counter
 Holds the next id as text. On put: read, use, write back +1. If missing
@@ -45,6 +48,20 @@ its id must enter that key's file in order, a bounded in-place ordered insert
 out of order). Either way every posting file is kept ascending and
 duplicate-free, so the read path never sorts -- `get` is a pure merge.
 
+### off, multi -- the record fast path (pure accelerators)
+`get` yields ids, then resolves each to its value(s). Scanning `store` per id is
+O(matches x store) -- the one real bottleneck at scale. `off` fixes it: a
+fixed-width text file, line k = the byte offset (stored +1, so 0 = absent) of
+id k's first `store` line. `ais_record(id)` seeks straight there, and re-checks
+the line's id, so a stale offset never returns wrong data -- it just falls back
+to the scan. `off` is maintained in lockstep by `put` (append) and rebuilt by
+`compact` (with `0` sentinels for the gaps that dropped ids leave).
+
+`multi` lists ids carrying more than one value line (from `add`, whose
+continuations are scattered); the fast path skips these and scans, so multi-value
+records are always read in full. Both files rebuild from `store` -- delete them,
+`compact`, and nothing is lost.
+
 ### tomb -- tombstones
 `del(id)` appends the id to `tomb`. `get`/`dump` merge it out (suppress ids
 present in `tomb`). Physical removal happens only at compaction.
@@ -64,9 +81,9 @@ otherwise advance the stream(s) at the minimum. OR: emit the minimum head,
 advance every stream at it (dedup). Suppress tombstoned ids. Memory is O(nkeys).
 
 ### compact -- streaming rewrite
-Stream `store` dropping tombstoned ids into `store.new`; rebuild `idx/` by the
-same per-key append; rename atomically; clear `tomb`; recompute `next_id`.
-Bounded buffers throughout.
+Stream `store` dropping tombstoned ids into `store.new`; rebuild `idx/`, `off`
+(first-line offset per id, `0` sentinels for gaps) and `multi` in the same pass;
+rename atomically; clear `tomb`; recompute `next_id`. Bounded buffers throughout.
 
 ### Concurrency
 Single-writer: `ais_open` takes an advisory `flock` on `INDEX/lock`. One writer
@@ -101,7 +118,8 @@ it; otherwise treat all args as get keys.
     ais [-f DIR] del ID
     ais [-f DIR] dump | compact
 
-INDEX location precedence: `-f/--index DIR` > `$AIS_INDEX` > `./INDEX`.
+INDEX location precedence: `-f/--index DIR` > `$AIS_INDEX` > nearest `.ais/`
+(walking up, git-style) > `$XDG_DATA_HOME/ais` (else `~/.local/share/ais`).
 No args -> usage_short to stderr, exit 2. `-h` -> usage_short. `--help` ->
 usage_long.
 

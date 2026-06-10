@@ -148,6 +148,12 @@ Append-only records,
 .I idx/<p>/<key>
 Per-key posting lists (sorted record ids).
 .TP
+.I off
+id->offset accelerator (rebuilt by compact; safe to delete).
+.TP
+.I multi
+ids carrying more than one value line.
+.TP
 .I tomb
 Tombstoned (deleted) ids.
 .SH ENVIRONMENT

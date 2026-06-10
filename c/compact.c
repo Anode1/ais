@@ -106,7 +106,10 @@ static int compact_rmtree(const char *path)
 struct compact_ctx {
     ais  *a;
     FILE *out;
-    long  maxid;   /* highest id seen; first-appearance test + next_id source */
+    FILE *off_out;     /* rebuilding "off": first-line offset per id          */
+    FILE *multi_out;   /* rebuilding "multi": ids that carry >1 line          */
+    long  maxid;       /* highest id seen; first-appearance test + next_id    */
+    long  last_off_id; /* highest id written to "off" (drives gap sentinels)  */
     int   error;
 };
 
@@ -117,6 +120,7 @@ static int compact_line(long id, const char *keys, const char *value, void *vp)
     int t = tomb_contains(c->a, id);
     char keysbuf[AIS_LINE_MAX];
     char *tok, *save;
+    long offset;
     int n;
 
     if (t < 0) {
@@ -126,6 +130,7 @@ static int compact_line(long id, const char *keys, const char *value, void *vp)
     if (t == 1)
         return 0;   /* dropped */
 
+    offset = ftell(c->out);                  /* this line's offset in store.new */
     fprintf(c->out, "%ld|%s|%s\n", id, keys, value);
 
     /* Re-index keys once per record, on its FIRST appearance. Records are first
@@ -134,8 +139,18 @@ static int compact_line(long id, const char *keys, const char *value, void *vp)
      * non-adjacent) repeat an already-seen id and are skipped. This both keeps
      * posting files ascending (ids appended in increasing order) and free of
      * duplicate ids. */
-    if (id <= c->maxid)
+    if (id <= c->maxid) {
+        fprintf(c->multi_out, "%ld\n", id);  /* a continuation: id is multi-line */
         return 0;
+    }
+    /* first appearance: sentinel-fill the gap left by any dropped ids, then
+     * record this id's first-line offset so "off" stays indexed by id. */
+    while (c->last_off_id + 1 < id) {
+        off_write(c->off_out, -1);
+        c->last_off_id++;
+    }
+    off_write(c->off_out, offset);
+    c->last_off_id = id;
     c->maxid = id;
 
     n = snprintf(keysbuf, sizeof(keysbuf), "%s", keys);
@@ -164,7 +179,10 @@ int ais_compact(ais *a)
 
     c.a = a;
     c.out = NULL;
+    c.off_out = NULL;
+    c.multi_out = NULL;
     c.maxid = 0;
+    c.last_off_id = 0;
     c.error = 0;
 
     if (compact_path(a, "store", storepath, sizeof(storepath)) != 0 ||
@@ -181,6 +199,17 @@ int ais_compact(ais *a)
     if (c.out == NULL)
         return -1;
 
+    {
+        char offp[AIS_PATH_MAX], multip[AIS_PATH_MAX];
+        if (compact_path(a, "off", offp, sizeof(offp)) != 0 ||
+            compact_path(a, "multi", multip, sizeof(multip)) != 0)
+            goto cleanup;
+        c.off_out = fopen(offp, "w");        /* truncate + rebuild from scratch */
+        c.multi_out = fopen(multip, "w");
+        if (c.off_out == NULL || c.multi_out == NULL)
+            goto cleanup;
+    }
+
     if (store_each_record(a, compact_line, &c) != 0 || c.error)
         goto cleanup;
 
@@ -189,6 +218,16 @@ int ais_compact(ais *a)
         goto cleanup;
     }
     c.out = NULL;
+    if (fclose(c.off_out) != 0) {
+        c.off_out = NULL;
+        goto cleanup;
+    }
+    c.off_out = NULL;
+    if (fclose(c.multi_out) != 0) {
+        c.multi_out = NULL;
+        goto cleanup;
+    }
+    c.multi_out = NULL;
 
     if (rename(newpath, storepath) != 0)
         goto cleanup;
@@ -211,5 +250,9 @@ cleanup:
         fclose(c.out);
         unlink(newpath);
     }
+    if (c.off_out != NULL)
+        fclose(c.off_out);
+    if (c.multi_out != NULL)
+        fclose(c.multi_out);
     return rc;
 }
