@@ -174,13 +174,14 @@ rm -rf "$IM" "$IM2"
 DC=$(mktemp -d "${TMPDIR:-/tmp}/ais_doc.XXXXXX") || exit 2
 printf 'line one\nline two\nline three\n' | "$AIS" -f "$DC" doc kul memo >/dev/null 2>&1
 out=$("$AIS" -f "$DC" kul memo)
-ok "doc: value is the blob path"     "blobs/1.txt" "$out"
-if [ -f "$DC/blobs/1.txt" ]; then
+ok "doc: value is a blobs/<timestamp>.txt path"  'blobs/.*\.txt' "$out"
+blob=$(ls "$DC"/blobs/*.txt 2>/dev/null | head -1)
+if [ -n "$blob" ] && [ -f "$blob" ]; then
     pass=$((pass + 1)); echo "  ok   doc: blob file created"
 else
     fail=$((fail + 1)); echo "  FAIL doc: blob file missing"
 fi
-okeq "doc: blob preserved 3 lines"   "3" "$(wc -l < "$DC/blobs/1.txt")"
+okeq "doc: blob preserved 3 lines"   "3" "$(wc -l < "$blob")"
 ok "where: prints the index dir"     "$DC" "$("$AIS" -f "$DC" where)"
 rm -rf "$DC"
 

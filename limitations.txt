@@ -25,8 +25,10 @@ Keys
     byte-transparently; the 2-byte shard prefix is its first letter.
 
 Concurrency / scale
-  - Single writer: ais_open takes an flock; concurrent writers are out of scope.
-    Readers are unaffected (the store is append-only).
+  - Reads take NO lock (any number run at once). Writers take an exclusive flock
+    per mutating op and reload next_id under it, so concurrent writers serialize
+    safely and never collide on an id; a long-lived reader (ais serve) does not
+    block the CLI. See doc/dev/LOCKING.md.
   - Idempotent put scans the store, O(n) per put: fine interactively (~50 ms at
     1M records), but BULK import of N records is O(n^2) -- the known TODO.
   - get is O(matches) via the "off" id->offset index once `compact` has built it

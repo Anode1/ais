@@ -1,7 +1,7 @@
 /* log.h -- CLI fatal error and runtime-gated trace.
  *
  * die() is for main.c only: print to stderr and exit non-zero. Modules never
- * call it -- they return -1 and let the caller decide (see doc/STYLE.md).
+ * call it -- they return -1 and let the caller decide (see doc/dev/STYLE.md).
  * debug() prints to stderr only when the runtime debug flag is set (-d).
  */
 #ifndef AIS_LOG_H

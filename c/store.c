@@ -88,11 +88,38 @@ int store_write_version(const ais *a)
     return 0;
 }
 
+/* (Re)load next_id from disk, recovering it from the store (max id + 1) if the
+ * cache file is absent. Called at open, and again by every writer under the
+ * exclusive lock, so two processes never hand out the same id. Returns 0/-1. */
+int store_load_next_id(ais *a)
+{
+    char nidpath[AIS_PATH_MAX];
+    FILE *fp;
+
+    a->next_id = 1;
+    if (store_path(a, "next_id", nidpath, sizeof(nidpath)) != 0)
+        return -1;
+    fp = fopen(nidpath, "r");
+    if (fp != NULL) {
+        char buf[64];
+        if (fgets(buf, sizeof(buf), fp) != NULL && atol(buf) > 0)
+            a->next_id = atol(buf);
+        fclose(fp);
+        return 0;
+    }
+    {
+        long nid = store_recover_next_id(a);    /* file absent: rebuild from store */
+        if (nid < 0)
+            return -1;
+        a->next_id = nid;
+    }
+    return 0;
+}
+
 int store_open(ais *a, const char *dir)
 {
     char lockpath[AIS_PATH_MAX];
     int n;
-    long nid;
 
     a->lock_fd = -1;
     a->next_id = 1;
@@ -104,37 +131,18 @@ int store_open(ais *a, const char *dir)
     if (mkdir(a->dir, 0777) != 0 && errno != EEXIST)
         return -1;
 
+    /* Open the lock file but DO NOT lock here. Reads take no lock (Unix: any
+     * number of readers run at once); writers take the exclusive lock per
+     * mutating op (store_wlock). So a long-lived reader such as `ais serve`
+     * never blocks the CLI or an agent. */
     if (store_path(a, "lock", lockpath, sizeof(lockpath)) != 0)
         return -1;
     a->lock_fd = open(lockpath, O_CREAT | O_RDWR, 0666);
     if (a->lock_fd < 0)
         return -1;
-    if (flock(a->lock_fd, LOCK_EX | LOCK_NB) != 0) {
-        close(a->lock_fd);
-        a->lock_fd = -1;
-        return -1;
-    }
 
-    /* load next_id, or recover from the store if the file is absent */
-    {
-        char nidpath[AIS_PATH_MAX];
-        FILE *fp;
-
-        if (store_path(a, "next_id", nidpath, sizeof(nidpath)) != 0)
-            goto fail;
-        fp = fopen(nidpath, "r");
-        if (fp != NULL) {
-            char buf[64];
-            if (fgets(buf, sizeof(buf), fp) != NULL && atol(buf) > 0)
-                a->next_id = atol(buf);
-            fclose(fp);
-        } else {
-            nid = store_recover_next_id(a);
-            if (nid < 0)
-                goto fail;
-            a->next_id = nid;
-        }
-    }
+    if (store_load_next_id(a) != 0)
+        goto fail;
 
     /* format version: stamp a new or legacy index; refuse a future format
      * rather than risk misreading an index a newer ais wrote. */
@@ -153,17 +161,33 @@ int store_open(ais *a, const char *dir)
     return 0;
 
 fail:
-    flock(a->lock_fd, LOCK_UN);
     close(a->lock_fd);
     a->lock_fd = -1;
     return -1;
 }
 
+/* Take the exclusive writer lock for one mutating op (blocking: a second writer
+ * waits rather than failing). The caller reloads next_id after this if it will
+ * assign ids. Returns 0/-1. */
+int store_wlock(ais *a)
+{
+    if (a->lock_fd < 0)
+        return -1;
+    return flock(a->lock_fd, LOCK_EX) == 0 ? 0 : -1;
+}
+
+void store_wunlock(ais *a)
+{
+    if (a->lock_fd >= 0)
+        flock(a->lock_fd, LOCK_UN);
+}
+
 void store_close(ais *a)
 {
+    /* No lock is held between ops, and next_id is persisted by each write under
+     * the lock; re-saving a possibly-stale in-memory next_id here would clobber
+     * a concurrent writer, so close only releases the fd. */
     if (a->lock_fd >= 0) {
-        store_save_next_id(a);
-        flock(a->lock_fd, LOCK_UN);
         close(a->lock_fd);
         a->lock_fd = -1;
     }

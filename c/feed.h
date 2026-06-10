@@ -21,7 +21,7 @@ void feed_interactive(ais *a, const char *base);
 void feed_import(ais *a);
 
 /* doc: read a (possibly large, multi-line) document from stdin, save it as a
- * blob file <index>/blobs/<id>.txt, and put that relative path as a value under
+ * blob file <index>/blobs/<timestamp>.txt, and put that relative path as a value under
  * KEYS. The engine stores only the path; the bytes live in the file. */
 void feed_doc(ais *a, const char *keys);
 

@@ -70,17 +70,20 @@ build_bin() {
     else
         cp c/ais "$stage/ais"
     fi
-    [ -f COPYING ]     && cp COPYING     "$stage/"
-    [ -f man/ais.1 ]   && cp man/ais.1   "$stage/"
-    [ -f "$launcher" ] && cp "$launcher" "$stage/"
+    [ -f COPYING ]      && cp COPYING      "$stage/"
+    [ -f doc/about.txt ] && cp doc/about.txt "$stage/"
+    [ -f man/ais.1 ]    && cp man/ais.1    "$stage/"
+    [ -f "$launcher" ]  && cp "$launcher"  "$stage/"
 
     cat > "$stage/README.txt" <<EOF
 AIS $VERSION  ($pretty/$arch)
 
 Run the GUI:   ./ais serve      (starts a local server, opens your browser)
 Command line:  ./ais --help
+Shortcut:      alias is='ais'   (bash/zsh) -- two-character recall: "is venice italy"
 
-Your index lives in ~/.local/share/ais and is plain text.
+Your data is yours -- plain text you can find, back up, edit, or delete.
+Run './ais where' for its exact path (default: ~/.local/share/ais, under your home).
 EOF
     if [ "$winbin" = 1 ]; then
         cat >> "$stage/README.txt" <<EOF

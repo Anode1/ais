@@ -1,0 +1,28 @@
+/* app.css -- mobile-first look for the AIS phone web app. Plain CSS, editable;
+   the page links it, the service worker caches it. */
+:root { --accent: #1a0dab; --line: #ddd; --muted: #777; }
+* { box-sizing: border-box; }
+body {
+  font: 17px/1.45 system-ui, sans-serif; color: #111;
+  max-width: 680px; margin: 0 auto;
+  padding: env(safe-area-inset-top) 1rem 2rem;
+}
+header h1 { font-size: 1.4rem; margin: 1rem 0; }
+
+.bar { display: flex; gap: .5rem; position: sticky; top: 0; background: #fff; padding: .5rem 0; }
+#q { flex: 1; font: inherit; padding: .7rem .8rem; border: 1px solid var(--line); border-radius: .6rem; }
+button { font: inherit; cursor: pointer; }
+.icon { width: 3rem; border: 1px solid var(--line); border-radius: .6rem; background: #fafafa; }
+#mic:active { background: #e8e8ff; }
+
+#out { margin-top: 1rem; }
+.hit { padding: .9rem .2rem; border-bottom: 1px solid var(--line); }
+.hit:last-child { border-bottom: 0; }
+.hit a { color: var(--accent); text-decoration: none; word-break: break-all; }
+.muted { color: var(--muted); font-size: .9rem; }
+
+#addbtn { margin-top: 2rem; background: none; border: 0; color: var(--accent); padding: 0; }
+#add { display: none; margin-top: .5rem; border-top: 1px solid #eee; padding-top: 1rem; }
+#add.open { display: block; }
+#add textarea { width: 100%; font: inherit; padding: .6rem; height: 6rem; border: 1px solid var(--line); border-radius: .6rem; }
+#add button { margin-top: .5rem; padding: .6rem 1rem; border: 1px solid var(--line); border-radius: .6rem; background: #fafafa; }

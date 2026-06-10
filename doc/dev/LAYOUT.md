@@ -13,7 +13,7 @@ is hashed: every file is plain text, readable, greppable, repairable by hand.
       off             id->offset accelerator: line k = byte offset of id k
       multi           ids carrying >1 value line (from add)
       tomb            tombstones: deleted ids, one per line
-      blobs/<id>.txt  documents saved by `doc` (real data; not rebuildable)
+      blobs/<timestamp>.txt  documents saved by `doc` (real data; not rebuildable)
       lock            single-writer advisory lock (flock)
 
 ### store -- the source of truth (append-only)
@@ -95,12 +95,13 @@ Lines that share keys recall together.
 
 ### doc, blobs/ -- large or multi-line values
 A value is one line, so multi-line/large text can't be inline. `ais doc KEYS`
-reads a document from stdin, writes it to `blobs/<id>.txt` (named by the record
-id it gets), and `put`s that relative path as the value. The engine stays
+reads a document from stdin, writes it to `blobs/<timestamp>.txt` (named by local
+time, so `ls blobs/` reads chronologically; a same-second doc gets a `-N`
+suffix), and `put`s that relative path as the value. The engine stays
 oblivious -- it stores a path like any other; the front-end (feed.c) owns blob
 placement. `blobs/` is the only REAL DATA besides `store` (not rebuildable);
 `find` searches the path, not the blob's contents (tags-only). `ais where`
-prints the index dir so a front-end can resolve `blobs/<id>.txt`.
+prints the index dir so a front-end can resolve `blobs/<timestamp>.txt`.
 
 ### Concurrency
 Single-writer: `ais_open` takes an advisory `flock` on `INDEX/lock`. One writer

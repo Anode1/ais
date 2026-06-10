@@ -1,0 +1,106 @@
+============================
+AIS index storage grammar
+============================
+
+The formal grammar of the on-disk index format: the contract an automated writer
+(a script, the GUI, the web/SQLite layer, an agent) must produce, and that a
+verifier can check the code against in both directions throughout development.
+See doc/LAYOUT.md for the directory map and algorithms; this file is the format.
+
+Grammar below is BNF-like, where terminals are delimited by " " (double-quotes),
+non-terminals by < >, and simple regular expressions like character grouping [ ],
+repetitions *, +, {N,M} are used. [:blank:], [:graph:], [:alpha:], [:punct:],
+[:digit:] are standard POSIX character classes. ( ) denotes grouping, ? ? is a
+verbal explanation of a character class. "\n" is LF.
+
+
+---- store : the source of truth (append-only) -------------------------------
+INDEX/store. One record per line. store.c:store_parse splits a line on its
+FIRST TWO "|" only, so <value> is the remainder of the line and may itself
+contain "|". A multi-value record (from `add`) is several lines that share one
+<id>; it is NOT encoded with extra "|" on one line.
+
+<store>        ::= ( <record> "\n" )*
+<record>       ::= <id> "|" <keys> "|" <value>
+<id>           ::= [:digit:]+            ? positive (> 0), assigned monotonically ?
+<keys>         ::= <key> ( " " <key> )*  ? one or more space-separated encoded keys ?
+<key>          ::= <key_char>+
+<key_char>     ::= ? any character except [:blank:], "|" and "\n"; letters are
+                     lowercased; a run of [:blank:] in the source key becomes a
+                     single "_" (key.c:key_encode) ?
+<value>        ::= <value_char>*         ? may be empty ?
+<value_char>   ::= ? any character except "\n" (LF) and "\r" (CR); "|" IS allowed ?
+
+A <value> is the literal resource, conventionally one of the following (these
+shapes are descriptive, not enforced: the store keeps any value verbatim):
+<value>        ::= <url> | <uri> | <abs_path> | <rel_path> | <free_text>
+<rel_path>     ::= <blob_ref> | ? any path relative to INDEX ?
+<blob_ref>     ::= "blobs/" <timestamp> ".txt"       ? written by `doc` ?
+<timestamp>    ::= <year> "-" <mm> "-" <dd> "-" <hhmmss> ( "-" [:digit:]+ ){0,1}
+<year>         ::= [:digit:]{4}
+<mm>           ::= [:digit:]{2}
+<dd>           ::= [:digit:]{2}
+<hhmmss>       ::= [:digit:]{6}
+
+
+---- rebuildable index files (derivable from <store>, disposable) ------------
+INDEX/next_id   -- the next id to assign
+<next_id_file> ::= <id> ( "\n" ){0,1}
+
+INDEX/idx/<p>/<key> -- one key's posting list, ascending and duplicate-free
+<posting_file> ::= ( <id> "\n" )*        ? strictly ascending, no duplicates ?
+<p>            ::= <key_char> ( <key_char> ){0,1}   ? 1-2 char navigable prefix of <key> ?
+
+INDEX/tomb      -- tombstoned (deleted) ids
+<tomb_file>    ::= ( <id> "\n" )*
+
+INDEX/multi     -- ids carrying more than one value line
+<multi_file>   ::= ( <id> "\n" )*
+
+INDEX/off       -- positional accelerator; line k = byte offset of id k's first
+                   store line. Line NUMBER is the id; the stored offset is +1, so
+                   "0" means absent.
+<off_file>     ::= ( <offset> "\n" )*
+<offset>       ::= [:digit:]+            ? offset+1; "0" = no record for this id ?
+
+INDEX/version   -- on-disk format version (file absent = legacy, version 0)
+<version_file> ::= [:digit:]+ ( "\n" ){0,1}
+
+INDEX/lock      -- empty; advisory flock target only.
+
+
+---- real data, not rebuildable ----------------------------------------------
+INDEX/blobs/<timestamp>.txt -- a document saved by `doc`
+<blob_file>    ::= ? arbitrary text, one or more lines, any bytes ?
+(The store references it by <blob_ref>; `find` searches the reference text, not
+the blob's contents.)
+
+
+---- editable batch format (dump / import) -----------------------------------
+`ais dump` emits <record> lines. `ais import` reads <import_line> (a <record>
+with the leading "<id> |" dropped), skipping blanks and "#" comments. Round-trip:
+   ais dump | sed 's/^[0-9]*|//' | ais import
+<import_input> ::= ( <import_line> "\n" )*
+<import_line>  ::= <comment_line> | "" | <keys> "|" <value>
+<comment_line> ::= "#" <value_char>*
+
+
+============================
+NOTES -- verify against the code (the purpose of this document)
+============================
+1. "|" in <value>: store_parse takes <value> as the line remainder, so a value
+   MAY contain "|" (verified: putting "a|b|c" round-trips whole). The import
+   path carries a stale comment ("store already forbids '|' in a value",
+   feed.c). DECISION: keep "|" allowed (then fix that comment), or forbid it
+   (then put/import must reject or percent-encode "|", and dump lines stay
+   visually unambiguous). This grammar states the implemented behavior: allowed.
+
+2. "|" / "\n" in <key>: this grammar forbids them (they would break the line
+   split), but key.c:key_encode only lowercases and maps [:blank:] -> "_"; it
+   does NOT exclude "|" or control characters. A source key containing "|" would
+   silently corrupt a store line. key_encode should reject or encode "|" (and
+   newline) to conform to this grammar.
+
+3. The conventional <value> forms (url/uri/path/blob_ref) are informative only;
+   the engine constrains nothing but "no newline". Only <blob_ref> has a producer
+   (`doc`) that guarantees its shape.

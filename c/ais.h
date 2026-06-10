@@ -1,6 +1,6 @@
 /* ais.h -- AIS public API: a plain-text associative index.
  *
- * An INDEX is a directory (see doc/LAYOUT.md). Open it, then put/get/del/etc.
+ * An INDEX is a directory (see doc/dev/LAYOUT.md). Open it, then put/get/del/etc.
  * All calls use fixed, stack-sized buffers; memory never scales with the data.
  * get() streams matching ids through a callback, so a query over a 10 GB store
  * costs the same memory as over a 10 KB one.

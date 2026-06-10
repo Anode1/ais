@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="96" fill="#1a0dab"/>
+  <text x="50%" y="56%" font-family="system-ui,Helvetica,Arial,sans-serif"
+        font-size="248" font-weight="600" fill="#fff"
+        text-anchor="middle" dominant-baseline="middle">ais</text>
+</svg>

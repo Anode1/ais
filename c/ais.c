@@ -52,42 +52,43 @@ static int ais_post_keys(ais *a, const char *keys, long id)
 
 long ais_put(ais *a, const char *keys, const char *value)
 {
-    long id = 0;
+    long id = 0, rc;
     int found;
 
-    found = store_find_value(a, value, &id);
-    if (found < 0)
+    if (store_wlock(a) != 0)                 /* one writer at a time */
         return -1;
+    if (store_load_next_id(a) != 0) {        /* fresh id under the lock */
+        store_wunlock(a);
+        return -1;
+    }
+
+    found = store_find_value(a, value, &id);
+    if (found < 0) { rc = -1; goto out; }
 
     if (found) {
-        /* value already stored: reuse its id, just (re)post the keys. Posting
-         * is idempotent at the merge level only by dedup -- but re-posting an
-         * existing id would duplicate it in the file. We avoid that by posting
-         * keys only for a genuinely new value below; for an existing value the
-         * keys were filed when it was first put. New keys on an existing value
-         * are handled by adding them here, tolerating that the merge dedups. */
+        /* value already stored: reuse its id, just (re)post the keys (the merge
+         * dedups, so re-posting an existing id is harmless). */
         debug("put: value exists as id=%ld (idempotent)", id);
-        if (ais_post_keys(a, keys, id) != 0)
-            return -1;
-        return id;
+        rc = (ais_post_keys(a, keys, id) != 0) ? -1 : id;
+        goto out;
     }
 
     id = a->next_id;
     {
         long off = store_bytes(a);          /* offset the new line gets */
         int  ok  = (off >= 0) && off_consistent(a);
-        if (store_append(a, id, keys, value) != 0)
-            return -1;
-        if (ok && off_append(a, off) != 0)  /* keep "off" in lockstep */
-            return -1;
+        if (store_append(a, id, keys, value) != 0) { rc = -1; goto out; }
+        if (ok && off_append(a, off) != 0)         { rc = -1; goto out; }  /* keep "off" in lockstep */
     }
-    if (ais_post_keys(a, keys, id) != 0)
-        return -1;
+    if (ais_post_keys(a, keys, id) != 0) { rc = -1; goto out; }
     a->next_id = id + 1;
-    if (store_save_next_id(a) != 0)
-        return -1;
+    if (store_save_next_id(a) != 0) { rc = -1; goto out; }
     debug("put: new id=%ld", id);
-    return id;
+    rc = id;
+
+out:
+    store_wunlock(a);
+    return rc;
 }
 
 /* Context for ais_add: find whether the id exists and capture its keys. */
@@ -112,34 +113,45 @@ static int add_seek(long id, const char *keys, const char *value, void *vp)
 int ais_add(ais *a, long id, const char *value)
 {
     struct add_lookup L;
-    int rc;
+    int scan, rc = -1;
+
+    if (store_wlock(a) != 0)
+        return -1;
 
     L.id = id;
     L.found = 0;
     L.keys[0] = '\0';
 
-    rc = store_each_record(a, add_seek, &L);
-    if (rc < -1)            /* a real error (callback stops with -1) */
-        return -1;
+    scan = store_each_record(a, add_seek, &L);
+    if (scan < -1)          /* a real error (callback stops with -1) */
+        goto out;
     if (!L.found)
-        return -1;
+        goto out;
 
     /* continuation line: same id, same keys field, the new value. Keys are
      * already posted to this id, so no re-post. */
     if (store_append(a, id, L.keys, value) != 0)
-        return -1;
+        goto out;
     if (multi_append(a, id) != 0)           /* id now has >1 line */
-        return -1;
+        goto out;
     debug("add: appended link to id=%ld", id);
-    return 0;
+    rc = 0;
+out:
+    store_wunlock(a);
+    return rc;
 }
 
 int ais_del(ais *a, long id)
 {
-    if (tomb_append(a, id) != 0)
+    int rc;
+
+    if (store_wlock(a) != 0)
         return -1;
-    debug("del: tombstoned id=%ld", id);
-    return 0;
+    rc = tomb_append(a, id);
+    store_wunlock(a);
+    if (rc == 0)
+        debug("del: tombstoned id=%ld", id);
+    return rc;
 }
 
 int ais_del_key(ais *a, const char *key)
@@ -147,8 +159,12 @@ int ais_del_key(ais *a, const char *key)
     post_stream s;
     int n = 0, rc;
 
-    if (post_open(a, key, &s) != 0)
+    if (store_wlock(a) != 0)
         return -1;
+    if (post_open(a, key, &s) != 0) {
+        store_wunlock(a);
+        return -1;
+    }
 
     for (; s.alive; post_next(&s)) {
         if (tomb_append(a, s.head) != 0) {
@@ -161,6 +177,7 @@ int ais_del_key(ais *a, const char *key)
 
 cleanup:
     post_close(&s);
+    store_wunlock(a);
     debug("del_key: '%s' tombstoned %d records", key, n);
     return rc;
 }

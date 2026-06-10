@@ -47,6 +47,11 @@ AIS_CFLAGS = $(NOCYGWIN) $(AIS_STD) $(AIS_WARN)
 SOURCES.c := $(wildcard *.c)
 OBJS       = $(SOURCES.c:.c=.o)
 
+# Library form (for embedders / the Flutter FFI seam): the engine MINUS main().
+# A library must not carry main(); the host app (or the FFI loader) provides it.
+LIBOBJS = $(filter-out main.o,$(OBJS))
+LIBSRC  = $(filter-out main.c,$(SOURCES.c))
+
 # -- profiles tweak only the standard knobs --------------------------------
 debug    : CFLAGS   = -g -O0
 debug    : AIS_WARN += -Wundef
@@ -59,7 +64,7 @@ static   : LDFLAGS  += -static
 .SUFFIXES: .d .o .h .c
 .c.o: ; $(CC) $(AIS_CFLAGS) $(CPPFLAGS) $(CFLAGS) -MMD -c $*.c
 
-.PHONY: clean ut check static static-guard
+.PHONY: clean ut check static static-guard lib
 
 all release debug pedantic: $(BIN)
 
@@ -84,7 +89,16 @@ $(TESTBIN): $(SOURCES.c)
 ut check: $(TESTBIN)
 	./$(TESTBIN)
 
+# -- libais: the engine as a library, for embedders (Flutter dart:ffi, native
+# plugins). libais.a = static (linked into the app, e.g. iOS); libais.so =
+# shared, for dlopen-style FFI (Linux desktop, Android). Both exclude main().
+lib: libais.a libais.so
+libais.a: $(LIBOBJS)
+	ar rcs $@ $(LIBOBJS)
+libais.so: $(LIBSRC)
+	$(CC) $(AIS_CFLAGS) $(CPPFLAGS) $(CFLAGS) -fPIC -shared -o $@ $(LIBSRC) $(LDLIBS)
+
 clean:
-	-rm -f $(BIN) $(TESTBIN) $(OBJS) *.d
+	-rm -f $(BIN) $(TESTBIN) $(OBJS) libais.a libais.so *.d
 
 -include $(OBJS:.o=.d)

@@ -168,7 +168,7 @@ static int compact_line(long id, const char *keys, const char *value, void *vp)
     return 0;
 }
 
-int ais_compact(ais *a)
+static int compact_locked(ais *a)
 {
     char storepath[AIS_PATH_MAX];
     char newpath[AIS_PATH_MAX];
@@ -254,5 +254,18 @@ cleanup:
         fclose(c.off_out);
     if (c.multi_out != NULL)
         fclose(c.multi_out);
+    return rc;
+}
+
+/* Compaction rewrites the whole store and rebuilds the index, so it holds the
+ * exclusive writer lock for the entire operation. */
+int ais_compact(ais *a)
+{
+    int rc;
+
+    if (store_wlock(a) != 0)
+        return -1;
+    rc = compact_locked(a);
+    store_wunlock(a);
     return rc;
 }

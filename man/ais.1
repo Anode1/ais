@@ -152,9 +152,11 @@ blank lines and #-comments are skipped). Lines sharing keys recall together.
 .TP
 .B doc \fIKEY ...\fR
 Save standard input as a document: write it to
-.I <index>/blobs/<id>.txt
+.I <index>/blobs/<timestamp>.txt
 and put that relative path as a value under the keys. For multi-line or large
-text that cannot be a single-line value.
+text that cannot be a single-line value. Blobs are named by local time, so
+.I ls blobs/
+lists your documents in chronological order.
 .TP
 .B where
 Print the resolved index directory (e.g. to locate a blob file).
@@ -189,7 +191,7 @@ ids carrying more than one value line.
 .I tomb
 Tombstoned (deleted) ids.
 .TP
-.I blobs/<id>.txt
+.I blobs/<timestamp>.txt
 Documents saved by
 .B doc
 (real data; not rebuildable).
@@ -208,4 +210,4 @@ defaults to
 .SH AUTHOR
 Vasili Gavrilov.
 .SH SEE ALSO
-The project README, doc/STYLE.md, doc/LAYOUT.md.
+The project README, doc/dev/STYLE.md, doc/dev/LAYOUT.md.

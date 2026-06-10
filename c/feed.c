@@ -258,7 +258,9 @@ void feed_doc(ais *a, const char *keys)
             snprintf(relval, sizeof(relval), "blobs/%s.txt", ts);
         else
             snprintf(relval, sizeof(relval), "blobs/%s-%d.txt", ts, seq);
-        snprintf(blobpath, sizeof(blobpath), "%s/%s", a->dir, relval);
+        if (snprintf(blobpath, sizeof(blobpath), "%s/%s", a->dir, relval)
+                >= (int)sizeof(blobpath))
+            die("doc: path too long");
         if (access(blobpath, F_OK) != 0)
             break;                         /* a free name */
     }

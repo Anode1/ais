@@ -1,0 +1,72 @@
+AIS: what it is, and what it is not
+===================================
+
+Your memory, yours to keep.
+Models average everyone. Keep what's only yours.
+
+WHAT IT IS
+
+  An associative index. You file anything (a link, a file, a note, a document)
+  under one or more keys, and recall it by those keys.
+
+  Non-linear. One item can live under many keys; items that share a key recall
+  together. Keys cross-link, so the index is a graph of associations, not a
+  flat list of folders or a single timeline.
+
+  Yours, free, repairable - by guarantee, not promise. The index is append-only
+  plain text on your own device (store, idx/, blobs/). There is no server, so
+  nothing phones home and no one, not even the author, can read your keys or
+  your memory. GPL keeps it free, open, and forkable: no vendor can enclose it
+  or shut it down. Plain text keeps it repairable: a bad byte costs a line, not
+  the store, and `cat` still reads it in fifty years. Copy it to an SD card,
+  delete it, or move it to other storage with cp, then read it right there with
+  any text viewer, on a machine that has never heard of AIS. Your backup is a
+  folder you can read by hand, not a sealed blob only the app can reopen. You
+  verify all of this (read the license, read the files, watch the network); you
+  don't trust it.
+
+  One store, three front-ends. The same index is reached from the `ais` command
+  line, a desktop GUI, and a local web page (`ais serve`) that any browser
+  opens. Not tied to one browser or one vendor.
+
+  Bounded and quick. It streams: memory stays flat whether the index holds ten
+  records or ten million, and an offset index keeps recall fast.
+
+  Universal. Anything you can name with keys: bookmarks, files, shell commands,
+  phone numbers, and multi-line documents (`ais doc`).
+
+WHAT IT IS NOT
+
+  Not just another bookmark saver. It can save bookmarks, but it is a general,
+  key-addressed store, not a browser feature.
+
+  Not a browser extension. It does not live inside Chrome or Firefox, and does
+  not sync through a vendor's account.
+
+  Not a cloud service. No sign-up, no account to lose, no ads, no tracking.
+
+  Not full-text search. It matches the keys YOU assign, not the body of what
+  you store (`find` searches the values and paths, not a document's contents).
+
+  Not a database server. No SQL, no daemon, no schema, just text files and a
+  small C program.
+
+WHERE YOUR DATA LIVES
+
+  Plain files you can find, copy, back up, edit, or delete yourself. Run
+
+      ais where
+
+  to print the exact directory. By default it is $XDG_DATA_HOME/ais, else
+  ~/.local/share/ais, under your home:
+
+      Linux    /home/<you>/.local/share/ais
+      macOS    /Users/<you>/.local/share/ais        (not ~/Library)
+      Windows  your user folder, under \.local\share\ais   (`ais where` shows it)
+
+  (The Windows build runs through Cygwin today, so that folder sits inside the
+  Cygwin home; `ais where` always prints the exact path. A native Windows
+  version, with ordinary Windows paths and no Cygwin, is planned.)
+
+  Or run `ais init` to keep a local .ais/ next to a project, the way git does.
+  Either way the bytes are yours, on your disk - not a company's.

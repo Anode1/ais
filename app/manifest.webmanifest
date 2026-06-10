@@ -1,0 +1,12 @@
+{
+  "name": "AIS",
+  "short_name": "AIS",
+  "description": "Associative index: file anything under keys, recall it by keys.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#1a0dab",
+  "icons": [
+    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}

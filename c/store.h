@@ -6,8 +6,8 @@
  * source of truth and the value->id map (idempotent put scans it).
  *
  * INDEX/next_id caches the next id; if missing it is recovered by one
- * streaming pass taking max(id)+1. INDEX/lock holds a single-writer flock for
- * the lifetime of the open handle.
+ * streaming pass taking max(id)+1. Reads take no lock; writers take an
+ * exclusive flock on INDEX/lock for the duration of one mutating op.
  *
  * Modules return 0/-1 (or a value/-1); only main.c turns errors into die().
  */
@@ -16,13 +16,25 @@
 
 #include "ais.h"
 
-/* Open (creating if absent) the INDEX dir A->dir, take the single-writer
- * flock on INDEX/lock, and load/recover A->next_id. Returns 0, or -1 on error
- * (dir cannot be made, lock already held, ...). */
+/* Open (creating if absent) the INDEX dir A->dir, open the lock file (but take
+ * NO lock -- reads are lock-free), and load/recover A->next_id. Returns 0, or
+ * -1 on error (dir cannot be made, ...). */
 int store_open(ais *a, const char *dir);
 
-/* Release the lock and flush next_id to disk. */
+/* Close the handle, releasing the lock fd. No lock is held between ops and
+ * next_id is saved by each write, so close does not persist next_id. */
 void store_close(ais *a);
+
+/* Writer lock for ONE mutating op: store_wlock takes an exclusive flock
+ * (blocking -- a second writer waits), store_wunlock releases it. Reads never
+ * lock. wlock returns 0/-1. */
+int  store_wlock(ais *a);
+void store_wunlock(ais *a);
+
+/* (Re)load A->next_id from disk (recovering from the store if the cache is
+ * absent). Writers call this under the lock so two processes never assign the
+ * same id. Returns 0/-1. */
+int  store_load_next_id(ais *a);
 
 /* Persist A->next_id to INDEX/next_id. Returns 0 on success, -1 on error. */
 int store_save_next_id(const ais *a);

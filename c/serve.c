@@ -193,6 +193,10 @@ static const char *ctype_of(const char *name)
         if (strcmp(dot, ".html") == 0) return "text/html";
         if (strcmp(dot, ".css")  == 0) return "text/css";
         if (strcmp(dot, ".js")   == 0) return "text/javascript";
+        if (strcmp(dot, ".svg")  == 0) return "image/svg+xml";
+        if (strcmp(dot, ".png")  == 0) return "image/png";
+        if (strcmp(dot, ".json") == 0) return "application/json";
+        if (strcmp(dot, ".webmanifest") == 0) return "application/manifest+json";
     }
     return "text/plain";
 }

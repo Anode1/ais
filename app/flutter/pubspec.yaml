@@ -1,0 +1,22 @@
+name: ais
+description: "AIS — associative index, native client (Flutter, FFI to the C engine)."
+publish_to: none
+version: 0.1.0
+
+environment:
+  sdk: ">=3.0.0 <4.0.0"
+
+# Versions are starting points; `flutter pub get` (or `flutter pub add <pkg>`)
+# will resolve current compatible releases on your machine.
+dependencies:
+  flutter:
+    sdk: flutter
+  ffi: ^2.1.0            # Pointer<Utf8>, calloc — for the C FFI seam
+  speech_to_text: ^6.6.0 # native iOS Speech / Android SpeechRecognizer
+  path_provider: ^2.1.0  # per-app data dir for the on-device index
+
+dev_dependencies:
+  flutter_lints: ^3.0.0
+
+flutter:
+  uses-material-design: true

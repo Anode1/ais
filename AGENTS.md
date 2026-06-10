@@ -1,13 +1,14 @@
 # AGENTS.md -- how to develop AIS (for humans and AI agents)
 
 AIS is a plain-text associative index in C99. This is the operating manual for
-working on it. Read it, then `doc/STYLE.md` and `doc/LAYOUT.md`.
+working on it. Read it, then `doc/dev/STYLE.md` and `doc/dev/LAYOUT.md`.
 
 ## The contract (read first)
 
-- **`doc/STYLE.md`** -- coding ideology: stack/streaming (avoid the heap), one
+- **`doc/dev/STYLE.md`** -- coding ideology: stack/streaming (avoid the heap), one
   concept per `.c/.h`, error handling, idioms, lineage. Non-negotiable.
-- **`doc/LAYOUT.md`** -- on-disk format, module map, algorithms, CLI, build order.
+- **`doc/dev/LAYOUT.md`** -- on-disk format, module map, algorithms, CLI, build order.
+- **`doc/dev/LOCKING.md`** -- reader/writer lock model and `next_id` correctness.
 - **`c/ais.h`** -- the public API. The engine implements it; the tests test it.
 
 These three are the contract. Do not change behavior without changing them first.
@@ -26,7 +27,7 @@ rebuildable from it and disposable.
 Tests are the objective gate. Never trust output you have not verified.
 
 1. **Lock the contract.** If the change needs new behavior, update
-   `ais.h` / `LAYOUT.md` / `STYLE.md` first, so there is one agreed spec.
+   `ais.h` / `doc/dev/LAYOUT.md` / `doc/dev/STYLE.md` first, so there is one agreed spec.
 2. **Implement** against the contract. One concept per file (see the module map).
    Engine modules return codes; only the CLI front-end (`main.c`, `feed.c`) calls
    `die()`.
@@ -57,7 +58,8 @@ building agent infrastructure that itself needs maintaining.
     c/         the engine (C99): key store post merge compact ais log help feed
                + main.c (CLI) + tests.c
     c/attic/   the pre-rewrite v0 prototype -- reference only, not built
-    doc/       STYLE.md, LAYOUT.md, PRIORITY.md, foundation.md
+    doc/       about.txt, OVERVIEW.md, PRIORITY.md, foundation.md, migration.txt  (public)
+    doc/dev/   STYLE.md, LAYOUT.md, LOCKING.md                                     (developers)
     tests/     the committed fixture (tests/INDEX/store)
     gui/       future reference GUI wrappers (thin callers of the CLI)
     legacy/    the 2005 shell + 2009 Java originals
