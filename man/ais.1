@@ -1,0 +1,168 @@
+.TH AIS 1 "June 2026" "ais 0.1" "User Commands"
+.SH NAME
+ais \- associative index: store values under keys, retrieve them by keys
+.SH SYNOPSIS
+.B ais
+.RB [ \-f
+.IR DIR ]
+.RB [ \-o ]
+.IR KEY ...
+.br
+.B ais
+.RB [ \-f
+.IR DIR ]
+.B put
+.I VALUE KEY ...
+.br
+.B ais
+.RB [ \-f
+.IR DIR ]
+.B put \-R
+.I DIR KEY ...
+.br
+.B ais
+.RB [ \-f
+.IR DIR ]
+.B put \-
+.I KEY ...
+.br
+.B ais
+.RB [ \-f
+.IR DIR ]
+.B find
+.I TEXT
+.br
+.B ais
+.RB [ \-f
+.IR DIR ]
+.RB { add | del | del-key | dump | keys | stats | compact }
+.RI [ ARG ...]
+.br
+.B ais init
+.SH DESCRIPTION
+.B ais
+is a personal, plain-text associative index. A value (a URL, a path, or free
+text) is filed under one or more keys; records are retrieved by the intersection
+(default) or union of keys. With no command, the default action is
+.BR get .
+.PP
+The store is append-only plain text and the index is navigable plain files, so
+the whole index can be read, grepped, rsynced, and repaired by hand. Re-filing a
+value already stored is idempotent.
+.SH OPTIONS
+.TP
+.BI \-f " DIR"
+Index directory. With no flag, the index is located by precedence: this flag,
+then
+.BR $AIS_INDEX ,
+then the nearest
+.I .ais/
+at or above the current directory (like git), then the per-user index
+.I $XDG_DATA_HOME/ais
+(else
+.IR ~/.local/share/ais ),
+created on first use.
+.TP
+.B \-o
+For
+.BR get ,
+match ANY key (union) instead of ALL (intersection).
+.TP
+.B \-d
+Debug tracing to standard error.
+.TP
+.B \-h
+Short usage.
+.B \-\-help
+prints full help with examples.
+.TP
+.B \-\-version
+Print the version and exit.
+.SH COMMANDS
+.TP
+.RB [ \-o "] " KEY ...
+(default) Print records filed under all, or with
+.BR \-o
+any, of the keys, as
+.IR id | value .
+.TP
+.B put \fIVALUE KEY ...\fR
+File VALUE under one or more keys.
+.TP
+.B put \-R \fIDIR KEY ...\fR
+File every file under DIR under the keys. Paths are stored relative to the
+.I .ais
+worktree root when there is one (so a moved tree still resolves), else absolute.
+.TP
+.B put \- \fIKEY ...\fR
+File each line of standard input (one value per line) under the keys.
+.TP
+.B add \fIID VALUE\fR
+Attach another value to record ID.
+.TP
+.B del \fIID\fR
+Delete record ID.
+.TP
+.B del-key \fIKEY\fR
+Delete every record filed under KEY.
+.TP
+.B dump
+Print every record.
+.TP
+.B keys
+List all keys, sorted and distinct.
+.TP
+.B stats
+Print counts of records, keys, and deleted records.
+.TP
+.B compact
+Reclaim space from deleted records.
+.TP
+.B find \fITEXT\fR
+Print live records whose value contains TEXT (a plain substring), as
+.IR id | value .
+.TP
+.B init
+Create a local
+.I .ais
+index in the current directory (then found from any subdirectory, like git).
+.SH EXAMPLES
+.nf
+ais put ~/photos/IMG_3920.jpg italy venice 2023
+ais put -R ~/photos/venice italy venice 2023
+find ~/photos -name '*.jpg' | ais put - italy venice 2023
+ais italy venice
+ais -o venice rome
+ais find gelato
+.fi
+.SH FILES
+These live inside the index directory (e.g.
+.I .ais/
+or
+.IR ~/.local/share/ais ):
+.TP
+.I store
+Append-only records,
+.IR id | keys | value .
+.TP
+.I idx/<p>/<key>
+Per-key posting lists (sorted record ids).
+.TP
+.I tomb
+Tombstoned (deleted) ids.
+.SH ENVIRONMENT
+.TP
+.B AIS_INDEX
+Index directory used when
+.B \-f
+is not given (takes precedence over discovery).
+.TP
+.B XDG_DATA_HOME
+Base for the per-user index
+.RI ( $XDG_DATA_HOME /ais );
+defaults to
+.IR ~/.local/share .
+.SH AUTHOR
+Vasili Gavrilov.
+.SH SEE ALSO
+The project README, doc/STYLE.md, doc/LAYOUT.md.

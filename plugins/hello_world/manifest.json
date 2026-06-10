@@ -1,0 +1,6 @@
+{
+  "name": "hello_world",
+  "version": "0.1",
+  "exec": "ais-hello",
+  "summary": "Smallest AIS plugin: greets, then shows index stats via `ais stats`."
+}

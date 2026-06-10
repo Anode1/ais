@@ -1,4 +1,4 @@
-# gui/ -- reference GUI wrappers (future)
+# gui/ -- reference GUI wrappers
 
 AIS is a command-line tool; the CLI is the portable, stable core. GUIs for
 non-CLI users live here as **thin wrappers that shell out to the `ais` binary and
@@ -20,6 +20,27 @@ wrapper for their environment (GNOME, KDE, web, ...) without touching the engine
 One subdirectory per toolkit, each a self-contained wrapper:
 
     gui/<toolkit>/        e.g. gui/tkinter/, gui/web/, gui/gtk/, gui/qt/
+
+## Demo wrappers (committed)
+
+Two equivalent ~50-line "put one record" demos, same layout and behavior --
+a keys entry, a value text area, a Put button, a status label:
+
+    wish gui/ais-put.tcl        # pure Tcl/Tk; most self-contained
+    python3 gui/ais-put.py      # Python/Tkinter twin, stdlib only
+
+Both locate the binary the same way (`ais` on PATH, else
+`/home/vas/ais/c/ais`) and call `ais put VALUE KEY...` via their language's
+argument-list exec (Tcl `exec`, Python `subprocess.run`) -- never a shell
+string, so spaces in the value are safe. The store is line-oriented (one
+record per line), so a **value must be a single line**: embedded newlines are
+flattened to spaces before the put, and the status line says so when it
+happens.
+
+Recommendation: **Tcl/Tk or Python/Tkinter** for portability -- both run on
+Linux, Windows, and macOS with no extra dependencies. Because the wrapper only
+calls `ais put`, a GTK, Qt, Cocoa, or web front end is equally possible; port
+the ~50 lines, keep the command line.
 
 ## Suggested reference wrapper
 

@@ -1,0 +1,15 @@
+#!/bin/sh
+# ais-hello -- the smallest AIS plugin (developer example).
+#
+# A plugin is just an executable. It receives the resolved index in $AIS_INDEX
+# and any extra args in "$@", and works by calling the `ais` CLI. Copy this
+# folder, rename to ais-<yourverb>, update manifest.json, and edit below.
+#
+# It only ADDS and reads -- never deletes -- per AIS's append-only policy.
+
+ais=${AIS:-ais}
+
+echo "hello from the AIS plugin system"
+[ -n "$AIS_INDEX" ] && echo "index: $AIS_INDEX"
+echo "current stats:"
+"$ais" stats

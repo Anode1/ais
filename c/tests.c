@@ -19,6 +19,7 @@
 #include "store.h"
 #include "compact.h"
 #include "stats.h"
+#include "find.h"
 
 #define FIXTURE_STORE "../tests/INDEX/store"   /* cwd is c/ under `make ut` */
 
@@ -298,6 +299,44 @@ static void test_get_and_or(void)
     scratch_rm(dir);
 }
 
+/* ---- get with many keys (>2): the k-way merge, AND and OR over 6 keys ----
+ * n=1 and n=2 are each special; the general k-way path only starts at 3, so
+ * this drives it well past that with a 6-key AND and a 6-key OR. One key is a
+ * UTF-8 Cyrillic word ("три" = "three"), so the same assertions ALSO prove
+ * that a lowercase non-ASCII key round-trips byte-transparently through
+ * put -> encode -> shard -> get -> merge (no extra checks). */
+static void test_get_multikey(void)
+{
+    ais a;
+    struct idvec v;
+    const char *dir = "/tmp/ais_ut_multikey";
+
+    scratch_rm(dir);
+    ais_open(&a, dir);
+    ais_put(&a, "one two три four five six", "all-six");       /* id 1: 6 keys */
+    ais_put(&a, "one two три four five",     "only-five");     /* id 2: 5 keys */
+    ais_put(&a, "six seven",                 "six-and-seven"); /* id 3        */
+
+    /* 6-key AND (incl. the UTF-8 key): only id 1 carries all six keys */
+    query(&a, AIS_AND, &v, 6, "one", "two", "три", "four", "five", "six");
+    { long w[1] = {1}; CHECK(ids_eq(&v, w, 1), "AND 6 keys incl. UTF-8 'три' -> {1}"); }
+
+    /* drop 'six' -> the 5-key AND now also admits id 2 */
+    query(&a, AIS_AND, &v, 5, "one", "two", "три", "four", "five");
+    { long w[2] = {1, 2}; CHECK(ids_eq(&v, w, 2), "AND 5 keys incl. UTF-8 'три' -> {1,2}"); }
+
+    /* 6-key AND with one absent key -> empty (short-circuit inside the merge) */
+    query(&a, AIS_AND, &v, 6, "one", "two", "три", "four", "five", "absent");
+    CHECK(v.n == 0, "AND 6 keys incl. absent -> empty");
+
+    /* 6-key OR across all three records: union of everything touching any key */
+    query(&a, AIS_OR, &v, 6, "one", "four", "six", "seven", "nine", "ten");
+    { long w[3] = {1, 2, 3}; CHECK(ids_eq(&v, w, 3), "OR 6 keys -> {1,2,3}, ascending"); }
+
+    ais_close(&a);
+    scratch_rm(dir);
+}
+
 /* ---- multi-link add: ais_record returns all values of a record ---- */
 static void test_add_multilink(void)
 {
@@ -571,6 +610,48 @@ static void test_del_key(void)
     scratch_rm(dir);
 }
 
+/* ---- find: value substring; key ignored; tombstoned records drop out ---- */
+static void test_find(void)
+{
+    ais a;
+    FILE *fp;
+    char buf[2048];
+    size_t got;
+    const char *dir = "/tmp/ais_ut_find";
+
+    scratch_rm(dir);
+    ais_open(&a, dir);
+    ais_put(&a, "trip", "venice is sinking");       /* id 1 */
+    ais_put(&a, "trip", "rome was hot");            /* id 2 */
+    ais_put(&a, "food", "best gelato in venice");   /* id 3 */
+
+    /* find 'venice' -> records 1 and 3 (value match), never 2 */
+    fp = tmpfile();
+    CHECK(ais_find(&a, "venice", fp) == 0, "find 'venice' -> 0");
+    rewind(fp); got = fread(buf, 1, sizeof(buf) - 1, fp); buf[got] = '\0'; fclose(fp);
+    CHECK(strstr(buf, "1|venice is sinking") != NULL, "find: hit id 1");
+    CHECK(strstr(buf, "3|best gelato in venice") != NULL, "find: hit id 3");
+    CHECK(strstr(buf, "rome") == NULL, "find: id 2 (no match) absent");
+
+    /* a substring that is in a KEY but not a value must NOT match (find is
+     * content, not tags): 'trip' is a key, never a value here */
+    fp = tmpfile();
+    CHECK(ais_find(&a, "trip", fp) == 0, "find 'trip' -> 0");
+    rewind(fp); got = fread(buf, 1, sizeof(buf) - 1, fp); buf[got] = '\0'; fclose(fp);
+    CHECK(got == 0, "find: key text is not matched");
+
+    /* tombstoned records drop out (the coverage the stats bug taught us) */
+    CHECK(ais_del(&a, 3) == 0, "find: del id 3 -> 0");
+    fp = tmpfile();
+    CHECK(ais_find(&a, "venice", fp) == 0, "find 'venice' after del -> 0");
+    rewind(fp); got = fread(buf, 1, sizeof(buf) - 1, fp); buf[got] = '\0'; fclose(fp);
+    CHECK(strstr(buf, "1|venice is sinking") != NULL, "find: id 1 still hit");
+    CHECK(strstr(buf, "gelato") == NULL, "find: tombstoned id 3 suppressed");
+
+    ais_close(&a);
+    scratch_rm(dir);
+}
+
 int main(void)
 {
     printf("AIS regression tests (make ut)\n");
@@ -583,6 +664,7 @@ int main(void)
     test_put_new_key_ordered_insert();
     printf("get:\n");
     test_get_and_or();
+    test_get_multikey();
     printf("add:\n");
     test_add_multilink();
     printf("del:\n");
@@ -592,6 +674,8 @@ int main(void)
     test_keys();
     printf("stats:\n");
     test_stats();
+    printf("find:\n");
+    test_find();
     printf("compact:\n");
     test_compact();
     printf("recovery:\n");

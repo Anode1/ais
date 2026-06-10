@@ -8,58 +8,80 @@
 #
 # AIS re-engineering (2026): ANSI C / C99, plain-text sharded store (no binary backend).
 #
+# Honors the standard variables, so packagers and other compilers just work:
+#   CC CFLAGS CPPFLAGS LDFLAGS LDLIBS  -- project flags are APPENDED, never
+#   override yours (distros inject hardening; macOS/BSD supply clang as cc).
+# Profiles:  make | make release | make debug | make pedantic | make static
+#   `static` is Linux-only: macOS/BSD ship no static libc, and there the plain
+#   `make` binary links only the always-present system libc -- equally portable.
+#
 
-SHELL=/bin/sh
+SHELL = /bin/sh
 
-BIN=ais
-TESTBIN=ais_ut
+BIN     = ais
+TESTBIN = ais_ut
 
-ARCH := `uname`
+UNAME := $(shell uname)
 
-NOCYGWIN=
+# -- toolchain (overridable on the command line or by the packager) --------
+CC       ?= cc
+CFLAGS   ?= -O2
+CPPFLAGS ?=
+LDFLAGS  ?=
+LDLIBS   ?=
 
-ifeq ($(ARCH), CYGWIN32/95)
-	NOCYGWIN= -mno-cygwin
+# -- project-required flags (always applied, before yours) -----------------
+NOCYGWIN =
+ifeq ($(UNAME), CYGWIN32/95)
+	NOCYGWIN = -mno-cygwin
 endif
-ifeq ($(ARCH), CYGWIN32/NT)
-	NOCYGWIN= -mno-cygwin
+ifeq ($(UNAME), CYGWIN32/NT)
+	NOCYGWIN = -mno-cygwin
 endif
 
+AIS_STD    = -std=c99
+AIS_WARN   = -W -Wall
+AIS_CFLAGS = $(NOCYGWIN) $(AIS_STD) $(AIS_WARN)
 
-# consider all *.c as sources (no editing this file when adding new .c)
+# all *.c are sources (no editing this file when a new .c is added)
 SOURCES.c := $(wildcard *.c)
+OBJS       = $(SOURCES.c:.c=.o)
 
+# -- profiles tweak only the standard knobs --------------------------------
+debug    : CFLAGS   = -g -O0
+debug    : AIS_WARN += -Wundef
+pedantic : AIS_STD   = -std=c99 -pedantic
+pedantic : AIS_WARN += -Wundef -Wstrict-prototypes -Wmissing-prototypes -Wmissing-declarations
+release  : CFLAGS    = -O2
+static   : LDFLAGS  += -static
 
-CFLAGS= $(NOCYGWIN) -std=c99 -W -Wall
-CPPFLAGS=
-CC=gcc
-SLIBS=
-INCLUDES=
-OBJS=$(SOURCES.c:.c=.o)
-LINK=gcc $(CFLAGS)
-LFLAGS=-lm
-
-debug    : CFLAGS = $(NOCYGWIN) -std=c99 -W -Wall -g -Wundef
-pedantic : CFLAGS = $(NOCYGWIN) -std=c99 -pedantic -W -Wall -g -Wundef -Wstrict-prototypes -Wmissing-prototypes -Wmissing-declarations
-release  : CFLAGS = $(NOCYGWIN) -std=c99 -W -Wall -O2
 .SUFFIXES:
 .SUFFIXES: .d .o .h .c
-.c.o: ; $(CC) $(INCLUDES) $(CFLAGS) -MMD -c $*.c
+.c.o: ; $(CC) $(AIS_CFLAGS) $(CPPFLAGS) $(CFLAGS) -MMD -c $*.c
 
-.PHONY: clean ut
+.PHONY: clean ut check static static-guard
 
 all release debug pedantic: $(BIN)
 
+# static: a fully self-contained binary -- Linux only (macOS has no static libc).
+static: static-guard $(BIN)
+static-guard:
+ifeq ($(UNAME),Darwin)
+	@echo "ais: 'make static' is unsupported on macOS (no static libSystem)." >&2
+	@echo "     Use plain 'make' -- the dynamic binary links only libSystem," >&2
+	@echo "     present on every macOS, so it carries no add-on libraries." >&2
+	@false
+endif
+
 $(BIN): $(OBJS)
-	$(LINK) $(FLAGS) -o $(BIN) $(OBJS) $(LFLAGS)
+	$(CC) $(AIS_CFLAGS) $(CFLAGS) $(LDFLAGS) -o $(BIN) $(OBJS) $(LDLIBS)
 
-# The test binary ($(TESTBIN)) is built from all sources with -DUNIT_TEST, so it
-# rebuilds only when a source changes. `ut` is .PHONY, so it ALWAYS runs the tests
-# (rebuilding first if needed). Mirrors kul's `ut`; exit non-zero on any failure.
+# Test binary: all sources with -DUNIT_TEST; rebuilt only when a source changes.
+# `ut`/`check` are .PHONY, so they ALWAYS run (rebuilding first if needed).
 $(TESTBIN): $(SOURCES.c)
-	$(CC) $(NOCYGWIN) -std=c99 -W -Wall -g -DUNIT_TEST $(INCLUDES) $(SOURCES.c) -o $(TESTBIN) $(LFLAGS)
+	$(CC) $(AIS_CFLAGS) -g -DUNIT_TEST $(CPPFLAGS) $(SOURCES.c) -o $(TESTBIN) $(LDLIBS)
 
-ut: $(TESTBIN)
+ut check: $(TESTBIN)
 	./$(TESTBIN)
 
 clean:
