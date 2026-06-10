@@ -19,9 +19,11 @@
  */
 #define _DEFAULT_SOURCE          /* htonl, strtok_r */
 #define _POSIX_C_SOURCE 200809L
+#include <ctype.h>
 #include <netinet/in.h>
 #include <signal.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
 #include <unistd.h>
@@ -44,7 +46,8 @@ static const char PAGE[] =
 "<style>body{font:15px system-ui;margin:2rem auto;max-width:640px;padding:0 1rem}"
 "h1{font-size:1.3rem}.row{display:flex;gap:.5rem}#q{flex:1;font:inherit;padding:.6rem}"
 "button{font:inherit;padding:.55rem 1rem;cursor:pointer}#out{margin-top:1rem}"
-".hit{padding:.5rem 0;border-bottom:1px solid #eee}.hit a{color:#1a0dab;text-decoration:none}"
+".hit{padding:.7rem .2rem;border-bottom:1px solid #ddd}.hit:last-child{border-bottom:0}"
+".hit:hover{background:#fafafa}.hit a{color:#1a0dab;text-decoration:none}"
 ".muted{color:#777}#addbtn{margin-top:2rem;background:none;border:0;color:#1a0dab;cursor:pointer;font:inherit;padding:0}"
 "#add{display:none;margin-top:.5rem;border-top:1px solid #eee;padding-top:1rem}"
 "#add textarea{width:100%;box-sizing:border-box;font:inherit;padding:.5rem;height:5rem}</style>"
@@ -176,6 +179,55 @@ static long do_put(ais *a, const char *keys, char *body)
     return count;
 }
 
+static void not_found(int fd)
+{
+    static const char nf[] =
+        "HTTP/1.0 404 Not Found\r\nConnection: close\r\n\r\nnot found\n";
+    write_all(fd, nf, sizeof(nf) - 1);
+}
+
+static const char *ctype_of(const char *name)
+{
+    const char *dot = strrchr(name, '.');
+    if (dot != NULL) {
+        if (strcmp(dot, ".html") == 0) return "text/html";
+        if (strcmp(dot, ".css")  == 0) return "text/css";
+        if (strcmp(dot, ".js")   == 0) return "text/javascript";
+    }
+    return "text/plain";
+}
+
+/* Serve an external asset <webdir>/<name> if present, so the look can be edited
+ * as plain files (kul-style) instead of the embedded PAGE. webdir = $AIS_WEB,
+ * else "gui/web". NAME must be one safe filename (letters/digits/._-), with no
+ * '/' or "..", so the browser cannot escape the dir. Returns 1 if served. */
+static int serve_asset(int fd, const char *name)
+{
+    const char *webdir = getenv("AIS_WEB");
+    char path[AIS_PATH_MAX], buf[8192];
+    FILE *fp;
+    size_t n;
+    const char *p;
+
+    if (name[0] == '\0')
+        return 0;
+    for (p = name; *p != '\0'; p++)
+        if (!isalnum((unsigned char)*p) && *p != '.' && *p != '_' && *p != '-')
+            return 0;                     /* reject '/', '..', anything unsafe */
+    if (webdir == NULL || webdir[0] == '\0')
+        webdir = "gui/web";
+    if (snprintf(path, sizeof(path), "%s/%s", webdir, name) >= (int)sizeof(path))
+        return 0;
+    fp = fopen(path, "rb");
+    if (fp == NULL)
+        return 0;
+    send_head(fd, ctype_of(name));
+    while ((n = fread(buf, 1, sizeof(buf), fp)) > 0)
+        write_all(fd, buf, n);
+    fclose(fp);
+    return 1;
+}
+
 /* ---- one request -------------------------------------------------------- */
 static void handle(ais *a, int fd)
 {
@@ -212,11 +264,7 @@ static void handle(ais *a, int fd)
         }
     }
 
-    if (strcmp(method, "GET") == 0 &&
-        (strcmp(path, "/") == 0 || strcmp(path, "/index.html") == 0)) {
-        send_head(fd, "text/html");
-        write_all(fd, PAGE, sizeof(PAGE) - 1);
-    } else if (strcmp(method, "GET") == 0 && strcmp(path, "/api/get") == 0) {
+    if (strcmp(method, "GET") == 0 && strcmp(path, "/api/get") == 0) {
         send_head(fd, "text/plain");
         do_get(a, keys, fd);
     } else if (strcmp(method, "POST") == 0 && strcmp(path, "/api/put") == 0) {
@@ -226,10 +274,20 @@ static void handle(ais *a, int fd)
         send_head(fd, "text/plain");
         if (m > 0)
             write_all(fd, msg, (size_t)m);
+    } else if (strcmp(method, "GET") == 0) {
+        /* an external asset (e.g. /style.css) if gui/web has it; the root falls
+         * back to the embedded page so the binary still works with no files. */
+        const char *name = (strcmp(path, "/") == 0) ? "index.html" : path + 1;
+        if (serve_asset(fd, name)) {
+            /* served from disk */
+        } else if (strcmp(name, "index.html") == 0) {
+            send_head(fd, "text/html");
+            write_all(fd, PAGE, sizeof(PAGE) - 1);
+        } else {
+            not_found(fd);
+        }
     } else {
-        static const char nf[] =
-            "HTTP/1.0 404 Not Found\r\nConnection: close\r\n\r\nnot found\n";
-        write_all(fd, nf, sizeof(nf) - 1);
+        not_found(fd);
     }
 }
 
@@ -258,6 +316,19 @@ int ais_serve(ais *a, int port)
         return -1;
     }
     fprintf(stderr, "ais serve: http://127.0.0.1:%d/  (Ctrl-C to stop)\n", port);
+
+    /* best-effort: open the page in the user's browser (this is GUI-wrapper
+     * behaviour). macOS `open`, Linux `xdg-open`; ignored if neither exists. */
+    {
+        char cmd[224];
+        int rc;
+        snprintf(cmd, sizeof(cmd),
+                 "{ xdg-open 'http://127.0.0.1:%d/' || open 'http://127.0.0.1:%d/'"
+                 " || cygstart 'http://127.0.0.1:%d/'; } >/dev/null 2>&1 &",
+                 port, port, port);     /* xdg-open: Linux, open: macOS, cygstart: Cygwin */
+        rc = system(cmd);
+        (void)rc;
+    }
 
     for (;;) {
         cfd = accept(sfd, NULL, NULL);

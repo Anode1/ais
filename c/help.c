@@ -13,9 +13,11 @@ void usage_short(FILE *out)
 "       ais init                       create a local .ais index here (git-style)\n"
 "       ais import < FILE              add 'keys|value' lines (inverse of dump)\n"
 "       ais doc KEY... < FILE          save stdin as a document (a blob file)\n"
+"       ais project [KEY]              show / set / clear ('') the default project\n"
 "  -f DIR  index dir; else $AIS_INDEX, else nearest .ais/, else ~/.local/share/ais\n"
 "  -o      match ANY key (OR) instead of ALL (AND)\n"
-"  -V      print version\n"
+"  -p KEY  default project key prepended to every put ('' resets; see 'project')\n"
+"  -i  interactive add    -y  yes to del/compact    -V  version\n"
 "  run 'ais --help' for examples\n",
         out);
 }
@@ -42,6 +44,7 @@ void usage_long(FILE *out)
 "  ais [-f DIR] import < FILE      add 'keys|value' lines (the inverse of dump)\n"
 "  ais [-f DIR] doc KEY... < FILE  save a multi-line document as a blob file\n"
 "  ais [-f DIR] where              print the resolved index directory\n"
+"  ais [-f DIR] project [KEY]      show / set / clear ('') the default project key\n"
 "\n"
 "EXAMPLES\n"
 "  # after a trip: tag one photo, then a whole folder\n"
@@ -64,6 +67,10 @@ void usage_long(FILE *out)
 "OPTIONS\n"
 "  -f, --index DIR   index directory (else: see INDEX LOCATION below)\n"
 "  -o, --or          match ANY key (union) instead of all (intersection)\n"
+"  -p, --project KEY default project key prepended to every put ('' = none;\n"
+"                    persistent via 'ais project KEY', or env $AIS_PROJECT)\n"
+"  -i, --interactive add interactively: stdin lines are values, prompts for keys\n"
+"  -y, --yes         assume yes for del / del-key / compact (no prompt)\n"
 "  -h                short help;  --help  this full help\n"
 "  -V, --version     print version and exit\n"
 "\n"

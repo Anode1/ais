@@ -19,7 +19,7 @@ INSTALL         ?= install
 INSTALL_PROGRAM ?= $(INSTALL) -m 755
 INSTALL_DATA    ?= $(INSTALL) -m 644
 
-.PHONY: all ut clean static install install-strip uninstall distclean check checkcli
+.PHONY: all ut clean static install install-strip uninstall distclean check checkcli dist
 
 # Build the engine in c/, then copy the binary up to the repo root as ./ais, so
 # from a source checkout you can run ./ais instead of ./c/ais.
@@ -47,6 +47,11 @@ check: all
 checkcli: all
 	@sh tests/cli.sh "$(CURDIR)/c/ais"
 
+# dist = a release bundle for THIS platform into releases/ (kept across runs;
+# md5 sidecar included). Run it on each platform; see scripts/dist.sh.
+dist:
+	@sh scripts/dist.sh
+
 install:
 	@test -f c/ais || { echo "build first: run 'make' or 'make static'"; exit 1; }
 	$(INSTALL) -d "$(DESTDIR)$(bindir)" "$(DESTDIR)$(mandir)"
@@ -61,5 +66,8 @@ uninstall:
 	rm -f "$(DESTDIR)$(bindir)/ais" "$(DESTDIR)$(mandir)/ais.1"
 	@echo "removed ais from $(DESTDIR)$(bindir)"
 
+# distclean = the full reset: clean + remove everything generated, including the
+# root ./ais and the releases/ that `dist` deliberately keeps across runs.
 distclean:
 	$(MAKE) -C c clean
+	-rm -rf releases ais

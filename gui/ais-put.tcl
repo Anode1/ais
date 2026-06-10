@@ -22,7 +22,8 @@ ttk::entry  .f.q   -font {TkDefaultFont 12}
 ttk::button .f.get -text "Get" -command do_get
 text        .f.res -height 14 -wrap word -font {TkTextFont 11} -state disabled \
                    -relief solid -borderwidth 1 -padx 8 -pady 8
-.f.res tag configure head -foreground "#777777" -spacing3 6
+.f.res tag configure head -foreground "#777777" -spacing3 10
+.f.res tag configure item -spacing1 4 -spacing3 4   ;# space above+below each result
 .f.res tag configure link -foreground "#1a0dab"
 ttk::button .f.add -text "+ add" -command toggle_add
 ttk::label  .f.status -text "type keys to recall, then Get" -anchor w
@@ -81,7 +82,9 @@ proc do_get {} {
     .f.res delete 1.0 end
     .f.res insert end "$n result[expr {$n == 1 ? {} : {s}}] for $keys - $ms ms\n" head
     foreach v $vals {
-        .f.res insert end "$v\n" [expr {[string match "http*" $v] ? "link" : ""}]
+        set tags item
+        if {[string match "http*" $v]} { lappend tags link }
+        .f.res insert end "$v\n" $tags
     }
     .f.res configure -state disabled
     .f.status configure -text "recall: $keys"

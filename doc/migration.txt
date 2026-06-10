@@ -1,0 +1,35 @@
+AIS backup, restore, and upgrade
+================================
+The store is the source of truth and is plain text, so backup and migration are
+boring on purpose.
+
+Whole-index backup (everything; survives any version)
+  Copy or rsync the index directory -- all plain files (store, meta, blobs/, the
+  version stamp, and the rebuildable idx/ off multi tomb). rsync -a is exact:
+      rsync -a ~/.local/share/ais/  /backup/ais/
+  Restore: copy it back. blobs/ (your documents) travel with it.
+
+Portable export (one file, like a bookmark export)
+  `ais dump` emits  id|keys|value  -- the interchange format, decoupled from the
+  internal storage:
+      ais dump > my-index.txt
+  Load it elsewhere (strip the id; the inverse of dump):
+      sed 's/^[0-9]*|//' my-index.txt | ais import
+  NOTE: dump records blob PATHS, not blob bodies -- include the blobs/ dir too if
+  you use documents (or just back up the whole directory).
+
+Format version
+  Each index carries a one-line  version  file (the on-disk format number; v1
+  today). ais stamps it on create and refreshes it on  compact. An ais too old
+  for an index's version refuses to open it, rather than risk corruption.
+      cat ~/.local/share/ais/version
+
+Upgrading across a format change (the procedure, if the format ever changes)
+  Golden rule: an ais can always DUMP an older store, so a migration is:
+      old-ais dump > backup.txt        # with the old binary
+      new-ais import < backup.txt      # into a fresh index with the new binary
+  For derived-only changes (idx/off/multi), just run  ais compact  with the new
+  binary -- it rebuilds them from the unchanged store and re-stamps the version.
+
+No JSON: the plain-text dump is the Unix interchange (grep/awk/diff all work).
+A JSON export exists only as an optional plugin, for other apps -- not the core.

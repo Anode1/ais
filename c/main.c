@@ -73,6 +73,83 @@ static int join_keys(char *const argv[], int from, int argc,
     return 0;
 }
 
+/* ---- default project key (prepended to the keys on every write) --------- */
+
+/* Read the persistent default project (INDEX/project), trimmed, into OUT
+ * (OUT is "" if the file is absent or empty). */
+static void read_project(const ais *a, char *out, size_t outsz)
+{
+    char path[AIS_PATH_MAX];
+    FILE *fp;
+    size_t n;
+
+    out[0] = '\0';
+    if (snprintf(path, sizeof(path), "%s/project", a->dir) >= (int)sizeof(path))
+        return;
+    fp = fopen(path, "r");
+    if (fp == NULL)
+        return;
+    if (fgets(out, (int)outsz, fp) != NULL) {
+        n = strlen(out);
+        while (n > 0 && (out[n - 1] == '\n' || out[n - 1] == '\r' || out[n - 1] == ' '))
+            out[--n] = '\0';
+    }
+    fclose(fp);
+}
+
+/* Write the persistent default project; an empty KEY removes it. 0/-1. */
+static int write_project(const ais *a, const char *key)
+{
+    char path[AIS_PATH_MAX];
+    FILE *fp;
+
+    if (snprintf(path, sizeof(path), "%s/project", a->dir) >= (int)sizeof(path))
+        return -1;
+    if (key == NULL || key[0] == '\0') {
+        remove(path);                 /* clear the default */
+        return 0;
+    }
+    fp = fopen(path, "w");
+    if (fp == NULL)
+        return -1;
+    fprintf(fp, "%s\n", key);
+    return (fclose(fp) == 0) ? 0 : -1;
+}
+
+/* The effective project key for this invocation, by precedence:
+ *   -p/--project flag (empty = explicit none) > $AIS_PROJECT > INDEX/project. */
+static void resolve_project(const ais *a, const char *flag, int given,
+                            char *out, size_t outsz)
+{
+    const char *env;
+
+    if (given) {                      /* -p given: its value wins ("" = none) */
+        snprintf(out, outsz, "%s", flag ? flag : "");
+        return;
+    }
+    env = getenv("AIS_PROJECT");
+    if (env != NULL && env[0] != '\0') {
+        snprintf(out, outsz, "%s", env);
+        return;
+    }
+    read_project(a, out, outsz);
+}
+
+/* OUT = "PROJECT KEYS" (two writes, so no "%s %s" truncation warning). */
+static void build_keys(const char *project, const char *keys,
+                       char *out, size_t outsz)
+{
+    size_t k = 0;
+
+    out[0] = '\0';
+    if (project[0] != '\0') {
+        int n = snprintf(out, outsz, "%s", project);
+        k = (n > 0) ? (size_t)n : 0;
+    }
+    if (keys[0] != '\0' && k < outsz)
+        snprintf(out + k, outsz - k, "%s%s", k ? " " : "", keys);
+}
+
 /* ---- keys --------------------------------------------------------------- */
 
 /* Print one key per line to stdout (the ais_keys callback). */
@@ -95,7 +172,8 @@ static int is_verb(const char *s)
            strcmp(s, "stats") == 0 || strcmp(s, "del-key") == 0 ||
            strcmp(s, "find") == 0 || strcmp(s, "init") == 0 ||
            strcmp(s, "import") == 0 || strcmp(s, "doc") == 0 ||
-           strcmp(s, "where") == 0 || strcmp(s, "serve") == 0;
+           strcmp(s, "where") == 0 || strcmp(s, "serve") == 0 ||
+           strcmp(s, "project") == 0;
 }
 
 static void do_get(ais *a, char *const keys[], int nkeys, ais_mode mode)
@@ -107,9 +185,10 @@ static void do_get(ais *a, char *const keys[], int nkeys, ais_mode mode)
         die("get failed");
 }
 
-static void do_put(ais *a, int argc, char **argv, int idx)
+static void do_put(ais *a, int argc, char **argv, int idx, const char *project)
 {
     char keys[AIS_LINE_MAX];
+    char full[AIS_LINE_MAX];
 
     /* put -R DIR KEY... : index every file under DIR (recursive) */
     if (idx < argc && strcmp(argv[idx], "-R") == 0) {
@@ -119,7 +198,8 @@ static void do_put(ais *a, int argc, char **argv, int idx)
             die("put -R needs at least one key");
         if (join_keys(argv, idx + 2, argc, keys, sizeof(keys)) != 0)
             die("key list too long");
-        feed_dir(a, argv[idx + 1], keys);
+        build_keys(project, keys, full, sizeof(full));
+        feed_dir(a, argv[idx + 1], full);
         return;
     }
 
@@ -129,7 +209,8 @@ static void do_put(ais *a, int argc, char **argv, int idx)
             die("put - needs at least one key");
         if (join_keys(argv, idx + 1, argc, keys, sizeof(keys)) != 0)
             die("key list too long");
-        feed_stdin(a, keys);
+        build_keys(project, keys, full, sizeof(full));
+        feed_stdin(a, full);
         return;
     }
 
@@ -140,8 +221,9 @@ static void do_put(ais *a, int argc, char **argv, int idx)
         die("put needs at least one KEY after the value");
     if (join_keys(argv, idx + 1, argc, keys, sizeof(keys)) != 0)
         die("key list too long");
+    build_keys(project, keys, full, sizeof(full));
     {
-        long id = ais_put(a, keys, argv[idx]);
+        long id = ais_put(a, full, argv[idx]);
         if (id < 0)
             die("put failed");
         printf("%ld\n", id);
@@ -200,22 +282,27 @@ int main(int argc, char **argv)
         { "version", no_argument,     NULL, 'V' },
         { "yes",         no_argument,  NULL, 'y' },
         { "interactive", no_argument,  NULL, 'i' },
+        { "project", required_argument, NULL, 'p' },
         { NULL,      0,               NULL,  0  }
     };
     const char *dir = NULL;
+    const char *project_arg = NULL;
     ais_mode mode = AIS_AND;
     int assume_yes = 0;
     int interactive = 0;
+    int project_given = 0;
+    char project[AIS_KEY_MAX];
     ais a;
     int c, idx;
 
     /* '+': stop option parsing at the first non-option, so a value or key that
      * looks like an option (rare) is not eaten; verbs/keys follow. */
-    while ((c = getopt_long(argc, argv, "+f:odhVyi", longopts, NULL)) != -1) {
+    while ((c = getopt_long(argc, argv, "+f:odhVyip:", longopts, NULL)) != -1) {
         switch (c) {
         case 'f': dir = optarg;             break;
         case 'o': mode = AIS_OR;            break;
         case 'i': interactive = 1;          break;
+        case 'p': project_arg = optarg; project_given = 1; break;
         case 'y': assume_yes = 1;           break;
         case 'd': ais_debug_flag = 1;       break;
         case 'h': usage_short(stdout);      return 0;
@@ -248,11 +335,14 @@ int main(int argc, char **argv)
     if (ais_open(&a, dir) != 0)
         die("cannot open index '%s' (in use, or unwritable)", dir);
 
+    resolve_project(&a, project_arg, project_given, project, sizeof(project));
+
     if (interactive) {
-        char base[AIS_LINE_MAX];
+        char base[AIS_LINE_MAX], full[AIS_LINE_MAX];
         if (join_keys(argv, optind, argc, base, sizeof(base)) != 0)
             die("key list too long");
-        feed_interactive(&a, base);
+        build_keys(project, base, full, sizeof(full));
+        feed_interactive(&a, full);
         ais_close(&a);
         return 0;
     }
@@ -261,7 +351,7 @@ int main(int argc, char **argv)
     if (is_verb(argv[idx])) {
         const char *verb = argv[idx++];
         if (strcmp(verb, "put") == 0)
-            do_put(&a, argc, argv, idx);
+            do_put(&a, argc, argv, idx, project);
         else if (strcmp(verb, "add") == 0)
             do_add(&a, argc, argv, idx);
         else if (strcmp(verb, "del") == 0)
@@ -299,15 +389,30 @@ int main(int argc, char **argv)
             feed_import(&a);
         }
         else if (strcmp(verb, "doc") == 0) {
-            char dkeys[AIS_LINE_MAX];
+            char dkeys[AIS_LINE_MAX], dfull[AIS_LINE_MAX];
             if (idx >= argc)
                 die("doc needs at least one KEY");
             if (join_keys(argv, idx, argc, dkeys, sizeof(dkeys)) != 0)
                 die("key list too long");
-            feed_doc(&a, dkeys);
+            build_keys(project, dkeys, dfull, sizeof(dfull));
+            feed_doc(&a, dfull);
         }
         else if (strcmp(verb, "where") == 0) {
             printf("%s\n", dir);
+        }
+        else if (strcmp(verb, "project") == 0) {
+            if (idx < argc) {                 /* set (empty arg clears it) */
+                if (write_project(&a, argv[idx]) != 0)
+                    die("project: cannot write");
+                if (argv[idx][0] == '\0')
+                    printf("default project cleared\n");
+                else
+                    printf("default project: %s\n", argv[idx]);
+            } else {                          /* show */
+                char cur[AIS_KEY_MAX];
+                read_project(&a, cur, sizeof(cur));
+                printf("%s\n", cur[0] != '\0' ? cur : "(no default project)");
+            }
         }
         else if (strcmp(verb, "serve") == 0) {
             int port = (idx < argc) ? atoi(argv[idx]) : 8765;

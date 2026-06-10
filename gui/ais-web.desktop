@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=AIS
+Comment=Recall your notes, links, and commands
+Exec=ais serve
+Terminal=false
+Categories=Utility;Office;

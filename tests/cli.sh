@@ -184,5 +184,21 @@ okeq "doc: blob preserved 3 lines"   "3" "$(wc -l < "$DC/blobs/1.txt")"
 ok "where: prints the index dir"     "$DC" "$("$AIS" -f "$DC" where)"
 rm -rf "$DC"
 
+# 12. default project key: set it, every put gets it; -p '' resets; env overrides
+PJ=$(mktemp -d "${TMPDIR:-/tmp}/ais_proj.XXXXXX") || exit 2
+"$AIS" -f "$PJ" project kul >/dev/null
+"$AIS" -f "$PJ" put "deploy-cmd" deploy >/dev/null
+ok "project: put auto-tagged with default 'kul'" "deploy-cmd" "$("$AIS" -f "$PJ" kul)"
+ok "project: also under the explicit key"        "deploy-cmd" "$("$AIS" -f "$PJ" deploy)"
+"$AIS" -f "$PJ" -p '' put "global note" misc >/dev/null
+case "$("$AIS" -f "$PJ" kul)" in
+    *"global note"*) fail=$((fail + 1)); echo "  FAIL project: -p '' leaked into kul" ;;
+    *)               pass=$((pass + 1)); echo "  ok   project: -p '' resets (not under kul)" ;;
+esac
+out=$(AIS_PROJECT=env1 "$AIS" -f "$PJ" put "envval" thing >/dev/null; "$AIS" -f "$PJ" env1)
+ok "project: \$AIS_PROJECT overrides the file"   "envval" "$out"
+ok "project: show the default"                   "kul"    "$("$AIS" -f "$PJ" project)"
+rm -rf "$PJ"
+
 echo "---- $pass passed, $fail failed"
 [ "$fail" -eq 0 ]
