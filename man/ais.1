@@ -11,56 +11,60 @@ ais \- associative index: store values under keys, retrieve them by keys
 .B ais
 .RB [ \-f
 .IR DIR ]
-.B put
-.I VALUE KEY ...
+.B \-v
+.I VALUE
+.RI [ KEY ...]
 .br
 .B ais
 .RB [ \-f
 .IR DIR ]
-.B put \-R
-.I DIR KEY ...
+.B \-R
+.I DIR
+.RI [ KEY ...]
 .br
 .B ais
 .RB [ \-f
 .IR DIR ]
-.B put \-
-.I KEY ...
-.br
-.B ais
-.RB [ \-f
-.IR DIR ]
-.B find
+.B \-\-find
 .I TEXT
 .br
 .B ais
 .RB [ \-f
 .IR DIR ]
-.RB { add | del | del-key | dump | keys | stats | compact }
-.RI [ ARG ...]
-.br
-.B ais init
+.B \-\-doc
+.RI [ KEY ...]
 .br
 .B ais
 .RB [ \-f
 .IR DIR ]
-.B import
+.B \-\-add
+.I ID
+.B \-v
+.I VALUE
 .br
 .B ais
 .RB [ \-f
 .IR DIR ]
-.B doc
-.I KEY ...
-.br
-.B ais
-.RB [ \-f
-.IR DIR ]
-.B where
+.BR \-\-del | \-\-del-key | \-\-dump | \-\-keys | \-\-stats | \-\-compact | \-\-import | \-\-where | \-\-project | \-\-serve | \-\-init
+.RI [ ARG ]
 .SH DESCRIPTION
 .B ais
 is a personal, plain-text associative index. A value (a URL, a path, or free
 text) is filed under one or more keys; records are retrieved by the intersection
-(default) or union of keys. With no command, the default action is
-.BR get .
+(default) or union of keys.
+.PP
+The grammar is flag-based so no tag is ever shadowed by a command: a
+.B bare
+word is always a KEY (recall is the default action), a value to store is marked
+with
+.BR \-v ,
+and a command is a
+.BR \-\-word .
+Thus
+.B ais doc
+recalls the tag "doc", while
+.B ais \-\-doc
+is the command.
 .PP
 The store is append-only plain text and the index is navigable plain files, so
 the whole index can be read, grepped, rsynced, and repaired by hand. Re-filing a
@@ -80,9 +84,33 @@ at or above the current directory (like git), then the per-user index
 created on first use.
 .TP
 .B \-o
-For
-.BR get ,
-match ANY key (union) instead of ALL (intersection).
+Recall ANY key (union) instead of ALL (intersection).
+.TP
+.BI \-v " VALUE"
+A value to store (put mode). Repeatable: extra
+.B \-v
+values attach to the same record (multi-link).
+.B \-v \-
+reads values from standard input, one per line. Keys are optional.
+.TP
+.BI \-k " KEY"
+An explicit key, for a key that begins with
+.RB ' \- '.
+.TP
+.BI \-p " KEY"
+Default project key prepended to this put ('' = none); persistent default is set
+with
+.BR "ais \-\-project KEY" ,
+or via
+.BR $AIS_PROJECT .
+.TP
+.B \-i
+Interactive store: standard-input lines are values, keys are prompted per line.
+.TP
+.B \-y
+Assume yes for
+.BR \-\-del / \-\-del-key / \-\-compact
+(no prompt).
 .TP
 .B \-d
 Debug tracing to standard error.
@@ -91,83 +119,89 @@ Debug tracing to standard error.
 Short usage.
 .B \-\-help
 prints full help with examples.
-.TP
 .B \-\-version
-Print the version and exit.
+prints the version.
 .SH COMMANDS
 .TP
 .RB [ \-o "] " KEY ...
-(default) Print records filed under all, or with
+(default) Recall records filed under all, or with
 .BR \-o
 any, of the keys, as
 .IR id | value .
 .TP
-.B put \fIVALUE KEY ...\fR
-File VALUE under one or more keys.
+.B \-v \fIVALUE\fR [\fIKEY ...\fR]
+Store VALUE under zero or more keys (keyless is allowed; recall it later by
+.B \-\-find
+or by tagging it).
 .TP
-.B put \-R \fIDIR KEY ...\fR
-File every file under DIR under the keys. Paths are stored relative to the
+.B \-R \fIDIR\fR [\fIKEY ...\fR]
+Store every file under DIR. Paths are stored relative to the
 .I .ais
 worktree root when there is one (so a moved tree still resolves), else absolute.
 .TP
-.B put \- \fIKEY ...\fR
-File each line of standard input (one value per line) under the keys.
+.B \-\-find \fITEXT\fR
+Recall live records whose value contains TEXT (a plain substring).
 .TP
-.B add \fIID VALUE\fR
-Attach another value to record ID.
+.B \-\-add \fIID\fR \-v \fIVALUE\fR
+Attach another value to record ID (repeat
+.B \-v
+for several).
 .TP
-.B del \fIID\fR
+.B \-\-del \fIID\fR
 Delete record ID.
 .TP
-.B del-key \fIKEY\fR
+.B \-\-del-key \fIKEY\fR
 Delete every record filed under KEY.
 .TP
-.B dump
+.B \-\-doc \fIKEY ...\fR
+Save standard input as a document: write it to
+.I <index>/blobs/<timestamp>.txt
+and store that relative path as a value under the keys. For multi-line or large
+text. Blobs are named by local time, so
+.I ls blobs/
+lists your documents in chronological order.
+.TP
+.B \-\-dump
 Print every record.
 .TP
-.B keys
+.B \-\-keys
 List all keys, sorted and distinct.
 .TP
-.B stats
+.B \-\-stats
 Print counts of records, keys, and deleted records.
 .TP
-.B compact
+.B \-\-compact
 Reclaim space from deleted records.
 .TP
-.B find \fITEXT\fR
-Print live records whose value contains TEXT (a plain substring), as
-.IR id | value .
+.B \-\-import
+Read
+.IR keys | value
+lines from standard input and store each (the inverse of
+.BR \-\-dump ;
+blank lines and #-comments are skipped).
 .TP
-.B init
+.B \-\-init
 Create a local
 .I .ais
 index in the current directory (then found from any subdirectory, like git).
 .TP
-.B import
-Read
-.IR keys | value
-lines from standard input and put each (the inverse of
-.BR dump ;
-blank lines and #-comments are skipped). Lines sharing keys recall together.
-.TP
-.B doc \fIKEY ...\fR
-Save standard input as a document: write it to
-.I <index>/blobs/<timestamp>.txt
-and put that relative path as a value under the keys. For multi-line or large
-text that cannot be a single-line value. Blobs are named by local time, so
-.I ls blobs/
-lists your documents in chronological order.
-.TP
-.B where
+.B \-\-where
 Print the resolved index directory (e.g. to locate a blob file).
+.TP
+.B \-\-project \fR[\fIKEY\fR]
+Show, set, or clear ('') the persistent default project key.
+.TP
+.B \-\-serve \fR[\fIPORT\fR]
+Start the local web GUI on 127.0.0.1 (default port 8765).
 .SH EXAMPLES
 .nf
-ais put ~/photos/IMG_3920.jpg italy venice 2023
-ais put -R ~/photos/venice italy venice 2023
-find ~/photos -name '*.jpg' | ais put - italy venice 2023
+ais -v ~/photos/IMG_3920.jpg italy venice 2023
+ais -R ~/photos/venice       italy venice 2023
+find ~/photos -name '*.jpg' | ais -v - italy venice 2023
 ais italy venice
 ais -o venice rome
-ais find gelato
+ais --find gelato
+ais -v "call Marina back"
 .fi
 .SH FILES
 These live inside the index directory (e.g.
@@ -193,7 +227,7 @@ Tombstoned (deleted) ids.
 .TP
 .I blobs/<timestamp>.txt
 Documents saved by
-.B doc
+.B \-\-doc
 (real data; not rebuildable).
 .SH ENVIRONMENT
 .TP
@@ -207,6 +241,11 @@ Base for the per-user index
 .RI ( $XDG_DATA_HOME /ais );
 defaults to
 .IR ~/.local/share .
+.TP
+.B AIS_PROJECT
+Default project key when neither
+.B \-p
+nor a stored default is set.
 .SH AUTHOR
 Vasili Gavrilov.
 .SH SEE ALSO

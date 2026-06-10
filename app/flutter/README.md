@@ -2,7 +2,7 @@
 
 The store app for App Store + Play Store. It is a thin client: all logic is the
 C engine (`../../c`) reached over the FFI seam (`../../c/embed.h`), so it gives
-the same results as the CLI and `ais serve`. Voice recall uses the platform's
+the same results as the CLI and `ais --serve`. Voice recall uses the platform's
 native speech-to-text (Apple Speech / Android SpeechRecognizer) — which works on
 iPhone, unlike the browser PWA.
 

@@ -1,15 +1,23 @@
 /* main.c -- the AIS command-line front end (getopt_long).
  *
- * get is the default verb: bare positional args are query keys (AND; -o = OR).
- * Mutations are explicit verbs: put, add, del, dump, compact. Dispatch is
- * verb-first: if argv after options begins with a known verb, run it; else
- * treat all positionals as get keys.
+ * Grammar (flag-based, so every tag stays reachable):
+ *   bare args     KEYS -- the default action is recall (-o = OR, else AND)
+ *   -v VALUE      store VALUE under the keys (repeat -v = one multi-link
+ *                 record; -v - reads values from stdin, one per line)
+ *   -k KEY        an explicit key (for a key that looks like a flag)
+ *   -R DIR        store every file under DIR
+ *   -i            interactive: ask keys per piped line
+ *   --CMD         a command: find add del del-key dump keys stats compact
+ *                 init import where serve project doc. Operands are the bare
+ *                 args; values come through -v.
+ * No bare word is ever a command, so a tag named "doc" or "find" recalls fine.
  *
- * INDEX location precedence: -f/--index DIR > $AIS_INDEX > ./INDEX.
- * The CLI front-end (this file and feed.c) calls die(); the engine modules
- * return codes.
+ * INDEX location precedence: -f DIR > $AIS_INDEX > nearest .ais/ > per-user
+ * (see locate.h). The CLI front-end (this file and feed.c) calls die(); the
+ * engine modules return codes.
  */
-#define _DEFAULT_SOURCE      /* getopt_long */
+#define _DEFAULT_SOURCE          /* getopt_long */
+#define _POSIX_C_SOURCE 200809L  /* strtok_r */
 #include <getopt.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -55,17 +63,23 @@ static int on_id(long id, void *vp)
     return 0;
 }
 
-/* Join argv[from..argc) into BUF as space-separated keys. Returns 0/-1. */
-static int join_keys(char *const argv[], int from, int argc,
-                     char *buf, size_t bufsz)
+/* Join the bare positionals argv[from..argc) and any -k keys into BUF as
+ * space-separated keys. Returns 0/-1 (too long). */
+static int collect_keys(char *const argv[], int from, int argc,
+                        const char *const exk[], int nexk, char *buf, size_t bufsz)
 {
     size_t used = 0;
     int i;
 
     buf[0] = '\0';
     for (i = from; i < argc; i++) {
-        int n = snprintf(buf + used, bufsz - used, "%s%s",
-                         (i > from) ? " " : "", argv[i]);
+        int n = snprintf(buf + used, bufsz - used, "%s%s", used ? " " : "", argv[i]);
+        if (n < 0 || used + (size_t)n >= bufsz)
+            return -1;
+        used += (size_t)n;
+    }
+    for (i = 0; i < nexk; i++) {
+        int n = snprintf(buf + used, bufsz - used, "%s%s", used ? " " : "", exk[i]);
         if (n < 0 || used + (size_t)n >= bufsz)
             return -1;
         used += (size_t)n;
@@ -117,7 +131,7 @@ static int write_project(const ais *a, const char *key)
 }
 
 /* The effective project key for this invocation, by precedence:
- *   -p/--project flag (empty = explicit none) > $AIS_PROJECT > INDEX/project. */
+ *   -p flag (empty = explicit none) > $AIS_PROJECT > INDEX/project. */
 static void resolve_project(const ais *a, const char *flag, int given,
                             char *out, size_t outsz)
 {
@@ -150,8 +164,6 @@ static void build_keys(const char *project, const char *keys,
         snprintf(out + k, outsz - k, "%s%s", k ? " " : "", keys);
 }
 
-/* ---- keys --------------------------------------------------------------- */
-
 /* Print one key per line to stdout (the ais_keys callback). */
 static int print_key(const char *key, void *vp)
 {
@@ -161,21 +173,6 @@ static int print_key(const char *key, void *vp)
     return 0;
 }
 
-/* ---- verbs -------------------------------------------------------------- */
-
-static int is_verb(const char *s)
-{
-    return strcmp(s, "put") == 0 || strcmp(s, "add") == 0 ||
-           strcmp(s, "del") == 0 || strcmp(s, "get") == 0 ||
-           strcmp(s, "dump") == 0 || strcmp(s, "compact") == 0 ||
-           strcmp(s, "keys") == 0 ||
-           strcmp(s, "stats") == 0 || strcmp(s, "del-key") == 0 ||
-           strcmp(s, "find") == 0 || strcmp(s, "init") == 0 ||
-           strcmp(s, "import") == 0 || strcmp(s, "doc") == 0 ||
-           strcmp(s, "where") == 0 || strcmp(s, "serve") == 0 ||
-           strcmp(s, "project") == 0;
-}
-
 static void do_get(ais *a, char *const keys[], int nkeys, ais_mode mode)
 {
     struct get_ctx g;
@@ -183,61 +180,6 @@ static void do_get(ais *a, char *const keys[], int nkeys, ais_mode mode)
     g.printed_any = 0;
     if (ais_get(a, keys, nkeys, mode, on_id, &g) < 0)
         die("get failed");
-}
-
-static void do_put(ais *a, int argc, char **argv, int idx, const char *project)
-{
-    char keys[AIS_LINE_MAX];
-    char full[AIS_LINE_MAX];
-
-    /* put -R DIR KEY... : index every file under DIR (recursive) */
-    if (idx < argc && strcmp(argv[idx], "-R") == 0) {
-        if (idx + 1 >= argc)
-            die("put -R needs a directory");
-        if (idx + 2 >= argc)
-            die("put -R needs at least one key");
-        if (join_keys(argv, idx + 2, argc, keys, sizeof(keys)) != 0)
-            die("key list too long");
-        build_keys(project, keys, full, sizeof(full));
-        feed_dir(a, argv[idx + 1], full);
-        return;
-    }
-
-    /* put - KEY... : file each stdin line (a value) under KEY... */
-    if (idx < argc && strcmp(argv[idx], "-") == 0) {
-        if (idx + 1 >= argc)
-            die("put - needs at least one key");
-        if (join_keys(argv, idx + 1, argc, keys, sizeof(keys)) != 0)
-            die("key list too long");
-        build_keys(project, keys, full, sizeof(full));
-        feed_stdin(a, full);
-        return;
-    }
-
-    /* put VALUE KEY... : a single value */
-    if (idx >= argc)
-        die("put needs a VALUE and at least one KEY");
-    if (idx + 1 >= argc)
-        die("put needs at least one KEY after the value");
-    if (join_keys(argv, idx + 1, argc, keys, sizeof(keys)) != 0)
-        die("key list too long");
-    build_keys(project, keys, full, sizeof(full));
-    {
-        long id = ais_put(a, full, argv[idx]);
-        if (id < 0)
-            die("put failed");
-        printf("%ld\n", id);
-    }
-}
-
-static void do_add(ais *a, int argc, char **argv, int idx)
-{
-    long id;
-    if (idx + 1 >= argc)
-        die("add needs an ID and a VALUE");
-    id = atol(argv[idx]);
-    if (ais_add(a, id, argv[idx + 1]) != 0)
-        die("add: no record id %ld", id);
 }
 
 /* Confirm a destructive action: read a line from stdin, return 1 only on y/yes.
@@ -252,78 +194,96 @@ static int confirm(const char *prompt)
     return buf[0] == 'y' || buf[0] == 'Y';
 }
 
-static void do_del(ais *a, int argc, char **argv, int idx, int assume_yes)
-{
-    long id;
-    if (idx >= argc)
-        die("del needs an ID");
-    id = atol(argv[idx]);
-    if (!assume_yes) {
-        char p[64];
-        snprintf(p, sizeof(p), "Delete record %ld?", id);
-        if (!confirm(p)) {
-            fprintf(stderr, "aborted\n");
-            return;
-        }
-    }
-    if (ais_del(a, id) != 0)
-        die("del failed");
-}
-
 /* ---- main --------------------------------------------------------------- */
 
 int main(int argc, char **argv)
 {
+    enum { OPT_HELP = 1000, OPT_VERSION,
+           CMD_FIND, CMD_ADD, CMD_DEL, CMD_DELKEY, CMD_DUMP, CMD_KEYS, CMD_STATS,
+           CMD_COMPACT, CMD_INIT, CMD_IMPORT, CMD_WHERE, CMD_SERVE, CMD_PROJECT,
+           CMD_DOC };
     static const struct option longopts[] = {
-        { "index", required_argument, NULL, 'f' },
-        { "or",    no_argument,       NULL, 'o' },
-        { "debug", no_argument,       NULL, 'd' },
-        { "help",    no_argument,     NULL, 'H' },   /* long-only: full help */
-        { "version", no_argument,     NULL, 'V' },
-        { "yes",         no_argument,  NULL, 'y' },
-        { "interactive", no_argument,  NULL, 'i' },
-        { "project", required_argument, NULL, 'p' },
-        { NULL,      0,               NULL,  0  }
+        { "index",       required_argument, NULL, 'f' },
+        { "or",          no_argument,       NULL, 'o' },
+        { "debug",       no_argument,       NULL, 'd' },
+        { "yes",         no_argument,       NULL, 'y' },
+        { "interactive", no_argument,       NULL, 'i' },
+        { "recurse",     required_argument, NULL, 'R' },
+        { "value",       required_argument, NULL, 'v' },
+        { "key",         required_argument, NULL, 'k' },
+        { "project",     no_argument,       NULL, CMD_PROJECT },
+        { "help",        no_argument,       NULL, OPT_HELP },
+        { "version",     no_argument,       NULL, OPT_VERSION },
+        { "find",        no_argument,       NULL, CMD_FIND },
+        { "add",         no_argument,       NULL, CMD_ADD },
+        { "del",         no_argument,       NULL, CMD_DEL },
+        { "del-key",     no_argument,       NULL, CMD_DELKEY },
+        { "dump",        no_argument,       NULL, CMD_DUMP },
+        { "keys",        no_argument,       NULL, CMD_KEYS },
+        { "stats",       no_argument,       NULL, CMD_STATS },
+        { "compact",     no_argument,       NULL, CMD_COMPACT },
+        { "init",        no_argument,       NULL, CMD_INIT },
+        { "import",      no_argument,       NULL, CMD_IMPORT },
+        { "where",       no_argument,       NULL, CMD_WHERE },
+        { "serve",       no_argument,       NULL, CMD_SERVE },
+        { "doc",         no_argument,       NULL, CMD_DOC },
+        { NULL, 0, NULL, 0 }
     };
     const char *dir = NULL;
     const char *project_arg = NULL;
+    const char *recurse_dir = NULL;
+    const char *values[AIS_KEYS_MAX];
+    const char *exkeys[AIS_KEYS_MAX];
+    int nval = 0, nexk = 0;
     ais_mode mode = AIS_AND;
-    int assume_yes = 0;
-    int interactive = 0;
-    int project_given = 0;
+    int assume_yes = 0, interactive = 0, project_given = 0;
+    int cmd = 0;
     char project[AIS_KEY_MAX];
+    char keys[AIS_LINE_MAX], full[AIS_LINE_MAX];
     ais a;
-    int c, idx;
+    int c;
 
-    /* '+': stop option parsing at the first non-option, so a value or key that
-     * looks like an option (rare) is not eaten; verbs/keys follow. */
-    while ((c = getopt_long(argc, argv, "+f:odhVyip:", longopts, NULL)) != -1) {
+    /* -p is the per-call project override; --project (CMD_PROJECT) manages the
+     * stored default. They are intentionally distinct. */
+    while ((c = getopt_long(argc, argv, "f:odhyiR:v:k:p:", longopts, NULL)) != -1) {
         switch (c) {
-        case 'f': dir = optarg;             break;
-        case 'o': mode = AIS_OR;            break;
-        case 'i': interactive = 1;          break;
+        case 'f': dir = optarg; break;
+        case 'o': mode = AIS_OR; break;
+        case 'd': ais_debug_flag = 1; break;
+        case 'y': assume_yes = 1; break;
+        case 'i': interactive = 1; break;
+        case 'R': recurse_dir = optarg; break;
+        case 'v': if (nval >= AIS_KEYS_MAX) die("too many -v values");
+                  values[nval++] = optarg; break;
+        case 'k': if (nexk >= AIS_KEYS_MAX) die("too many -k keys");
+                  exkeys[nexk++] = optarg; break;
         case 'p': project_arg = optarg; project_given = 1; break;
-        case 'y': assume_yes = 1;           break;
-        case 'd': ais_debug_flag = 1;       break;
-        case 'h': usage_short(stdout);      return 0;
-        case 'H': usage_long(stdout);       return 0;
-        case 'V': printf("ais %s\n", AIS_VERSION); return 0;
-        default:  usage_short(stderr);      return 2;
+        case 'h': usage_short(stdout); return 0;
+        case OPT_HELP:    usage_long(stdout);  return 0;
+        case OPT_VERSION: printf("ais %s\n", AIS_VERSION); return 0;
+        case CMD_FIND: case CMD_ADD: case CMD_DEL: case CMD_DELKEY:
+        case CMD_DUMP: case CMD_KEYS: case CMD_STATS: case CMD_COMPACT:
+        case CMD_INIT: case CMD_IMPORT: case CMD_WHERE: case CMD_SERVE:
+        case CMD_PROJECT: case CMD_DOC:
+            if (cmd != 0) die("only one command at a time");
+            cmd = c;
+            break;
+        default: usage_short(stderr); return 2;
         }
     }
 
-    if (optind >= argc && !interactive) {
+    /* nothing asked for at all */
+    if (cmd == 0 && nval == 0 && recurse_dir == NULL && !interactive &&
+        optind >= argc && nexk == 0) {
         usage_short(stderr);
         return 2;
     }
 
-    /* Resolve the index location. `init` (without -f) targets a fresh .ais
-     * here; otherwise follow the precedence in locate.h. */
+    /* resolve the index (--init without -f targets a fresh .ais here) */
     {
         static char resolved[AIS_PATH_MAX];
-        if (!interactive && strcmp(argv[optind], "init") == 0 &&
-            (dir == NULL || dir[0] == '\0')) {
-            snprintf(resolved, sizeof(resolved), ".ais");   /* a local index here */
+        if (cmd == CMD_INIT && (dir == NULL || dir[0] == '\0')) {
+            snprintf(resolved, sizeof(resolved), ".ais");
             dir = resolved;
         } else if (ais_locate(dir, resolved, sizeof(resolved)) != 0) {
             die("cannot determine an index location (use -f, or set $HOME / $XDG_DATA_HOME)");
@@ -337,110 +297,125 @@ int main(int argc, char **argv)
 
     resolve_project(&a, project_arg, project_given, project, sizeof(project));
 
-    if (interactive) {
-        char base[AIS_LINE_MAX], full[AIS_LINE_MAX];
-        if (join_keys(argv, optind, argc, base, sizeof(base)) != 0)
-            die("key list too long");
-        build_keys(project, base, full, sizeof(full));
-        feed_interactive(&a, full);
-        ais_close(&a);
-        return 0;
-    }
-
-    idx = optind;
-    if (is_verb(argv[idx])) {
-        const char *verb = argv[idx++];
-        if (strcmp(verb, "put") == 0)
-            do_put(&a, argc, argv, idx, project);
-        else if (strcmp(verb, "add") == 0)
-            do_add(&a, argc, argv, idx);
-        else if (strcmp(verb, "del") == 0)
-            do_del(&a, argc, argv, idx, assume_yes);
-        else if (strcmp(verb, "dump") == 0)
-            ais_dump(&a, stdout);
-        else if (strcmp(verb, "keys") == 0) {
-            if (ais_keys(&a, print_key, stdout) < 0)
-                die("keys failed");
+    /* ---- commands (--CMD); operands are the bare args, values via -v ---- */
+    if (cmd != 0) {
+        switch (cmd) {
+        case CMD_DUMP:  ais_dump(&a, stdout); break;
+        case CMD_KEYS:  if (ais_keys(&a, print_key, stdout) < 0) die("keys failed"); break;
+        case CMD_STATS: if (ais_stats(&a, stdout) != 0) die("stats failed"); break;
+        case CMD_WHERE: printf("%s\n", dir); break;
+        case CMD_INIT:  printf("initialized AIS index: %s\n", dir); break;
+        case CMD_IMPORT: feed_import(&a); break;
+        case CMD_FIND:
+            if (optind >= argc) die("--find needs TEXT");
+            if (ais_find(&a, argv[optind], stdout) != 0) die("find failed");
+            break;
+        case CMD_ADD: {
+            long id; int j;
+            if (optind >= argc) die("--add needs an ID");
+            if (nval == 0) die("--add needs at least one -v VALUE");
+            id = atol(argv[optind]);
+            for (j = 0; j < nval; j++)
+                if (ais_add(&a, id, values[j]) != 0)
+                    die("--add: no record id %ld", id);
+            break;
         }
-        else if (strcmp(verb, "compact") == 0) {
+        case CMD_DEL: {
+            long id;
+            if (optind >= argc) die("--del needs an ID");
+            id = atol(argv[optind]);
+            if (!assume_yes) {
+                char p[64];
+                snprintf(p, sizeof(p), "Delete record %ld?", id);
+                if (!confirm(p)) { fprintf(stderr, "aborted\n"); break; }
+            }
+            if (ais_del(&a, id) != 0) die("del failed");
+            break;
+        }
+        case CMD_DELKEY: {
+            const char *key = (optind < argc) ? argv[optind]
+                            : (nexk ? exkeys[0] : NULL);
+            char p[AIS_KEY_MAX + 48];
+            if (key == NULL) die("--del-key needs a KEY");
+            snprintf(p, sizeof(p), "Delete every record filed under '%s'?", key);
+            if (assume_yes || confirm(p)) {
+                long n = ais_del_key(&a, key);
+                if (n < 0) die("del-key failed");
+                printf("deleted %ld\n", n);
+            } else fprintf(stderr, "aborted\n");
+            break;
+        }
+        case CMD_COMPACT:
             if (assume_yes ||
                 confirm("Compaction permanently discards deleted records. Proceed?")) {
-                if (ais_compact(&a) != 0)
-                    die("compact failed");
-            } else {
-                fprintf(stderr, "aborted\n");
-            }
+                if (ais_compact(&a) != 0) die("compact failed");
+            } else fprintf(stderr, "aborted\n");
+            break;
+        case CMD_SERVE: {
+            int port = (optind < argc) ? atoi(argv[optind]) : 8765;
+            if (port <= 0) port = 8765;
+            if (ais_serve(&a, port) != 0)
+                die("serve: cannot bind 127.0.0.1:%d", port);
+            break;
         }
-        else if (strcmp(verb, "stats") == 0) {
-            if (ais_stats(&a, stdout) != 0)
-                die("stats failed");
-        }
-        else if (strcmp(verb, "find") == 0) {
-            if (idx >= argc)
-                die("find needs TEXT");
-            if (ais_find(&a, argv[idx], stdout) != 0)
-                die("find failed");
-        }
-        else if (strcmp(verb, "init") == 0) {
-            /* ais_open already created/validated the dir; just confirm it. */
-            printf("initialized AIS index: %s\n", dir);
-        }
-        else if (strcmp(verb, "import") == 0) {
-            feed_import(&a);
-        }
-        else if (strcmp(verb, "doc") == 0) {
-            char dkeys[AIS_LINE_MAX], dfull[AIS_LINE_MAX];
-            if (idx >= argc)
-                die("doc needs at least one KEY");
-            if (join_keys(argv, idx, argc, dkeys, sizeof(dkeys)) != 0)
-                die("key list too long");
-            build_keys(project, dkeys, dfull, sizeof(dfull));
-            feed_doc(&a, dfull);
-        }
-        else if (strcmp(verb, "where") == 0) {
-            printf("%s\n", dir);
-        }
-        else if (strcmp(verb, "project") == 0) {
-            if (idx < argc) {                 /* set (empty arg clears it) */
-                if (write_project(&a, argv[idx]) != 0)
-                    die("project: cannot write");
-                if (argv[idx][0] == '\0')
-                    printf("default project cleared\n");
-                else
-                    printf("default project: %s\n", argv[idx]);
+        case CMD_PROJECT:
+            if (optind < argc) {              /* set (empty arg clears it) */
+                if (write_project(&a, argv[optind]) != 0) die("project: cannot write");
+                if (argv[optind][0] == '\0') printf("default project cleared\n");
+                else printf("default project: %s\n", argv[optind]);
             } else {                          /* show */
                 char cur[AIS_KEY_MAX];
                 read_project(&a, cur, sizeof(cur));
                 printf("%s\n", cur[0] != '\0' ? cur : "(no default project)");
             }
+            break;
+        case CMD_DOC:
+            if (collect_keys(argv, optind, argc, exkeys, nexk, keys, sizeof(keys)) != 0)
+                die("key list too long");
+            build_keys(project, keys, full, sizeof(full));
+            feed_doc(&a, full);
+            break;
         }
-        else if (strcmp(verb, "serve") == 0) {
-            int port = (idx < argc) ? atoi(argv[idx]) : 8765;
-            if (port <= 0)
-                port = 8765;
-            if (ais_serve(&a, port) != 0)
-                die("serve: cannot bind 127.0.0.1:%d", port);
+        ais_close(&a);
+        return 0;
+    }
+
+    /* ---- store (put mode): -v, -R, or -i ---- */
+    if (nval > 0 || recurse_dir != NULL || interactive) {
+        if (collect_keys(argv, optind, argc, exkeys, nexk, keys, sizeof(keys)) != 0)
+            die("key list too long");
+        build_keys(project, keys, full, sizeof(full));
+
+        if (recurse_dir != NULL) {
+            feed_dir(&a, recurse_dir, full);
+        } else if (interactive) {
+            feed_interactive(&a, full);
+        } else if (nval == 1 && strcmp(values[0], "-") == 0) {
+            feed_stdin(&a, full);                 /* values from stdin */
+        } else {
+            long id = ais_put(&a, full, values[0]);
+            int j;
+            if (id < 0) die("put failed");
+            for (j = 1; j < nval; j++)            /* extra -v = multi-link */
+                if (ais_add(&a, id, values[j]) != 0) die("add failed");
+            printf("%ld\n", id);
         }
-        else if (strcmp(verb, "del-key") == 0) {
-            if (idx >= argc)
-                die("del-key needs a KEY");
-            {
-                char p[AIS_KEY_MAX + 48];
-                snprintf(p, sizeof(p),
-                         "Delete every record filed under '%s'?", argv[idx]);
-                if (assume_yes || confirm(p)) {
-                    long n = ais_del_key(&a, argv[idx]);
-                    if (n < 0)
-                        die("del-key failed");
-                    printf("deleted %ld\n", n);
-                } else {
-                    fprintf(stderr, "aborted\n");
-                }
-            }
-        } else   /* "get" */
-            do_get(&a, &argv[idx], argc - idx, mode);
-    } else {
-        do_get(&a, &argv[idx], argc - idx, mode);
+        ais_close(&a);
+        return 0;
+    }
+
+    /* ---- recall (default): bare keys + -k, project NOT prepended ---- */
+    if (collect_keys(argv, optind, argc, exkeys, nexk, keys, sizeof(keys)) != 0)
+        die("key list too long");
+    {
+        char *kv[AIS_KEYS_MAX];
+        int nk = 0;
+        char *tok, *save;
+        for (tok = strtok_r(keys, " ", &save); tok != NULL && nk < AIS_KEYS_MAX;
+             tok = strtok_r(NULL, " ", &save))
+            kv[nk++] = tok;
+        if (nk == 0) { usage_short(stderr); ais_close(&a); return 2; }
+        do_get(&a, kv, nk, mode);
     }
 
     ais_close(&a);

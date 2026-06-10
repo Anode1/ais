@@ -13,13 +13,13 @@ rm -rf "$EX"
 
 # The docs themselves, as documents (multi-line -> blobs). Keys: 'about', 'docs'
 # ('doc' is a command, so it is not used as a key).
-"$AIS" -f "$EX" doc about docs  < doc/about.txt >/dev/null
-"$AIS" -f "$EX" doc docs readme < README.md     >/dev/null
+"$AIS" -f "$EX" --doc about docs  < doc/about.txt >/dev/null
+"$AIS" -f "$EX" --doc docs readme < README.md     >/dev/null
 
 # A few records that show the key model: one item filed under several keys is a
 # small graph, recalled by any of them.
-"$AIS" -f "$EX" put "https://en.wikipedia.org/wiki/Memex" memex history reference >/dev/null
-"$AIS" -f "$EX" put "keys are words you choose, not folders you nest" tip example >/dev/null
-"$AIS" -f "$EX" put "https://gavr144.substack.com/p/intelligence-is-the-discovery-of" article ai compression >/dev/null
+"$AIS" -f "$EX" -v "https://en.wikipedia.org/wiki/Memex" memex history reference >/dev/null
+"$AIS" -f "$EX" -v "keys are words you choose, not folders you nest" tip example >/dev/null
+"$AIS" -f "$EX" -v "https://gavr144.substack.com/p/intelligence-is-the-discovery-of" article ai compression >/dev/null
 
 echo "built $EX/  (inspect: ls $EX; cat $EX/store; ls $EX/idx; '$AIS' -f $EX serve)"

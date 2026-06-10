@@ -15,7 +15,7 @@ Sizes (compile-time, c/common.h)
 
 Value rules
   - A value is ONE line: no newline, and no '|' (the reserved field delimiter).
-  - Multi-line or large text -> `ais doc` (saved as a blob file under blobs/;
+  - Multi-line or large text -> `ais --doc` (saved as a blob file under blobs/;
     only its relative path is stored as the value).
   - `find` searches VALUES only, not blob CONTENT -- blobs are recalled by keys.
 
@@ -27,7 +27,7 @@ Keys
 Concurrency / scale
   - Reads take NO lock (any number run at once). Writers take an exclusive flock
     per mutating op and reload next_id under it, so concurrent writers serialize
-    safely and never collide on an id; a long-lived reader (ais serve) does not
+    safely and never collide on an id; a long-lived reader (ais --serve) does not
     block the CLI. See doc/dev/LOCKING.md.
   - Idempotent put scans the store, O(n) per put: fine interactively (~50 ms at
     1M records), but BULK import of N records is O(n^2) -- the known TODO.

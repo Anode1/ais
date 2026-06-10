@@ -10,11 +10,11 @@ Whole-index backup (everything; survives any version)
   Restore: copy it back. blobs/ (your documents) travel with it.
 
 Portable export (one file, like a bookmark export)
-  `ais dump` emits  id|keys|value  -- the interchange format, decoupled from the
+  `ais --dump` emits  id|keys|value  -- the interchange format, decoupled from the
   internal storage:
-      ais dump > my-index.txt
+      ais --dump > my-index.txt
   Load it elsewhere (strip the id; the inverse of dump):
-      sed 's/^[0-9]*|//' my-index.txt | ais import
+      sed 's/^[0-9]*|//' my-index.txt | ais --import
   NOTE: dump records blob PATHS, not blob bodies -- include the blobs/ dir too if
   you use documents (or just back up the whole directory).
 
@@ -26,9 +26,9 @@ Format version
 
 Upgrading across a format change (the procedure, if the format ever changes)
   Golden rule: an ais can always DUMP an older store, so a migration is:
-      old-ais dump > backup.txt        # with the old binary
-      new-ais import < backup.txt      # into a fresh index with the new binary
-  For derived-only changes (idx/off/multi), just run  ais compact  with the new
+      old-ais --dump > backup.txt        # with the old binary
+      new-ais --import < backup.txt      # into a fresh index with the new binary
+  For derived-only changes (idx/off/multi), just run  ais --compact  with the new
   binary -- it rebuilds them from the unchanged store and re-stamps the version.
 
 No JSON: the plain-text dump is the Unix interchange (grep/awk/diff all work).

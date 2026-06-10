@@ -9,12 +9,12 @@ A personal associative index: file anything under keys, recall it by keys — pl
 
 ```sh
 make                 # build ./ais
-./ais init           # create an index here (a .ais/ directory, git-style)
+./ais --init           # create an index here (a .ais/ directory, git-style)
 
-./ais put https://example.org/paper physics todo   # file a value under keys
+./ais -v https://example.org/paper physics todo    # store a value under keys
 ./ais physics todo                                  # recall: records under BOTH keys
 ./ais -o physics math                               # recall: records under EITHER key
-./ais serve                                         # open the web GUI in your browser
+./ais --serve                                         # open the web GUI in your browser
 ```
 
 `ais --help` lists every command.

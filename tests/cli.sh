@@ -2,9 +2,12 @@
 # cli.sh -- end-to-end tests of the ais BINARY.
 #
 # These reach what the C unit tests (which call the ais.h API directly) cannot:
-# the streaming stdin path (`put -`), real pipelines, argv handling, and that an
+# the streaming stdin path (`-v -`), real pipelines, argv handling, and that an
 # inserted key is genuinely present in the index afterwards. POSIX sh, so it
 # runs unchanged on Linux and macOS.
+#
+# Grammar under test (flag-based): bare args are KEYS; -v marks a value;
+# --word is a command. See c/help.c / doc/dev or `ais --help`.
 #
 # Usage:  sh tests/cli.sh [path-to-ais]      (default ./c/ais)
 
@@ -45,7 +48,7 @@ trap 'rm -rf "$DIR"' EXIT
 echo "ais CLI / streaming tests ($AIS)"
 
 # 1. stdin streaming: three piped lines become three records under one key
-printf 'alpha\nbeta\ngamma\n' | "$AIS" -f "$DIR" put - greek
+printf 'alpha\nbeta\ngamma\n' | "$AIS" -f "$DIR" -v - greek
 out=$("$AIS" -f "$DIR" greek)
 ok    "stdin: first piped line stored"  "alpha" "$out"
 ok    "stdin: last piped line stored"   "gamma" "$out"
@@ -53,45 +56,45 @@ n=$(printf '%s\n' "$out" | grep -c .)
 okeq  "stdin: exactly 3 records"        "3" "$n"
 
 # ... and the key itself is now present in the index
-keys=$("$AIS" -f "$DIR" keys)
+keys=$("$AIS" -f "$DIR" --keys)
 ok    "stdin: key 'greek' is in the database" "greek" "$keys"
 
 # 2. self-indexing round-trip: pipe the ais binary's own path in, then get it
 #    back by key AND find it by content -- two checks in one pipeline.
-find "$AIS" | "$AIS" -f "$DIR" put - executable
+find "$AIS" | "$AIS" -f "$DIR" -v - executable
 out=$("$AIS" -f "$DIR" executable)
 ok    "self-index: binary path stored under 'executable'" "ais" "$out"
-out=$("$AIS" -f "$DIR" find ais)
-ok    "self-index: 'find ais' locates the path"           "ais" "$out"
-keys=$("$AIS" -f "$DIR" keys)
+out=$("$AIS" -f "$DIR" --find ais)
+ok    "self-index: '--find ais' locates the path"         "ais" "$out"
+keys=$("$AIS" -f "$DIR" --keys)
 ok    "self-index: key 'executable' is in the database"   "executable" "$keys"
 
 # 3. find is content (the value), not tags (the key)
-printf 'venice is sinking\n' | "$AIS" -f "$DIR" put - trip
-out=$("$AIS" -f "$DIR" find venice)
+printf 'venice is sinking\n' | "$AIS" -f "$DIR" -v - trip
+out=$("$AIS" -f "$DIR" --find venice)
 ok      "find: matches a value substring"     "venice is sinking" "$out"
-out=$("$AIS" -f "$DIR" find nosuchword)
+out=$("$AIS" -f "$DIR" --find nosuchword)
 okempty "find: absent term prints nothing"    "$out"
 
-# 4. git-style location: `init` creates a local .ais, found from subdirectories
+# 4. git-style location: `--init` creates a local .ais, found from subdirectories
 TREE=$(mktemp -d "${TMPDIR:-/tmp}/ais_tree.XXXXXX") || exit 2
-( cd "$TREE" && AIS_INDEX= "$AIS" init >/dev/null )
+( cd "$TREE" && AIS_INDEX= "$AIS" --init >/dev/null )
 if [ -d "$TREE/.ais" ]; then
     pass=$((pass + 1)); echo "  ok   init: creates .ais in the current dir"
 else
     fail=$((fail + 1)); echo "  FAIL init: no .ais created"
 fi
 mkdir -p "$TREE/sub/deep"
-( cd "$TREE/sub/deep" && printf 'a note\n' | AIS_INDEX= "$AIS" put - memo >/dev/null )
+( cd "$TREE/sub/deep" && printf 'a note\n' | AIS_INDEX= "$AIS" -v - memo >/dev/null )
 out=$(cd "$TREE" && AIS_INDEX= "$AIS" memo)
 ok "discovery: a put from a subdir walked up to .ais" "a note" "$out"
-keys=$(cd "$TREE/sub" && AIS_INDEX= "$AIS" keys)
+keys=$(cd "$TREE/sub" && AIS_INDEX= "$AIS" --keys)
 ok "discovery: key visible from another subdir"       "memo"   "$keys"
 rm -rf "$TREE"
 
 # 5. global fallback: no -f, no .ais -> $XDG_DATA_HOME/ais (auto-created, isolated)
 G=$(mktemp -d "${TMPDIR:-/tmp}/ais_glob.XXXXXX") || exit 2
-( cd "$G" && AIS_INDEX= XDG_DATA_HOME="$G/xdg" "$AIS" put global-note gk >/dev/null )
+( cd "$G" && AIS_INDEX= XDG_DATA_HOME="$G/xdg" "$AIS" -v global-note gk >/dev/null )
 if [ -d "$G/xdg/ais" ]; then
     pass=$((pass + 1)); echo "  ok   global: \$XDG_DATA_HOME/ais auto-created"
 else
@@ -101,11 +104,11 @@ out=$(cd "$G" && AIS_INDEX= XDG_DATA_HOME="$G/xdg" "$AIS" gk)
 ok "global: value retrievable from the per-user index" "global-note" "$out"
 rm -rf "$G"
 
-# 6. path-relativization: `put -R` stores paths relative to the .ais worktree
+# 6. path-relativization: `-R` stores paths relative to the .ais worktree
 #    root, so they survive the whole tree being moved.
 W=$(mktemp -d "${TMPDIR:-/tmp}/ais_rel.XXXXXX") || exit 2
-( cd "$W" && AIS_INDEX= "$AIS" init >/dev/null && mkdir -p docs \
-    && echo hi > docs/a.txt && AIS_INDEX= "$AIS" put -R docs papers >/dev/null )
+( cd "$W" && AIS_INDEX= "$AIS" --init >/dev/null && mkdir -p docs \
+    && echo hi > docs/a.txt && AIS_INDEX= "$AIS" -R docs papers >/dev/null )
 out=$(cd "$W" && AIS_INDEX= "$AIS" papers)
 ok "relativize: stored path is relative to root" "docs/a.txt" "$out"
 case "$out" in
@@ -121,21 +124,21 @@ rm -rf "${W}_moved"
 # 7. a global (non-.ais) index has no worktree root -> paths stored absolute
 A=$(mktemp -d "${TMPDIR:-/tmp}/ais_abs.XXXXXX") || exit 2
 mkdir -p "$A/data" && echo x > "$A/data/f.txt"
-( cd "$A" && AIS_INDEX= XDG_DATA_HOME="$A/xdg" "$AIS" put -R data files >/dev/null )
+( cd "$A" && AIS_INDEX= XDG_DATA_HOME="$A/xdg" "$AIS" -R data files >/dev/null )
 out=$(cd "$A" && AIS_INDEX= XDG_DATA_HOME="$A/xdg" "$AIS" files)
 case "$out" in
-    *"|/"*) pass=$((pass + 1)); echo "  ok   global: put -R stores an absolute path" ;;
+    *"|/"*) pass=$((pass + 1)); echo "  ok   global: -R stores an absolute path" ;;
     *)      fail=$((fail + 1)); echo "  FAIL global: expected absolute path, got: $out" ;;
 esac
 rm -rf "$A"
 
-# 8. immutability: del needs confirmation; no input aborts, -y bypasses
+# 8. immutability: --del needs confirmation; no input aborts, -y bypasses
 DD=$(mktemp -d "${TMPDIR:-/tmp}/ais_del.XXXXXX") || exit 2
-id=$("$AIS" -f "$DD" put "scratch value" tmp)
-"$AIS" -f "$DD" del "$id" </dev/null >/dev/null 2>&1     # no -y, EOF -> aborted
+id=$("$AIS" -f "$DD" -v "scratch value" tmp)
+"$AIS" -f "$DD" --del "$id" </dev/null >/dev/null 2>&1     # no -y, EOF -> aborted
 out=$("$AIS" -f "$DD" tmp)
 ok      "guard: del without confirmation is refused" "scratch value" "$out"
-"$AIS" -f "$DD" -y del "$id" >/dev/null                  # -y -> deletes
+"$AIS" -f "$DD" -y --del "$id" >/dev/null                  # -y -> deletes
 out=$("$AIS" -f "$DD" tmp)
 okempty "guard: del -y removes the record" "$out"
 rm -rf "$DD"
@@ -157,7 +160,7 @@ rm -rf "$II"
 
 # 10. import: keys|value lines; same keys recall together; round-trips dump
 IM=$(mktemp -d "${TMPDIR:-/tmp}/ais_import.XXXXXX") || exit 2
-printf 'a b|first\na b|second\nc|third\n# comment\n\nnobar-skip\n' | "$AIS" -f "$IM" import 2>/dev/null
+printf 'a b|first\na b|second\nc|third\n# comment\n\nnobar-skip\n' | "$AIS" -f "$IM" --import 2>/dev/null
 out=$("$AIS" -f "$IM" a b)
 ok "import: same-keys recall both"     "first"  "$out"
 ok "import: same-keys recall both (2)" "second" "$out"
@@ -165,14 +168,14 @@ out=$("$AIS" -f "$IM" c)
 ok "import: distinct-key record"       "third"  "$out"
 # dump (strip id) | import into a fresh index reproduces the values
 IM2=$(mktemp -d "${TMPDIR:-/tmp}/ais_import2.XXXXXX") || exit 2
-"$AIS" -f "$IM" dump | sed 's/^[0-9]*|//' | "$AIS" -f "$IM2" import 2>/dev/null
+"$AIS" -f "$IM" --dump | sed 's/^[0-9]*|//' | "$AIS" -f "$IM2" --import 2>/dev/null
 out=$("$AIS" -f "$IM2" a b)
 ok "import: dump|import round-trips"    "second" "$out"
 rm -rf "$IM" "$IM2"
 
 # 11. doc: a multi-line document becomes a blob file; the value is its path
 DC=$(mktemp -d "${TMPDIR:-/tmp}/ais_doc.XXXXXX") || exit 2
-printf 'line one\nline two\nline three\n' | "$AIS" -f "$DC" doc kul memo >/dev/null 2>&1
+printf 'line one\nline two\nline three\n' | "$AIS" -f "$DC" --doc kul memo >/dev/null 2>&1
 out=$("$AIS" -f "$DC" kul memo)
 ok "doc: value is a blobs/<timestamp>.txt path"  'blobs/.*\.txt' "$out"
 blob=$(ls "$DC"/blobs/*.txt 2>/dev/null | head -1)
@@ -182,24 +185,84 @@ else
     fail=$((fail + 1)); echo "  FAIL doc: blob file missing"
 fi
 okeq "doc: blob preserved 3 lines"   "3" "$(wc -l < "$blob")"
-ok "where: prints the index dir"     "$DC" "$("$AIS" -f "$DC" where)"
+ok "where: prints the index dir"     "$DC" "$("$AIS" -f "$DC" --where)"
 rm -rf "$DC"
 
-# 12. default project key: set it, every put gets it; -p '' resets; env overrides
+# 12. multi-link: two -v under one key make one record (id) with two values
+ML=$(mktemp -d "${TMPDIR:-/tmp}/ais_ml.XXXXXX") || exit 2
+mlid=$("$AIS" -f "$ML" -v linkA -v linkB project)
+out=$("$AIS" -f "$ML" project)
+ok "multi-link: first value present"  "linkA" "$out"
+ok "multi-link: second value present" "linkB" "$out"
+n=$(printf '%s\n' "$out" | grep -c .)
+okeq "multi-link: both under one record" "2" "$n"
+rm -rf "$ML"
+
+# 13. keyless capture: -v with no key stores a value, found by --find / --dump
+KL=$(mktemp -d "${TMPDIR:-/tmp}/ais_kl.XXXXXX") || exit 2
+"$AIS" -f "$KL" -v "call Marina back" >/dev/null
+out=$("$AIS" -f "$KL" --find Marina)
+ok "keyless: stored value is findable" "call Marina back" "$out"
+rm -rf "$KL"
+
+# 14. default project key: set it, every put gets it; -p '' resets; env overrides
 PJ=$(mktemp -d "${TMPDIR:-/tmp}/ais_proj.XXXXXX") || exit 2
-"$AIS" -f "$PJ" project kul >/dev/null
-"$AIS" -f "$PJ" put "deploy-cmd" deploy >/dev/null
+"$AIS" -f "$PJ" --project kul >/dev/null
+"$AIS" -f "$PJ" -v "deploy-cmd" deploy >/dev/null
 ok "project: put auto-tagged with default 'kul'" "deploy-cmd" "$("$AIS" -f "$PJ" kul)"
 ok "project: also under the explicit key"        "deploy-cmd" "$("$AIS" -f "$PJ" deploy)"
-"$AIS" -f "$PJ" -p '' put "global note" misc >/dev/null
+"$AIS" -f "$PJ" -p '' -v "global note" misc >/dev/null
 case "$("$AIS" -f "$PJ" kul)" in
     *"global note"*) fail=$((fail + 1)); echo "  FAIL project: -p '' leaked into kul" ;;
     *)               pass=$((pass + 1)); echo "  ok   project: -p '' resets (not under kul)" ;;
 esac
-out=$(AIS_PROJECT=env1 "$AIS" -f "$PJ" put "envval" thing >/dev/null; "$AIS" -f "$PJ" env1)
+out=$(AIS_PROJECT=env1 "$AIS" -f "$PJ" -v "envval" thing >/dev/null; "$AIS" -f "$PJ" env1)
 ok "project: \$AIS_PROJECT overrides the file"   "envval" "$out"
-ok "project: show the default"                   "kul"    "$("$AIS" -f "$PJ" project)"
+ok "project: show the default"                   "kul"    "$("$AIS" -f "$PJ" --project)"
 rm -rf "$PJ"
+
+# 15. --add attaches another value to an existing record; --stats summarizes
+AD=$(mktemp -d "${TMPDIR:-/tmp}/ais_add.XXXXXX") || exit 2
+aid=$("$AIS" -f "$AD" -v firstlink note)
+"$AIS" -f "$AD" --add "$aid" -v secondlink >/dev/null
+out=$("$AIS" -f "$AD" note)
+ok "add: original value still present"     "firstlink"  "$out"
+ok "add: added value attached to record"   "secondlink" "$out"
+st=$("$AIS" -f "$AD" --stats)
+if [ -n "$st" ]; then pass=$((pass + 1)); echo "  ok   stats: prints a summary"
+else fail=$((fail + 1)); echo "  FAIL stats: empty"; fi
+rm -rf "$AD"
+
+# 16. --del-key tombstones every record under a key (-y skips the prompt)
+DK=$(mktemp -d "${TMPDIR:-/tmp}/ais_dk.XXXXXX") || exit 2
+"$AIS" -f "$DK" -v a1 gone >/dev/null
+"$AIS" -f "$DK" -v a2 gone >/dev/null
+"$AIS" -f "$DK" -y --del-key gone >/dev/null
+okempty "del-key: all records under the key removed" "$("$AIS" -f "$DK" gone)"
+rm -rf "$DK"
+
+# 17. --compact reclaims space: a deleted record physically leaves the store
+CP=$(mktemp -d "${TMPDIR:-/tmp}/ais_cp.XXXXXX") || exit 2
+cid=$("$AIS" -f "$CP" -v doomed scratch)
+"$AIS" -f "$CP" -y --del "$cid" >/dev/null
+"$AIS" -f "$CP" -y --compact >/dev/null
+case "$(cat "$CP"/store)" in
+    *doomed*) fail=$((fail + 1)); echo "  FAIL compact: deleted value still in store" ;;
+    *)        pass=$((pass + 1)); echo "  ok   compact: deleted record physically gone" ;;
+esac
+rm -rf "$CP"
+
+# 18. concurrency: two parallel writers never collide on an id (per-op write
+#     lock + fresh next_id). Regression for the reader/writer lock change.
+CC=$(mktemp -d "${TMPDIR:-/tmp}/ais_cc.XXXXXX") || exit 2
+( i=0; while [ $i -lt 50 ]; do "$AIS" -f "$CC" -v "a$i" w1 >/dev/null; i=$((i+1)); done ) &
+( i=0; while [ $i -lt 50 ]; do "$AIS" -f "$CC" -v "b$i" w2 >/dev/null; i=$((i+1)); done ) &
+wait
+total=$(grep -c . "$CC"/store)
+uniq=$(cut -d'|' -f1 "$CC"/store | sort -un | grep -c .)
+okeq "concurrency: 100 records written"            "100" "$total"
+okeq "concurrency: all ids unique (no collision)"  "$total" "$uniq"
+rm -rf "$CC"
 
 echo "---- $pass passed, $fail failed"
 [ "$fail" -eq 0 ]

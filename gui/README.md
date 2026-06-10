@@ -12,9 +12,9 @@ expandable **+ add** panel below holds put/doc (adding is the rarer action).
 
 - **Desktop (Tk):** `wish gui/ais-put.tcl`  (or `./gui/ais-put.tcl`)
   Pure Tcl/Tk -- needs only `wish`. The maintained GUI. Values box (one per
-  line) with **File…/Folder…** pickers, plus a Document box (`ais doc`).
+  line) with **File…/Folder…** pickers, plus a Document box (`ais --doc`).
 
-- **Web:** `ais serve`  -- then open <http://127.0.0.1:8765/>
+- **Web:** `ais --serve`  -- then open <http://127.0.0.1:8765/>
   Built INTO the binary (`c/serve.c`): no Python, no framework, no extra files.
   A tiny localhost HTTP loop serving an embedded page that calls the engine
   directly. The most portable surface (any browser); on macOS it needs only the
@@ -22,11 +22,11 @@ expandable **+ add** panel below holds put/doc (adding is the rarer action).
 
 ## Why so thin
 
-The CLI is the contract (`ais KEY...` -> `id|value` lines; `ais put -`,
-`ais doc`, `ais dump`, ...). No GUI toolkit lasts forever, so the engine never
+The CLI is the contract (`ais KEY...` -> `id|value` lines; `ais -v -`,
+`ais --doc`, `ais --dump`, ...). No GUI toolkit lasts forever, so the engine never
 depends on one -- betting the app on a toolkit is the mistake; a thin, swappable
 wrapper is the hedge. A GTK / Qt / Cocoa front end is equally possible: port the
 ~150 lines, keep the command line.
 
 (Python wrappers -- a Tkinter twin and a stdlib web bridge -- were dropped once
-`ais serve` gave a dependency-free web GUI, to avoid double maintenance.)
+`ais --serve` gave a dependency-free web GUI, to avoid double maintenance.)

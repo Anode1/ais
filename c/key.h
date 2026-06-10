@@ -1,7 +1,9 @@
 /* key.h -- key encoding and the navigable shard prefix.
  *
- * A key is a human word. Encoding lowercases it and turns whitespace into '_'
- * so it is a safe single path component. The shard prefix is the first one or
+ * A key is a human word. Encoding lowercases it and maps every unsafe character
+ * to '_' -- space, control chars, '|' (the store field delimiter), and '/' '\'
+ * (path separators) -- so a key is one store field AND one safe path component.
+ * The shard prefix is the first one or
  * two encoded characters, giving the navigable layout idx/<p>/<key>:
  * `ls idx/a/` shows the keys beginning with 'a'. Nothing is hashed.
  *
@@ -12,9 +14,9 @@
 
 #include <stddef.h>
 
-/* Encode KEY into OUT (size OUTSZ): lowercase ASCII, whitespace -> '_'.
- * Truncates to fit OUT (always NUL-terminated). Returns 0 on success,
- * -1 if KEY encodes empty (nothing to file under). */
+/* Encode KEY into OUT (size OUTSZ): lowercase ASCII; space, control, '|', '/'
+ * and '\' all map to '_'. Truncates to fit OUT (always NUL-terminated).
+ * Returns 0 on success, -1 if KEY encodes empty (nothing to file under). */
 int key_encode(const char *key, char *out, size_t outsz);
 
 /* Write the shard prefix of the already-encoded key ENC into OUT (size OUTSZ):

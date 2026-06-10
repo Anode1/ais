@@ -37,3 +37,4 @@ tests/INDEX/tomb
 tests/INDEX/lock
 /ais
 /releases/
+/example/

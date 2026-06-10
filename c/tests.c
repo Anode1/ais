@@ -20,6 +20,7 @@
 #include "compact.h"
 #include "stats.h"
 #include "find.h"
+#include "embed.h"
 
 #define FIXTURE_STORE "../tests/INDEX/store"   /* cwd is c/ under `make ut` */
 
@@ -147,7 +148,7 @@ static void build_fixture(ais *a, const char *dir)
 
 /* ====================================================================== */
 
-/* ---- key encoding: lowercase, whitespace -> '_' ---- */
+/* ---- key encoding: lowercase; space/control/'|'/'/'/'\' -> '_' ---- */
 static void test_key_encode(void)
 {
     char out[AIS_KEY_MAX];
@@ -157,6 +158,12 @@ static void test_key_encode(void)
           "key_encode space -> '_'");
     CHECK(key_encode("a\tb", out, sizeof(out)) == 0 && strcmp(out, "a_b") == 0,
           "key_encode tab -> '_'");
+    CHECK(key_encode("a|b", out, sizeof(out)) == 0 && strcmp(out, "a_b") == 0,
+          "key_encode '|' -> '_' (field delimiter)");
+    CHECK(key_encode("a/b", out, sizeof(out)) == 0 && strcmp(out, "a_b") == 0,
+          "key_encode '/' -> '_' (path safety)");
+    CHECK(key_encode("a\\b", out, sizeof(out)) == 0 && strcmp(out, "a_b") == 0,
+          "key_encode '\\' -> '_' (path safety)");
     CHECK(key_encode("", out, sizeof(out)) == -1, "key_encode empty -> -1");
 }
 
@@ -690,6 +697,47 @@ static void test_record_fastpath(void)
     scratch_rm(dir);
 }
 
+/* ---- embed: the in-process FFI seam (embed.h) over a scratch index ------- */
+static void test_embed(void)
+{
+    const char *dir = "/tmp/ais_ut_embed";
+    void *h;
+    char *r;
+    long id1, id2;
+
+    scratch_rm(dir);
+
+    h = ais_embed_open(dir);
+    CHECK(h != NULL, "embed: open returns a handle");
+    if (h == NULL) { scratch_rm(dir); return; }
+
+    id1 = ais_embed_store(h, "venice italy", "https://example.org/p");
+    id2 = ais_embed_store(h, "venice food", "gelato");
+    CHECK(id1 == 1 && id2 == 2, "embed: store returns monotonic ids");
+
+    r = ais_embed_recall(h, "venice italy", 0);          /* AND */
+    CHECK(r != NULL && strcmp(r, "1|https://example.org/p\n") == 0,
+          "embed: recall AND -> the one shared record");
+    ais_embed_free(r);
+
+    r = ais_embed_recall(h, "venice", 0);                /* shared key -> both, ascending */
+    CHECK(r != NULL && strcmp(r, "1|https://example.org/p\n2|gelato\n") == 0,
+          "embed: recall a shared key -> both records, ascending");
+    ais_embed_free(r);
+
+    r = ais_embed_recall(h, "italy food", 1);            /* OR -> union */
+    CHECK(r != NULL && strcmp(r, "1|https://example.org/p\n2|gelato\n") == 0,
+          "embed: recall OR -> union");
+    ais_embed_free(r);
+
+    r = ais_embed_recall(h, "nope", 0);                  /* no match -> "" not NULL */
+    CHECK(r != NULL && r[0] == '\0', "embed: no match -> empty string");
+    ais_embed_free(r);
+
+    ais_embed_close(h);
+    scratch_rm(dir);
+}
+
 int main(void)
 {
     printf("AIS regression tests (make ut)\n");
@@ -722,6 +770,8 @@ int main(void)
     test_next_id_recovery();
     printf("rebuild-from-store:\n");
     test_rebuild_from_store();
+    printf("embed (FFI seam):\n");
+    test_embed();
     printf("----\n%d passed, %d failed\n", ut_pass, ut_fail);
     return ut_fail == 0 ? 0 : 1;
 }

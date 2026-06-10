@@ -26,14 +26,14 @@ WHAT IT IS
   don't trust it.
 
   One store, three front-ends. The same index is reached from the `ais` command
-  line, a desktop GUI, and a local web page (`ais serve`) that any browser
+  line, a desktop GUI, and a local web page (`ais --serve`) that any browser
   opens. Not tied to one browser or one vendor.
 
   Bounded and quick. It streams: memory stays flat whether the index holds ten
   records or ten million, and an offset index keeps recall fast.
 
   Universal. Anything you can name with keys: bookmarks, files, shell commands,
-  phone numbers, and multi-line documents (`ais doc`).
+  phone numbers, and multi-line documents (`ais --doc`).
 
 WHAT IT IS NOT
 
@@ -55,18 +55,18 @@ WHERE YOUR DATA LIVES
 
   Plain files you can find, copy, back up, edit, or delete yourself. Run
 
-      ais where
+      ais --where
 
   to print the exact directory. By default it is $XDG_DATA_HOME/ais, else
   ~/.local/share/ais, under your home:
 
       Linux    /home/<you>/.local/share/ais
       macOS    /Users/<you>/.local/share/ais        (not ~/Library)
-      Windows  your user folder, under \.local\share\ais   (`ais where` shows it)
+      Windows  your user folder, under \.local\share\ais   (`ais --where` shows it)
 
   (The Windows build runs through Cygwin today, so that folder sits inside the
-  Cygwin home; `ais where` always prints the exact path. A native Windows
+  Cygwin home; `ais --where` always prints the exact path. A native Windows
   version, with ordinary Windows paths and no Cygwin, is planned.)
 
-  Or run `ais init` to keep a local .ais/ next to a project, the way git does.
+  Or run `ais --init` to keep a local .ais/ next to a project, the way git does.
   Either way the bytes are yours, on your disk - not a company's.

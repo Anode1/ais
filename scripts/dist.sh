@@ -78,12 +78,12 @@ build_bin() {
     cat > "$stage/README.txt" <<EOF
 AIS $VERSION  ($pretty/$arch)
 
-Run the GUI:   ./ais serve      (starts a local server, opens your browser)
+Run the GUI:   ./ais --serve      (starts a local server, opens your browser)
 Command line:  ./ais --help
 Shortcut:      alias is='ais'   (bash/zsh) -- two-character recall: "is venice italy"
 
 Your data is yours -- plain text you can find, back up, edit, or delete.
-Run './ais where' for its exact path (default: ~/.local/share/ais, under your home).
+Run './ais --where' for its exact path (default: ~/.local/share/ais, under your home).
 EOF
     if [ "$winbin" = 1 ]; then
         cat >> "$stage/README.txt" <<EOF

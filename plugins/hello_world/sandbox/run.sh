@@ -11,7 +11,7 @@ trap 'rm -rf "$idx"' EXIT
 export AIS_INDEX="$idx"
 
 # seed: each line of the fixtures file becomes a value under key 'demo'
-"$ais" put - demo < "$here/fixtures/notes.txt" >/dev/null
+"$ais" -v - demo < "$here/fixtures/notes.txt" >/dev/null
 
 # run the plugin exactly as AIS would: index in the env, exec the entry
 AIS="$ais" "$plugin/ais-hello" "$@"

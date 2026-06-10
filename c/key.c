@@ -13,7 +13,9 @@ int key_encode(const char *key, char *out, size_t outsz)
         return -1;
     for (; *p != '\0' && i + 1 < outsz; p++) {
         unsigned char c = *p;
-        if (c == ' ' || c == '\t' || c == '\r' || c == '\n')
+        /* Map to '_' anything unsafe: a key must be one store line-field (no
+         * '|') AND one path component idx/<p>/<key> (no '/', '\\', space, ctrl). */
+        if (c == ' ' || c == '|' || c == '/' || c == '\\' || iscntrl(c))
             out[i++] = '_';
         else
             out[i++] = (char)tolower(c);

@@ -1,10 +1,10 @@
 #!/usr/bin/env wish
 # ais-put.tcl -- Tk GUI for AIS: recall-first (like search), with an expandable
 # "add" panel. Shells out to the `ais` CLI -- the binary is the backend.
-#   * type keys, Enter or Get -> ais get -> results listed, one value per line,
+#   * type keys, Enter or Get -> ais KEY... (recall) -> results listed, one per line,
 #     with a "N results for Q - T ms" header (the v1 search look).
 #   * "+ add" expands a panel: values (one per line, or File.../Folder...) -> put,
-#     and a document box -> ais doc (saved as a blob file).
+#     and a document box -> ais --doc (saved as a blob file).
 # How to run:  wish gui/ais-put.tcl   (or ./gui/ais-put.tcl)
 
 package require Tk
@@ -125,7 +125,7 @@ proc do_put {} {
         if {$ln ne ""} { lappend values $ln }
     }
     if {[llength $values] == 0} { .f.status configure -text "enter one value per line"; return }
-    if {[catch {exec $AIS put - {*}$keys << [join $values "\n"]} err]} {
+    if {[catch {exec $AIS -v - {*}$keys << [join $values "\n"]} err]} {
         .f.status configure -text "error: $err"
     } else {
         .f.status configure -text "stored [llength $values] value(s) under: $keys"
@@ -139,7 +139,7 @@ proc do_doc {} {
     if {$keys eq ""} return
     set text [.f.p.doc get 1.0 end]
     if {[string trim $text] eq ""} { .f.status configure -text "the document is empty"; return }
-    if {[catch {exec $AIS doc {*}$keys << $text} out]} {
+    if {[catch {exec $AIS --doc {*}$keys << $text} out]} {
         .f.status configure -text "error: $out"
     } else {
         .f.status configure -text "saved document $out under: $keys"

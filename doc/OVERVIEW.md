@@ -35,7 +35,7 @@ end-to-end CLI/streaming suite, all green). Implemented: key algebra (AND/OR ove
 sorted-unique posting sets), `put`/`add`/`del`/`dump`/`find`/`import`/`doc`/`init`,
 an id→offset fast path for large stores, an append-only immutable store with
 confirmation-guarded deletes, multi-link records, UTF-8 keys, and a local web GUI
-(`ais serve`). The store is plain text and the whole index rebuilds from it
+(`ais --serve`). The store is plain text and the whole index rebuilds from it
 (`compact`); the CLI is the contract, and the GUIs are thin wrappers over it.
 
 ## Provenance

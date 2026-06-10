@@ -192,8 +192,9 @@ void feed_import(ais *a)
     char line[AIS_LINE_MAX];
     long n = 0;
 
-    /* Each line is "keys|value" (the inverse of dump's id|keys|value). The
-     * store already forbids '|' in a value, so the first '|' is the split.
+    /* Each line is "keys|value" (the inverse of dump's id|keys|value). Keys
+     * never contain '|' (key_encode maps it to '_'), so the FIRST '|' is the
+     * keys/value split; the value may itself contain '|' and is taken verbatim.
      * Blank lines and #-comments are skipped, so the file stays hand-editable. */
     while (fgets(line, sizeof(line), stdin) != NULL) {
         char *bar, *keys, *val, *e;

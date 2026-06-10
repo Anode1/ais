@@ -2,7 +2,7 @@
 
 `INDEX/lock` coordinates writers. The rule: **reads take no lock; writers take
 an exclusive flock for the duration of one mutating op.** A long-lived reader
-(for example `ais serve`) therefore never blocks the CLI or an agent.
+(for example `ais --serve`) therefore never blocks the CLI or an agent.
 
 ## Model
 

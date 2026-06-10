@@ -27,7 +27,16 @@ order of 100 to 1,000,000 things in a whole lifetime (a few dozen a day for ~70
 years is about a million). So 1M records is not a waypoint we must scale past;
 it is the upper bound, and AIS already answers it in milliseconds to a couple of
 seconds. The key space is bounded too: human active vocabulary is ~10-20k words,
-so distinct keys stay few (the 1M test had 4,000). The "it won't scale" critique
+so distinct keys stay few (the 1M test had 4,000). That bound is also why the
+index shards shallowly: keys live in `idx/<first-letter>/<key>`, navigable and
+hash-free, and one fixed level keeps every bucket small enough to `ls`. Deeper,
+adaptive splitting (re-shard a bucket by the next letter once it grows hot) is
+available as an option, but at human scale it is not needed. (The early 2001
+versions balanced the tree deeply because filesystems then, Windows on
+first-generation Pentiums, slowed with only hundreds of files in one directory.
+Modern filesystems handle thousands without trouble, so the shallow scheme is a
+deliberate correction, not an oversight. Noted here to prevent re-introducing
+balancing that the hardware no longer requires.) The "it won't scale" critique
 assumes web scale; one person's memory is not web scale and never will be.
 
 ## Unix tools and hand-editing are the point, not a fallback

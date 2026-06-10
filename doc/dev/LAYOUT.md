@@ -14,7 +14,7 @@ is hashed: every file is plain text, readable, greppable, repairable by hand.
       multi           ids carrying >1 value line (from add)
       tomb            tombstones: deleted ids, one per line
       blobs/<timestamp>.txt  documents saved by `doc` (real data; not rebuildable)
-      lock            single-writer advisory lock (flock)
+      lock            writers' advisory flock (per op; reads lock-free)
 
 ### store -- the source of truth (append-only)
 `id|keys|value`. `id` is a positive integer, assigned monotonically. `keys` is
@@ -34,7 +34,8 @@ Holds the next id as text. On put: read, use, write back +1. If missing
 taking max(id)+1 -- bounded memory, one `long`.
 
 ### idx/<p>/<key> -- posting lists, sorted by construction
-`<key>` is the encoded key (lowercased; spaces/tabs -> `_`). The file is that
+`<key>` is the encoded key (lowercased; space, control, `|`, `/` and `\` -> `_`,
+so it is one store field and one safe path component). The file is that
 one key's list of record ids, one per line, ascending. `<p>` is a short
 NAVIGABLE prefix of the key (first one or two encoded chars): `idx/a/apple`.
 The prefix keeps the index human-walkable -- `ls idx/a/` shows keys beginning
@@ -87,26 +88,27 @@ Stream `store` dropping tombstoned ids into `store.new`; rebuild `idx/`, `off`
 rename atomically; clear `tomb`; recompute `next_id`. Bounded buffers throughout.
 
 ### import -- the editable batch format (inverse of dump)
-`ais import` reads `keys|value` lines from stdin and `put`s each -- the inverse
-of `ais dump` (drop the leading `id|`), so an index round-trips:
-`ais dump | sed 's/^[0-9]*|//' | ais import`. Blank lines and `#`-comments are
+`ais --import` reads `keys|value` lines from stdin and `put`s each -- the inverse
+of `ais --dump` (drop the leading `id|`), so an index round-trips:
+`ais --dump | sed 's/^[0-9]*|//' | ais --import`. Blank lines and `#`-comments are
 skipped (the file stays hand-editable); idempotent re-import changes nothing.
 Lines that share keys recall together.
 
 ### doc, blobs/ -- large or multi-line values
-A value is one line, so multi-line/large text can't be inline. `ais doc KEYS`
+A value is one line, so multi-line/large text can't be inline. `ais --doc KEYS`
 reads a document from stdin, writes it to `blobs/<timestamp>.txt` (named by local
 time, so `ls blobs/` reads chronologically; a same-second doc gets a `-N`
 suffix), and `put`s that relative path as the value. The engine stays
 oblivious -- it stores a path like any other; the front-end (feed.c) owns blob
 placement. `blobs/` is the only REAL DATA besides `store` (not rebuildable);
-`find` searches the path, not the blob's contents (tags-only). `ais where`
+`find` searches the path, not the blob's contents (tags-only). `ais --where`
 prints the index dir so a front-end can resolve `blobs/<timestamp>.txt`.
 
 ### Concurrency
-Single-writer: `ais_open` takes an advisory `flock` on `INDEX/lock`. One writer
-at a time; the append-only design leaves readers unaffected. Concurrent writers
-are out of scope for v1.
+Reads take no lock; each writer takes an exclusive `flock` on `INDEX/lock` for
+the duration of one mutating op and reloads `next_id` under it, so concurrent
+writers serialize without colliding on an id, and a long-lived reader
+(`ais --serve`) never blocks the CLI. Full model: `LOCKING.md`.
 
 ## Module map (one concept per file -- see STYLE.md)
 
@@ -119,26 +121,28 @@ are out of scope for v1.
     merge.c/.h     the k-way streaming merge (AND/OR) over sorted id streams
     compact.c/.h   tombstones + compaction
     ais.c/.h       the public facade composing the above (ais.h is the API)
+    embed.c/.h     in-process FFI seam (ais_embed_*) for Flutter / native hosts
     help.c/.h      usage_short / usage_long
     log.c/.h       die() (CLI fatal: stderr + exit) + debug() (runtime -d gated trace)
-    main.c         CLI / getopt_long dispatch (get is the default verb)
+    main.c         CLI / getopt_long dispatch (recall is the default; -v/-k, --commands)
     tests.c        the test bundle (linear, inline, one comment per test)
 
 ## CLI
 
-get is the default: bare positional args are query keys; mutations are explicit
-verbs. Dispatch: if argv[1] is a known verb (put/add/del/dump/compact/get) run
-it; otherwise treat all args as get keys.
+Flag-based so no tag is shadowed: a bare word is always a KEY (recall is the
+default), a value is marked `-v`, a command is a `--word`. Dispatch: a `--CMD`
+flag selects a command; else `-v`/`-R`/`-i` mean store; else recall the keys.
 
-    ais [-f DIR] [-o] KEY...        get (AND; -o = OR)        <-- default
-    ais [-f DIR] put VALUE KEY...   put            (-R DIR: index a whole folder)
-    ais [-f DIR] add ID VALUE
-    ais [-f DIR] del ID
-    ais [-f DIR] find TEXT          search values by substring
-    ais [-f DIR] import < FILE      add keys|value lines (inverse of dump)
-    ais [-f DIR] doc KEY... < FILE  save a multi-line document as a blob file
-    ais [-f DIR] where              print the resolved index dir
-    ais [-f DIR] dump | compact
+    ais [-f DIR] [-o] KEY...           recall (AND; -o = OR)        <-- default
+    ais [-f DIR] -v VALUE [KEY...]     store (-v - = stdin; repeat -v = multi-link)
+    ais [-f DIR] -R DIR [KEY...]       store every file under DIR
+    ais [-f DIR] -i [KEY...]           interactive: keys per piped line
+    ais [-f DIR] --find TEXT           search values by substring
+    ais [-f DIR] --add ID -v VALUE
+    ais [-f DIR] --doc KEY... < FILE   save a multi-line document as a blob file
+    ais [-f DIR] --del ID | --del-key KEY | --dump | --keys | --stats | --compact
+    ais [-f DIR] --import < FILE | --where | --project [KEY] | --serve [PORT]
+    ais --init                        create a local .ais here
 
 INDEX location precedence: `-f/--index DIR` > `$AIS_INDEX` > nearest `.ais/`
 (walking up, git-style) > `$XDG_DATA_HOME/ais` (else `~/.local/share/ais`).
@@ -156,7 +160,7 @@ usage_long.
 4. ais_add (continuation line) + multi-value record. test: multi-link.
 5. ais_del (tomb) + suppression in get/dump.       test: delete semantics.
 6. ais_compact.                                    test: space reclaimed.
-7. main.c (getopt_long, get-default, verbs, help, put -R).
+7. main.c (getopt_long: recall-default, -v/-k values+keys, --commands, help).
 8. tests.c full bundle against tests/INDEX.
 
 1 -> 2 -> 3 are sequential (the read path needs the write path's sorted output).

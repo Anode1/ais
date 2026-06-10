@@ -5,7 +5,8 @@ AIS index storage grammar
 The formal grammar of the on-disk index format: the contract an automated writer
 (a script, the GUI, the web/SQLite layer, an agent) must produce, and that a
 verifier can check the code against in both directions throughout development.
-See doc/LAYOUT.md for the directory map and algorithms; this file is the format.
+See LAYOUT.md (same directory) for the directory map and algorithms; this file
+is the format.
 
 Grammar below is BNF-like, where terminals are delimited by " " (double-quotes),
 non-terminals by < >, and simple regular expressions like character grouping [ ],
@@ -25,9 +26,10 @@ contain "|". A multi-value record (from `add`) is several lines that share one
 <id>           ::= [:digit:]+            ? positive (> 0), assigned monotonically ?
 <keys>         ::= <key> ( " " <key> )*  ? one or more space-separated encoded keys ?
 <key>          ::= <key_char>+
-<key_char>     ::= ? any character except [:blank:], "|" and "\n"; letters are
-                     lowercased; a run of [:blank:] in the source key becomes a
-                     single "_" (key.c:key_encode) ?
+<key_char>     ::= ? [:graph:] except "|" "/" "\" -- a key is one store line-field
+                     AND one safe path component. key.c:key_encode lowercases the
+                     source key and maps every other character (space, [:cntrl:],
+                     "|", "/", "\") to "_". ?
 <value>        ::= <value_char>*         ? may be empty ?
 <value_char>   ::= ? any character except "\n" (LF) and "\r" (CR); "|" IS allowed ?
 
@@ -80,6 +82,8 @@ the blob's contents.)
 `ais dump` emits <record> lines. `ais import` reads <import_line> (a <record>
 with the leading "<id> |" dropped), skipping blanks and "#" comments. Round-trip:
    ais dump | sed 's/^[0-9]*|//' | ais import
+Keys are "|"-free (key_encode), so import splits on the FIRST "|"; a value that
+itself contains "|" therefore round-trips dump -> import unchanged.
 <import_input> ::= ( <import_line> "\n" )*
 <import_line>  ::= <comment_line> | "" | <keys> "|" <value>
 <comment_line> ::= "#" <value_char>*
@@ -88,18 +92,18 @@ with the leading "<id> |" dropped), skipping blanks and "#" comments. Round-trip
 ============================
 NOTES -- verify against the code (the purpose of this document)
 ============================
-1. "|" in <value>: store_parse takes <value> as the line remainder, so a value
-   MAY contain "|" (verified: putting "a|b|c" round-trips whole). The import
-   path carries a stale comment ("store already forbids '|' in a value",
-   feed.c). DECISION: keep "|" allowed (then fix that comment), or forbid it
-   (then put/import must reject or percent-encode "|", and dump lines stay
-   visually unambiguous). This grammar states the implemented behavior: allowed.
+1. "|" in <value>: ALLOWED (decided 2026-06-10). store_parse takes <value> as the
+   line remainder, so a value keeps "|" verbatim (URLs, "a|b" notes); AIS's
+   promise is faithful storage and there is no parsing benefit to rejecting it.
+   The former stale comment in feed.c ("store already forbids '|' in a value")
+   has been corrected.
 
-2. "|" / "\n" in <key>: this grammar forbids them (they would break the line
-   split), but key.c:key_encode only lowercases and maps [:blank:] -> "_"; it
-   does NOT exclude "|" or control characters. A source key containing "|" would
-   silently corrupt a store line. key_encode should reject or encode "|" (and
-   newline) to conform to this grammar.
+2. <key> safety: RESOLVED (decided 2026-06-10) by ENCODING, not rejecting.
+   key.c:key_encode maps to "_" every character unsafe for a key, which must be
+   both one store line-field and one path component idx/<p>/<key>: space,
+   [:cntrl:] (tab/newline/CR), "|" (the field delimiter), and "/" "\" (path
+   separators). So a|b -> a_b and a/b -> a_b. Rejecting a put over a stray
+   character would be worse UX and inconsistent with the existing lossy encoding.
 
 3. The conventional <value> forms (url/uri/path/blob_ref) are informative only;
    the engine constrains nothing but "no newline". Only <blob_ref> has a producer

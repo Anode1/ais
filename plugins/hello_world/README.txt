@@ -1,7 +1,7 @@
 hello_world -- the smallest AIS plugin.
 
 What it does
-  Prints a greeting and the index statistics (by calling `ais stats`).
+  Prints a greeting and the index statistics (by calling `ais --stats`).
   A developer-only example: copy it to start your own plugin.
 
 Run it standalone
