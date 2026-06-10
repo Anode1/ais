@@ -12,8 +12,8 @@ set(CMAKE_C_STANDARD 99)
 file(GLOB AIS_SRC "${CMAKE_CURRENT_SOURCE_DIR}/../../../c/*.c")
 list(FILTER AIS_SRC EXCLUDE REGEX "/main\\.c$")
 
-add_library(ais SHARED ${AIS_SRC})
-target_include_directories(ais PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../../../c")
-
-# Make the embed seam visible to the dynamic loader.
-set_target_properties(ais PROPERTIES C_VISIBILITY_PRESET default)
+# Target is 'ais_engine' (the Linux runner executable target is already named
+# 'ais'); OUTPUT_NAME keeps the file libais.so, which the Dart FFI opens.
+add_library(ais_engine SHARED ${AIS_SRC})
+set_target_properties(ais_engine PROPERTIES OUTPUT_NAME ais C_VISIBILITY_PRESET default)
+target_include_directories(ais_engine PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../../../c")

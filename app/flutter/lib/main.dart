@@ -31,6 +31,9 @@ class _RecallPageState extends State<RecallPage> {
   AisEngine? _ais;
   List<String> _results = const [];
   bool _voice = false;
+  String _status = 'opening index…';
+  String _query = '';
+  int _ms = 0;
 
   @override
   void initState() {
@@ -38,19 +41,48 @@ class _RecallPageState extends State<RecallPage> {
     _init();
   }
 
+  // Desktop shares the user's REAL index (same default the CLI uses), so the app
+  // sees the data you already stored. Mobile uses the app's private dir.
+  Future<String> _indexDir() async {
+    if (Platform.isAndroid || Platform.isIOS) {
+      final docs = await getApplicationDocumentsDirectory();
+      return '${docs.path}/ais';
+    }
+    final env = Platform.environment;
+    final ai = env['AIS_INDEX'];
+    if (ai != null && ai.isNotEmpty) return ai;
+    final xdg = env['XDG_DATA_HOME'];
+    if (xdg != null && xdg.isNotEmpty) return '$xdg/ais';
+    return '${env['HOME']}/.local/share/ais';
+  }
+
   Future<void> _init() async {
-    final docs = await getApplicationDocumentsDirectory();
-    final indexDir = '${docs.path}/ais';
-    Directory(indexDir).createSync(recursive: true);
-    _ais = AisEngine(indexDir);
-    _voice = await _speech.initialize();
+    try {
+      final dir = await _indexDir();
+      Directory(dir).createSync(recursive: true);
+      _ais = AisEngine(dir);
+      _status = 'index: $dir';
+    } catch (e) {
+      _status = 'cannot open index: $e';
+    }
+    try {
+      _voice = await _speech.initialize(); // unsupported on desktop -> stays false
+    } catch (_) {
+      _voice = false;
+    }
     if (mounted) setState(() {});
   }
 
   void _recall() {
     final keys = _q.text.trim();
-    if (keys.isEmpty || _ais == null) return;
-    setState(() => _results = _ais!.recall(keys)); // "is venice italy"
+    if (_ais == null || keys.isEmpty) return;
+    final t0 = DateTime.now();
+    final r = _ais!.recall(keys);
+    setState(() {
+      _query = keys;
+      _ms = DateTime.now().difference(t0).inMilliseconds;
+      _results = r;
+    });
   }
 
   Future<void> _listen() async {
@@ -63,15 +95,20 @@ class _RecallPageState extends State<RecallPage> {
 
   @override
   Widget build(BuildContext context) {
+    final muted = TextStyle(color: Colors.grey.shade600, fontSize: 13);
+    final feedback = _query.isEmpty
+        ? _status
+        : '${_results.length} result${_results.length == 1 ? '' : 's'} for "$_query"  ·  $_ms ms';
     return Scaffold(
       appBar: AppBar(title: const Text('AIS')),
       body: Padding(
         padding: const EdgeInsets.all(16),
-        child: Column(children: [
+        child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
           Row(children: [
             Expanded(
               child: TextField(
                 controller: _q,
+                autofocus: true,
                 textInputAction: TextInputAction.search,
                 decoration: const InputDecoration(
                     hintText: 'ask or type keys…', border: OutlineInputBorder()),
@@ -82,19 +119,24 @@ class _RecallPageState extends State<RecallPage> {
               IconButton(icon: const Icon(Icons.mic), tooltip: 'Speak', onPressed: _listen),
             IconButton(icon: const Icon(Icons.search), tooltip: 'Recall', onPressed: _recall),
           ]),
-          const SizedBox(height: 12),
+          const SizedBox(height: 10),
+          Text(feedback, style: muted),       // always-visible feedback line
+          const SizedBox(height: 6),
           Expanded(
             child: ListView.separated(
               itemCount: _results.length,
               separatorBuilder: (_, __) => const Divider(height: 1),
-              itemBuilder: (_, i) => ListTile(title: SelectableText(_results[i])),
+              itemBuilder: (_, i) => ListTile(
+                dense: true,
+                title: SelectableText(_results[i]),
+              ),
             ),
           ),
         ]),
       ),
       floatingActionButton: FloatingActionButton(
         tooltip: 'Put',
-        onPressed: _showAdd,
+        onPressed: _ais == null ? null : _showAdd,
         child: const Icon(Icons.add),
       ),
     );
