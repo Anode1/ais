@@ -10,7 +10,7 @@ Layout follows the v1 search look: a keys box on top, **Get** (or Enter) lists
 the results one value per line with a `N results for Q - T ms` header; an
 expandable **+ add** panel below holds put/doc (adding is the rarer action).
 
-- **Desktop (Tk):** `wish gui/ais-put.tcl`  (or `./gui/ais-put.tcl`)
+- **Desktop (Tk):** `wish gui/ais.tcl`  (or `./gui/ais.tcl`)
   Pure Tcl/Tk -- needs only `wish`. The maintained GUI. Values box (one per
   line) with **File…/Folder…** pickers, plus a Document box (`ais --doc`).
 

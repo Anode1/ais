@@ -1,11 +1,11 @@
 #!/usr/bin/env wish
-# ais-put.tcl -- Tk GUI for AIS: recall-first (like search), with an expandable
+# ais.tcl -- Tk GUI for AIS: recall-first (like search), with an expandable
 # "add" panel. Shells out to the `ais` CLI -- the binary is the backend.
 #   * type keys, Enter or Get -> ais KEY... (recall) -> results listed, one per line,
 #     with a "N results for Q - T ms" header (the v1 search look).
 #   * "+ add" expands a panel: values (one per line, or File.../Folder...) -> put,
 #     and a document box -> ais --doc (saved as a blob file).
-# How to run:  wish gui/ais-put.tcl   (or ./gui/ais-put.tcl)
+# How to run:  wish gui/ais.tcl   (or ./gui/ais.tcl)
 
 package require Tk
 set AIS [expr {[auto_execok ais] ne "" ? "ais" : "/home/vas/ais/c/ais"}]
@@ -70,7 +70,6 @@ grid columnconfigure .f.p 0 -weight 1
 
 bind .f.q <Return> do_get
 focus .f.q
-refresh_store
 
 # --- store (which index) ---------------------------------------------------
 proc ais_args {} { global INDEX; return [expr {$INDEX ne "" ? [list -f $INDEX] : {}}] }
@@ -174,3 +173,6 @@ proc do_doc {} {
         .f.p.doc delete 1.0 end
     }
 }
+
+# everything is defined now -> show the current store
+refresh_store

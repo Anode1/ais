@@ -17,7 +17,7 @@ OPEN IT
 Each one opens AIS in your web browser at  http://127.0.0.1:8765 . A small
 window may stay open while AIS runs; close it when you are done.
 
-(On Linux there is also a plain desktop window:  wish gui/ais-put.tcl )
+(On Linux there is also a plain desktop window:  wish gui/ais.tcl )
 
 
 USE IT
