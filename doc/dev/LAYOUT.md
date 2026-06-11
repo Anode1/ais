@@ -113,7 +113,7 @@ writers serialize without colliding on an id, and a long-lived reader
 ## Module map (one concept per file -- see STYLE.md)
 
     common.h       shared limits/types (AIS_LINE_MAX, AIS_KEY_MAX, ...)
-    key.c/.h       key encoding (lower, ' '->'_') + the navigable prefix
+    key.c/.h       key encoding (lower; space, ctrl, | / \ -> '_') + the navigable prefix
     store.c/.h     append-only store: append/stream records, monotonic id,
                    resolve by id, value->id scan for idempotency
     post.c/.h      posting lists: append an id to a key's file, open a key's

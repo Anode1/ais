@@ -59,6 +59,8 @@ static const char PAGE[] =
 ".hit{padding:.85rem .2rem;border-bottom:1px solid var(--line);word-break:break-word}"
 ".hit:last-child{border-bottom:0}.hit a{color:var(--accent);text-decoration:none}"
 ".empty{color:var(--muted);text-align:center;margin-top:3rem}"
+".storerow{font-size:.72rem;margin-top:.45rem;display:flex;gap:.4rem;align-items:center}"
+".link{border:0;background:none;color:var(--accent);cursor:pointer;font:inherit;text-decoration:underline;padding:0}"
 ".fab{position:fixed;right:18px;bottom:18px;border:0;border-radius:30px;padding:.9rem 1.3rem;"
 "cursor:pointer;font:inherit;font-weight:600;color:#fff;background:var(--accent);box-shadow:0 4px 14px rgba(0,0,0,.25)}"
 "#sheet{position:fixed;inset:0;z-index:10;background:rgba(0,0,0,.35);display:flex;align-items:center;justify-content:center}"
@@ -73,7 +75,8 @@ static const char PAGE[] =
 ".primary{border:0;background:var(--accent);color:#fff;font-weight:600}"
 "</style>"
 "<header id=bar><div class=titlerow><span class=brand>AIS</span><span id=count class=muted></span></div>"
-"<div class=searchrow><input id=q type=search placeholder='type keys to recall...' autocomplete=off autofocus></div></header>"
+"<div class=searchrow><input id=q type=search placeholder='type keys to recall...' autocomplete=off autofocus></div>"
+"<div class=storerow><span id=store class=muted></span><button id=storebtn class=link>change</button></div></header>"
 "<main id=out><p class=empty>Type keys, then Enter. Click + Add to store.</p></main>"
 "<button id=addbtn class=fab>+ Add</button>"
 "<div id=sheet hidden><div class=card><h2>Add to your memory</h2>"
@@ -101,6 +104,13 @@ static const char PAGE[] =
 "$('q').addEventListener('keydown',function(e){if(e.key=='Enter')recall()});"
 "$('addbtn').onclick=openSheet;$('cancel').onclick=closeSheet;$('save').onclick=save;"
 "$('sheet').addEventListener('click',function(e){if(e.target==$('sheet'))closeSheet()});"
+"async function loadStore(){$('store').textContent='store: '+await(await fetch('/api/where')).text()}"
+"async function changeStore(){var cur=await(await fetch('/api/where')).text();"
+"var d=prompt('Index folder (full path):',cur);if(!d||d==cur)return;"
+"var r=await fetch('/api/store',{method:'POST',body:d});"
+"if(r.ok){$('q').value='';$('out').innerHTML='';$('count').textContent='';loadStore()}"
+"else{alert('Could not open that index')}}"
+"$('storebtn').onclick=changeStore;loadStore();"
 "</script>";
 
 static void write_all(int fd, const char *p, size_t n)
@@ -304,6 +314,34 @@ static void handle(ais *a, int fd)
         send_head(fd, "text/plain");
         if (m > 0)
             write_all(fd, msg, (size_t)m);
+    } else if (strcmp(method, "GET") == 0 && strcmp(path, "/api/where") == 0) {
+        send_head(fd, "text/plain");          /* the current store (index dir) */
+        write_all(fd, a->dir, strlen(a->dir));
+    } else if (strcmp(method, "POST") == 0 && strcmp(path, "/api/store") == 0) {
+        /* switch the active index: the body is the new directory. Reopen it,
+         * restoring the old one if it cannot be opened (single-threaded, so the
+         * in-place reopen is safe). localhost only, single user. */
+        char olddir[AIS_PATH_MAX];
+        char *nd = body;
+        size_t bl;
+        while (*nd == ' ' || *nd == '\t') nd++;
+        bl = strlen(nd);
+        while (bl > 0 && (nd[bl-1] == '\r' || nd[bl-1] == '\n' ||
+                          nd[bl-1] == ' '  || nd[bl-1] == '\t'))
+            nd[--bl] = '\0';
+        snprintf(olddir, sizeof(olddir), "%s", a->dir);
+        if (nd[0] != '\0' && strcmp(nd, olddir) != 0) {
+            ais_close(a);
+            if (ais_open(a, nd) != 0) {
+                static const char e[] = "HTTP/1.0 400 Bad Request\r\n"
+                    "Connection: close\r\n\r\ncannot open that index\n";
+                ais_open(a, olddir);          /* restore the previous store */
+                write_all(fd, e, sizeof(e) - 1);
+                return;                        /* accept loop closes fd */
+            }
+        }
+        send_head(fd, "text/plain");
+        write_all(fd, a->dir, strlen(a->dir));
     } else if (strcmp(method, "GET") == 0) {
         /* an external asset (e.g. /style.css) if gui/web has it; the root falls
          * back to the embedded page so the binary still works with no files. */

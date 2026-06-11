@@ -43,6 +43,7 @@ class _RecallPageState extends State<RecallPage> {
   bool _searched = false;
   String _status = 'opening index…';
   String _query = '';
+  String _dir = '';
   int _ms = 0;
 
   @override
@@ -71,6 +72,7 @@ class _RecallPageState extends State<RecallPage> {
       final dir = await _indexDir();
       Directory(dir).createSync(recursive: true);
       _ais = AisEngine(dir);
+      _dir = dir;
       _status = 'Type keys, then search. Tap Add to store.';
     } catch (e) {
       _status = 'cannot open index: $e';
@@ -105,6 +107,41 @@ class _RecallPageState extends State<RecallPage> {
   }
 
   bool _isUrl(String v) => v.startsWith('http://') || v.startsWith('https://');
+
+  // Switch the active index: type a folder path, reopen the engine there.
+  Future<void> _changeStore() async {
+    final ctrl = TextEditingController(text: _dir);
+    final picked = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Store (index folder)'),
+        content: TextField(
+          controller: ctrl,
+          autofocus: true,
+          decoration: const InputDecoration(hintText: 'full path to a .ais index folder'),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, ctrl.text.trim()), child: const Text('Open')),
+        ],
+      ),
+    );
+    if (picked == null || picked.isEmpty || picked == _dir) return;
+    try {
+      _ais?.close();
+      Directory(picked).createSync(recursive: true);
+      _ais = AisEngine(picked);
+      setState(() {
+        _dir = picked;
+        _results = const [];
+        _searched = false;
+        _query = '';
+        _q.clear();
+      });
+    } catch (e) {
+      setState(() => _status = 'cannot open: $e');
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -152,6 +189,25 @@ class _RecallPageState extends State<RecallPage> {
                             : null,
                       ),
                     ),
+                    const SizedBox(height: 4),
+                    Row(children: [
+                      Expanded(
+                        child: Text(
+                          _dir.isEmpty ? 'store: (default)' : 'store: $_dir',
+                          style: TextStyle(color: cs.outline, fontSize: 12),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      TextButton(
+                        onPressed: _ais == null ? null : _changeStore,
+                        style: TextButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(horizontal: 8),
+                          minimumSize: Size.zero,
+                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        ),
+                        child: const Text('change'),
+                      ),
+                    ]),
                   ],
                 ),
               ),

@@ -10,6 +10,7 @@
 package require Tk
 set AIS [expr {[auto_execok ais] ne "" ? "ais" : "/home/vas/ais/c/ais"}]
 set ADDSHOWN 0
+set INDEX ""   ;# current index dir (passed as -f); empty = default resolution
 
 wm title   . "AIS"
 wm minsize . 540 460
@@ -26,13 +27,17 @@ text        .f.res -height 14 -wrap word -font {TkTextFont 11} -state disabled \
 .f.res tag configure item -spacing1 4 -spacing3 4   ;# space above+below each result
 .f.res tag configure link -foreground "#1a0dab"
 ttk::button .f.add -text "+ add" -command toggle_add
+ttk::button .f.storeb -text "Store…" -command choose_store
 ttk::label  .f.status -text "type keys to recall, then Get" -anchor w
+ttk::label  .f.storel -text "" -anchor w -foreground "#777777"
 
 grid .f.q      -row 0 -column 0 -sticky ew -ipady 4
 grid .f.get    -row 0 -column 1 -sticky e -padx {6 0}
 grid .f.res    -row 1 -column 0 -columnspan 2 -sticky nsew -pady {10 0}
 grid .f.add    -row 2 -column 0 -sticky w -pady {8 0}
+grid .f.storeb -row 2 -column 1 -sticky e -pady {8 0}
 grid .f.status -row 4 -column 0 -columnspan 2 -sticky ew -pady {8 0}
+grid .f.storel -row 5 -column 0 -columnspan 2 -sticky ew
 grid columnconfigure .f 0 -weight 1
 grid rowconfigure    .f 1 -weight 1
 
@@ -65,13 +70,32 @@ grid columnconfigure .f.p 0 -weight 1
 
 bind .f.q <Return> do_get
 focus .f.q
+refresh_store
+
+# --- store (which index) ---------------------------------------------------
+proc ais_args {} { global INDEX; return [expr {$INDEX ne "" ? [list -f $INDEX] : {}}] }
+proc cur_store {} {
+    global AIS INDEX
+    if {$INDEX ne ""} { return $INDEX }
+    if {[catch {exec $AIS --where} w]} { return "(default)" }
+    return [string trim $w]
+}
+proc refresh_store {} { .f.storel configure -text "store: [cur_store]" }
+proc choose_store {} {
+    global INDEX
+    set d [tk_chooseDirectory -title "Choose AIS index folder"]
+    if {$d eq ""} return
+    set INDEX $d
+    refresh_store
+    if {[string trim [.f.q get]] ne ""} { do_get }
+}
 
 proc do_get {} {
     global AIS
     set keys [string trim [.f.q get]]
     if {$keys eq ""} { .f.status configure -text "type keys to recall"; return }
     set t0 [clock milliseconds]
-    if {[catch {exec $AIS {*}$keys} out]} {
+    if {[catch {exec $AIS {*}[ais_args] {*}$keys} out]} {
         .f.status configure -text "error: $out"
         return
     }
@@ -129,7 +153,7 @@ proc do_put {} {
         if {$ln ne ""} { lappend values $ln }
     }
     if {[llength $values] == 0} { .f.status configure -text "enter at least one value"; return }
-    if {[catch {exec $AIS -v - {*}$keys << [join $values "\n"]} err]} {
+    if {[catch {exec $AIS {*}[ais_args] -v - {*}$keys << [join $values "\n"]} err]} {
         .f.status configure -text "error: $err"
     } else {
         .f.status configure -text "stored [llength $values] value(s) under: [where_txt $keys]"
@@ -143,7 +167,7 @@ proc do_doc {} {
     set keys [add_keys]
     set text [.f.p.doc get 1.0 end]
     if {[string trim $text] eq ""} { .f.status configure -text "the document is empty"; return }
-    if {[catch {exec $AIS --doc {*}$keys << $text} out]} {
+    if {[catch {exec $AIS {*}[ais_args] --doc {*}$keys << $text} out]} {
         .f.status configure -text "error: $out"
     } else {
         .f.status configure -text "saved document under: [where_txt $keys]"

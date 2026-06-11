@@ -16,6 +16,8 @@ body { font: 16px/1.45 system-ui, sans-serif; color: #14141a; background: var(--
 .brand { font-size: 1.35rem; font-weight: 700; }
 .muted { color: var(--muted); }
 #count { margin-left: auto; font-size: .8rem; }
+.storerow { font-size: .72rem; margin-top: .45rem; display: flex; gap: .4rem; align-items: center; }
+.link { border: 0; background: none; color: var(--accent); cursor: pointer; font: inherit; text-decoration: underline; padding: 0; }
 
 .searchrow { display: flex; align-items: center; gap: .4rem; margin-top: .6rem;
   background: #fff; border: 1px solid var(--line); border-radius: 28px; padding: 0 .8rem; }
@@ -41,6 +43,7 @@ body { font: 16px/1.45 system-ui, sans-serif; color: #14141a; background: var(--
 /* value-first Add sheet */
 #sheet { position: fixed; inset: 0; z-index: 10; background: rgba(0, 0, 0, .35);
   display: flex; align-items: flex-end; justify-content: center; }
+#sheet[hidden] { display: none; }   /* the `hidden` attr must win over display:flex */
 .card { width: 100%; max-width: 560px; background: #fff;
   border-radius: 18px 18px 0 0; padding: 1.2rem 1.2rem calc(env(safe-area-inset-bottom) + 1.2rem); }
 @media (min-width: 600px) { #sheet { align-items: center; } .card { border-radius: 18px; } }

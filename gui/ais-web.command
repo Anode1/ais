@@ -7,6 +7,7 @@
 # A small Terminal window stays open while the server runs; close it to stop.
 
 dir=$(cd "$(dirname "$0")" && pwd)
+export AIS_INDEX="$dir/.ais"   # the .ais next to this launcher, so no -f is needed
 for cand in "$(command -v ais)" "$dir/ais" "$dir/../ais" "$dir/../c/ais"; do
     [ -n "$cand" ] && [ -x "$cand" ] && { exec "$cand" --serve; }
 done

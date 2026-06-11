@@ -45,6 +45,20 @@ spec. See LAYOUT.md (format), BNF.txt (grammar).
   (value-aware). Never trust git's textual merge of `store`, it id-collides.
 - Idempotent and resumable: a partial/interrupted sync just re-runs to converge.
 
+## Sharing -- give someone your index (bootstrap)
+- An index is names, not secrets: it stores values (hosts, paths, URLs, commands),
+  never credentials -- like a shared `.ssh/config` where each user keeps their own
+  keys. So an index is safe to hand over or commit to a repo. [principle]
+- Ready-to-use: ship the built index directory; the receiver queries it in place,
+  `ais -f ./.ais KEY...`, no import -- a checked-in config. Filter first (dump only
+  the records meant to be shared) so nothing private travels.
+- Seed-and-own: hand over a portable dump and they make it their first version --
+      ais --dump | sed 's/^[0-9]*|//'  >  shared   # donor: strip the local ids
+      ais -f ./.ais --import           <  shared   # receiver: into a fresh index
+  From there each side diverges and the Sync merge above reconciles both ways:
+  value-as-identity dedups the shared records, each side's own records just add.
+  [implemented]
+
 ## GUI / UX
 - A resource = value (identity, shown read-only) + an editable keyset.
 - Save emits the DIFF against the loaded state (only the +'s and -'s you changed),

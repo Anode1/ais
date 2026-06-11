@@ -16,6 +16,7 @@
     <input id="q" type="search" enterkeyhint="search" placeholder="type keys to recall…" autocomplete="off" autofocus>
     <button id="mic" class="iconbtn" title="Speak" hidden>&#127908;</button>
   </div>
+  <div class="storerow"><span id="store" class="muted"></span><button id="storebtn" class="link">change</button></div>
 </header>
 
 <main id="out"><p class="empty">Type keys, then Enter. Tap + Add to store.</p></main>
@@ -89,6 +90,19 @@ if (SR) {
   $('mic').onclick = function(){ try { rec.start(); } catch(e){} };
   rec.onresult = function(e){ $('q').value = e.results[0][0].transcript; recall(); };
 }
+
+// show the current store, and let the user point at a different index
+async function loadStore(){ $('store').textContent = 'store: ' + await (await fetch('/api/where')).text(); }
+async function changeStore(){
+  var cur = await (await fetch('/api/where')).text();
+  var d = prompt('Index folder (full path):', cur);
+  if (!d || d == cur) return;
+  var r = await fetch('/api/store', { method:'POST', body:d });
+  if (r.ok) { $('q').value=''; $('out').innerHTML='<p class="empty">Type keys to recall.</p>'; $('count').textContent=''; loadStore(); }
+  else alert('Could not open that index');
+}
+$('storebtn').onclick = changeStore;
+loadStore();
 
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(function(){});
 </script>
