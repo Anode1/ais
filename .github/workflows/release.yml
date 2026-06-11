@@ -1,0 +1,74 @@
+# Build AIS for every supported platform and publish the binaries to a GitHub
+# Release -- triggered by pushing a version tag. Binaries are NOT kept in git;
+# they are reproducible artifacts attached to the tagged commit, each with a
+# SHA-256 checksum so they stay verifiable.
+#
+# Trigger: any tag matching v* (e.g. v0.1.0, v1.2.3). It is a PATTERN, not a
+# fixed list -- a tag like `nightly` or `wip` will NOT start a release. Tighten
+# to strict semver by changing the pattern to 'v[0-9]+.[0-9]+.[0-9]+'.
+#
+# You can also run it by hand from the Actions tab (workflow_dispatch) to test
+# the build matrix WITHOUT publishing a release (the publish step is tag-only).
+
+name: release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:        # manual run for testing (builds, but does not publish)
+
+permissions:
+  contents: write           # required to create the Release and upload assets
+
+jobs:
+  build:
+    name: build ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false      # one platform failing must not cancel the others
+      matrix:
+        include:
+          - { os: ubuntu-latest,    name: linux-x86_64, make: static }
+          - { os: ubuntu-24.04-arm, name: linux-arm64,  make: static }
+          - { os: macos-13,         name: macos-x86_64, make: all }
+          - { os: macos-latest,     name: macos-arm64,  make: all }
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: build and test
+        run: |
+          make check                 # builds the engine + runs the unit tests
+          make clean                 # pristine relink, so -static actually takes effect
+          make ${{ matrix.make }}    # static on Linux, dynamic (portable) on macOS
+          ./ais --version
+
+      - name: stage binary + checksum
+        run: |
+          mkdir -p dist
+          bin="ais-${{ github.ref_name }}-${{ matrix.name }}"
+          cp ais "dist/$bin"
+          ( cd dist && shasum -a 256 "$bin" > "$bin.sha256" )
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ais-${{ matrix.name }}
+          path: dist/*
+
+  publish:
+    name: publish release
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')   # only on a real tag, never on a manual test run
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true       # flatten every platform's artifacts into dist/
+
+      - name: publish to GitHub Releases
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true

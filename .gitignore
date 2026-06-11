@@ -9,6 +9,8 @@
 *.d
 /c/ais
 /c/ais_ut
+/c/libais.a
+/c/libais.so
 
 # ---- runtime / data: personal indexes are not part of the code repo ----
 # (the plain-text store belongs in a separate data repo; force-add a seed
