@@ -192,7 +192,17 @@ proc do_get {} {
     global AIS VIEW
     set VIEW recall
     set keys [string trim [.f.q get]]
-    if {$keys eq ""} { .f.status configure -text "type keys to recall"; return }
+    if {$keys eq ""} {
+        # entering Recall with no query: blank the pane (the old Timeline/Tags/
+        # query content does not belong here) and show a hint -- the cleared
+        # pane is itself the feedback that the tab changed.
+        .f.res configure -state normal
+        .f.res delete 1.0 end
+        .f.res insert end "type keys above, then Get\n" head
+        .f.res configure -state disabled
+        .f.status configure -text "recall"
+        return
+    }
     set t0 [clock milliseconds]
     if {[catch {exec $AIS {*}[ais_args] {*}$keys} out]} {
         .f.status configure -text "error: $out"

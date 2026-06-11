@@ -104,7 +104,16 @@ class _RecallPageState extends State<RecallPage> {
   void _setView(String v) {
     setState(() => _view = v);
     if (v == 'recall') {
-      if (_q.text.trim().isNotEmpty) _recall();
+      if (_q.text.trim().isNotEmpty) {
+        _recall();
+      } else {
+        // empty query: blank the pane and show the hint, like the other GUIs
+        setState(() {
+          _results = const [];
+          _searched = false;
+          _status = 'Type keys, then Enter.';
+        });
+      }
     } else if (v == 'timeline') {
       setState(() => _tl = _ais?.timeline() ?? const []);
     } else {

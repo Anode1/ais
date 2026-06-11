@@ -100,7 +100,6 @@ static const char PAGE[] =
 "<script>"
 "var $=function(i){return document.getElementById(i)};"
 "var view='recall';"
-"function isUrl(v){return v.slice(0,7)=='http://'||v.slice(0,8)=='https://'}"
 /* fillVal: append V to NODE, turning every embedded http(s) URL into a real
  * link -- not only values that are wholly a URL (a "Title - https://..." value
  * gets its URL linked, with the title left as text). */
