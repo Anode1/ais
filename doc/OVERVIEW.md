@@ -6,6 +6,8 @@ This document is the rationale and history behind those.
 
 Design in one line: an **immutable content store** plus a small, **rebuildable key index**.
 
+GUIs available: a local **web app** (`ais --serve`), a **Tk desktop app**, and an installable **PWA** — all thin clients over the one CLI/engine.
+
 ## Repository layout
 
 | Path | What |
