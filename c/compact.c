@@ -113,8 +113,11 @@ struct compact_ctx {
     int   error;
 };
 
-/* Copy one surviving store line into store.new and re-post its keys. */
-static int compact_line(long id, const char *keys, const char *value, void *vp)
+/* Copy one surviving store line into store.new and re-post its keys. The line's
+ * original timestamp is carried through unchanged (compaction preserves when a
+ * record was saved); a legacy line with no ts stays legacy. */
+static int compact_line(long id, const char *ts, const char *keys,
+                        const char *value, void *vp)
 {
     struct compact_ctx *c = vp;
     int t = tomb_contains(c->a, id);
@@ -131,7 +134,10 @@ static int compact_line(long id, const char *keys, const char *value, void *vp)
         return 0;   /* dropped */
 
     offset = ftell(c->out);                  /* this line's offset in store.new */
-    fprintf(c->out, "%ld|%s|%s\n", id, keys, value);
+    if (ts != NULL && ts[0] != '\0')
+        fprintf(c->out, "%ld|%s|%s|%s\n", id, ts, keys, value);
+    else
+        fprintf(c->out, "%ld|%s|%s\n", id, keys, value);
 
     /* Re-index keys once per record, on its FIRST appearance. Records are first
      * written in id order, so a record's first line is the one whose id exceeds
@@ -243,6 +249,7 @@ static int compact_locked(ais *a)
     if (store_save_next_id(a) != 0)
         goto cleanup;
 
+    store_write_version(a);   /* refresh the format stamp to the current version */
     rc = 0;
 
 cleanup:

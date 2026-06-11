@@ -10,7 +10,8 @@
 package require Tk
 set AIS [expr {[auto_execok ais] ne "" ? "ais" : "/home/vas/ais/c/ais"}]
 set ADDSHOWN 0
-set INDEX ""   ;# current index dir (passed as -f); empty = default resolution
+set INDEX ""       ;# current index dir (passed as -f); empty = default resolution
+set VIEW  recall   ;# recall | timeline | tags  (the segmented control)
 
 wm title   . "AIS"
 wm minsize . 540 460
@@ -26,6 +27,19 @@ text        .f.res -height 14 -wrap word -font {TkTextFont 11} -state disabled \
 .f.res tag configure head -foreground "#777777" -spacing3 10
 .f.res tag configure item -spacing1 4 -spacing3 4   ;# space above+below each result
 .f.res tag configure link -foreground "#1a0dab"
+.f.res tag configure meta -foreground "#777777" -spacing3 6   ;# timeline time+keys subline
+.f.res tag configure tagkey -foreground "#1a0dab"            ;# a clickable tag in Tags view
+
+# --- Recall / Timeline / Tags switch (a segmented control) ------------------
+ttk::frame       .f.seg
+ttk::radiobutton .f.seg.r -text "Recall"   -value recall   -variable VIEW \
+                 -style Toolbutton -command show_view
+ttk::radiobutton .f.seg.t -text "Timeline" -value timeline -variable VIEW \
+                 -style Toolbutton -command show_view
+ttk::radiobutton .f.seg.g -text "Tags"     -value tags     -variable VIEW \
+                 -style Toolbutton -command show_view
+pack .f.seg.r .f.seg.t .f.seg.g -side left -fill x -expand 1
+
 ttk::button .f.add -text "+ add" -command toggle_add
 ttk::button .f.storeb -text "Store…" -command choose_store
 ttk::label  .f.status -text "type keys to recall, then Get" -anchor w
@@ -33,13 +47,19 @@ ttk::label  .f.storel -text "" -anchor w -foreground "#777777"
 
 grid .f.q      -row 0 -column 0 -sticky ew -ipady 4
 grid .f.get    -row 0 -column 1 -sticky e -padx {6 0}
-grid .f.res    -row 1 -column 0 -columnspan 2 -sticky nsew -pady {10 0}
-grid .f.add    -row 2 -column 0 -sticky w -pady {8 0}
-grid .f.storeb -row 2 -column 1 -sticky e -pady {8 0}
-grid .f.status -row 4 -column 0 -columnspan 2 -sticky ew -pady {8 0}
-grid .f.storel -row 5 -column 0 -columnspan 2 -sticky ew
+grid .f.seg    -row 1 -column 0 -columnspan 2 -sticky ew -pady {8 0}
+grid .f.res    -row 2 -column 0 -columnspan 2 -sticky nsew -pady {10 0}
+grid .f.add    -row 3 -column 0 -sticky w -pady {8 0}
+grid .f.storeb -row 3 -column 1 -sticky e -pady {8 0}
+grid .f.status -row 5 -column 0 -columnspan 2 -sticky ew -pady {8 0}
+grid .f.storel -row 6 -column 0 -columnspan 2 -sticky ew
 grid columnconfigure .f 0 -weight 1
-grid rowconfigure    .f 1 -weight 1
+grid rowconfigure    .f 2 -weight 1
+
+# clicking a tag in the Tags view recalls it
+.f.res tag bind tagkey <Button-1> {tag_click %x %y}
+.f.res tag bind tagkey <Enter> {.f.res configure -cursor hand2}
+.f.res tag bind tagkey <Leave> {.f.res configure -cursor xterm}
 
 # --- ADD panel (hidden until "+ add"): value-first, with its OWN keys field
 # (prefilled from search, but editable; keys are optional). ------------------
@@ -89,8 +109,88 @@ proc choose_store {} {
     if {[string trim [.f.q get]] ne ""} { do_get }
 }
 
-proc do_get {} {
+# --- the segmented control: recall / timeline / tags ----------------------
+proc show_view {} {
+    global VIEW
+    switch $VIEW {
+        timeline { do_timeline }
+        tags     { do_tags }
+        default  { do_get }
+    }
+}
+
+# Timeline: `ais --timeline` emits "WHEN<TAB>KEYS<TAB>VALUE", dateless first,
+# then newest first. Group consecutive rows under their day.
+proc do_timeline {} {
     global AIS
+    if {[catch {exec $AIS {*}[ais_args] --timeline} out]} {
+        .f.status configure -text "error: $out"; return
+    }
+    .f.res configure -state normal
+    .f.res delete 1.0 end
+    set day ""
+    set n 0
+    foreach ln [split $out "\n"] {
+        if {$ln eq ""} continue
+        set parts [split $ln "\t"]
+        set when [lindex $parts 0]
+        set keys [lindex $parts 1]
+        set val  [lindex $parts 2]
+        set d [expr {$when eq "(undated)" ? "(undated)" : [lindex [split $when] 0]}]
+        if {$d ne $day} { set day $d; .f.res insert end "$d\n" head }
+        set tags item
+        if {[string match "http*" $val]} { lappend tags link }
+        .f.res insert end "$val\n" $tags
+        set tm [expr {$when eq "(undated)" ? "" : "[lindex [split $when] 1]  "}]
+        .f.res insert end "    $tm$keys\n" meta
+        incr n
+    }
+    if {$n == 0} { .f.res insert end "nothing saved yet\n" head }
+    .f.res configure -state disabled
+    .f.status configure -text "timeline: $n record[expr {$n == 1 ? {} : {s}}]"
+}
+
+# Tags: `ais --tags` emits "  <count>  <key>" busiest first. Each key is
+# clickable (tag_click) to recall it.
+proc do_tags {} {
+    global AIS
+    if {[catch {exec $AIS {*}[ais_args] --tags} out]} {
+        .f.status configure -text "error: $out"; return
+    }
+    .f.res configure -state normal
+    .f.res delete 1.0 end
+    set n 0
+    foreach ln [split $out "\n"] {
+        set ln [string trim $ln]
+        if {$ln eq ""} continue
+        set sp [string first " " $ln]
+        set count [string range $ln 0 [expr {$sp - 1}]]
+        set key [string trim [string range $ln $sp end]]
+        .f.res insert end $key tagkey
+        .f.res insert end "   ($count)\n" meta
+        incr n
+    }
+    if {$n == 0} { .f.res insert end "no tags yet\n" head }
+    .f.res configure -state disabled
+    .f.status configure -text "tags: $n key[expr {$n == 1 ? {} : {s}}]"
+}
+
+# click a key in the Tags view -> put it in the search box and recall it
+proc tag_click {x y} {
+    set idx [.f.res index @$x,$y]
+    set line [.f.res get "$idx linestart" "$idx lineend"]
+    set key [string trim [lindex [split $line "("] 0]]
+    if {$key eq ""} return
+    global VIEW
+    set VIEW recall
+    .f.q delete 0 end
+    .f.q insert 0 $key
+    do_get
+}
+
+proc do_get {} {
+    global AIS VIEW
+    set VIEW recall
     set keys [string trim [.f.q get]]
     if {$keys eq ""} { .f.status configure -text "type keys to recall"; return }
     set t0 [clock milliseconds]
@@ -127,7 +227,7 @@ proc toggle_add {} {
     } else {
         .f.p.keys delete 0 end
         .f.p.keys insert 0 [string trim [.f.q get]]   ;# prefill from search
-        grid .f.p -row 3 -column 0 -columnspan 2 -sticky ew -pady {10 0}
+        grid .f.p -row 4 -column 0 -columnspan 2 -sticky ew -pady {10 0}
         .f.add configure -text "− add"
         set ADDSHOWN 1
         focus .f.p.val

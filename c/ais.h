@@ -82,6 +82,28 @@ int  ais_keys(ais *a, ais_key_cb cb, void *ctx);
 /* Stream every live record (tombstones merged out) to `out`, one per line. */
 void ais_dump(ais *a, FILE *out);
 
+/* Callback for ais_timeline(): one live record line. TS is its save time
+ * ("YYYY-MM-DDThh:mm:ss") or "" if it has none. Return 0 to continue. */
+typedef int (*ais_tl_cb)(long id, const char *ts, const char *keys,
+                         const char *value, void *ctx);
+
+/* Emit the LIMIT most-recently-saved live records (LIMIT <= 0 = a default cap),
+ * ordered for a timeline view: dateless records FIRST (so a hand-edited or
+ * missing date is surfaced, never lost), then dated records newest-first.
+ * Bounded memory: one heap block of LIMIT entries, freed before return.
+ * Returns 0, the callback's stop code, or -1 on error. */
+int ais_timeline(ais *a, int limit, ais_tl_cb cb, void *ctx);
+
+/* Callback for ais_tags(): one distinct key and how many records are filed
+ * under it (its posting count). Return 0 to continue, negative to stop. */
+typedef int (*ais_tag_cb)(const char *key, long count, void *ctx);
+
+/* Emit every distinct key with its record count, busiest first (ties: key
+ * ascending) -- a plain-list "tag cloud". Counts are postings as filed; a
+ * deleted-but-not-yet-compacted record still counts until ais_compact runs.
+ * Returns 0, the callback's stop code, or -1 on error. */
+int ais_tags(ais *a, ais_tag_cb cb, void *ctx);
+
 /* Reclaim space: streaming rewrite of the store dropping tombstoned records,
  * rebuild the posting index, clear the tombstone log. Returns 0 on success. */
 int  ais_compact(ais *a);

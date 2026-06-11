@@ -9,6 +9,7 @@
 #include <sys/file.h>
 #include <sys/stat.h>
 #include <sys/types.h>
+#include <time.h>
 #include <unistd.h>
 
 #include "common.h"
@@ -23,31 +24,104 @@ static int store_path(const ais *a, const char *name, char *out, size_t outsz)
     return 0;
 }
 
-/* Split a store line "id|keys|value" in place. Trims the trailing newline.
- * On success sets *id, *keys, *value (pointers into LINE) and returns 0.
- * Returns -1 if the line is malformed (no id field, etc.). */
-static int store_parse(char *line, long *id, char **keys, char **value)
+/* True if P[i..i+n) are all ASCII digits. */
+static int ts_digits(const char *p, int i, int n)
 {
-    char *bar1, *bar2;
+    for (; n > 0; n--, i++)
+        if (p[i] < '0' || p[i] > '9')
+            return 0;
+    return 1;
+}
+
+/* Does field-2 of a store line hold a timestamp? This tells a v2 line
+ * (id|ts|keys|value) from a legacy v1 line (id|keys|value). We accept the
+ * engine's own "YYYY-MM-DDThh:mm:ss" and the hand-written shortenings
+ * "YYYY-MM-DD" and "YYYY-MM-DDThh:mm" -- always anchored and ending at '|'/EOL.
+ *
+ * The lower bound is deliberately a FULL date (YYYY-MM-DD): a bare year or
+ * "YYYY-MM" is left as a KEY, because tagging by year ("photos 2026") is
+ * common and must not be mistaken for a save time. A malformed date simply
+ * fails here and the line is read as a dateless v1 record -- the id, keys and
+ * value are never lost, only the date is dropped. */
+static int looks_like_ts(const char *p)
+{
+    int i;
+
+    for (i = 0; i < 10; i++)              /* need at least a full date present */
+        if (p[i] == '\0')
+            return 0;
+    if (p[4] != '-' || p[7] != '-' ||
+        !ts_digits(p, 0, 4) || !ts_digits(p, 5, 2) || !ts_digits(p, 8, 2))
+        return 0;
+    if (p[10] == '|' || p[10] == '\0')
+        return 1;                         /* date only:  YYYY-MM-DD */
+    if (p[10] != 'T')
+        return 0;
+    if (p[11] == '\0' || p[12] == '\0' || p[13] != ':' ||
+        p[14] == '\0' || p[15] == '\0' ||
+        !ts_digits(p, 11, 2) || !ts_digits(p, 14, 2))
+        return 0;
+    if (p[16] == '|' || p[16] == '\0')
+        return 1;                         /* to the minute:  ...Thh:mm */
+    if (p[16] != ':' || p[17] == '\0' || p[18] == '\0' || !ts_digits(p, 17, 2))
+        return 0;
+    return p[19] == '|' || p[19] == '\0'; /* to the second:  ...Thh:mm:ss */
+}
+
+/* Split a store line in place: "id|ts|keys|value" (v2) or "id|keys|value" (v1,
+ * *ts comes back ""). Trims the trailing newline. On success sets *id, *ts,
+ * *keys, *value (pointers into LINE) and returns 0. -1 if malformed. */
+static int store_parse(char *line, long *id, char **ts, char **keys, char **value)
+{
+    char *p, *bar;
     size_t len = strlen(line);
 
     while (len > 0 && (line[len - 1] == '\n' || line[len - 1] == '\r'))
         line[--len] = '\0';
 
-    bar1 = strchr(line, '|');
-    if (bar1 == NULL)
+    bar = strchr(line, '|');
+    if (bar == NULL)
         return -1;
-    *bar1 = '\0';
+    *bar = '\0';
     *id = atol(line);
     if (*id <= 0)
         return -1;
-    *keys = bar1 + 1;
-    bar2 = strchr(*keys, '|');
-    if (bar2 == NULL) {
-        *value = *keys + strlen(*keys);   /* empty value */
+
+    p = bar + 1;                          /* field 2: ts (v2) or keys (v1) */
+    if (looks_like_ts(p)) {
+        *ts = p;
+        bar = strchr(p, '|');
+        if (bar == NULL) {                /* ts but no keys/value (degenerate) */
+            *keys = p + strlen(p);
+            *value = *keys;
+            return 0;
+        }
+        *bar = '\0';
+        p = bar + 1;
     } else {
-        *bar2 = '\0';
-        *value = bar2 + 1;
+        *ts = line + strlen(line);        /* "" -- a legacy v1 line */
+    }
+
+    *keys = p;
+    bar = strchr(p, '|');
+    if (bar == NULL)
+        *value = p + strlen(p);           /* empty value */
+    else {
+        *bar = '\0';
+        *value = bar + 1;
+    }
+    return 0;
+}
+
+int store_now(char *buf, size_t bufsz)
+{
+    time_t now = time(NULL);
+    struct tm *lt = localtime(&now);
+
+    buf[0] = '\0';
+    if (lt == NULL || strftime(buf, bufsz, "%Y-%m-%dT%H:%M:%S", lt) == 0) {
+        buf[0] = '\0';
+        return -1;
     }
     return 0;
 }
@@ -155,7 +229,11 @@ int store_open(ais *a, const char *dir)
                             "(format v%d); upgrade ais\n", v, AIS_FORMAT_VERSION);
             goto fail;
         }
-        if (v == 0 && store_write_version(a) != 0)
+        /* Stamp a new (v0) index, and upgrade an older one in place: once this
+         * ais writes a v2 line into it, a v1 ais must no longer open it (it
+         * would misread the ts as keys), so mark it ours now. v2 reads v1 lines
+         * fine, so the upgrade is safe and one-way. */
+        if (v < AIS_FORMAT_VERSION && store_write_version(a) != 0)
             goto fail;
     }
     return 0;
@@ -209,7 +287,8 @@ int store_save_next_id(const ais *a)
     return 0;
 }
 
-int store_append(const ais *a, long id, const char *keys, const char *value)
+int store_append(const ais *a, long id, const char *ts,
+                 const char *keys, const char *value)
 {
     char path[AIS_PATH_MAX];
     FILE *fp;
@@ -219,7 +298,10 @@ int store_append(const ais *a, long id, const char *keys, const char *value)
     fp = fopen(path, "a");
     if (fp == NULL)
         return -1;
-    fprintf(fp, "%ld|%s|%s\n", id, keys, value);
+    if (ts != NULL && ts[0] != '\0')
+        fprintf(fp, "%ld|%s|%s|%s\n", id, ts, keys, value);   /* v2 */
+    else
+        fprintf(fp, "%ld|%s|%s\n", id, keys, value);          /* legacy */
     if (fclose(fp) != 0)
         return -1;
     return 0;
@@ -240,8 +322,8 @@ int store_find_value(const ais *a, const char *value, long *out_id)
 
     while (fgets(line, sizeof(line), fp) != NULL) {
         long id;
-        char *keys, *val;
-        if (store_parse(line, &id, &keys, &val) != 0)
+        char *ts, *keys, *val;
+        if (store_parse(line, &id, &ts, &keys, &val) != 0)
             continue;
         if (strcmp(val, value) == 0) {
             *out_id = id;
@@ -268,10 +350,10 @@ int store_each_record(const ais *a, store_rec_cb cb, void *ctx)
 
     while (fgets(line, sizeof(line), fp) != NULL) {
         long id;
-        char *keys, *val;
-        if (store_parse(line, &id, &keys, &val) != 0)
+        char *ts, *keys, *val;
+        if (store_parse(line, &id, &ts, &keys, &val) != 0)
             continue;
-        rc = cb(id, keys, val, ctx);
+        rc = cb(id, ts, keys, val, ctx);
         if (rc != 0)
             break;
     }
@@ -294,8 +376,8 @@ long store_recover_next_id(const ais *a)
 
     while (fgets(line, sizeof(line), fp) != NULL) {
         long id;
-        char *keys, *val;
-        if (store_parse(line, &id, &keys, &val) != 0)
+        char *ts, *keys, *val;
+        if (store_parse(line, &id, &ts, &keys, &val) != 0)
             continue;
         if (id > maxid)
             maxid = id;
@@ -389,7 +471,7 @@ int store_value_at(const ais *a, long id, long offset, ais_val_cb cb, void *ctx)
     char line[AIS_LINE_MAX];
     FILE *fp;
     long lid;
-    char *keys, *val;
+    char *ts, *keys, *val;
 
     if (store_path(a, "store", path, sizeof(path)) != 0)
         return -1;
@@ -405,10 +487,11 @@ int store_value_at(const ais *a, long id, long offset, ais_val_cb cb, void *ctx)
         return 0;
     }
     fclose(fp);
-    if (store_parse(line, &lid, &keys, &val) != 0)
+    if (store_parse(line, &lid, &ts, &keys, &val) != 0)
         return 0;
     if (lid != id)
         return 0;                            /* offset stale: caller scans */
+    (void)ts;
     (void)keys;
     cb(id, val, ctx);
     return 1;

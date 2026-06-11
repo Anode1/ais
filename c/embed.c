@@ -127,3 +127,71 @@ char *ais_embed_recall(void *handle, const char *keys, int or_mode)
     }
     return b.p;
 }
+
+/* Return an empty "" buffer instead of NULL so the host sees "no rows", not an
+ * error; NULL is reserved for bad args / OOM. */
+static char *buf_finish(struct buf *b, int oom)
+{
+    if (oom) {
+        free(b->p);
+        return NULL;
+    }
+    if (b->p == NULL) {
+        b->p = malloc(1);
+        if (b->p != NULL)
+            b->p[0] = '\0';
+    }
+    return b->p;
+}
+
+/* ---- timeline / tags: same line formats as /api/timeline and /api/tags ---- */
+struct emit_ctx { struct buf *b; int oom; };
+
+static int tl_emit(long id, const char *ts, const char *keys,
+                   const char *value, void *vp)
+{
+    struct emit_ctx *c = vp;
+    char head[32];
+    int n = snprintf(head, sizeof head, "%ld|", id);
+
+    if (n < 0 || buf_add(c->b, head, (size_t)n) < 0 ||
+        buf_add(c->b, ts, strlen(ts)) < 0     || buf_add(c->b, "|", 1) < 0 ||
+        buf_add(c->b, keys, strlen(keys)) < 0 || buf_add(c->b, "|", 1) < 0 ||
+        buf_add(c->b, value, strlen(value)) < 0 || buf_add(c->b, "\n", 1) < 0)
+        c->oom = 1;
+    return c->oom ? -1 : 0;
+}
+
+static int tag_emit(const char *key, long count, void *vp)
+{
+    struct emit_ctx *c = vp;
+    char head[32];
+    int n = snprintf(head, sizeof head, "%ld|", count);
+
+    if (n < 0 || buf_add(c->b, head, (size_t)n) < 0 ||
+        buf_add(c->b, key, strlen(key)) < 0 || buf_add(c->b, "\n", 1) < 0)
+        c->oom = 1;
+    return c->oom ? -1 : 0;
+}
+
+char *ais_embed_timeline(void *handle, int limit)
+{
+    struct buf b = { NULL, 0, 0 };
+    struct emit_ctx c = { &b, 0 };
+
+    if (handle == NULL)
+        return NULL;
+    ais_timeline((ais *)handle, limit, tl_emit, &c);
+    return buf_finish(&b, c.oom);
+}
+
+char *ais_embed_tags(void *handle)
+{
+    struct buf b = { NULL, 0, 0 };
+    struct emit_ctx c = { &b, 0 };
+
+    if (handle == NULL)
+        return NULL;
+    ais_tags((ais *)handle, tag_emit, &c);
+    return buf_finish(&b, c.oom);
+}

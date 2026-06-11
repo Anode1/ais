@@ -7,9 +7,9 @@
  *   -k KEY        an explicit key (for a key that looks like a flag)
  *   -R DIR        store every file under DIR
  *   -i            interactive: ask keys per piped line
- *   --CMD         a command: find add del del-key dump keys stats compact
- *                 init import where serve project doc. Operands are the bare
- *                 args; values come through -v.
+ *   --CMD         a command: find add del del-key dump keys tags timeline
+ *                 stats compact init import where serve project doc. Operands
+ *                 are the bare args; values come through -v.
  * No bare word is ever a command, so a tag named "doc" or "find" recalls fine.
  *
  * INDEX location precedence: -f DIR > $AIS_INDEX > nearest .ais/ > per-user
@@ -173,6 +173,37 @@ static int print_key(const char *key, void *vp)
     return 0;
 }
 
+/* Print one tag as "<count>  <key>" (the ais_tags callback), busiest first. */
+static int print_tag(const char *key, long count, void *vp)
+{
+    FILE *out = vp;
+    fprintf(out, "%6ld  %s\n", count, key);
+    return 0;
+}
+
+/* One timeline row, tab-separated for awk/grep: "WHEN\tKEYS\tVALUE". WHEN is
+ * "YYYY-MM-DD HH:MM" (the engine writes seconds; we show to the minute) or the
+ * literal "(undated)" so a dateless record is visible, not hidden. */
+static int print_tl(long id, const char *ts, const char *keys,
+                    const char *value, void *vp)
+{
+    FILE *out = vp;
+    char when[24];
+    char *t;
+
+    (void)id;
+    if (ts[0] == '\0')
+        snprintf(when, sizeof(when), "(undated)");
+    else {
+        snprintf(when, sizeof(when), "%.16s", ts);   /* trim seconds */
+        t = strchr(when, 'T');
+        if (t != NULL)
+            *t = ' ';
+    }
+    fprintf(out, "%s\t%s\t%s\n", when, keys[0] ? keys : "(no keys)", value);
+    return 0;
+}
+
 static void do_get(ais *a, char *const keys[], int nkeys, ais_mode mode)
 {
     struct get_ctx g;
@@ -201,7 +232,7 @@ int main(int argc, char **argv)
     enum { OPT_HELP = 1000, OPT_VERSION,
            CMD_FIND, CMD_ADD, CMD_DEL, CMD_DELKEY, CMD_DUMP, CMD_KEYS, CMD_STATS,
            CMD_COMPACT, CMD_INIT, CMD_IMPORT, CMD_WHERE, CMD_SERVE, CMD_PROJECT,
-           CMD_DOC };
+           CMD_DOC, CMD_TIMELINE, CMD_TAGS };
     static const struct option longopts[] = {
         { "index",       required_argument, NULL, 'f' },
         { "or",          no_argument,       NULL, 'o' },
@@ -220,6 +251,8 @@ int main(int argc, char **argv)
         { "del-key",     no_argument,       NULL, CMD_DELKEY },
         { "dump",        no_argument,       NULL, CMD_DUMP },
         { "keys",        no_argument,       NULL, CMD_KEYS },
+        { "tags",        no_argument,       NULL, CMD_TAGS },
+        { "timeline",    no_argument,       NULL, CMD_TIMELINE },
         { "stats",       no_argument,       NULL, CMD_STATS },
         { "compact",     no_argument,       NULL, CMD_COMPACT },
         { "init",        no_argument,       NULL, CMD_INIT },
@@ -264,7 +297,7 @@ int main(int argc, char **argv)
         case CMD_FIND: case CMD_ADD: case CMD_DEL: case CMD_DELKEY:
         case CMD_DUMP: case CMD_KEYS: case CMD_STATS: case CMD_COMPACT:
         case CMD_INIT: case CMD_IMPORT: case CMD_WHERE: case CMD_SERVE:
-        case CMD_PROJECT: case CMD_DOC:
+        case CMD_PROJECT: case CMD_DOC: case CMD_TIMELINE: case CMD_TAGS:
             if (cmd != 0) die("only one command at a time");
             cmd = c;
             break;
@@ -302,6 +335,12 @@ int main(int argc, char **argv)
         switch (cmd) {
         case CMD_DUMP:  ais_dump(&a, stdout); break;
         case CMD_KEYS:  if (ais_keys(&a, print_key, stdout) < 0) die("keys failed"); break;
+        case CMD_TAGS:  if (ais_tags(&a, print_tag, stdout) < 0) die("tags failed"); break;
+        case CMD_TIMELINE: {
+            int lim = (optind < argc) ? atoi(argv[optind]) : 0;   /* optional N */
+            if (ais_timeline(&a, lim, print_tl, stdout) < 0) die("timeline failed");
+            break;
+        }
         case CMD_STATS: if (ais_stats(&a, stdout) != 0) die("stats failed"); break;
         case CMD_WHERE: printf("%s\n", dir); break;
         case CMD_INIT:  printf("initialized AIS index: %s\n", dir); break;

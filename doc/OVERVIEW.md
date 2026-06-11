@@ -12,7 +12,7 @@ Design in one line: an **immutable content store** plus a small, **rebuildable k
 |------|------|
 | `c/` | The **ANSI C / C99 reference implementation** — the current tool. |
 | `legacy/` | The preserved original project: the **2005 shell scripts** (`ais-scripts`, the earliest implementation) and the **2009 Java/Lucene** release, plus screenshots and SourceForge metadata. |
-| `doc/PRIORITY.md` | Authorship and provenance record (priority trail, 2001 → 2026). |
+| `doc/history/PRIORITY.md` | Authorship and provenance record (priority trail, 2001 → 2026) — frozen deposit, [doi.org/10.5281/zenodo.20647048](https://doi.org/10.5281/zenodo.20647048). |
 | `doc/dev/STYLE.md` | Coding style and ideology: C99, stack/streaming discipline, append-only sharded storage. |
 | `tests/INDEX/store` | A small sample index — the test fixture and a worked example of the store format. |
 
@@ -33,7 +33,9 @@ Performance is traded for **universality, robustness, and longevity** — the st
 v0.1 — the C core is working and tested (`make check`: the C unit tests plus the
 end-to-end CLI/streaming suite, all green). Implemented: key algebra (AND/OR over
 sorted-unique posting sets), `put`/`add`/`del`/`dump`/`find`/`import`/`doc`/`init`,
-an id→offset fast path for large stores, an append-only immutable store with
+`timeline` (recent records by save time, dateless first) and `tags` (every key by
+record count) over a per-record timestamp column, an id→offset fast path for large
+stores, an append-only immutable store with
 confirmation-guarded deletes, multi-link records, UTF-8 keys, and a local web GUI
 (`ais --serve`). The store is plain text and the whole index rebuilds from it
 (`compact`); the CLI is the contract, and the GUIs are thin wrappers over it.
@@ -43,4 +45,4 @@ confirmation-guarded deletes, multi-link records, UTF-8 keys, and a local web GU
 Conceived as a by-hand filesystem index (~2001), registered on SourceForge **2004-11-22**,
 first implemented as shell scripts (**2005**, `legacy/ais-scripts/`), then as a Java/Lucene
 web app (**2009**, `legacy/ais/`), and re-engineered from scratch in ANSI C (**2026**, `c/`).
-Full trail in [`PRIORITY.md`](PRIORITY.md).
+Full trail in [`history/PRIORITY.md`](history/PRIORITY.md) — deposited, citable record: [doi.org/10.5281/zenodo.20647048](https://doi.org/10.5281/zenodo.20647048).

@@ -70,3 +70,10 @@ WHERE YOUR DATA LIVES
 
   Or run `ais --init` to keep a local .ais/ next to a project, the way git does.
   Either way the bytes are yours, on your disk - not a company's.
+
+
+PROVENANCE
+
+  AIS's authorship and priority record (2001 -> 2026) is a citable deposit:
+
+      doi.org/10.5281/zenodo.20647048

@@ -75,10 +75,12 @@ long ais_put(ais *a, const char *keys, const char *value)
 
     id = a->next_id;
     {
+        char ts[AIS_TS_MAX];
         long off = store_bytes(a);          /* offset the new line gets */
         int  ok  = (off >= 0) && off_consistent(a);
-        if (store_append(a, id, keys, value) != 0) { rc = -1; goto out; }
-        if (ok && off_append(a, off) != 0)         { rc = -1; goto out; }  /* keep "off" in lockstep */
+        store_now(ts, sizeof(ts));          /* "" if the clock is unreadable */
+        if (store_append(a, id, ts, keys, value) != 0) { rc = -1; goto out; }
+        if (ok && off_append(a, off) != 0)             { rc = -1; goto out; }  /* keep "off" in lockstep */
     }
     if (ais_post_keys(a, keys, id) != 0) { rc = -1; goto out; }
     a->next_id = id + 1;
@@ -98,9 +100,11 @@ struct add_lookup {
     char  keys[AIS_LINE_MAX];
 };
 
-static int add_seek(long id, const char *keys, const char *value, void *vp)
+static int add_seek(long id, const char *ts, const char *keys,
+                    const char *value, void *vp)
 {
     struct add_lookup *L = vp;
+    (void)ts;
     (void)value;
     if (id == L->id) {
         L->found = 1;
@@ -128,10 +132,15 @@ int ais_add(ais *a, long id, const char *value)
     if (!L.found)
         goto out;
 
-    /* continuation line: same id, same keys field, the new value. Keys are
-     * already posted to this id, so no re-post. */
-    if (store_append(a, id, L.keys, value) != 0)
-        goto out;
+    /* continuation line: same id, same keys field, the new value, stamped with
+     * its own (later) save time. Keys are already posted to this id, so no
+     * re-post. */
+    {
+        char ts[AIS_TS_MAX];
+        store_now(ts, sizeof(ts));
+        if (store_append(a, id, ts, L.keys, value) != 0)
+            goto out;
+    }
     if (multi_append(a, id) != 0)           /* id now has >1 line */
         goto out;
     debug("add: appended link to id=%ld", id);
@@ -217,9 +226,11 @@ struct record_ctx {
     int         stop;
 };
 
-static int record_seek(long id, const char *keys, const char *value, void *vp)
+static int record_seek(long id, const char *ts, const char *keys,
+                       const char *value, void *vp)
 {
     struct record_ctx *R = vp;
+    (void)ts;
     (void)keys;
     if (id == R->id) {
         R->stop = R->cb(id, value, R->ctx);
@@ -347,10 +358,13 @@ struct dump_ctx {
     FILE *out;
 };
 
-static int dump_line(long id, const char *keys, const char *value, void *vp)
+static int dump_line(long id, const char *ts, const char *keys,
+                     const char *value, void *vp)
 {
     struct dump_ctx *D = vp;
     int t = tomb_contains(D->a, id);
+    (void)ts;   /* dump is the content serialization; id and ts are reassigned
+                 * on re-import, so dump stays id|keys|value (see feed_import) */
     if (t < 0)
         return -1;
     if (t == 0)
@@ -364,4 +378,194 @@ void ais_dump(ais *a, FILE *out)
     D.a = a;
     D.out = out;
     store_each_record(a, dump_line, &D);
+}
+
+/* --- timeline: the most-recent live records, dateless ones surfaced first --- */
+#define AIS_TL_DEFAULT  500    /* records kept when LIMIT <= 0                  */
+#define AIS_TL_MAX    10000    /* hard cap on the ring (bounds the heap block)  */
+#define AIS_TL_VAL_MAX 2048    /* value snippet held per row (full value: recall)*/
+
+struct tl_entry {
+    long id;
+    char ts[AIS_TS_MAX];
+    char keys[AIS_KEY_MAX];
+    char value[AIS_TL_VAL_MAX];
+};
+
+struct tl_ctx {
+    ais             *a;
+    struct tl_entry *ring;
+    int              cap;     /* ring size; keeps the last `cap` live lines     */
+    long             count;   /* live lines seen so far                         */
+};
+
+static int tl_collect(long id, const char *ts, const char *keys,
+                      const char *value, void *vp)
+{
+    struct tl_ctx *c = vp;
+    struct tl_entry *e;
+    int t = tomb_contains(c->a, id);
+
+    if (t < 0)
+        return -1;
+    if (t == 1)
+        return 0;             /* deleted: not in the timeline */
+
+    e = &c->ring[c->count % c->cap];   /* overwrite oldest once full */
+    e->id = id;
+    snprintf(e->ts,    sizeof(e->ts),    "%s", ts);
+    snprintf(e->keys,  sizeof(e->keys),  "%s", keys);
+    snprintf(e->value, sizeof(e->value), "%s", value);
+    c->count++;
+    return 0;
+}
+
+/* Order for the view: dateless rows FIRST (an empty ts sorts before any), then
+ * newest date first (ISO text sorts chronologically), ties by higher id. */
+static int tl_cmp(const void *pa, const void *pb)
+{
+    const struct tl_entry *a = pa, *b = pb;
+    int au = (a->ts[0] == '\0'), bu = (b->ts[0] == '\0');
+    int c;
+
+    if (au != bu)
+        return au ? -1 : 1;
+    if (!au) {
+        c = strcmp(b->ts, a->ts);     /* descending: newest first */
+        if (c != 0)
+            return c;
+    }
+    return (a->id < b->id) ? 1 : (a->id > b->id) ? -1 : 0;
+}
+
+int ais_timeline(ais *a, int limit, ais_tl_cb cb, void *ctx)
+{
+    struct tl_ctx c;
+    int n, i, rc = 0;
+
+    if (limit <= 0)
+        limit = AIS_TL_DEFAULT;
+    if (limit > AIS_TL_MAX)
+        limit = AIS_TL_MAX;
+
+    c.a = a;
+    c.cap = limit;
+    c.count = 0;
+    c.ring = malloc((size_t)limit * sizeof(c.ring[0]));
+    if (c.ring == NULL)
+        return -1;
+
+    if (store_each_record(a, tl_collect, &c) < 0) {
+        free(c.ring);
+        return -1;
+    }
+
+    /* The kept entries are exactly ring[0..n-1]: with fewer than `cap` lines
+     * they fill 0..count-1; once full, every slot holds one of the last `cap`. */
+    n = (c.count < (long)c.cap) ? (int)c.count : c.cap;
+    qsort(c.ring, (size_t)n, sizeof(c.ring[0]), tl_cmp);
+    for (i = 0; i < n; i++) {
+        rc = cb(c.ring[i].id, c.ring[i].ts, c.ring[i].keys, c.ring[i].value, ctx);
+        if (rc != 0)
+            break;
+    }
+    free(c.ring);
+    return rc;
+}
+
+/* --- tags: every distinct key with its posting count, busiest first --------- */
+struct tag_entry {
+    char key[AIS_KEY_MAX];
+    long count;
+};
+
+/* Count the lines (postings) in one key file idx/<p>/<key>. */
+static long tag_count_file(const char *path)
+{
+    char buf[8192];
+    FILE *fp;
+    long n = 0;
+    size_t r;
+
+    fp = fopen(path, "r");
+    if (fp == NULL)
+        return 0;
+    while ((r = fread(buf, 1, sizeof(buf), fp)) > 0) {
+        size_t i;
+        for (i = 0; i < r; i++)
+            if (buf[i] == '\n')
+                n++;
+    }
+    fclose(fp);
+    return n;
+}
+
+static int tag_cmp(const void *pa, const void *pb)
+{
+    const struct tag_entry *a = pa, *b = pb;
+    if (a->count != b->count)
+        return (a->count < b->count) ? 1 : -1;   /* count descending */
+    return strcmp(a->key, b->key);               /* ties: key ascending */
+}
+
+int ais_tags(ais *a, ais_tag_cb cb, void *ctx)
+{
+    char idxdir[AIS_PATH_MAX];
+    struct tag_entry *tags = NULL;
+    int ntags = 0, cap = AIS_KEYS_LIST_MAX, i, rc = 0;
+    DIR *idx;
+    struct dirent *pe;
+
+    if (snprintf(idxdir, sizeof(idxdir), "%s/idx", a->dir) >= (int)sizeof(idxdir))
+        return -1;
+    idx = opendir(idxdir);
+    if (idx == NULL)
+        return 0;             /* no idx/ yet: no tags */
+
+    tags = malloc((size_t)cap * sizeof(tags[0]));
+    if (tags == NULL) {
+        closedir(idx);
+        return -1;
+    }
+
+    /* walk each prefix dir, counting postings per key file */
+    while ((pe = readdir(idx)) != NULL) {
+        char pdir[AIS_PATH_MAX];
+        DIR *pd;
+        struct dirent *ke;
+
+        if (pe->d_name[0] == '.')
+            continue;
+        if (snprintf(pdir, sizeof(pdir), "%s/%s", idxdir, pe->d_name)
+                >= (int)sizeof(pdir))
+            continue;
+        pd = opendir(pdir);
+        if (pd == NULL)
+            continue;
+        while ((ke = readdir(pd)) != NULL) {
+            char kpath[AIS_PATH_MAX];
+            if (ke->d_name[0] == '.')
+                continue;
+            if (ntags >= cap) { rc = -1; closedir(pd); goto cleanup; }
+            if (snprintf(kpath, sizeof(kpath), "%s/%s", pdir, ke->d_name)
+                    >= (int)sizeof(kpath))
+                continue;
+            snprintf(tags[ntags].key, sizeof(tags[ntags].key), "%s", ke->d_name);
+            tags[ntags].count = tag_count_file(kpath);
+            ntags++;
+        }
+        closedir(pd);
+    }
+
+    qsort(tags, (size_t)ntags, sizeof(tags[0]), tag_cmp);
+    for (i = 0; i < ntags; i++) {
+        rc = cb(tags[i].key, tags[i].count, ctx);
+        if (rc != 0)
+            break;
+    }
+
+cleanup:
+    free(tags);
+    closedir(idx);
+    return rc;
 }

@@ -19,11 +19,13 @@ struct find_ctx {
     FILE       *out;
 };
 
-static int find_line(long id, const char *keys, const char *value, void *vp)
+static int find_line(long id, const char *ts, const char *keys,
+                     const char *value, void *vp)
 {
     struct find_ctx *F = vp;
     int t;
 
+    (void)ts;
     (void)keys;
     if (strstr(value, F->needle) == NULL)
         return 0;                  /* this value does not match: skip */

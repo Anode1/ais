@@ -58,7 +58,8 @@ building agent infrastructure that itself needs maintaining.
     c/         the engine (C99): key store post merge compact ais log help feed
                + main.c (CLI) + tests.c
     c/attic/   the pre-rewrite v0 prototype -- reference only, not built
-    doc/       about.txt, OVERVIEW.md, PRIORITY.md, foundation.md, migration.txt  (public)
+    doc/       about.txt, OVERVIEW.md, foundation.md, migration.txt              (public)
+    doc/history/ PRIORITY.md -- frozen, deposited record (Zenodo DOI)
     doc/dev/   STYLE.md, LAYOUT.md, LOCKING.md                                     (developers)
     tests/     the committed fixture (tests/INDEX/store)
     gui/       future reference GUI wrappers (thin callers of the CLI)

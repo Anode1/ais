@@ -1,0 +1,19 @@
+cff-version: 1.2.0
+message: "If you cite AIS or its provenance, please cite the deposited record below."
+title: "AIS — Associative Indexing Service"
+authors:
+  - family-names: Gavrilov
+    given-names: Vasili
+    orcid: "https://orcid.org/0009-0007-9371-5994"
+repository-code: "https://github.com/Anode1/ais"
+license: GPL-2.0-or-later
+preferred-citation:
+  type: report
+  title: "AIS — Priority & Provenance Record"
+  authors:
+    - family-names: Gavrilov
+      given-names: Vasili
+      orcid: "https://orcid.org/0009-0007-9371-5994"
+  doi: "10.5281/zenodo.20647048"
+  url: "https://doi.org/10.5281/zenodo.20647048"
+  year: 2026

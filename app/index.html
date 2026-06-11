@@ -16,6 +16,11 @@
     <input id="q" type="search" enterkeyhint="search" placeholder="type keys to recall…" autocomplete="off" autofocus>
     <button id="mic" class="iconbtn" title="Speak" hidden>&#127908;</button>
   </div>
+  <div class="seg">
+    <button id="seg-recall" class="segbtn active">Recall</button>
+    <button id="seg-timeline" class="segbtn">Timeline</button>
+    <button id="seg-tags" class="segbtn">Tags</button>
+  </div>
   <div class="storerow"><span id="store" class="muted"></span><button id="storebtn" class="link">change</button></div>
 </header>
 
@@ -38,6 +43,7 @@
 
 <script>
 var $ = function (i) { return document.getElementById(i); };
+var view = 'recall';
 
 function isUrl(v){ return v.slice(0,7)=='http://' || v.slice(0,8)=='https://'; }
 
@@ -64,6 +70,71 @@ async function recall() {
   render(t, q, performance.now() - t0);
 }
 
+// timeline: id|ts|keys|value (value may contain '|', so split off the first 3)
+function parseTL(ln) {
+  var a = ln.indexOf('|'), b = ln.indexOf('|', a+1), c = ln.indexOf('|', b+1);
+  return { ts: ln.slice(a+1, b), keys: ln.slice(b+1, c), value: ln.slice(c+1) };
+}
+function fmtDay(d) {
+  var p = d.split('-'),
+      M = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  return p[2] + ' ' + M[(+p[1]) - 1] + ' ' + p[0];
+}
+async function loadTimeline() {
+  var t = await (await fetch('/api/timeline')).text();
+  var lines = t.split('\n').filter(function (s){ return s.length; });
+  var out = $('out'); out.innerHTML = '';
+  $('count').textContent = lines.length + ' record' + (lines.length==1?'':'s');
+  if (!lines.length) { out.innerHTML = '<p class="empty">Nothing saved yet.</p>'; return; }
+  var day = null;
+  lines.forEach(function (ln) {
+    var r = parseTL(ln), d = r.ts ? r.ts.slice(0, 10) : '';
+    if (d !== day) {
+      day = d;
+      var h = document.createElement('div'); h.className = 'daygroup';
+      h.textContent = d ? fmtDay(d) : '(undated)';
+      out.appendChild(h);
+    }
+    var row = document.createElement('div'); row.className = 'hit';
+    var s = document.createElement(isUrl(r.value) ? 'a' : 'span');
+    s.textContent = r.value;
+    if (isUrl(r.value)) { s.href = r.value; s.target = '_blank'; s.rel = 'noopener'; }
+    row.appendChild(s);
+    var m = document.createElement('div'); m.className = 'meta';
+    var tm = r.ts.indexOf('T') >= 0 ? r.ts.slice(11, 16) + ' · ' : '';
+    m.textContent = tm + (r.keys || '(no keys)');
+    row.appendChild(m);
+    out.appendChild(row);
+  });
+}
+async function loadTags() {
+  var t = await (await fetch('/api/tags')).text();
+  var lines = t.split('\n').filter(function (s){ return s.length; });
+  var out = $('out'); out.innerHTML = '';
+  $('count').textContent = lines.length + ' tag' + (lines.length==1?'':'s');
+  if (!lines.length) { out.innerHTML = '<p class="empty">No tags yet.</p>'; return; }
+  lines.forEach(function (ln) {
+    var p = ln.indexOf('|'), count = ln.slice(0, p), key = ln.slice(p+1);
+    var row = document.createElement('div'); row.className = 'tagrow';
+    var b = document.createElement('button'); b.className = 'taglink'; b.textContent = key;
+    b.onclick = function () { $('q').value = key; setView('recall'); };
+    var n = document.createElement('span'); n.className = 'tagcount'; n.textContent = count;
+    row.appendChild(b); row.appendChild(n);
+    out.appendChild(row);
+  });
+}
+function setView(v) {
+  view = v;
+  ['recall','timeline','tags'].forEach(function (k) {
+    $('seg-' + k).className = 'segbtn' + (k == v ? ' active' : '');
+  });
+  if (v == 'recall') {
+    if ($('q').value.trim()) recall();
+    else { $('out').innerHTML = '<p class="empty">Type keys, then Enter. Tap + Add to store.</p>'; $('count').textContent = ''; }
+  } else if (v == 'timeline') loadTimeline();
+  else loadTags();
+}
+
 function openSheet(){ $('vk').value = $('q').value.trim(); $('sheet').hidden = false; $('v').focus(); }
 function closeSheet(){ $('sheet').hidden = true; $('v').value = ''; }
 
@@ -75,7 +146,10 @@ async function save() {
   $('q').value = keys; recall();          // show what was just saved
 }
 
-$('q').addEventListener('keydown', function (e){ if (e.key=='Enter') recall(); });
+$('q').addEventListener('keydown', function (e){ if (e.key=='Enter') setView('recall'); });
+$('seg-recall').onclick = function (){ setView('recall'); };
+$('seg-timeline').onclick = function (){ setView('timeline'); };
+$('seg-tags').onclick = function (){ setView('tags'); };
 $('addbtn').onclick = openSheet;
 $('cancel').onclick = closeSheet;
 $('save').onclick = save;

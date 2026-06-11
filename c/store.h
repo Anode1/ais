@@ -1,9 +1,11 @@
 /* store.h -- the append-only store and the writer lock.
  *
- * INDEX/store holds one record line per write:  id|keys|value
- * ids are monotonic, so the file is physically in id order. A record may span
- * several lines sharing one id (multi-link; see ais_add). The store is the
- * source of truth and the value->id map (idempotent put scans it).
+ * INDEX/store holds one record line per write:  id|ts|keys|value
+ * ts is the save time ("YYYY-MM-DDThh:mm:ss", local). ids are monotonic, so the
+ * file is physically in id order. A record may span several lines sharing one
+ * id (multi-link; see ais_add). The store is the source of truth and the
+ * value->id map (idempotent put scans it). Legacy v1 lines (id|keys|value, no
+ * ts) still parse -- their ts comes back empty.
  *
  * INDEX/next_id caches the next id; if missing it is recovered by one
  * streaming pass taking max(id)+1. Reads take no lock; writers take an
@@ -43,20 +45,25 @@ int store_save_next_id(const ais *a);
  * store_open stamps a new/legacy index; compact refreshes it. */
 int store_write_version(const ais *a);
 
-/* Append one record line "id|keys|value\n" to INDEX/store.
- * Returns 0 on success, -1 on error. */
-int store_append(const ais *a, long id, const char *keys, const char *value);
+/* Format the current local time as "YYYY-MM-DDThh:mm:ss" into BUF (size >=
+ * AIS_TS_MAX). Sets BUF to "" and returns -1 if the clock cannot be read. */
+int store_now(char *buf, size_t bufsz);
+
+/* Append one record line "id|ts|keys|value\n" to INDEX/store (a "" ts falls
+ * back to the legacy "id|keys|value" form). Returns 0 on success, -1 on error. */
+int store_append(const ais *a, long id, const char *ts,
+                 const char *keys, const char *value);
 
 /* Scan the store for a line whose value field exactly equals VALUE.
  * On match, store its id in *out_id and return 1. Return 0 if not found,
  * -1 on error. (The store IS the value->id map; this is the idempotency scan.) */
 int store_find_value(const ais *a, const char *value, long *out_id);
 
-/* Callback for store_each_record(): one parsed store line. KEYS and VALUE
- * point into a bounded line buffer valid only for the call. Return 0 to
- * continue, negative to stop early. */
-typedef int (*store_rec_cb)(long id, const char *keys, const char *value,
-                            void *ctx);
+/* Callback for store_each_record(): one parsed store line. TS, KEYS and VALUE
+ * point into a bounded line buffer valid only for the call (TS is "" for a
+ * legacy v1 line). Return 0 to continue, negative to stop early. */
+typedef int (*store_rec_cb)(long id, const char *ts, const char *keys,
+                            const char *value, void *ctx);
 
 /* Stream every store line in order through CB. Returns 0, the callback's stop
  * code, or -1 on error. */

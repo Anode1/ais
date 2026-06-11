@@ -76,6 +76,37 @@ static int collect_key(const char *key, void *ctx)
     return 0;
 }
 
+struct tlrow { long id; char ts[AIS_TS_MAX]; char keys[AIS_KEY_MAX]; char value[256]; };
+struct tlvec { struct tlrow r[64]; int n; };
+
+static int collect_tl(long id, const char *ts, const char *keys,
+                      const char *value, void *ctx)
+{
+    struct tlvec *v = ctx;
+    if (v->n < 64) {
+        v->r[v->n].id = id;
+        snprintf(v->r[v->n].ts,    sizeof(v->r[v->n].ts),    "%s", ts);
+        snprintf(v->r[v->n].keys,  sizeof(v->r[v->n].keys),  "%s", keys);
+        snprintf(v->r[v->n].value, sizeof(v->r[v->n].value), "%s", value);
+        v->n++;
+    }
+    return 0;
+}
+
+struct tagrow { char key[AIS_KEY_MAX]; long count; };
+struct tagvec { struct tagrow t[64]; int n; };
+
+static int collect_tag(const char *key, long count, void *ctx)
+{
+    struct tagvec *v = ctx;
+    if (v->n < 64) {
+        snprintf(v->t[v->n].key, sizeof(v->t[v->n].key), "%s", key);
+        v->t[v->n].count = count;
+        v->n++;
+    }
+    return 0;
+}
+
 /* run an AND/OR query, capturing the emitted ids in V */
 static void query(ais *a, ais_mode mode, struct idvec *v, int nkeys, ...)
 {
@@ -698,6 +729,101 @@ static void test_record_fastpath(void)
 }
 
 /* ---- embed: the in-process FFI seam (embed.h) over a scratch index ------- */
+/* ---- timestamp column: written on put, robust to hand edits ----------- */
+static void test_timestamp(void)
+{
+    const char *dir = "/tmp/ais_ut_ts";
+    ais a;
+    struct idvec ids;
+    char line[AIS_LINE_MAX];
+    FILE *fp;
+
+    scratch_rm(dir);
+    ais_open(&a, dir);
+    ais_put(&a, "photo 2026 trip", "https://example.org/a");   /* 2026 is a KEY */
+    ais_close(&a);
+
+    /* the stored line carries an ISO timestamp field (id|ts|keys|value) */
+    snprintf(line, sizeof(line), "%s/store", dir);
+    fp = fopen(line, "r");
+    CHECK(fp != NULL && fgets(line, sizeof(line), fp) != NULL &&
+          strstr(line, "T") != NULL && line[1] == '|' &&
+          line[2] >= '0' && line[2] <= '9',
+          "timestamp: a new put records id|ts|keys|value");
+    if (fp != NULL) fclose(fp);
+
+    /* a year used as a key is NOT mistaken for a date: recall by 2026 works */
+    ais_open(&a, dir);
+    query(&a, AIS_AND, &ids, 1, "2026");
+    CHECK(ids.n == 1 && ids.ids[0] == 1, "timestamp: a year-key (2026) is not eaten as a date");
+    ais_close(&a);
+
+    scratch_rm(dir);
+}
+
+/* ---- timeline: dateless rows first, then newest; a hand legacy line ----- */
+static void test_timeline(void)
+{
+    const char *dir = "/tmp/ais_ut_tl";
+    ais a;
+    struct tlvec v;
+    char path[AIS_PATH_MAX];
+    FILE *fp;
+
+    scratch_rm(dir);
+    ais_open(&a, dir);
+    ais_put(&a, "alpha", "first");        /* id 1, dated now */
+    ais_put(&a, "beta",  "second");       /* id 2, dated now */
+    ais_close(&a);
+
+    /* append a LEGACY (no-ts) line by hand, in ascending id order, then
+     * rebuild the derived files by compacting -- the record must survive and
+     * appear in the timeline, undated, FIRST. */
+    snprintf(path, sizeof(path), "%s/store", dir);
+    fp = fopen(path, "a");
+    if (fp != NULL) { fprintf(fp, "3|oldkey|hand-pasted, no date\n"); fclose(fp); }
+    snprintf(path, sizeof(path), "%s/next_id", dir); remove(path);
+    snprintf(path, sizeof(path), "%s/off",     dir); remove(path);
+    snprintf(path, sizeof(path), "%s/multi",   dir); remove(path);
+
+    ais_open(&a, dir);
+    ais_compact(&a);
+
+    v.n = 0;
+    ais_timeline(&a, 0, collect_tl, &v);
+    CHECK(v.n == 3, "timeline: every live record appears");
+    CHECK(v.n >= 1 && v.r[0].ts[0] == '\0' && v.r[0].id == 3,
+          "timeline: the dateless record is shown FIRST (not lost)");
+    CHECK(v.n == 3 && v.r[1].id == 2 && v.r[2].id == 1,
+          "timeline: dated records follow, newest first");
+    CHECK(v.n >= 2 && strchr(v.r[1].ts, 'T') != NULL,
+          "timeline: dated rows carry a timestamp");
+    ais_close(&a);
+
+    scratch_rm(dir);
+}
+
+/* ---- tags: every distinct key with its count, busiest first ------------- */
+static void test_tags(void)
+{
+    const char *dir = "/tmp/ais_ut_tags";
+    ais a;
+    struct tagvec v;
+
+    build_fixture(&a, dir);
+    v.n = 0;
+    ais_tags(&a, collect_tag, &v);
+    CHECK(v.n == 16, "tags: all 16 distinct keys counted");
+    /* busiest first: the count-2 keys lead, alpha-tied -> 'ansi' is first */
+    CHECK(v.n >= 1 && strcmp(v.t[0].key, "ansi") == 0 && v.t[0].count == 2,
+          "tags: busiest first, ties alphabetical (ansi, count 2)");
+    CHECK(v.n >= 6 && v.t[5].count == 2 && v.t[6 > v.n - 1 ? v.n - 1 : 6].count == 1,
+          "tags: the six count-2 keys precede the count-1 keys");
+    ais_close(&a);
+
+    scratch_rm(dir);
+}
+
 static void test_embed(void)
 {
     const char *dir = "/tmp/ais_ut_embed";
@@ -732,6 +858,16 @@ static void test_embed(void)
 
     r = ais_embed_recall(h, "nope", 0);                  /* no match -> "" not NULL */
     CHECK(r != NULL && r[0] == '\0', "embed: no match -> empty string");
+    ais_embed_free(r);
+
+    r = ais_embed_timeline(h, 0);                        /* id|ts|keys|value */
+    CHECK(r != NULL && strstr(r, "|venice italy|https://example.org/p\n") != NULL,
+          "embed: timeline returns id|ts|keys|value lines");
+    ais_embed_free(r);
+
+    r = ais_embed_tags(h);                               /* count|key, busiest first */
+    CHECK(r != NULL && strncmp(r, "2|venice\n", 9) == 0,
+          "embed: tags returns count|key, busiest first");
     ais_embed_free(r);
 
     ais_embed_close(h);
@@ -770,6 +906,12 @@ int main(void)
     test_next_id_recovery();
     printf("rebuild-from-store:\n");
     test_rebuild_from_store();
+    printf("timestamp:\n");
+    test_timestamp();
+    printf("timeline:\n");
+    test_timeline();
+    printf("tags:\n");
+    test_tags();
     printf("embed (FFI seam):\n");
     test_embed();
     printf("----\n%d passed, %d failed\n", ut_pass, ut_fail);

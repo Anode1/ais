@@ -73,9 +73,22 @@ static const char PAGE[] =
 ".actions button{font:inherit;padding:.6rem 1.1rem;border-radius:10px;cursor:pointer}"
 ".ghost{border:1px solid var(--line);background:#fff}"
 ".primary{border:0;background:var(--accent);color:#fff;font-weight:600}"
+".seg{display:flex;gap:.3rem;margin-top:.5rem}"
+".segbtn{flex:1;border:1px solid var(--line);background:#fff;color:var(--muted);font:inherit;"
+"font-size:.85rem;padding:.4rem;border-radius:8px;cursor:pointer}"
+".segbtn.active{background:var(--accent);color:#fff;border-color:var(--accent)}"
+".daygroup{font-size:.74rem;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;"
+"margin:1.1rem 0 .2rem;padding-bottom:.2rem;border-bottom:1px solid var(--line)}"
+".meta{font-size:.74rem;color:var(--muted);margin-top:.2rem}"
+".tagrow{display:flex;align-items:center;justify-content:space-between;padding:.55rem .2rem;border-bottom:1px solid var(--line)}"
+".taglink{border:0;background:none;color:var(--accent);font:inherit;cursor:pointer;padding:0;text-align:left;word-break:break-word}"
+".tagcount{font-size:.8rem;color:var(--muted);background:#fff;border:1px solid var(--line);border-radius:10px;padding:.1rem .5rem;min-width:2rem;text-align:center}"
 "</style>"
 "<header id=bar><div class=titlerow><span class=brand>AIS</span><span id=count class=muted></span></div>"
 "<div class=searchrow><input id=q type=search placeholder='type keys to recall...' autocomplete=off autofocus></div>"
+"<div class=seg><button id=seg-recall class='segbtn active'>Recall</button>"
+"<button id=seg-timeline class=segbtn>Timeline</button>"
+"<button id=seg-tags class=segbtn>Tags</button></div>"
 "<div class=storerow><span id=store class=muted></span><button id=storebtn class=link>change</button></div></header>"
 "<main id=out><p class=empty>Type keys, then Enter. Click + Add to store.</p></main>"
 "<button id=addbtn class=fab>+ Add</button>"
@@ -86,22 +99,65 @@ static const char PAGE[] =
 "</div></div>"
 "<script>"
 "var $=function(i){return document.getElementById(i)};"
+"var view='recall';"
 "function isUrl(v){return v.slice(0,7)=='http://'||v.slice(0,8)=='https://'}"
+/* fillVal: append V to NODE, turning every embedded http(s) URL into a real
+ * link -- not only values that are wholly a URL (a "Title - https://..." value
+ * gets its URL linked, with the title left as text). */
+"function fillVal(node,v){var re=/https?:\\/\\/[^\\s]+/g,last=0,m;"
+"while((m=re.exec(v))!==null){"
+"if(m.index>last)node.appendChild(document.createTextNode(v.slice(last,m.index)));"
+"var a=document.createElement('a');a.href=m[0];a.textContent=m[0];"
+"a.target='_blank';a.rel='noopener';node.appendChild(a);last=m.index+m[0].length}"
+"if(last<v.length)node.appendChild(document.createTextNode(v.slice(last)))}"
 "function render(t,q,ms){var L=t.split('\\n').filter(function(s){return s.length});"
 "$('count').textContent=L.length+' result'+(L.length==1?'':'s')+' - '+ms.toFixed(0)+' ms';"
 "var o=$('out');o.innerHTML='';"
 "if(!L.length){o.textContent='No results for '+q;o.className='empty';return}o.className='';"
 "L.forEach(function(ln){var p=ln.indexOf('|'),v=p>=0?ln.slice(p+1):ln,"
 "r=document.createElement('div');r.className='hit';"
-"var s=document.createElement(isUrl(v)?'a':'span');s.textContent=v;"
-"if(isUrl(v)){s.href=v;s.target='_blank';s.rel='noopener'}r.appendChild(s);o.appendChild(r)})}"
+"fillVal(r,v);o.appendChild(r)})}"
 "async function recall(){var q=$('q').value.trim();if(!q)return;var t0=performance.now();"
 "var t=await(await fetch('/api/get?keys='+encodeURIComponent(q))).text();render(t,q,performance.now()-t0)}"
+"function parseTL(ln){var a=ln.indexOf('|'),b=ln.indexOf('|',a+1),c=ln.indexOf('|',b+1);"
+"return{ts:ln.slice(a+1,b),keys:ln.slice(b+1,c),value:ln.slice(c+1)}}"
+"function fmtDay(d){var p=d.split('-'),M=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];"
+"return p[2]+' '+M[(+p[1])-1]+' '+p[0]}"
+"async function loadTimeline(){var t=await(await fetch('/api/timeline')).text();"
+"var L=t.split('\\n').filter(function(s){return s.length}),o=$('out');o.className='';o.innerHTML='';"
+"$('count').textContent=L.length+' record'+(L.length==1?'':'s');"
+"if(!L.length){o.innerHTML='<p class=empty>Nothing saved yet.</p>';return}"
+"var day=null;L.forEach(function(ln){var r=parseTL(ln),d=r.ts?r.ts.slice(0,10):'';"
+"if(d!==day){day=d;var h=document.createElement('div');h.className='daygroup';"
+"h.textContent=d?fmtDay(d):'(undated)';o.appendChild(h)}"
+"var row=document.createElement('div');row.className='hit';"
+"fillVal(row,r.value);"
+"var m=document.createElement('div');m.className='meta';"
+"var tm=r.ts.indexOf('T')>=0?r.ts.slice(11,16)+' - ':'';"
+"m.textContent=tm+(r.keys||'(no keys)');row.appendChild(m);o.appendChild(row)})}"
+"async function loadTags(){var t=await(await fetch('/api/tags')).text();"
+"var L=t.split('\\n').filter(function(s){return s.length}),o=$('out');o.className='';o.innerHTML='';"
+"$('count').textContent=L.length+' tag'+(L.length==1?'':'s');"
+"if(!L.length){o.innerHTML='<p class=empty>No tags yet.</p>';return}"
+"L.forEach(function(ln){var p=ln.indexOf('|'),c=ln.slice(0,p),k=ln.slice(p+1);"
+"var row=document.createElement('div');row.className='tagrow';"
+"var b=document.createElement('button');b.className='taglink';b.textContent=k;"
+"b.onclick=function(){$('q').value=k;setView('recall')};"
+"var n=document.createElement('span');n.className='tagcount';n.textContent=c;"
+"row.appendChild(b);row.appendChild(n);o.appendChild(row)})}"
+"function setView(v){view=v;['recall','timeline','tags'].forEach(function(k){"
+"$('seg-'+k).className='segbtn'+(k==v?' active':'')});"
+"if(v=='recall'){var q=$('q').value.trim();if(q)recall();"
+"else{$('out').innerHTML='<p class=empty>Type keys, then Enter.</p>';$('out').className='';$('count').textContent=''}}"
+"else if(v=='timeline')loadTimeline();else loadTags()}"
 "function openSheet(){$('vk').value=$('q').value.trim();$('sheet').hidden=false;$('v').focus()}"
 "function closeSheet(){$('sheet').hidden=true;$('v').value=''}"
 "async function save(){var v=$('v').value.trim();if(!v)return;var k=$('vk').value.trim();"
 "await fetch('/api/put?keys='+encodeURIComponent(k),{method:'POST',body:v});closeSheet();$('q').value=k;recall()}"
-"$('q').addEventListener('keydown',function(e){if(e.key=='Enter')recall()});"
+"$('q').addEventListener('keydown',function(e){if(e.key=='Enter')setView('recall')});"
+"$('seg-recall').onclick=function(){setView('recall')};"
+"$('seg-timeline').onclick=function(){setView('timeline')};"
+"$('seg-tags').onclick=function(){setView('tags')};"
 "$('addbtn').onclick=openSheet;$('cancel').onclick=closeSheet;$('save').onclick=save;"
 "$('sheet').addEventListener('click',function(e){if(e.target==$('sheet'))closeSheet()});"
 "async function loadStore(){$('store').textContent='store: '+await(await fetch('/api/where')).text()}"
@@ -215,6 +271,29 @@ static long do_put(ais *a, const char *keys, char *body)
     return count;
 }
 
+/* ---- timeline: "id|ts|keys|value" newest-first (dateless first) ---------- */
+static int tl_sink(long id, const char *ts, const char *keys,
+                   const char *value, void *vp)
+{
+    struct sink *s = vp;
+    char line[AIS_LINE_MAX];
+    int n = snprintf(line, sizeof(line), "%ld|%s|%s|%s\n", id, ts, keys, value);
+    if (n > 0)
+        write_all(s->fd, line, (size_t)n);
+    return 0;
+}
+
+/* ---- tags: "count|key", busiest first ----------------------------------- */
+static int tag_sink(const char *key, long count, void *vp)
+{
+    struct sink *s = vp;
+    char line[AIS_KEY_MAX + 32];
+    int n = snprintf(line, sizeof(line), "%ld|%s\n", count, key);
+    if (n > 0)
+        write_all(s->fd, line, (size_t)n);
+    return 0;
+}
+
 static void not_found(int fd)
 {
     static const char nf[] =
@@ -314,6 +393,16 @@ static void handle(ais *a, int fd)
         send_head(fd, "text/plain");
         if (m > 0)
             write_all(fd, msg, (size_t)m);
+    } else if (strcmp(method, "GET") == 0 && strcmp(path, "/api/timeline") == 0) {
+        struct sink s;
+        s.a = a; s.fd = fd;
+        send_head(fd, "text/plain");
+        ais_timeline(a, 0, tl_sink, &s);      /* default cap; dateless first */
+    } else if (strcmp(method, "GET") == 0 && strcmp(path, "/api/tags") == 0) {
+        struct sink s;
+        s.a = a; s.fd = fd;
+        send_head(fd, "text/plain");
+        ais_tags(a, tag_sink, &s);
     } else if (strcmp(method, "GET") == 0 && strcmp(path, "/api/where") == 0) {
         send_head(fd, "text/plain");          /* the current store (index dir) */
         write_all(fd, a->dir, strlen(a->dir));

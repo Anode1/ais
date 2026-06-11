@@ -12,6 +12,12 @@
 # Usage:  sh tests/cli.sh [path-to-ais]      (default ./c/ais)
 
 AIS=${1:-./c/ais}
+# Resolve to an absolute path: several tests cd into temp dirs to exercise
+# index discovery/relativization, where a relative ./c/ais would not resolve.
+case $AIS in
+    /*) ;;
+    *)  AIS=$(cd "$(dirname "$AIS")" && pwd)/$(basename "$AIS") ;;
+esac
 pass=0
 fail=0
 
@@ -263,6 +269,24 @@ uniq=$(cut -d'|' -f1 "$CC"/store | sort -un | grep -c .)
 okeq "concurrency: 100 records written"            "100" "$total"
 okeq "concurrency: all ids unique (no collision)"  "$total" "$uniq"
 rm -rf "$CC"
+
+# 19. --timeline (newest first; a dateless/hand-edited record shown first, not
+#     lost) and --tags (every key with its count, busiest first)
+TT=$(mktemp -d "${TMPDIR:-/tmp}/ais_tl.XXXXXX") || exit 2
+"$AIS" -f "$TT" -v "https://a.example" alpha shared >/dev/null
+"$AIS" -f "$TT" -v "https://b.example" beta shared  >/dev/null
+"$AIS" -f "$TT" -v "a plain note"      gamma         >/dev/null
+printf '99|legacy hand|pasted with no date\n' >> "$TT"/store   # legacy v1 line
+rm -f "$TT"/next_id "$TT"/off "$TT"/multi
+"$AIS" -f "$TT" --compact -y >/dev/null                        # reindex from store
+tags=$("$AIS" -f "$TT" --tags)
+ok    "tags: the shared key is listed"          "shared"    "$tags"
+ok    "tags: busiest first (shared, count 2)"   "2  shared" "$(printf '%s\n' "$tags" | head -1)"
+tl=$("$AIS" -f "$TT" --timeline)
+ok    "timeline: dateless record shown first"   "(undated)" "$(printf '%s\n' "$tl" | head -1)"
+ok    "timeline: hand-pasted record survived"   "pasted with no date" "$tl"
+okeq  "timeline: all four records listed"        "4" "$(printf '%s\n' "$tl" | grep -c .)"
+rm -rf "$TT"
 
 echo "---- $pass passed, $fail failed"
 [ "$fail" -eq 0 ]

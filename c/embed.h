@@ -29,7 +29,16 @@ char *ais_embed_recall(void *handle, const char *keys, int or_mode);
 /* Store VALUE under KEYS. Returns the record id (> 0), or -1 on error. */
 long  ais_embed_store(void *handle, const char *keys, const char *value);
 
-/* Free a buffer returned by ais_embed_recall(). */
+/* The LIMIT most-recent records as "id|ts|keys|value\n" lines (LIMIT <= 0 =
+ * default cap), ordered for a timeline: dateless first, then newest. Free with
+ * ais_embed_free(). NULL only on bad args / allocation failure. */
+char *ais_embed_timeline(void *handle, int limit);
+
+/* Every distinct key as "count|key\n" lines, busiest first. Free with
+ * ais_embed_free(). NULL only on bad args / allocation failure. */
+char *ais_embed_tags(void *handle);
+
+/* Free a buffer returned by ais_embed_recall() / _timeline() / _tags(). */
 void  ais_embed_free(char *buf);
 
 /* Release the lock, flush the id counter, free the handle. */

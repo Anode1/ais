@@ -39,6 +39,9 @@ class _RecallPageState extends State<RecallPage> {
   final _speech = SpeechToText();
   AisEngine? _ais;
   List<String> _results = const [];
+  List<TlRow> _tl = const [];
+  List<TagRow> _tags = const [];
+  String _view = 'recall'; // recall | timeline | tags
   bool _voice = false;
   bool _searched = false;
   String _status = 'opening index…';
@@ -98,6 +101,24 @@ class _RecallPageState extends State<RecallPage> {
     });
   }
 
+  void _setView(String v) {
+    setState(() => _view = v);
+    if (v == 'recall') {
+      if (_q.text.trim().isNotEmpty) _recall();
+    } else if (v == 'timeline') {
+      setState(() => _tl = _ais?.timeline() ?? const []);
+    } else {
+      setState(() => _tags = _ais?.tags() ?? const []);
+    }
+  }
+
+  static const _months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  String _fmtDay(String d) {
+    final p = d.split('-');
+    if (p.length < 3) return d;
+    return '${int.parse(p[2])} ${_months[int.parse(p[1]) - 1]} ${p[0]}';
+  }
+
   Future<void> _listen() async {
     if (!_voice) return;
     await _speech.listen(onResult: (r) {
@@ -134,6 +155,9 @@ class _RecallPageState extends State<RecallPage> {
       setState(() {
         _dir = picked;
         _results = const [];
+        _tl = const [];
+        _tags = const [];
+        _view = 'recall';
         _searched = false;
         _query = '';
         _q.clear();
@@ -189,6 +213,25 @@ class _RecallPageState extends State<RecallPage> {
                             : null,
                       ),
                     ),
+                    const SizedBox(height: 8),
+                    SizedBox(
+                      width: double.infinity,
+                      child: SegmentedButton<String>(
+                        showSelectedIcon: false,
+                        style: ButtonStyle(
+                          visualDensity: VisualDensity.compact,
+                          textStyle: WidgetStatePropertyAll(
+                              TextStyle(fontSize: 13, color: cs.onSurface)),
+                        ),
+                        segments: const [
+                          ButtonSegment(value: 'recall', label: Text('Recall')),
+                          ButtonSegment(value: 'timeline', label: Text('Timeline')),
+                          ButtonSegment(value: 'tags', label: Text('Tags')),
+                        ],
+                        selected: {_view},
+                        onSelectionChanged: (s) => _setView(s.first),
+                      ),
+                    ),
                     const SizedBox(height: 4),
                     Row(children: [
                       Expanded(
@@ -214,43 +257,8 @@ class _RecallPageState extends State<RecallPage> {
             ),
           ),
 
-          // results (always visible, fills the rest)
-          Expanded(
-            child: _results.isEmpty
-                ? Center(
-                    child: Padding(
-                      padding: const EdgeInsets.all(24),
-                      child: Text(
-                        _searched ? 'No results for "$_query"' : _status,
-                        textAlign: TextAlign.center,
-                        style: TextStyle(color: cs.outline),
-                      ),
-                    ),
-                  )
-                : ListView.separated(
-                    padding: const EdgeInsets.only(bottom: 88),
-                    itemCount: _results.length,
-                    separatorBuilder: (_, __) => const Divider(height: 1),
-                    itemBuilder: (_, i) {
-                      final v = _results[i];
-                      return ListTile(
-                        title: SelectableText(
-                          v,
-                          style: TextStyle(color: _isUrl(v) ? cs.primary : null),
-                        ),
-                        trailing: IconButton(
-                          icon: const Icon(Icons.copy, size: 18),
-                          tooltip: 'Copy',
-                          onPressed: () {
-                            Clipboard.setData(ClipboardData(text: v));
-                            ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(content: Text('Copied')));
-                          },
-                        ),
-                      );
-                    },
-                  ),
-          ),
+          // body (always visible, fills the rest): recall / timeline / tags
+          Expanded(child: _body(cs)),
         ]),
       ),
       floatingActionButton: FloatingActionButton.extended(
@@ -258,6 +266,97 @@ class _RecallPageState extends State<RecallPage> {
         icon: const Icon(Icons.add),
         label: const Text('Add'),
       ),
+    );
+  }
+
+  Widget _centerMsg(String msg, ColorScheme cs) => Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Text(msg, textAlign: TextAlign.center, style: TextStyle(color: cs.outline)),
+        ),
+      );
+
+  Widget _body(ColorScheme cs) {
+    switch (_view) {
+      case 'timeline':
+        return _timelineBody(cs);
+      case 'tags':
+        return _tagsBody(cs);
+      default:
+        return _recallBody(cs);
+    }
+  }
+
+  Widget _recallBody(ColorScheme cs) {
+    if (_results.isEmpty) {
+      return _centerMsg(_searched ? 'No results for "$_query"' : _status, cs);
+    }
+    return ListView.separated(
+      padding: const EdgeInsets.only(bottom: 88),
+      itemCount: _results.length,
+      separatorBuilder: (_, __) => const Divider(height: 1),
+      itemBuilder: (_, i) {
+        final v = _results[i];
+        return ListTile(
+          title: SelectableText(v, style: TextStyle(color: _isUrl(v) ? cs.primary : null)),
+          trailing: IconButton(
+            icon: const Icon(Icons.copy, size: 18),
+            tooltip: 'Copy',
+            onPressed: () {
+              Clipboard.setData(ClipboardData(text: v));
+              ScaffoldMessenger.of(context)
+                  .showSnackBar(const SnackBar(content: Text('Copied')));
+            },
+          ),
+        );
+      },
+    );
+  }
+
+  // Timeline: dateless rows surface first, then newest; grouped by day.
+  Widget _timelineBody(ColorScheme cs) {
+    if (_tl.isEmpty) return _centerMsg('Nothing saved yet.', cs);
+    final items = <Widget>[];
+    String? day;
+    for (final r in _tl) {
+      final d = r.ts.isNotEmpty ? r.ts.substring(0, 10) : '';
+      if (d != day) {
+        day = d;
+        items.add(Padding(
+          padding: const EdgeInsets.fromLTRB(16, 18, 16, 4),
+          child: Text(d.isEmpty ? '(undated)' : _fmtDay(d),
+              style: TextStyle(fontSize: 12, color: cs.outline, fontWeight: FontWeight.w600)),
+        ));
+      }
+      final time = r.ts.contains('T') ? '${r.ts.substring(11, 16)} · ' : '';
+      items.add(ListTile(
+        title: SelectableText(r.value,
+            style: TextStyle(color: _isUrl(r.value) ? cs.primary : null)),
+        subtitle: Text('$time${r.keys.isEmpty ? '(no keys)' : r.keys}',
+            style: TextStyle(color: cs.outline, fontSize: 12)),
+      ));
+    }
+    return ListView(padding: const EdgeInsets.only(bottom: 88), children: items);
+  }
+
+  // Tags: every key with its count, busiest first; tap a key to recall it.
+  Widget _tagsBody(ColorScheme cs) {
+    if (_tags.isEmpty) return _centerMsg('No tags yet.', cs);
+    return ListView.separated(
+      padding: const EdgeInsets.only(bottom: 88),
+      itemCount: _tags.length,
+      separatorBuilder: (_, __) => const Divider(height: 1),
+      itemBuilder: (_, i) {
+        final t = _tags[i];
+        return ListTile(
+          title: Text(t.key, style: TextStyle(color: cs.primary)),
+          trailing: Chip(label: Text('${t.count}'), visualDensity: VisualDensity.compact),
+          onTap: () {
+            _q.text = t.key;
+            _setView('recall');
+          },
+        );
+      },
     );
   }
 
