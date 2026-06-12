@@ -32,6 +32,13 @@
 #include "common.h"
 #include "serve.h"
 
+/* INADDR_LOOPBACK (127.0.0.1) is a BSD extra that macOS/clang hide under
+ * -std=c99 (__STRICT_ANSI__); glibc exposes it by default. Define it portably
+ * if the header gated it out, so the local server binds loopback everywhere. */
+#ifndef INADDR_LOOPBACK
+#define INADDR_LOOPBACK 0x7f000001U
+#endif
+
 /* ---- the GUI page (HTML + JavaScript, NOT C) ----------------------------
  * This is the web wrapper's user interface, embedded as a string so the binary
  * is self-contained. The cramped one-string-literal-per-line shape is simply
