@@ -30,8 +30,9 @@ jobs:
         include:
           - { os: ubuntu-latest,    name: linux-x86_64, make: static }
           - { os: ubuntu-24.04-arm, name: linux-arm64,  make: static }
-          - { os: macos-13,         name: macos-x86_64, make: all }
           - { os: macos-latest,     name: macos-arm64,  make: all }
+          # Intel macs (macos-x86_64 via macos-13) dropped for now: Apple-silicon
+          # only. Re-add `{ os: macos-13, name: macos-x86_64, make: all }` if needed.
     steps:
       - uses: actions/checkout@v4
 
