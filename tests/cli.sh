@@ -190,7 +190,7 @@ if [ -n "$blob" ] && [ -f "$blob" ]; then
 else
     fail=$((fail + 1)); echo "  FAIL doc: blob file missing"
 fi
-okeq "doc: blob preserved 3 lines"   "3" "$(wc -l < "$blob")"
+okeq "doc: blob preserved 3 lines"   "3" "$(( $(wc -l < "$blob") ))"   # $(()) strips BSD wc's leading pad
 ok "where: prints the index dir"     "$DC" "$("$AIS" -f "$DC" --where)"
 rm -rf "$DC"
 
