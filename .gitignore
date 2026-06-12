@@ -5,10 +5,13 @@
 # =====================================================================
 
 # ---- C engine (c/): build artifacts & binaries ----
+# (.exe variants are the Cygwin/Windows builds of the same binaries)
 *.o
 *.d
 /c/ais
+/c/ais.exe
 /c/ais_ut
+/c/ais_ut.exe
 /c/libais.a
 /c/libais.so
 
@@ -38,6 +41,7 @@ tests/INDEX/next_id
 tests/INDEX/tomb
 tests/INDEX/lock
 /ais
+/ais.exe
 /releases/
 /dist/
 /example/
