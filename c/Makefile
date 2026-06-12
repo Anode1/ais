@@ -39,9 +39,17 @@ ifeq ($(UNAME), CYGWIN32/NT)
 	NOCYGWIN = -mno-cygwin
 endif
 
+# macOS/clang hide BSD+POSIX extras (flock, LOCK_*, INADDR_LOOPBACK, ...) under
+# -std=c99 (__STRICT_ANSI__). _DARWIN_C_SOURCE re-exposes the full system API.
+# glibc exposes them by default, so this is Darwin-only.
+AIS_PORT =
+ifeq ($(UNAME), Darwin)
+	AIS_PORT = -D_DARWIN_C_SOURCE
+endif
+
 AIS_STD    = -std=c99
 AIS_WARN   = -W -Wall
-AIS_CFLAGS = $(NOCYGWIN) $(AIS_STD) $(AIS_WARN)
+AIS_CFLAGS = $(NOCYGWIN) $(AIS_PORT) $(AIS_STD) $(AIS_WARN)
 
 # all *.c are sources (no editing this file when a new .c is added)
 SOURCES.c := $(wildcard *.c)
