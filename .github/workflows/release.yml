@@ -38,17 +38,20 @@ jobs:
 
       - name: build and test
         run: |
-          make check                 # builds the engine + runs the unit tests
-          make clean                 # pristine relink, so -static actually takes effect
-          make ${{ matrix.make }}    # static on Linux, dynamic (portable) on macOS
+          make check                 # builds the engine + runs the unit/CLI tests
           ./ais --version
 
-      - name: stage binary + checksum
+      - name: package bundle + checksum
         run: |
+          # One zip per platform: the ais binary (CLI) + GUI launcher + Tk
+          # wrapper + docs + man/. dist.sh picks static (Linux) / dynamic (macOS)
+          # by uname, so the matrix `make` field is no longer needed here.
+          sh scripts/dist.sh bin
+          src=$(ls releases/*/ais-*.zip | head -n1)
+          name="ais-${{ github.ref_name }}-${{ matrix.name }}"
           mkdir -p dist
-          bin="ais-${{ github.ref_name }}-${{ matrix.name }}"
-          cp ais "dist/$bin"
-          ( cd dist && shasum -a 256 "$bin" > "$bin.sha256" )
+          cp "$src" "dist/$name.zip"
+          ( cd dist && shasum -a 256 "$name.zip" > "$name.zip.sha256" )
 
       - uses: actions/upload-artifact@v4
         with:
@@ -56,9 +59,10 @@ jobs:
           path: dist/*
 
   # Windows is its own job: ais here is a Cygwin build (links cygwin1.dll), so it
-  # needs a Cygwin toolchain and ships as a ZIP (the runtime DLL + launcher must
-  # travel with the exe) rather than a bare binary like the unix targets. A
-  # native, Cygwin-free build is left as a future contribution (MSVC or mingw +
+  # needs a Cygwin toolchain, and its ZIP must also carry the runtime DLL beside
+  # the exe. The unix jobs above build their own ZIP bundles via the same
+  # scripts/dist.sh; this job differs only in the toolchain and the bundled DLL.
+  # A native, Cygwin-free build is left as a future contribution (MSVC or mingw +
   # a POSIX->Winsock port -- see scripts/dist.sh notes).
   build-windows:
     name: build windows-x86_64

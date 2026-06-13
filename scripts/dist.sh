@@ -3,10 +3,12 @@
 #   make dist       this platform's BINARY bundle + the SOURCE bundle
 #   make dist-src   just the source bundle (build anywhere, incl. Windows/Cygwin)
 #
-# Names (ripgrep/fd convention -- OS+arch = binary, -src = source):
-#   ais-<ver>-src.zip                 source       (zip: universal / Windows-friendly)
-#   ais-<ver>-<os>-<arch>.tar.gz      unix binary  (linux, macos)
-#   ais-<ver>-windows-<arch>.zip      windows binary (when built; zip)
+# Names (OS+arch = binary, -src = source). Every bundle is a .zip so a single
+# tool opens any download on any OS (the SQLite precompiled-binaries convention);
+# one bundle per platform serves BOTH the CLI (the `ais` binary) and the GUI (a
+# double-click launcher), since the GUIs are thin wrappers over the one binary:
+#   ais-<ver>-src.zip                 source
+#   ais-<ver>-<os>-<arch>.zip         binary  (linux, macos, windows)
 # Each bundle gets a same-named .md5 sidecar -- the md5 lives OUTSIDE the artifact
 # (you verify the download against it).
 #
@@ -73,47 +75,60 @@ build_bin() {
     [ -f COPYING ]      && cp COPYING      "$stage/"
     [ -f doc/about.txt ] && cp doc/about.txt "$stage/"
     [ -f doc/USING.txt ] && cp doc/USING.txt "$stage/"
-    # ais.1 is a Unix man page (roff); skip it on Windows, which has no `man`.
-    [ "$winbin" = 1 ] || { [ -f man/ais.1 ] && cp man/ais.1 "$stage/"; }
+    [ -f gui/ais.tcl ]  && cp gui/ais.tcl  "$stage/"   # the Tk desktop GUI (needs wish)
+    # ais.1 is a Unix man page (roff): ship it under man/ on unix; skip it on
+    # Windows, which has no `man`.
+    [ "$winbin" = 1 ] || { [ -f man/ais.1 ] && { mkdir -p "$stage/man"; cp man/ais.1 "$stage/man/"; }; }
     [ -f "$launcher" ]  && cp "$launcher"  "$stage/"
 
+    lname=$(basename "$launcher")
     cat > "$stage/README.txt" <<EOF
-AIS $VERSION  ($pretty/$arch)
+AIS $VERSION  ($pretty/$arch) -- your memory, yours to keep.
 
-New here? Open USING.txt for a one-minute guide.
+GUI:   double-click  $lname     (opens the app in your browser)
+CLI:   ./ais --help             (e.g.  ./ais venice italy ;  alias is='ais' for short)
+New?   open USING.txt for a one-minute guide.
 
-Run the GUI:   ./ais --serve      (starts a local server, opens your browser)
-Command line:  ./ais --help
-Shortcut:      alias is='ais'   (bash/zsh) -- two-character recall: "is venice italy"
-
-Your data is yours -- plain text you can find, back up, edit, or delete.
-Run './ais --where' for its exact path (default: ~/.local/share/ais, under your home).
+Your data is plain text you can find, back up, edit, or delete.
+Run  ./ais --where  for its exact path (default: ~/.local/share/ais).
 EOF
     if [ "$winbin" = 1 ]; then
         cat >> "$stage/README.txt" <<EOF
 
-Windows: double-click ais-web.bat for the GUI, or run 'ais.exe serve' in a
-terminal. Keep cygwin1.dll next to ais.exe (it is the runtime) -- no Cygwin
-install is needed to RUN it.
+Windows: double-click $lname for the GUI, or run 'ais.exe --help' in a terminal.
+Keep cygwin1.dll next to ais.exe (it is the runtime) -- no Cygwin install is
+needed to RUN it.
 EOF
     elif [ "$pretty" = macos ]; then
         cat >> "$stage/README.txt" <<EOF
 
-macOS first run: the binary is unsigned, so right-click it (or the launcher)
-and choose Open once to clear Gatekeeper.
+macOS first run: the binary is unsigned, so right-click ais (or $lname) and
+choose Open once to clear Gatekeeper. If ais will not run, the zip dropped its
+executable bit: chmod +x ais. The desktop GUI (ais.tcl) needs wish (Tcl/Tk).
 EOF
     else
         cat >> "$stage/README.txt" <<EOF
 
-Put it on your PATH to use 'ais' from any directory (copy to ~/bin or
-/usr/local/bin).
+Linux: if ais will not run, the zip dropped its executable bit: chmod +x ais.
+Put it on your PATH (copy to ~/bin or /usr/local/bin) to use 'ais' anywhere; man
+page in man/ais.1. The desktop GUI (ais.tcl) needs wish (Tcl/Tk).
 EOF
     fi
 
-    if [ "$winbin" = 1 ] && command -v zip >/dev/null 2>&1; then
+    # Preset deterministic perms now that every file exists (incl. README), so
+    # the archive is identical no matter the git mode or the build umask -- zip
+    # stores unix perms and unzip restores them: dirs 0755, data 0644, and the
+    # runnable files 0755 (a+x).
+    find "$stage" -type d -exec chmod 0755 {} +
+    find "$stage" -type f -exec chmod 0644 {} +
+    for x in ais ais.exe ais.tcl "$lname"; do
+        [ -f "$stage/$x" ] && chmod 0755 "$stage/$x"
+    done
+
+    if command -v zip >/dev/null 2>&1; then
         ( cd "$out" && rm -f "$name.zip" && zip -rq "$name.zip" "$name" ); pkg="$out/$name.zip"
     else
-        tar -C "$out" -czf "$out/$name.tar.gz" "$name"; pkg="$out/$name.tar.gz"
+        tar -C "$out" -czf "$out/$name.tar.gz" "$name"; pkg="$out/$name.tar.gz"   # no zip: fall back
     fi
     rm -rf "$stage"; sidecar "$pkg"
     echo "built $pkg (+ .md5)"

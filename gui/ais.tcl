@@ -9,7 +9,18 @@
 # How to run:  wish gui/ais.tcl   (or ./gui/ais.tcl)
 
 package require Tk
-set AIS [expr {[auto_execok ais] ne "" ? "ais" : "/home/vas/ais/c/ais"}]
+# Find the engine: PATH first, then a sibling next to this script (the release
+# bundle ships ais.tcl beside the ais binary), then the dev checkout.
+set _here [file dirname [file normalize [info script]]]
+if {[auto_execok ais] ne ""} {
+    set AIS ais
+} elseif {[file executable [file join $_here ais]]} {
+    set AIS [file join $_here ais]
+} elseif {[file executable [file join $_here ais.exe]]} {
+    set AIS [file join $_here ais.exe]
+} else {
+    set AIS /home/vas/ais/c/ais
+}
 set ADDSHOWN 0
 set INDEX ""       ;# current index dir (passed as -f); empty = default resolution
 set VIEW  recall   ;# recall | timeline | tags  (the segmented control)

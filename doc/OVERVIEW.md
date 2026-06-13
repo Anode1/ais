@@ -17,6 +17,7 @@ GUIs available: a local **web app** (`ais --serve`), a **Tk desktop app**, and a
 | `doc/history/PRIORITY.md` | Authorship and provenance record (priority trail, 2001 → 2026) — frozen deposit, [doi.org/10.5281/zenodo.20647048](https://doi.org/10.5281/zenodo.20647048). |
 | `doc/dev/STYLE.md` | Coding style and ideology: C99, stack/streaming discipline, append-only sharded storage. |
 | `tests/INDEX/store` | A small sample index — the test fixture and a worked example of the store format. |
+| `example/` | A ready-to-use **sample index**: `ais -f example docs`, or read `example/store` by hand. Models correct usage — links (paths, URLs) and short notes, **not** stored documents. |
 
 ## Design philosophy
 

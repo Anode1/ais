@@ -44,4 +44,12 @@ tests/INDEX/lock
 /ais.exe
 /releases/
 /dist/
-/example/
+
+# ---- example/ sample index: a small, ready-to-use sample. Track store (the
+#  human-readable source of truth), version, and the idx/ postings so recall
+#  works straight from a clone; ignore the churny runtime files (rebuilt on any
+#  write, and recoverable from store via `ais --compact`) ----
+/example/next_id
+/example/off
+/example/lock
+/example/blobs/
