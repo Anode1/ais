@@ -393,7 +393,7 @@ class _RecallPageState extends State<RecallPage> {
               controller: valCtrl,
               autofocus: true,
               minLines: 1,
-              maxLines: 5,
+              maxLines: 3,
               decoration: const InputDecoration(
                 labelText: 'What to remember',
                 hintText: 'a link, a note, a phone number…',

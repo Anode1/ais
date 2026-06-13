@@ -30,6 +30,7 @@
 
 #include "ais.h"
 #include "common.h"
+#include "doc.h"
 #include "serve.h"
 
 /* ---- the GUI page (HTML + JavaScript, NOT C) ----------------------------
@@ -251,23 +252,13 @@ static void do_get(ais *a, char *keys, int fd)
         ais_get(a, kv, nkeys, AIS_AND, on_id, &s);
 }
 
-/* ---- put: each body line is a value under the keys ---------------------- */
+/* ---- put: the WHOLE body is one record ----------------------------------
+ * A pasted block is one entry, not one record per line: ais_put_value() keeps
+ * a single line as a plain record and routes a multi-line value to a blob.
+ * Returns 1 if stored, 0 if empty/failed. */
 static long do_put(ais *a, const char *keys, char *body)
 {
-    long count = 0;
-    char *line, *save;
-
-    for (line = strtok_r(body, "\n", &save); line != NULL;
-         line = strtok_r(NULL, "\n", &save)) {
-        size_t len = strlen(line);
-        while (len > 0 && (line[len - 1] == '\r' || line[len - 1] == ' '))
-            line[--len] = '\0';                 /* browsers send CRLF */
-        if (len == 0)
-            continue;
-        if (ais_put(a, keys, line) >= 0)
-            count++;
-    }
-    return count;
+    return ais_put_value(a, keys, body) >= 0 ? 1 : 0;
 }
 
 /* ---- timeline: "id|ts|keys|value" newest-first (dateless first) ---------- */
@@ -388,7 +379,7 @@ static void handle(ais *a, int fd)
     } else if (strcmp(method, "POST") == 0 && strcmp(path, "/api/put") == 0) {
         char msg[64];
         long c = do_put(a, keys, body);
-        int m = snprintf(msg, sizeof(msg), "stored %ld value(s)\n", c);
+        int m = snprintf(msg, sizeof(msg), "stored %ld record(s)\n", c);
         send_head(fd, "text/plain");
         if (m > 0)
             write_all(fd, msg, (size_t)m);

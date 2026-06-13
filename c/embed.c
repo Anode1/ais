@@ -10,6 +10,7 @@
 
 #include "ais.h"
 #include "common.h"
+#include "doc.h"
 #include "embed.h"
 
 void *ais_embed_open(const char *dir)
@@ -42,7 +43,9 @@ long ais_embed_store(void *handle, const char *keys, const char *value)
 {
     if (handle == NULL || keys == NULL || value == NULL)
         return -1;
-    return ais_put((ais *)handle, keys, value);
+    /* One value -> one record. A multi-line value becomes a blob-backed
+     * document (see doc.c), exactly as the web and CLI front-ends do. */
+    return ais_put_value((ais *)handle, keys, value);
 }
 
 void ais_embed_free(char *buf)

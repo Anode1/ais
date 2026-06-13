@@ -20,6 +20,7 @@
 #include "compact.h"
 #include "stats.h"
 #include "find.h"
+#include "doc.h"
 #include "embed.h"
 
 #define FIXTURE_STORE "../tests/INDEX/store"   /* cwd is c/ under `make ut` */
@@ -874,6 +875,59 @@ static void test_embed(void)
     scratch_rm(dir);
 }
 
+/* ais_put_value: one paste -> one record. Single line stays a plain, verbatim
+ * record; a lone trailing newline is trimmed (still plain); a genuinely
+ * multi-line value is written to a blobs/ file and the record holds its path.
+ * This is the seam every GUI calls, so it is tested at the engine level. */
+static char g_pv[AIS_PATH_MAX];   /* captured value (a path or a short test value) */
+static int grab_value(long id, const char *value, void *vp)
+{
+    (void)id; (void)vp;
+    snprintf(g_pv, sizeof g_pv, "%s", value);
+    return 0;
+}
+
+static void test_put_value(void)
+{
+    const char *dir = "/tmp/ais_ut_putvalue";
+    ais a;
+    long id1, id2, id3;
+    char blob[2 * AIS_PATH_MAX], rd[256];
+    FILE *f;
+
+    scratch_rm(dir);
+    CHECK(ais_open(&a, dir) == 0, "put_value: open scratch index");
+
+    id1 = ais_put_value(&a, "note", "just one line");
+    g_pv[0] = '\0'; ais_record(&a, id1, grab_value, NULL);
+    CHECK(id1 == 1 && strcmp(g_pv, "just one line") == 0,
+          "put_value: single line -> plain record, stored verbatim");
+
+    id2 = ais_put_value(&a, "note", "trailing newline\n");
+    g_pv[0] = '\0'; ais_record(&a, id2, grab_value, NULL);
+    CHECK(strcmp(g_pv, "trailing newline") == 0,
+          "put_value: lone trailing newline trimmed, stays a plain record");
+
+    id3 = ais_put_value(&a, "doc", "line one\nline two\nline three");
+    g_pv[0] = '\0'; ais_record(&a, id3, grab_value, NULL);
+    CHECK(strncmp(g_pv, "blobs/", 6) == 0,
+          "put_value: multi-line -> a blobs/ path is stored, not the text");
+
+    snprintf(blob, sizeof blob, "%s/%s", dir, g_pv);
+    f = fopen(blob, "r");
+    CHECK(f != NULL, "put_value: the blob file was created");
+    if (f != NULL) {
+        size_t n = fread(rd, 1, sizeof(rd) - 1, f);
+        rd[n] = '\0';
+        fclose(f);
+        CHECK(strcmp(rd, "line one\nline two\nline three") == 0,
+              "put_value: blob preserves the multi-line content verbatim");
+    }
+
+    ais_close(&a);
+    scratch_rm(dir);
+}
+
 int main(void)
 {
     printf("AIS regression tests (make ut)\n");
@@ -912,6 +966,8 @@ int main(void)
     test_timeline();
     printf("tags:\n");
     test_tags();
+    printf("put_value (one paste -> one record):\n");
+    test_put_value();
     printf("embed (FFI seam):\n");
     test_embed();
     printf("----\n%d passed, %d failed\n", ut_pass, ut_fail);

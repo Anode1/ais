@@ -15,6 +15,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
+#include "doc.h"
 #include "feed.h"
 #include "log.h"
 
@@ -229,44 +230,20 @@ void feed_import(ais *a)
     fprintf(stderr, "imported %ld\n", n);
 }
 
+/* CLI --doc: stream stdin (any size, bounded memory) into a blob, then put its
+ * path. The blob naming and the path-put are shared with the GUIs via doc.c;
+ * only the streaming-from-stdin part is CLI-specific, so it stays here. */
 void feed_doc(ais *a, const char *keys)
 {
-    char dirpath[AIS_PATH_MAX], blobpath[AIS_PATH_MAX], relval[AIS_PATH_MAX];
-    char ts[32];
-    time_t now;
-    struct tm *lt;
+    char blobpath[AIS_PATH_MAX], relval[AIS_PATH_MAX];
     FILE *bf;
     char buf[8192];
     size_t n;
     long got;
-    int seq;
 
-    if (snprintf(dirpath, sizeof(dirpath), "%s/blobs", a->dir) >= (int)sizeof(dirpath))
-        die("doc: path too long");
-    if (mkdir(dirpath, 0777) != 0 && errno != EEXIST)
-        die("doc: cannot create '%s'", dirpath);
+    if (ais_doc_blobname(a, relval, sizeof(relval), blobpath, sizeof(blobpath)) != 0)
+        die("doc: cannot prepare blob path under '%s'", a->dir);
 
-    /* Name the blob by local timestamp: blobs/ then sorts chronologically and
-     * is readable -- `ls blobs/` lists your documents in time order. A second
-     * document within the same second gets a -N suffix, so names stay unique
-     * with no hashing. */
-    now = time(NULL);
-    lt = localtime(&now);
-    if (lt == NULL || strftime(ts, sizeof(ts), "%Y-%m-%d-%H%M%S", lt) == 0)
-        die("doc: cannot format timestamp");
-    for (seq = 1; seq < 10000; seq++) {
-        if (seq == 1)
-            snprintf(relval, sizeof(relval), "blobs/%s.txt", ts);
-        else
-            snprintf(relval, sizeof(relval), "blobs/%s-%d.txt", ts, seq);
-        if (snprintf(blobpath, sizeof(blobpath), "%s/%s", a->dir, relval)
-                >= (int)sizeof(blobpath))
-            die("doc: path too long");
-        if (access(blobpath, F_OK) != 0)
-            break;                         /* a free name */
-    }
-
-    /* stream stdin into the blob file -- bounded memory, any size */
     bf = fopen(blobpath, "w");
     if (bf == NULL)
         die("doc: cannot write '%s'", blobpath);

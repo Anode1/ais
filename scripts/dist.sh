@@ -27,7 +27,7 @@ sidecar() {
 build_src() {
     name="ais-$VERSION-src"; out="releases/src"; stage="$out/$name"
     mkdir -p "$out"; rm -rf "$stage"; mkdir -p "$stage"
-    for item in Makefile README.md COPYING performance.txt limitations.txt \
+    for item in Makefile README.md COPYING \
                 c doc gui man scripts tests; do
         [ -e "$item" ] && cp -R "$item" "$stage/"
     done
@@ -73,7 +73,8 @@ build_bin() {
     [ -f COPYING ]      && cp COPYING      "$stage/"
     [ -f doc/about.txt ] && cp doc/about.txt "$stage/"
     [ -f doc/USING.txt ] && cp doc/USING.txt "$stage/"
-    [ -f man/ais.1 ]    && cp man/ais.1    "$stage/"
+    # ais.1 is a Unix man page (roff); skip it on Windows, which has no `man`.
+    [ "$winbin" = 1 ] || { [ -f man/ais.1 ] && cp man/ais.1 "$stage/"; }
     [ -f "$launcher" ]  && cp "$launcher"  "$stage/"
 
     cat > "$stage/README.txt" <<EOF

@@ -3,8 +3,9 @@
 # "add" panel. Shells out to the `ais` CLI -- the binary is the backend.
 #   * type keys, Enter or Get -> ais KEY... (recall) -> results listed, one per line,
 #     with a "N results for Q - T ms" header (the v1 search look).
-#   * "+ add" expands a panel: values (one per line, or File.../Folder...) -> put,
-#     and a document box -> ais --doc (saved as a blob file).
+#   * "+ add" expands a panel: one box -> the WHOLE text is one entry (a
+#     multi-line value is saved as a document/blob via ais --doc); File.../
+#     Folder... index a chosen path as its own record.
 # How to run:  wish gui/ais.tcl   (or ./gui/ais.tcl)
 
 package require Tk
@@ -66,8 +67,8 @@ grid rowconfigure    .f 2 -weight 1
 ttk::frame  .f.p
 ttk::label  .f.p.klab -text "Keys (space-separated, optional)"
 ttk::entry  .f.p.keys
-ttk::label  .f.p.vlab -text "What to remember (one value per line)"
-text        .f.p.val  -height 4 -wrap word -relief solid -borderwidth 1 -padx 6 -pady 6
+ttk::label  .f.p.vlab -text "What to remember (the whole box is one entry)"
+text        .f.p.val  -height 3 -wrap word -relief solid -borderwidth 1 -padx 6 -pady 6
 ttk::frame  .f.p.vb
 ttk::button .f.p.vb.file -text "File…"   -command browse_file
 ttk::button .f.p.vb.dir  -text "Folder…" -command browse_dir
@@ -75,17 +76,11 @@ ttk::button .f.p.vb.put  -text "Save" -command do_put
 pack .f.p.vb.file -side left
 pack .f.p.vb.dir  -side left -padx {6 0}
 pack .f.p.vb.put  -side right
-ttk::label  .f.p.dlab -text "…or a document (saved as a file)"
-text        .f.p.doc  -height 4 -wrap word -relief solid -borderwidth 1 -padx 6 -pady 6
-ttk::button .f.p.dput -text "Save document" -command do_doc
 grid .f.p.klab -row 0 -column 0 -sticky w  -pady {0 3}
 grid .f.p.keys -row 1 -column 0 -sticky ew -ipady 3
 grid .f.p.vlab -row 2 -column 0 -sticky w  -pady {8 3}
 grid .f.p.val  -row 3 -column 0 -sticky ew
 grid .f.p.vb   -row 4 -column 0 -sticky ew -pady {3 10}
-grid .f.p.dlab -row 5 -column 0 -sticky w  -pady {0 3}
-grid .f.p.doc  -row 6 -column 0 -sticky ew
-grid .f.p.dput -row 7 -column 0 -sticky e  -pady {3 0}
 grid columnconfigure .f.p 0 -weight 1
 
 bind .f.q <Return> do_get
@@ -247,40 +242,40 @@ proc toggle_add {} {
 proc add_keys {} { return [string trim [.f.p.keys get]] }   ;# may be empty (keyless)
 proc where_txt {keys} { return [expr {$keys eq "" ? "(no keys)" : $keys}] }
 
-proc add_path {p} {
-    if {$p ne ""} { .f.p.val insert end "$p\n"; .f.status configure -text "added path: $p" }
+# File…/Folder… index a chosen path as its OWN record (one path = one value),
+# kept separate from the text box, which is a single free-text entry.
+proc store_path {p} {
+    global AIS
+    if {$p eq ""} return
+    set keys [add_keys]
+    if {[catch {exec $AIS {*}[ais_args] -v $p {*}$keys} err]} {
+        .f.status configure -text "error: $err"
+    } else {
+        .f.status configure -text "indexed path under: [where_txt $keys]"
+    }
 }
-proc browse_file {} { foreach p [tk_getOpenFile -multiple 1] { add_path $p } }
-proc browse_dir  {} { add_path [tk_chooseDirectory] }
+proc browse_file {} { foreach p [tk_getOpenFile -multiple 1] { store_path $p } }
+proc browse_dir  {} { store_path [tk_chooseDirectory] }
 
+# The whole box is ONE entry: a single line is a plain record; a genuinely
+# multi-line value is saved as a document (a blob via ais --doc). A pasted
+# block is never split into several records.
 proc do_put {} {
     global AIS
     set keys [add_keys]
-    set values {}
-    foreach ln [split [.f.p.val get 1.0 end] "\n"] {
-        set ln [string trim $ln]
-        if {$ln ne ""} { lappend values $ln }
+    set text [string trimright [.f.p.val get 1.0 end] "\n"]
+    if {[string trim $text] eq ""} { .f.status configure -text "enter something to remember"; return }
+    if {[string first "\n" $text] >= 0} {
+        set rc [catch {exec $AIS {*}[ais_args] --doc {*}$keys << $text} err]; set what "document"
+    } else {
+        set rc [catch {exec $AIS {*}[ais_args] -v $text {*}$keys} err];       set what "entry"
     }
-    if {[llength $values] == 0} { .f.status configure -text "enter at least one value"; return }
-    if {[catch {exec $AIS {*}[ais_args] -v - {*}$keys << [join $values "\n"]} err]} {
+    if {$rc} {
         .f.status configure -text "error: $err"
     } else {
-        .f.status configure -text "stored [llength $values] value(s) under: [where_txt $keys]"
+        .f.status configure -text "stored $what under: [where_txt $keys]"
         .f.p.val delete 1.0 end
         if {$keys ne ""} { .f.q delete 0 end; .f.q insert 0 $keys; do_get }
-    }
-}
-
-proc do_doc {} {
-    global AIS
-    set keys [add_keys]
-    set text [.f.p.doc get 1.0 end]
-    if {[string trim $text] eq ""} { .f.status configure -text "the document is empty"; return }
-    if {[catch {exec $AIS {*}[ais_args] --doc {*}$keys << $text} out]} {
-        .f.status configure -text "error: $out"
-    } else {
-        .f.status configure -text "saved document under: [where_txt $keys]"
-        .f.p.doc delete 1.0 end
     }
 }
 

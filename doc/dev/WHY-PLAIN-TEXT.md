@@ -8,7 +8,7 @@ database." This is the rebuttal, with measurements, not opinion.
 The store is line-oriented plain text, read by streaming. On a modern CPU and
 SSD that is not slow; it is grep/cat class, I/O-bound at hundreds of MB/s. The
 numbers below are one desktop core over a 1,000,000-record store (85 MB). Full
-table and reproduction steps: `../../performance.txt`.
+table and reproduction steps: `../performance.txt`.
 
     full scan (find, substring)       1.6 s     grep class
     dump every record                 1.8 s     cat class
@@ -56,5 +56,5 @@ example index).
 
 Raw throughput at web scale, and sub-millisecond hot-key recall without warming
 file handles. Neither matters for one person's memory. The hard limits and the
-one known O(n^2) (bulk import) are in `../../limitations.txt`; the locking model
+one known O(n^2) (bulk import) are in `../limitations.txt`; the locking model
 is in `LOCKING.md`.

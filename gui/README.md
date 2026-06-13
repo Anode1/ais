@@ -11,8 +11,9 @@ the results one value per line with a `N results for Q - T ms` header; an
 expandable **+ add** panel below holds put/doc (adding is the rarer action).
 
 - **Desktop (Tk):** `wish gui/ais.tcl`  (or `./gui/ais.tcl`)
-  Pure Tcl/Tk -- needs only `wish`. The maintained GUI. Values box (one per
-  line) with **File…/Folder…** pickers, plus a Document box (`ais --doc`).
+  Pure Tcl/Tk -- needs only `wish`. The maintained GUI. One text box where the
+  whole content is a single entry (a multi-line value is saved as a document
+  via `ais --doc`), plus **File…/Folder…** pickers that index a path as a record.
 
 - **Web:** `ais --serve`  -- then open <http://127.0.0.1:8765/>
   Built INTO the binary (`c/serve.c`): no Python, no framework, no extra files.
