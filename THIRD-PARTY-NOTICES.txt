@@ -1,0 +1,25 @@
+AIS -- Third-party notices
+===========================
+
+The Windows builds of AIS bundle one third-party component so the program runs
+without any separate install. It is NOT part of AIS and is licensed on its own
+terms, reproduced/pointed to below.
+
+-------------------------------------------------------------------------------
+cygwin1.dll  --  the Cygwin POSIX runtime
+-------------------------------------------------------------------------------
+The Windows build of AIS is compiled with Cygwin and ships cygwin1.dll beside
+ais.exe so it runs on any Windows with no Cygwin installation.
+
+  Copyright (C) the Cygwin authors and Red Hat, Inc.
+  License : GNU Lesser General Public License, version 3 or later (LGPL-3.0+)
+            https://www.gnu.org/licenses/lgpl-3.0.html
+  Source  : https://www.cygwin.com/  (and its mirrors; `git clone` instructions
+            and release tarballs are linked there)
+
+cygwin1.dll is used by dynamic linking and may be replaced with your own build
+of the Cygwin runtime, as the LGPL permits. AIS itself is a separate work under
+the GNU GPL v2 or later (see COPYING); the LGPL applies only to cygwin1.dll.
+
+Only the Windows distribution includes cygwin1.dll. The Linux and macOS builds
+link the system C library only and bundle no third-party components.

@@ -7,7 +7,8 @@
 ; uninstalling never touches your data.
 ;
 ; Build (on Windows, Inno Setup 6+); SrcDir must hold ais.exe, cygwin1.dll,
-; ais-start.bat, ais.ico, README.txt, COPYING, about.txt, USING.txt, ais.tcl:
+; ais-start.bat, ais.ico, README.txt, COPYING, THIRD-PARTY-NOTICES.txt,
+; about.txt, USING.txt, ais.tcl:
 ;   ISCC /DSrcDir=<bundle dir> /DAppVersion=<x.y.z> installer\ais.iss
 
 #ifndef SrcDir
@@ -47,6 +48,7 @@ Source: "{#SrcDir}\ais.ico";       DestDir: "{app}"; Flags: ignoreversion
 Source: "{#SrcDir}\ais.tcl";       DestDir: "{app}"; Flags: ignoreversion
 Source: "{#SrcDir}\README.txt";    DestDir: "{app}"; Flags: ignoreversion isreadme
 Source: "{#SrcDir}\COPYING";       DestDir: "{app}"; Flags: ignoreversion
+Source: "{#SrcDir}\THIRD-PARTY-NOTICES.txt"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#SrcDir}\about.txt";     DestDir: "{app}"; Flags: ignoreversion
 Source: "{#SrcDir}\USING.txt";     DestDir: "{app}"; Flags: ignoreversion
 

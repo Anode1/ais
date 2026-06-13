@@ -69,6 +69,8 @@ build_bin() {
         for dll in /usr/bin/cygwin1.dll /bin/cygwin1.dll; do
             [ -f "$dll" ] && { cp "$dll" "$stage/"; break; }
         done
+        # LGPLv3 notice for the bundled cygwin1.dll (Windows only)
+        [ -f THIRD-PARTY-NOTICES.txt ] && cp THIRD-PARTY-NOTICES.txt "$stage/"
     else
         cp c/ais "$stage/ais"
     fi
@@ -97,7 +99,7 @@ EOF
 
 Windows: double-click $lname for the GUI, or run 'ais.exe --help' in a terminal.
 Keep cygwin1.dll next to ais.exe (it is the runtime) -- no Cygwin install is
-needed to RUN it.
+needed to RUN it. cygwin1.dll is LGPLv3, not part of AIS (see THIRD-PARTY-NOTICES.txt).
 EOF
     elif [ "$pretty" = macos ]; then
         cat >> "$stage/README.txt" <<EOF
