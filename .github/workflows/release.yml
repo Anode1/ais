@@ -67,6 +67,8 @@ jobs:
   build-windows:
     name: build windows-x86_64
     runs-on: windows-latest
+    outputs:
+      artifact-id: ${{ steps.upload.outputs.artifact-id }}
     steps:
       - uses: actions/checkout@v4
 
@@ -115,23 +117,78 @@ jobs:
           Copy-Item $setup.FullName "dist\$name"
           ((Get-FileHash "dist\$name" -Algorithm SHA256).Hash.ToLower() + "  $name") | Out-File -Encoding ascii "dist\$name.sha256"
 
-      - uses: actions/upload-artifact@v4
+      - id: upload
+        uses: actions/upload-artifact@v4
         with:
           name: ais-windows-x86_64
           path: dist/*
 
+  # Code-sign the Windows installer with SignPath (free for open-source). Runs
+  # ONLY when SignPath is configured (repo variable SIGNPATH_ORGANIZATION_ID set);
+  # otherwise it is skipped and the release ships unsigned (SmartScreen warns).
+  # Setup + the required secrets/variables: doc/dev/SIGNING.md.
+  sign-windows:
+    name: sign Windows installer (SignPath)
+    needs: build-windows
+    runs-on: ubuntu-latest
+    if: ${{ startsWith(github.ref, 'refs/tags/') && vars.SIGNPATH_ORGANIZATION_ID != '' }}
+    permissions:
+      id-token: write     # OIDC trust between SignPath and this run
+      contents: read
+      actions: read       # let SignPath fetch the build artifact to sign
+    steps:
+      - name: submit signing request to SignPath
+        uses: signpath/github-action-submit-signing-request@v1
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG }}
+          signing-policy-slug: ${{ vars.SIGNPATH_POLICY_SLUG }}
+          artifact-configuration-slug: ${{ vars.SIGNPATH_ARTIFACT_CONFIG_SLUG }}
+          github-artifact-id: ${{ needs.build-windows.outputs.artifact-id }}
+          wait-for-completion: true
+          output-artifact-directory: signed
+      - name: refresh checksum for the signed installer
+        run: |
+          cd signed
+          for f in *-windows-x86_64-setup.exe; do
+            [ -f "$f" ] && sha256sum "$f" > "$f.sha256"
+          done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ais-windows-signed
+          path: signed/*
+
   publish:
     name: publish release
-    needs: [build, build-windows]
+    needs: [build, build-windows, sign-windows]
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/')   # only on a real tag, never on a manual test run
+    # always() so a SKIPPED sign-windows (SignPath not configured) doesn't skip
+    # publish; still require the builds to have succeeded.
+    if: >-
+      ${{ always() && startsWith(github.ref, 'refs/tags/')
+          && needs.build.result == 'success'
+          && needs.build-windows.result == 'success'
+          && (needs.sign-windows.result == 'success' || needs.sign-windows.result == 'skipped') }}
     permissions:
       contents: write
     steps:
       - uses: actions/download-artifact@v4
         with:
-          path: dist
-          merge-multiple: true       # flatten every platform's artifacts into dist/
+          path: artifacts          # each artifact lands in artifacts/<name>/
+
+      - name: assemble release files (prefer the signed Windows installer)
+        run: |
+          mkdir -p dist
+          for d in artifacts/*/; do
+            [ "$d" = "artifacts/ais-windows-signed/" ] && continue
+            cp -f "$d"* dist/ 2>/dev/null || true
+          done
+          # overlay the SignPath-signed installer + checksum, if the sign job ran
+          if [ -d artifacts/ais-windows-signed ]; then
+            cp -f artifacts/ais-windows-signed/* dist/
+          fi
+          ls -l dist
 
       - name: publish to GitHub Releases
         uses: softprops/action-gh-release@v2
