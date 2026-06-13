@@ -1,0 +1,4 @@
+# Keep POSIX-executed text as LF on every platform (Cygwin bash chokes on CRLF).
+* text=auto eol=lf
+*.bat text eol=crlf
+*.png binary
