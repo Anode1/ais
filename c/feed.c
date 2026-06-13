@@ -11,13 +11,16 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#ifndef _WIN32
 #include <ftw.h>
+#endif
 #include <sys/stat.h>
 #include <unistd.h>
 
 #include "doc.h"
 #include "feed.h"
 #include "log.h"
+#include "win.h"          /* nftw + realpath shims on native Windows; empty on POSIX */
 
 /* feed_stdin: file each non-empty stdin line, verbatim, as a value under KEYS. */
 void feed_stdin(ais *a, const char *keys)
@@ -142,7 +145,11 @@ void feed_interactive(ais *a, const char *base)
     char typed[AIS_LINE_MAX];
     char keys[AIS_LINE_MAX];
 
+#ifdef _WIN32
+    tty = fopen(ttypath != NULL ? ttypath : "CONIN$", "r");   /* Windows console */
+#else
     tty = fopen(ttypath != NULL ? ttypath : "/dev/tty", "r");
+#endif
     if (tty == NULL)
         die("put -i: no terminal for keys (pipe values in, or set AIS_TTY=FILE)");
 

@@ -20,18 +20,33 @@
 #define _DEFAULT_SOURCE          /* htonl, strtok_r */
 #define _POSIX_C_SOURCE 200809L
 #include <ctype.h>
-#include <netinet/in.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#ifndef _WIN32
+#include <netinet/in.h>
 #include <sys/socket.h>
 #include <unistd.h>
+#endif
 
 #include "ais.h"
 #include "common.h"
 #include "doc.h"
+#include "win.h"          /* Winsock + socket shims on native Windows; empty on POSIX */
 #include "serve.h"
+
+/* socket I/O is read()/write()/close() on POSIX, recv()/send()/closesocket()
+ * on native Windows (where a SOCKET is not a file descriptor). */
+#ifdef _WIN32
+#define SOCK_READ(fd, b, n)  recv((SOCKET)(fd), (b), (int)(n), 0)
+#define SOCK_WRITE(fd, b, n) send((SOCKET)(fd), (b), (int)(n), 0)
+#define SOCK_CLOSE(fd)       closesocket((SOCKET)(fd))
+#else
+#define SOCK_READ(fd, b, n)  read((fd), (b), (n))
+#define SOCK_WRITE(fd, b, n) write((fd), (b), (n))
+#define SOCK_CLOSE(fd)       close((fd))
+#endif
 
 /* ---- the GUI page (HTML + JavaScript, NOT C) ----------------------------
  * This is the web wrapper's user interface, embedded as a string so the binary
@@ -172,7 +187,7 @@ static const char PAGE[] =
 static void write_all(int fd, const char *p, size_t n)
 {
     while (n > 0) {
-        ssize_t w = write(fd, p, n);
+        ssize_t w = SOCK_WRITE(fd, p, n);
         if (w <= 0)
             return;
         p += w;
@@ -345,7 +360,7 @@ static void handle(ais *a, int fd)
     ssize_t n;
     char *method, *path, *query, *body, *keys = nokeys, *sp;
 
-    n = read(fd, buf, sizeof(buf) - 1);   /* assume the request fits (a sketch) */
+    n = SOCK_READ(fd, buf, sizeof(buf) - 1);   /* assume the request fits (a sketch) */
     if (n <= 0)
         return;
     buf[n] = '\0';
@@ -443,23 +458,27 @@ int ais_serve(ais *a, int port)
     int sfd, cfd, yes = 1;
     struct sockaddr_in addr;
 
+#ifdef _WIN32
+    ais_net_init();             /* WSAStartup before any socket call */
+#else
     signal(SIGPIPE, SIG_IGN);   /* a client hangup must not kill the server */
+#endif
 
     sfd = socket(AF_INET, SOCK_STREAM, 0);
     if (sfd < 0)
         return -1;
-    setsockopt(sfd, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(yes));
+    setsockopt(sfd, SOL_SOCKET, SO_REUSEADDR, (const char *)&yes, sizeof(yes));
 
     memset(&addr, 0, sizeof(addr));
     addr.sin_family = AF_INET;
     addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);   /* 127.0.0.1 only */
     addr.sin_port = htons((unsigned short)port);
     if (bind(sfd, (struct sockaddr *)&addr, sizeof(addr)) != 0) {
-        close(sfd);
+        SOCK_CLOSE(sfd);
         return -1;
     }
     if (listen(sfd, 16) != 0) {
-        close(sfd);
+        SOCK_CLOSE(sfd);
         return -1;
     }
     fprintf(stderr, "ais serve: http://127.0.0.1:%d/  (Ctrl-C to stop)\n", port);
@@ -469,10 +488,14 @@ int ais_serve(ais *a, int port)
     {
         char cmd[224];
         int rc;
+#ifdef _WIN32
+        snprintf(cmd, sizeof(cmd), "start \"\" http://127.0.0.1:%d/", port);
+#else
         snprintf(cmd, sizeof(cmd),
                  "{ xdg-open 'http://127.0.0.1:%d/' || open 'http://127.0.0.1:%d/'"
                  " || cygstart 'http://127.0.0.1:%d/'; } >/dev/null 2>&1 &",
                  port, port, port);     /* xdg-open: Linux, open: macOS, cygstart: Cygwin */
+#endif
         rc = system(cmd);
         (void)rc;
     }
@@ -482,7 +505,7 @@ int ais_serve(ais *a, int port)
         if (cfd < 0)
             continue;
         handle(a, cfd);
-        close(cfd);
+        SOCK_CLOSE(cfd);
     }
     /* not reached */
 }

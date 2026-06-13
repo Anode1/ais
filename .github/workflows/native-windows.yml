@@ -1,0 +1,38 @@
+# Experimental NATIVE (Cygwin-free) Windows build.
+#
+# Cross-compiles the engine with MinGW-w64 into a self-contained ais.exe that
+# links no cygwin1.dll -- using the win.h/win.c compatibility shims (Winsock,
+# flock->LockFileEx, nftw->opendir walk, realpath->_fullpath, mkdir).
+#
+# This is the TEST HARNESS for that port: run it by hand from the Actions tab.
+# It is deliberately NOT part of release.yml, so a failure here never blocks a
+# release. Once the native exe is proven (and tested on real Windows), it can
+# replace the Cygwin build and drop the cygwin1.dll/LGPL-notice baggage.
+name: native-windows
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: cross-compile ais.exe (mingw-w64)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: install MinGW-w64
+        run: sudo apt-get update && sudo apt-get install -y gcc-mingw-w64-x86-64
+
+      - name: cross-compile (static, link Winsock)
+        run: |
+          make -C c clean
+          # gnu99 (not strict c99) so MinGW's <windows.h> isn't hidden by
+          # __STRICT_ANSI__; -static folds in libgcc so the exe stands alone.
+          make -C c CC=x86_64-w64-mingw32-gcc AIS_STD=-std=gnu99 \
+                    BIN=ais.exe LDFLAGS=-static LDLIBS=-lws2_32
+          file c/ais.exe
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ais-windows-native-x86_64
+          path: c/ais.exe

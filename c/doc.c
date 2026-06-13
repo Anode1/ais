@@ -18,6 +18,7 @@
 
 #include "common.h"
 #include "doc.h"
+#include "win.h"          /* mkdir shim on native Windows; empty on POSIX */
 
 int ais_doc_blobname(const ais *a, char *relval, size_t rvsz,
                      char *blobpath, size_t bpsz)

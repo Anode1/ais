@@ -6,7 +6,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#ifndef _WIN32
 #include <sys/file.h>
+#endif
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <time.h>
@@ -14,6 +16,7 @@
 
 #include "common.h"
 #include "store.h"
+#include "win.h"          /* flock + mkdir shims on native Windows; empty on POSIX */
 
 /* Build "<dir>/<name>" into OUT. Returns 0, or -1 if it would not fit. */
 static int store_path(const ais *a, const char *name, char *out, size_t outsz)
