@@ -3,5 +3,7 @@ Type=Application
 Name=AIS
 Comment=Recall your notes, links, and commands
 Exec=ais --serve
+Icon=ais
 Terminal=false
 Categories=Utility;Office;
+Keywords=index;notes;bookmarks;memory;recall;

@@ -9,7 +9,7 @@ browser's own speech-to-text; typing always works where voice doesn't.
     app.css              mobile-first styling (edit and reload)
     manifest.webmanifest home-screen install metadata
     sw.js                service worker (caches the shell; never the API)
-    icon.svg             app icon
+    icon.png             app icon (512px; icon-192.png for installs)
 
 ## Run / test (desktop)
 

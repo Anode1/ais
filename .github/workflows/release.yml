@@ -94,6 +94,27 @@ jobs:
           cp "$src" "dist/$name.zip"
           ( cd dist && sha256sum "$name.zip" > "$name.zip.sha256" )
 
+      # Build the double-click installer from the same bundle (Inno Setup, run in
+      # PowerShell -- ISCC is a native Windows tool, not a Cygwin one). Per-user
+      # install, Start-Menu shortcut to the GUI, optional PATH entry.
+      - name: build Windows installer
+        shell: pwsh
+        run: |
+          choco install innosetup --no-progress -y
+          $ver = "${{ github.ref_name }}" -replace '^v',''
+          $zip = Get-ChildItem dist\ais-*-windows-x86_64.zip | Select-Object -First 1
+          Expand-Archive -Path $zip.FullName -DestinationPath inst -Force
+          $src = (Get-ChildItem inst -Directory | Select-Object -First 1).FullName
+          Copy-Item gui\ais-start.bat $src            # installed launcher (uses the default index)
+          Copy-Item icons\ais.ico $src                # installer + Start-Menu shortcut icon
+          $iscc = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
+          & $iscc /DSrcDir="$src" /DAppVersion="$ver" installer\ais.iss
+          if ($LASTEXITCODE -ne 0) { throw "ISCC failed ($LASTEXITCODE)" }
+          $setup = Get-ChildItem installer\Output\*setup.exe | Select-Object -First 1
+          $name = "ais-$ver-windows-x86_64-setup.exe"
+          Copy-Item $setup.FullName "dist\$name"
+          ((Get-FileHash "dist\$name" -Algorithm SHA256).Hash.ToLower() + "  $name") | Out-File -Encoding ascii "dist\$name.sha256"
+
       - uses: actions/upload-artifact@v4
         with:
           name: ais-windows-x86_64

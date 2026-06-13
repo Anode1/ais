@@ -13,13 +13,16 @@
 
 prefix ?= /usr/local
 bindir  = $(prefix)/bin
-mandir  = $(prefix)/share/man/man1
+datadir = $(prefix)/share
+mandir  = $(datadir)/man/man1
+desktopdir = $(datadir)/applications
+icondir    = $(datadir)/icons/hicolor/256x256/apps
 
 INSTALL         ?= install
 INSTALL_PROGRAM ?= $(INSTALL) -m 755
 INSTALL_DATA    ?= $(INSTALL) -m 644
 
-.PHONY: all ut clean static install install-strip uninstall distclean check checkcli dist
+.PHONY: all ut clean static install install-strip install-desktop uninstall distclean check checkcli dist
 
 # Build the engine in c/, then copy the binary up to the repo root as ./ais, so
 # from a source checkout you can run ./ais instead of ./c/ais.
@@ -62,8 +65,18 @@ install:
 install-strip: install
 	strip "$(DESTDIR)$(bindir)/ais"
 
+# install-desktop: GUI menu integration (optional; packagers may add it). Installs
+# the freedesktop .desktop entry + the scalable icon, so `ais --serve` shows up in
+# the application menu. Independent of `install` so it can be run on its own.
+install-desktop:
+	$(INSTALL) -d "$(DESTDIR)$(desktopdir)" "$(DESTDIR)$(icondir)"
+	$(INSTALL_DATA) gui/ais-web.desktop "$(DESTDIR)$(desktopdir)/ais.desktop"
+	$(INSTALL_DATA) icons/ais-256.png "$(DESTDIR)$(icondir)/ais.png"
+	@echo "installed desktop entry + icon (run 'install' too for the binary)"
+
 uninstall:
-	rm -f "$(DESTDIR)$(bindir)/ais" "$(DESTDIR)$(mandir)/ais.1"
+	rm -f "$(DESTDIR)$(bindir)/ais" "$(DESTDIR)$(mandir)/ais.1" \
+	      "$(DESTDIR)$(desktopdir)/ais.desktop" "$(DESTDIR)$(icondir)/ais.png"
 	@echo "removed ais from $(DESTDIR)$(bindir)"
 
 # distclean = the full reset: clean + remove everything generated, including the
