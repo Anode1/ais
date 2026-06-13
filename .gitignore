@@ -53,3 +53,6 @@ tests/INDEX/lock
 /example/off
 /example/lock
 /example/blobs/
+
+# WASM PWA build output (emcc); built in CI, not committed
+/app/engine/

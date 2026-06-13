@@ -12,8 +12,11 @@
 #   CC CFLAGS CPPFLAGS LDFLAGS LDLIBS  -- project flags are APPENDED, never
 #   override yours (distros inject hardening; macOS/BSD supply clang as cc).
 # Profiles:  make | make release | make debug | make pedantic | make static
-#   `static` is Linux-only: macOS/BSD ship no static libc, and there the plain
-#   `make` binary links only the always-present system libc -- equally portable.
+#   `static` builds a self-contained binary on Linux (glibc) and on the native
+#   Windows cross-build (MinGW: `make CC=...-mingw32-gcc LDFLAGS=-static`, see
+#   native-windows.yml). macOS/BSD ship no static libc, so there the plain `make`
+#   binary links only the always-present system libc -- equally portable. The
+#   `make static` target below is the Linux convenience and is blocked on macOS.
 #
 
 SHELL = /bin/sh
@@ -72,11 +75,13 @@ static   : LDFLAGS  += -static
 .SUFFIXES: .d .o .h .c
 .c.o: ; $(CC) $(AIS_CFLAGS) $(CPPFLAGS) $(CFLAGS) -MMD -c $*.c
 
-.PHONY: clean ut check static static-guard lib
+.PHONY: clean ut check static static-guard lib wasm
 
 all release debug pedantic: $(BIN)
 
-# static: a fully self-contained binary -- Linux only (macOS has no static libc).
+# static: a fully self-contained binary. This target is for Linux; the native
+# Windows build links -static too (via MinGW, see native-windows.yml). Blocked on
+# macOS, which has no static libSystem.
 static: static-guard $(BIN)
 static-guard:
 ifeq ($(UNAME),Darwin)
@@ -105,6 +110,23 @@ libais.a: $(LIBOBJS)
 	ar rcs $@ $(LIBOBJS)
 libais.so: $(LIBSRC)
 	$(CC) $(AIS_CFLAGS) $(CPPFLAGS) $(CFLAGS) -fPIC -shared -o $@ $(LIBSRC) $(LDLIBS)
+
+# -- wasm: the engine + FFI seam compiled to WebAssembly for the standalone
+# browser PWA (see ../doc/dev/WASM-PWA.md). Needs emcc (emsdk) on PATH; built in
+# CI by wasm-pwa.yml. Curated sources: the engine core + embed.c only -- no
+# main/serve/feed/help/tests/win (no CLI, sockets, dir-walk, or tty in a browser).
+WASM_SRC     = embed.c ais.c store.c post.c key.c merge.c compact.c stats.c find.c doc.c locate.c log.c
+WASM_OUT     = ../app/engine/ais.js
+WASM_EXPORTS = _ais_embed_open,_ais_embed_close,_ais_embed_store,_ais_embed_recall,_ais_embed_timeline,_ais_embed_tags,_ais_embed_free,_malloc,_free
+wasm:
+	@command -v emcc >/dev/null 2>&1 || { echo "wasm: emcc not found -- install emsdk (https://emscripten.org)"; exit 1; }
+	mkdir -p ../app/engine
+	emcc $(AIS_STD) -O2 $(WASM_SRC) -o $(WASM_OUT) \
+	  -sMODULARIZE -sEXPORT_NAME=AisModule \
+	  -sEXPORTED_FUNCTIONS=$(WASM_EXPORTS) \
+	  -sEXPORTED_RUNTIME_METHODS=ccall,cwrap,UTF8ToString,stringToUTF8,FS,IDBFS \
+	  -sFORCE_FILESYSTEM -sALLOW_MEMORY_GROWTH -lidbfs.js
+	@echo "built $(WASM_OUT) (+ ais.wasm)"
 
 clean:
 	-rm -f $(BIN) $(TESTBIN) $(OBJS) libais.a libais.so *.d

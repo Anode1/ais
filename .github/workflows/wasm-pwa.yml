@@ -1,0 +1,33 @@
+# WASM PWA -- milestone 1: compile the engine + FFI seam to WebAssembly with
+# emscripten (see ../../doc/dev/WASM-PWA.md). Dispatch-only test harness; NOT on
+# the release path. Later milestones add IDBFS persistence, the JS data layer,
+# and a GitHub Pages deploy.
+name: wasm-pwa
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: emcc build (engine -> wasm)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: install emscripten (emsdk)
+        run: |
+          git clone --depth 1 https://github.com/emscripten-core/emsdk.git
+          ./emsdk/emsdk install latest
+          ./emsdk/emsdk activate latest
+
+      - name: build wasm
+        run: |
+          . ./emsdk/emsdk_env.sh
+          # gnu99 so emscripten/musl extensions aren't hidden by __STRICT_ANSI__
+          make -C c wasm AIS_STD=-std=gnu99
+          ls -l app/engine
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ais-wasm
+          path: app/engine/*
