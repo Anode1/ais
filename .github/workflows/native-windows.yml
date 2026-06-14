@@ -32,7 +32,14 @@ jobs:
                     BIN=ais.exe LDFLAGS=-static LDLIBS=-lws2_32
           file c/ais.exe
 
+      - name: cross-compile the native Win32 GUI (ais-gui.exe)
+        run: |
+          make -C win32 CC=x86_64-w64-mingw32-gcc
+          file win32/ais-gui.exe
+
       - uses: actions/upload-artifact@v4
         with:
           name: ais-windows-native-x86_64
-          path: c/ais.exe
+          path: |
+            c/ais.exe
+            win32/ais-gui.exe

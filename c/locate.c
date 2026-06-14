@@ -15,6 +15,7 @@
 
 #include "common.h"
 #include "locate.h"
+#include "win.h"          /* mkdir shim on native Windows; empty on POSIX */
 
 /* Copy SRC into OUT (size OUTSZ). Returns 0, or -1 if it would not fit. */
 static int put_str(char *out, size_t outsz, const char *src)
