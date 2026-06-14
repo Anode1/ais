@@ -41,14 +41,11 @@ static void log_error(const char *fmt, ...)
     SYSTEMTIME t;
     va_list ap;
 
-    /* canonical per-user local app-data dir (works XP->11, no env dependency);
-     * fall back to %LOCALAPPDATA% / %TEMP% / "." if the shell call fails. */
-    if (SHGetFolderPathA(NULL, CSIDL_LOCAL_APPDATA, NULL, 0, base) != S_OK) {
-        const char *e = getenv("LOCALAPPDATA");
-        if (e == NULL) e = getenv("TEMP");
-        if (e == NULL) e = ".";
-        snprintf(base, sizeof base, "%s", e);
-    }
+    /* per-user local app-data dir via the shell API -- NO environment variables.
+     * Fall back to the OS temp dir (also an API, not an env read), then "." */
+    if (SHGetFolderPathA(NULL, CSIDL_LOCAL_APPDATA, NULL, 0, base) != S_OK
+        && GetTempPathA(sizeof base, base) == 0)
+        snprintf(base, sizeof base, ".");
     snprintf(dir, sizeof dir, "%s\\AIS", base);
     CreateDirectoryA(dir, NULL);     /* one level under an always-present parent */
     snprintf(path, sizeof path, "%s\\ais-error.log", dir);
