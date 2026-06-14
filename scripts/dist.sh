@@ -81,7 +81,7 @@ build_bin() {
     [ -f gui/ais.tcl ]  && cp gui/ais.tcl  "$stage/"   # the Tk desktop GUI (needs wish)
     # ais.1 is a Unix man page (roff): ship it under man/ on unix; skip it on
     # Windows, which has no `man`.
-    [ "$winbin" = 1 ] || { [ -f man/ais.1 ] && { mkdir -p "$stage/man"; cp man/ais.1 "$stage/man/"; }; }
+    [ "$winbin" = 1 ] || { [ -f man/ais.1 ] && { mkdir -p "$stage/man"; sed "s/@VERSION@/$VERSION/" man/ais.1 > "$stage/man/ais.1"; }; }
     [ -f "$launcher" ]  && cp "$launcher"  "$stage/"
 
     lname=$(basename "$launcher")

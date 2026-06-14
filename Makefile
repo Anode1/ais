@@ -22,6 +22,13 @@ INSTALL         ?= install
 INSTALL_PROGRAM ?= $(INSTALL) -m 755
 INSTALL_DATA    ?= $(INSTALL) -m 644
 
+# Version stamped into the installed man page, from the git tag (same single
+# source as c/Makefile / `ais --version`). Override: make AIS_VERSION=x.y.z
+AIS_VERSION := $(shell git describe --tags --always --dirty 2>/dev/null | sed 's/^v//')
+ifeq ($(strip $(AIS_VERSION)),)
+AIS_VERSION := 0.0.0-dev
+endif
+
 .PHONY: all ut clean static install install-strip install-desktop uninstall distclean check checkcli dist
 
 # Build the engine in c/, then copy the binary up to the repo root as ./ais, so
@@ -59,7 +66,9 @@ install:
 	@test -f c/ais || { echo "build first: run 'make' or 'make static'"; exit 1; }
 	$(INSTALL) -d "$(DESTDIR)$(bindir)" "$(DESTDIR)$(mandir)"
 	$(INSTALL_PROGRAM) c/ais "$(DESTDIR)$(bindir)/ais"
-	$(INSTALL_DATA) man/ais.1 "$(DESTDIR)$(mandir)/ais.1"
+	sed 's/@VERSION@/$(AIS_VERSION)/' man/ais.1 > ais.1.stamped
+	$(INSTALL_DATA) ais.1.stamped "$(DESTDIR)$(mandir)/ais.1"
+	@rm -f ais.1.stamped
 	@echo "installed $(DESTDIR)$(bindir)/ais"
 
 install-strip: install
