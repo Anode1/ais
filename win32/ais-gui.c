@@ -12,6 +12,8 @@
 #include <windows.h>
 #include <commctrl.h>
 #include <shellapi.h>
+#include <stdarg.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -23,6 +25,50 @@ enum { ID_KEYS = 1001, ID_RECALL, ID_OR, ID_LIST, ID_VALUE, ID_VKEYS, ID_ADD };
 static void *g_ais;                 /* engine handle (ais_embed_open) */
 static HWND  g_keys, g_or, g_list, g_value, g_vkeys;
 static HFONT g_font;
+
+/* ---- error log -----------------------------------------------------------
+ * Written ONLY on error and created lazily, so the file's mere existence means
+ * the app hit a real error -- not a user mistake ("send me the log if it
+ * exists"). It lives at %LOCALAPPDATA%\AIS\ais-error.log: a per-user path that
+ * is always writable and findable, unlike the working dir of a double-clicked
+ * app. Lines are timestamped and appended, so a lingering file stays readable
+ * and repeated errors are not lost. No "started/stopped" noise -- errors only. */
+static void log_error(const char *fmt, ...)
+{
+    char dir[MAX_PATH], path[MAX_PATH];
+    const char *base = getenv("LOCALAPPDATA");
+    FILE *f;
+    SYSTEMTIME t;
+    va_list ap;
+
+    if (base == NULL) base = getenv("TEMP");
+    if (base == NULL) base = ".";
+    snprintf(dir, sizeof dir, "%s\\AIS", base);
+    CreateDirectoryA(dir, NULL);
+    snprintf(path, sizeof path, "%s\\ais-error.log", dir);
+
+    f = fopen(path, "a");          /* lazily created on the first error */
+    if (f == NULL)
+        return;
+    GetLocalTime(&t);
+    fprintf(f, "%04d-%02d-%02d %02d:%02d:%02d  ",
+            t.wYear, t.wMonth, t.wDay, t.wHour, t.wMinute, t.wSecond);
+    va_start(ap, fmt);
+    vfprintf(f, fmt, ap);
+    va_end(ap);
+    fputc('\n', f);
+    fclose(f);
+}
+
+/* A hard crash bypasses log_error(), so capture it here too -- the one gap of
+ * "log only errors". Records the exception, then lets the app terminate. */
+static LONG WINAPI on_crash(EXCEPTION_POINTERS *ep)
+{
+    log_error("crash: exception 0x%08lx at %p",
+              (unsigned long)ep->ExceptionRecord->ExceptionCode,
+              (void *)ep->ExceptionRecord->ExceptionAddress);
+    return EXCEPTION_EXECUTE_HANDLER;
+}
 
 /* GetWindowText into a freshly malloc'd buffer (caller frees); "" on failure. */
 static char *get_text(HWND h)
@@ -71,6 +117,8 @@ static void do_recall(void)
                 line = nl + 1;
             }
             ais_embed_free(res);
+        } else {
+            log_error("recall failed (keys='%s')", keys);
         }
     }
     free(keys);
@@ -82,7 +130,8 @@ static void do_add(void)
     char *vk  = get_text(g_vkeys);
 
     if (g_ais != NULL && val != NULL && val[0] != '\0') {
-        ais_embed_store(g_ais, (vk != NULL) ? vk : "", val);
+        if (ais_embed_store(g_ais, (vk != NULL) ? vk : "", val) < 0)
+            log_error("store failed (keys='%s')", (vk != NULL) ? vk : "");
         SetWindowTextA(g_value, "");
         if (vk != NULL && vk[0] != '\0')                 /* show what was added */
             SetWindowTextA(g_keys, vk);
@@ -151,8 +200,10 @@ static LRESULT CALLBACK wndproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
         SendMessageA(g_value, EM_SETCUEBANNER, TRUE, (LPARAM)L"");   /* no-op cue */
         if (ais_locate(NULL, dir, sizeof dir) == 0)
             g_ais = ais_embed_open(dir);
-        if (g_ais == NULL)
+        if (g_ais == NULL) {
+            log_error("could not open the index (dir='%s')", dir);
             MessageBoxA(hwnd, "Could not open the AIS index.", "AIS", MB_ICONWARNING);
+        }
         return 0;
     }
     case WM_SIZE:
@@ -189,6 +240,7 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmd, int show)
     ACCEL a = { FVIRTKEY, VK_RETURN, ID_RECALL };   /* Enter = Recall */
 
     (void)prev; (void)cmd;
+    SetUnhandledExceptionFilter(on_crash);   /* capture hard crashes to the log */
     InitCommonControls();
 
     memset(&wc, 0, sizeof wc);
