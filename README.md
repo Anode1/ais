@@ -32,6 +32,26 @@ make                 # build ./ais
 
 **Tip:** `alias is='ais'` gives you two-character recall — `is venice italy` reads like the question it answers.
 
+## Why
+
+A model trained on everyone gives you the average. What makes your thinking *yours* is the variance the average throws away: your own associations, the order you would read things in, the links only you would draw. AIS keeps that, unaveraged, as plain text you control: a personal index you can read by hand, back up, fork, and feed to an AI on your terms (your bias layered on the model's base, not replaced by the crowd's). A short key standing in for a body of content is itself a small act of compression.
+
+Background: *Intelligence Is the Discovery of Compressors* (Zenodo [doi.org/10.5281/zenodo.20440111](https://doi.org/10.5281/zenodo.20440111); lighter version at [gavr144.substack.com](https://gavr144.substack.com)).
+
+## Questions
+
+**Why not SQLite, or a database?**
+A database is the right tool for an *app*; this is for a *person*. SQLite is a binary file one program understands; AIS is line-oriented plain text you can read, grep, diff, and recover by hand in fifty years. A damaged byte costs a line, not the store, and the index rebuilds from the text. You trade query power you do not need for durability and transparency you do.
+
+**Is keys-only search not limiting?**
+On purpose. The keys you assign *are* the point: they are your prior, your ordering of the world. Full-text search finds words; keys find the meaning you committed to. (`ais --find` still searches values and paths.) To search a document's contents, keep it as a file and index its path.
+
+**Is the built-in web server not a toy?**
+Yes, deliberately. `ais --serve` is a single-user, localhost-only loop so the binary can show a GUI with no framework, no daemon, no account. It binds 127.0.0.1 and nothing else. The command line is the contract; every GUI is a thin wrapper over it.
+
+**Is this not just a bookmark manager / recoll / org-mode?**
+It overlaps all three and copies none. Not a bookmark manager: it files *anything* under *any* keys, not URLs in a browser. Not full-text (recoll): it indexes the keys you choose, not document bodies. Not org-mode: no single tree, no app lock-in, no markup to learn, just keys with set algebra (AND / OR) over plain files. The distinctive part is that the index *is your bias*, kept unaveraged and portable.
+
 ## Learn more
 
 | Read | For |
