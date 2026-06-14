@@ -5,7 +5,18 @@
 
 A personal associative index: file anything under keys, recall it by keys — plain text on your own disk.
 
-## Quick start
+## Download
+
+The latest stable build for every platform — this link always points at the current release, never an old one:
+
+> **<https://github.com/Anode1/ais/releases/latest>**
+
+- **Windows** — run the `…-installer.exe` (per-user, no admin).
+- **macOS / Linux** — unzip the `…-<os>-<arch>.zip` and run `ais` (add it to your PATH to use it anywhere).
+
+Then `ais --serve` opens the GUI in your browser.
+
+## Quick start (from source)
 
 ```sh
 make                 # build ./ais
