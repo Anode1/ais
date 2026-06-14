@@ -4,6 +4,8 @@ What AIS is and isn't, in brief: [`about.txt`](about.txt).
 The on-disk format and module map: [`LAYOUT.md`](dev/LAYOUT.md).
 This document is the rationale and history behind those.
 
+What it is, in one phrase: an extension of your **associative memory** — the *memex* Vannevar Bush described in 1945 but never built, here as plain text you own.
+
 Design in one line: an **immutable content store** plus a small, **rebuildable key index**.
 
 GUIs available: a local **web app** (`ais --serve`), a **Tk desktop app**, and an installable **PWA** — all thin clients over the one CLI/engine.

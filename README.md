@@ -3,7 +3,7 @@
 **Your memory, yours to keep.**\
 *Models average everyone. Keep what's only yours.*
 
-A personal associative index: file anything under keys, recall it by keys — plain text on your own disk.
+An extension of your associative memory: a memo that is always with you and always yours, that brings things back the way your mind does — by association. Underneath, an index: file anything under keys, recall it by keys, plain text on your own disk.
 
 ## Download
 
@@ -37,6 +37,8 @@ make                 # build ./ais
 A model trained on everyone gives you the average. What makes your thinking *yours* is the variance the average throws away: your own associations, the order you would read things in, the links only you would draw. AIS keeps that, unaveraged, as plain text you control: a personal index you can read by hand, back up, fork, and feed to an AI on your terms (your bias layered on the model's base, not replaced by the crowd's). A short key standing in for a body of content is itself a small act of compression.
 
 And AIS never takes your files hostage. Short notes can live inside the index, but your documents stay where they already are, in your own folders: AIS stores only a reference (a path or a URL), never copying, moving, or reading inside them. Your storage stays immutable and organized your way; you lay whatever index you want over it, even several indexes over the same untouched files. The index is a view; your data is never touched. That separation — immutable content under independent indexes you add yourself — is the core design idea.
+
+This is an old idea, finally built. In 1945 Vannevar Bush described the *memex* — a personal device that extends your memory by association, the way the mind works. He never built it; the idea later forked into the Web on one side and personal-knowledge tools on the other. AIS is a working memex on the durable, private side: your associations as plain text you own, that no service can read or lock you out of. The idea is Bush's and widely prior; the contribution is the durable, user-owned implementation.
 
 Background: *Intelligence Is the Discovery of Compressors* (Zenodo [doi.org/10.5281/zenodo.20440111](https://doi.org/10.5281/zenodo.20440111); lighter version at [gavr144.substack.com](https://gavr144.substack.com)).
 

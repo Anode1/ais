@@ -6,8 +6,16 @@ Models average everyone. Keep what's only yours.
 
 WHAT IT IS
 
-  An associative index. You file anything (a link, a file, a note, a document)
-  under one or more keys, and recall it by those keys.
+  An extension of your associative memory. A memo that stays with you and stays
+  yours, bringing things back the way your mind does -- by association. You file
+  anything (a link, a file, a note, a document) under one or more keys, and
+  recall it by those keys. Underneath, it is an index.
+
+  A working memex. In 1945 Vannevar Bush imagined the "memex," a personal device
+  that extends memory by association; he never built it. AIS is one, on the
+  durable, private side of that idea -- plain text you own, that no service can
+  read. The idea is Bush's and widely prior; AIS's contribution is the
+  implementation (see PROVENANCE below).
 
   An index, not a vault. It does not absorb your files. Short notes can live
   inside (`--doc`), but your documents stay where you keep them; AIS stores only
