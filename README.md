@@ -63,6 +63,7 @@ It overlaps all three and copies none. Not a bookmark manager: it files *anythin
 | [`doc/USING.txt`](doc/USING.txt) | How to use it, GUI on every OS (plain steps, no jargon). |
 | [`doc/about.txt`](doc/about.txt) | What AIS is, and what it is not. |
 | [`doc/OVERVIEW.md`](doc/OVERVIEW.md) | Design philosophy, status, provenance. |
+| [`doc/ROADMAP.md`](doc/ROADMAP.md) | What's planned, and where to help. |
 | [`doc/dev/LAYOUT.md`](doc/dev/LAYOUT.md) | On-disk format and module map. |
 | `man ais` | Full command reference. |
 

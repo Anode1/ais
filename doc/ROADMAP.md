@@ -1,0 +1,82 @@
+# AIS — Roadmap
+
+AIS is one small ANSI C engine (`c/`) with thin wrappers over a single FFI seam
+(`embed.h`: `ais_embed_open` / `store` / `recall` / `timeline` / `tags` / …).
+Almost everything below is a *wrapper* or a *packaging* task over that unchanged
+engine — which is what keeps each piece tractable for one contributor at a time.
+Help is welcome: open an issue to claim a piece.
+
+## Shipped
+
+- **Command line** (`ais`) — Linux, macOS, Windows.
+- **Local web GUI** (`ais --serve`, 127.0.0.1 only) — the default GUI on every OS.
+- **Native Windows app** (`win32/`, pure Win32 over the engine) — built; in testing.
+
+## Planned
+
+Roughly in priority order. Each is UI or platform glue; the engine does not change.
+
+### Mobile — Android and iPhone (PWA + Flutter) · next up
+
+**This is the next focus**, to begin after the current round of tests, releases,
+and publishing. The scaffolds already exist — a **PWA** (`app/`) and a **Flutter**
+app (`app/flutter/`) — over the C engine through the FFI seam: `make lib` builds
+the shared library and `embed.h` is the contract. Android first (simpler signing
+and distribution), then iOS. The engine already compiles small and
+dependency-free, so the work is UI + platform plumbing, not core changes.
+
+### F-Droid (Android)
+
+Publish the Android build on **F-Droid**, the free/open app store: a reproducible
+build from source, no proprietary dependencies, plus the F-Droid metadata recipe.
+Depends on the Android app above. Google Play is a separate, optional track.
+
+### Seamless index merging and sync
+
+The one engine-level item here (not just a wrapper). Today, combining two indexes
+is manual: `ais --dump` from one piped into `ais --import` on another, or rsync
+the plain files and rebuild. The goal is automatic, conflict-free merging — point
+two indexes (or two copies of one) at each other and have them reconcile into the
+union of records, de-duplicated, with the key index rebuilt. Because the store is
+append-only plain text, merges compose cleanly (the same property that makes
+rsync-style replication safe). This is the backbone of multi-device use: your
+phone and laptop holding the same memory, with no central server.
+
+### Speech support
+
+Voice as a first-class input: **speak to file** (PUT) and **speak to recall**
+(GET). On-device recognition where the platform provides it (iOS and Android
+native speech APIs — not browser Safari, which is one reason iOS needs a native
+shell). This is the seam toward the longer-horizon hands-free / wearable use.
+
+### Native macOS app
+
+A native macOS wrapper over the engine (as `win32/` is for Windows), so Mac users
+get a real app, not only the web GUI via a launcher. A minimal AppKit/Swift shell
+calling `embed.h`.
+
+## Not planned (non-goals)
+
+- **A .NET / WinUI wrapper.** The native Win32 app (`win32/`) already covers
+  Windows with no runtime dependency, and .NET's framework churn works against
+  the "tiny, dependency-free, built to outlive its own tools" goal. Win32 is a
+  decades-stable API; a self-contained .NET build drags a large runtime for no
+  capability a user can feel.
+- **A heavyweight backend** (SQLite, a database, a server daemon). Plain text is
+  the durability and transparency guarantee, not a limitation — see the README
+  "Questions."
+- **A cloud account or sync service.** Sync is peer-to-peer over your own files
+  (see *Seamless index merging and sync*); nothing phones home, by design.
+
+## How to contribute
+
+- **Keep the core pure.** ANSI C lives in `c/`; platform code and any
+  C++/Swift/Dart stays isolated in its own wrapper directory (`win32/`, `app/`,
+  a future `macos/`).
+- **Build the engine as a library:** `make lib`.
+- **The contract is `embed.h`** (and the CLI). Wrappers call it; they never reach
+  into the on-disk store format.
+- Open an issue describing the wrapper or platform you want to take.
+
+See [`dev/DISTRIBUTION.md`](dev/DISTRIBUTION.md) for the packaging plan and
+[`dev/LAYOUT.md`](dev/LAYOUT.md) for the on-disk format and module map.
