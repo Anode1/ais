@@ -1,7 +1,7 @@
 // sw.js -- minimal service worker: cache the app shell so it installs and opens
 // offline. The API (recall/put) is NEVER cached -- those must hit the live engine.
 var CACHE = 'ais-v1';
-var SHELL = ['/', '/app.css', '/manifest.webmanifest', '/icon.svg'];
+var SHELL = ['/', '/app.css', '/manifest.webmanifest', '/icon.png'];
 
 self.addEventListener('install', function (e) {
   e.waitUntil(caches.open(CACHE).then(function (c) { return c.addAll(SHELL); }));

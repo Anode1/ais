@@ -49,6 +49,11 @@ WHERE YOUR THINGS ARE SAVED
 ---------------------------
 
 Plain text files on your own computer, in your home folder under
-.local/share/ais . Type  ais --where  to see the exact location. They are
-yours: copy them, back them up to a USB stick, or delete them. Nothing is ever
-uploaded anywhere.
+.local/share/ais (Windows: %LOCALAPPDATA%\ais). Type  ais --where  to see the
+exact location. They are yours: copy them, back them up to a USB stick, or
+delete them. Nothing is ever uploaded anywhere.
+
+AIS writes no log when all is well -- that is the rule. If it hits a real error
+it leaves a single file (Windows GUI: %LOCALAPPDATA%\AIS\ais-error.log); its
+mere existence means a genuine problem, not a typo, so send it along. On Linux
+and macOS, run AIS from a terminal to see any error.
