@@ -116,6 +116,9 @@ jobs:
           $name = "ais-${{ github.ref_name }}-windows-x86_64-installer.exe"   # double-click to install
           Copy-Item $setup.FullName "dist\$name"
           ((Get-FileHash "dist\$name" -Algorithm SHA256).Hash.ToLower() + "  $name") | Out-File -Encoding ascii "dist\$name.sha256"
+          # Curate: Windows ships ONE asset, the installer (the standard download).
+          # The portable zip was only the installer's input, not a headline file.
+          Remove-Item dist\*-portable.zip, dist\*-portable.zip.sha256 -Force -ErrorAction SilentlyContinue
 
       - id: upload
         uses: actions/upload-artifact@v4
