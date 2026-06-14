@@ -32,7 +32,12 @@
 #include "locate.h"
 #include "serve.h"
 
-#define AIS_VERSION "0.1"
+/* Stamped from the git tag at build time (-DAIS_VERSION, see c/Makefile, single
+ * source of truth). This default applies only to a build with no git/tag (e.g. a
+ * bare source copy). */
+#ifndef AIS_VERSION
+#define AIS_VERSION "0.0.0-dev"
+#endif
 
 #ifndef UNIT_TEST
 

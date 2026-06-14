@@ -35,6 +35,8 @@ jobs:
           # only. Re-add `{ os: macos-13, name: macos-x86_64, make: all }` if needed.
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0          # full history + tags so `git describe` sees the tag
 
       - name: build and test
         run: |
@@ -71,6 +73,8 @@ jobs:
       artifact-id: ${{ steps.upload.outputs.artifact-id }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0          # full history + tags so `git describe` sees the tag
 
       # Compile with Cygwin's gcc and bundle cygwin1.dll beside ais.exe so the
       # package runs on any Windows with NO Cygwin install. 'zip' packages it.

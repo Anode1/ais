@@ -19,6 +19,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0          # full history + tags so `git describe` sees the tag
 
       - name: install MinGW-w64
         run: sudo apt-get update && sudo apt-get install -y gcc-mingw-w64-x86-64

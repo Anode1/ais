@@ -54,6 +54,16 @@ AIS_STD    = -std=c99
 AIS_WARN   = -W -Wall
 AIS_CFLAGS = $(NOCYGWIN) $(AIS_PORT) $(AIS_STD) $(AIS_WARN)
 
+# Version: single source = the git tag. `git describe` gives the exact tag on a
+# release build (e.g. v0.1.4 -> 0.1.4) and tag+commits+sha between tags; a bare
+# source copy with no .git falls back to 0.0.0-dev. Override: make AIS_VERSION=x.
+# Stamped into the binary via -D below (main.c reads AIS_VERSION).
+AIS_VERSION := $(shell git describe --tags --always --dirty 2>/dev/null | sed 's/^v//')
+ifeq ($(strip $(AIS_VERSION)),)
+AIS_VERSION := 0.0.0-dev
+endif
+AIS_VERDEF = -DAIS_VERSION='"$(AIS_VERSION)"'
+
 # all *.c are sources (no editing this file when a new .c is added)
 SOURCES.c := $(wildcard *.c)
 OBJS       = $(SOURCES.c:.c=.o)
@@ -73,7 +83,7 @@ static   : LDFLAGS  += -static
 
 .SUFFIXES:
 .SUFFIXES: .d .o .h .c
-.c.o: ; $(CC) $(AIS_CFLAGS) $(CPPFLAGS) $(CFLAGS) -MMD -c $*.c
+.c.o: ; $(CC) $(AIS_CFLAGS) $(AIS_VERDEF) $(CPPFLAGS) $(CFLAGS) -MMD -c $*.c
 
 .PHONY: clean ut check static static-guard lib wasm
 

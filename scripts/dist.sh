@@ -17,7 +17,8 @@
 # unchanged). A native Cygwin-free ais.exe would need a port -- not done.
 set -e
 cd "$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
-VERSION=0.1
+VERSION=$(git describe --tags --always --dirty 2>/dev/null | sed 's/^v//')
+[ -n "$VERSION" ] || VERSION=0.0.0-dev   # single source = the git tag (see c/Makefile)
 mkdir -p releases
 
 # same-named .md5 next to the package file $1 (verify the download).
