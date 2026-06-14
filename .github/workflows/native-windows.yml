@@ -29,7 +29,7 @@ jobs:
           # gnu99 (not strict c99) so MinGW's <windows.h> isn't hidden by
           # __STRICT_ANSI__; -static folds in libgcc so the exe stands alone.
           make -C c CC=x86_64-w64-mingw32-gcc AIS_STD=-std=gnu99 \
-                    BIN=ais.exe LDFLAGS=-static LDLIBS=-lws2_32
+                    BIN=ais.exe LDFLAGS=-static LDLIBS="-lws2_32 -lshell32"
           file c/ais.exe
 
       - name: cross-compile the native Win32 GUI (ais-gui.exe)

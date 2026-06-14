@@ -16,6 +16,7 @@
 #include <winsock2.h>   /* must precede windows.h */
 #include <ws2tcpip.h>
 #include <windows.h>
+#include <shlobj.h>     /* SHGetFolderPath, CSIDL_LOCAL_APPDATA */
 #include <direct.h>
 #include <io.h>
 #include <sys/types.h>

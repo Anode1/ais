@@ -101,18 +101,27 @@ int ais_locate(const char *opt, char *out, size_t outsz)
 
     {                                            /* 4. per-user global index */
         char base[AIS_PATH_MAX];
-        const char *xdg = getenv("XDG_DATA_HOME");
-        const char *home = getenv("HOME");
         int n;
-
-        if (xdg != NULL && xdg[0] != '\0')
-            n = snprintf(base, sizeof(base), "%s", xdg);
-        else if (home != NULL && home[0] != '\0')
-            n = snprintf(base, sizeof(base), "%s/.local/share", home);
-        else
-            return -1;                           /* no XDG, no HOME */
-        if (n < 0 || (size_t)n >= sizeof(base))
+#ifdef _WIN32
+        /* the per-user local app-data dir via the shell API -- no env vars
+         * (HOME/XDG are not set on native Windows): %LOCALAPPDATA%\ais */
+        if (SHGetFolderPathA(NULL, CSIDL_LOCAL_APPDATA, NULL, 0, base) != S_OK)
             return -1;
+#else
+        {
+            const char *xdg = getenv("XDG_DATA_HOME");
+            const char *home = getenv("HOME");
+
+            if (xdg != NULL && xdg[0] != '\0')
+                n = snprintf(base, sizeof(base), "%s", xdg);
+            else if (home != NULL && home[0] != '\0')
+                n = snprintf(base, sizeof(base), "%s/.local/share", home);
+            else
+                return -1;                       /* no XDG, no HOME */
+            if (n < 0 || (size_t)n >= sizeof(base))
+                return -1;
+        }
+#endif
         if (mkdir_p(base) != 0)
             return -1;
         n = snprintf(out, outsz, "%s/ais", base);
