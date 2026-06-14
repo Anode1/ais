@@ -62,11 +62,11 @@ WHERE YOUR DATA LIVES
 
       Linux    /home/<you>/.local/share/ais
       macOS    /Users/<you>/.local/share/ais        (not ~/Library)
-      Windows  your user folder, under \.local\share\ais   (`ais --where` shows it)
+      Windows  %LOCALAPPDATA%\ais  (e.g. C:\Users\<you>\AppData\Local\ais)
 
-  (The Windows build runs through Cygwin today, so that folder sits inside the
-  Cygwin home; `ais --where` always prints the exact path. A native Windows
-  version, with ordinary Windows paths and no Cygwin, is planned.)
+  (`ais --where` always prints the exact path. The native Windows build stores
+  the index at %LOCALAPPDATA%\ais. The older Cygwin build instead places it under
+  the Cygwin home -- run `ais --where` to see which.)
 
   Or run `ais --init` to keep a local .ais/ next to a project, the way git does.
   Either way the bytes are yours, on your disk - not a company's.
