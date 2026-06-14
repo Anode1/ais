@@ -9,6 +9,13 @@ WHAT IT IS
   An associative index. You file anything (a link, a file, a note, a document)
   under one or more keys, and recall it by those keys.
 
+  An index, not a vault. It does not absorb your files. Short notes can live
+  inside (`--doc`), but your documents stay where you keep them; AIS stores only
+  a reference (a path or a URL) and never copies, moves, or reads inside them.
+  Your storage stays immutable and organized your way, and you lay the index you
+  want over it - even several indexes over the same untouched files. The index
+  is a view; your data is never touched. That separation is the core idea.
+
   Non-linear. One item can live under many keys; items that share a key recall
   together. Keys cross-link, so the index is a graph of associations, not a
   flat list of folders or a single timeline.
@@ -50,6 +57,10 @@ WHAT IT IS NOT
 
   Not a database server. No SQL, no daemon, no schema, just text files and a
   small C program.
+
+  Not a file vault or document manager. It indexes your files where they live;
+  it does not take them in, convert them, or lock them inside an app. Your
+  storage stays untouched and immutable.
 
 WHERE YOUR DATA LIVES
 

@@ -36,6 +36,8 @@ make                 # build ./ais
 
 A model trained on everyone gives you the average. What makes your thinking *yours* is the variance the average throws away: your own associations, the order you would read things in, the links only you would draw. AIS keeps that, unaveraged, as plain text you control: a personal index you can read by hand, back up, fork, and feed to an AI on your terms (your bias layered on the model's base, not replaced by the crowd's). A short key standing in for a body of content is itself a small act of compression.
 
+And AIS never takes your files hostage. Short notes can live inside the index, but your documents stay where they already are, in your own folders: AIS stores only a reference (a path or a URL), never copying, moving, or reading inside them. Your storage stays immutable and organized your way; you lay whatever index you want over it, even several indexes over the same untouched files. The index is a view; your data is never touched. That separation — immutable content under independent indexes you add yourself — is the core design idea.
+
 Background: *Intelligence Is the Discovery of Compressors* (Zenodo [doi.org/10.5281/zenodo.20440111](https://doi.org/10.5281/zenodo.20440111); lighter version at [gavr144.substack.com](https://gavr144.substack.com)).
 
 ## Questions
