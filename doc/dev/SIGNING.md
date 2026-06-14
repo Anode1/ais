@@ -18,7 +18,7 @@ job is skipped -- nothing breaks.
    can fetch the build artifact to sign).
 3. In SignPath create:
    - a **project** (e.g. slug `ais`),
-   - an **artifact configuration** that signs the `*-windows-x86_64-setup.exe`
+   - an **artifact configuration** that signs the `*-windows-x86_64-installer.exe`
      inside the `ais-windows-x86_64` artifact (Authenticode),
    - a **signing policy** (e.g. slug `release-signing`).
 4. Create a SignPath **API token** for a CI user.
@@ -36,7 +36,7 @@ Variables (Settings -> Secrets and variables -> Actions -> Variables):
 
 ## How it flows in release.yml
 
-1. `build-windows` builds `…-setup.exe` and uploads it as `ais-windows-x86_64`
+1. `build-windows` builds `…-installer.exe` and uploads it as `ais-windows-x86_64`
    (exposing the artifact id).
 2. `sign-windows` submits that artifact to SignPath, downloads the **signed**
    installer, refreshes its `.sha256`, and uploads `ais-windows-signed`.

@@ -91,7 +91,7 @@ jobs:
           # Re-stamp with the tag to match the unix jobs' naming and add a
           # SHA-256 sidecar (dist.sh names by its own VERSION and emits .md5).
           src=$(ls releases/windows/ais-*-windows-*.zip | head -n1)
-          name="ais-${GITHUB_REF_NAME}-windows-x86_64"
+          name="ais-${GITHUB_REF_NAME}-windows-x86_64-portable"   # unzip-and-run (no install)
           mkdir -p dist
           cp "$src" "dist/$name.zip"
           ( cd dist && sha256sum "$name.zip" > "$name.zip.sha256" )
@@ -103,8 +103,8 @@ jobs:
         shell: pwsh
         run: |
           choco install innosetup --no-progress -y
-          $ver = "${{ github.ref_name }}" -replace '^v',''
-          $zip = Get-ChildItem dist\ais-*-windows-x86_64.zip | Select-Object -First 1
+          $ver = "${{ github.ref_name }}" -replace '^v',''   # numeric, for Inno AppVersion
+          $zip = Get-ChildItem dist\ais-*-windows-x86_64-portable.zip | Select-Object -First 1
           Expand-Archive -Path $zip.FullName -DestinationPath inst -Force
           $src = (Get-ChildItem inst -Directory | Select-Object -First 1).FullName
           Copy-Item gui\ais-start.bat $src            # installed launcher (uses the default index)
@@ -112,8 +112,8 @@ jobs:
           $iscc = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
           & $iscc /DSrcDir="$src" /DAppVersion="$ver" installer\ais.iss
           if ($LASTEXITCODE -ne 0) { throw "ISCC failed ($LASTEXITCODE)" }
-          $setup = Get-ChildItem installer\Output\*setup.exe | Select-Object -First 1
-          $name = "ais-$ver-windows-x86_64-setup.exe"
+          $setup = Get-ChildItem installer\Output\*installer.exe | Select-Object -First 1
+          $name = "ais-${{ github.ref_name }}-windows-x86_64-installer.exe"   # double-click to install
           Copy-Item $setup.FullName "dist\$name"
           ((Get-FileHash "dist\$name" -Algorithm SHA256).Hash.ToLower() + "  $name") | Out-File -Encoding ascii "dist\$name.sha256"
 
@@ -151,7 +151,7 @@ jobs:
       - name: refresh checksum for the signed installer
         run: |
           cd signed
-          for f in *-windows-x86_64-setup.exe; do
+          for f in *-windows-x86_64-installer.exe; do
             [ -f "$f" ] && sha256sum "$f" > "$f.sha256"
           done
       - uses: actions/upload-artifact@v4

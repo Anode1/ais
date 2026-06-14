@@ -1,6 +1,6 @@
 ; ais.iss -- Inno Setup script for the AIS Windows installer.
 ;
-; Produces a per-user setup.exe (no admin prompt): it installs the Cygwin-built
+; Produces a per-user installer .exe (no admin prompt): it installs the Cygwin-built
 ; ais.exe + cygwin1.dll + launcher + docs, adds a Start-Menu shortcut that opens
 ; the web GUI, and offers to put `ais` on PATH for the command line. Your memory
 ; (the index) lives in your user profile, NOT in the install dir, so
@@ -29,7 +29,7 @@ DefaultDirName={autopf}\AIS
 DefaultGroupName=AIS
 DisableProgramGroupPage=yes
 PrivilegesRequired=lowest
-OutputBaseFilename=ais-{#AppVersion}-windows-x86_64-setup
+OutputBaseFilename=ais-{#AppVersion}-windows-x86_64-installer
 SetupIconFile={#SrcDir}\ais.ico
 Compression=lzma2
 SolidCompression=yes
