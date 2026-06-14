@@ -105,9 +105,13 @@ EOF
     elif [ "$pretty" = macos ]; then
         cat >> "$stage/README.txt" <<EOF
 
-macOS first run: the binary is unsigned, so right-click ais (or $lname) and
-choose Open once to clear Gatekeeper. If ais will not run, the zip dropped its
-executable bit: chmod +x ais. The desktop GUI (ais.tcl) needs wish (Tcl/Tk).
+macOS first run: the binaries are not yet notarized by Apple, so this downloaded
+copy is quarantined and Gatekeeper says "Apple could not verify ais is free of
+malware." Clear the flag once, from this folder in Terminal:
+    xattr -dr com.apple.quarantine .
+(or System Settings > Privacy & Security > Open Anyway). If ais still will not
+run, the zip dropped its executable bit: chmod +x ais. The desktop GUI (ais.tcl)
+needs wish (Tcl/Tk).
 EOF
     else
         cat >> "$stage/README.txt" <<EOF

@@ -55,6 +55,17 @@ A native macOS wrapper over the engine (as `win32/` is for Windows), so Mac user
 get a real app, not only the web GUI via a launcher. A minimal AppKit/Swift shell
 calling `embed.h`.
 
+### Signing and notarization
+
+So a *downloaded* build runs without security warnings. **macOS notarization**
+(Apple Developer ID: `codesign` + `notarytool` + `staple` in CI) removes the
+"Apple could not verify 'ais' is free of malware" Gatekeeper block on downloaded
+binaries — until then, clear the quarantine flag once with
+`xattr -dr com.apple.quarantine .` (see the README), or just build from source,
+which is never quarantined. **Windows code-signing** (SignPath's OSS program) is
+already wired into the release workflow and activates once the account is
+approved.
+
 ## Not planned (non-goals)
 
 - **A .NET / WinUI wrapper.** The native Win32 app (`win32/`) already covers

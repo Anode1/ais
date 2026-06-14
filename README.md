@@ -16,6 +16,17 @@ The latest stable build for every platform — this link always points at the cu
 
 Then `ais --serve` opens the GUI in your browser.
 
+**macOS first run.** The binaries are not yet notarized by Apple, so a downloaded
+copy is quarantined and Gatekeeper says *"Apple could not verify 'ais' is free of
+malware."* Clear the quarantine flag once — in Terminal, from the unzipped folder:
+
+```sh
+xattr -dr com.apple.quarantine .
+```
+
+(or **System Settings ▸ Privacy & Security ▸ Open Anyway**). Locally built copies
+aren't affected. Notarization is on the [roadmap](doc/ROADMAP.md).
+
 ## Quick start (from source)
 
 ```sh
