@@ -19,7 +19,8 @@ ENGINE = $(addprefix $(CORE)/, embed.c ais.c store.c post.c key.c merge.c \
            compact.c stats.c find.c doc.c locate.c log.c win.c)
 
 # only ever-present system DLLs -- no .NET, no Cygwin, no extra runtime.
-WINLIBS = -lcomctl32 -lgdi32 -luser32
+# shell32: ShellExecute (open URLs) + SHGetFolderPath (the local app-data dir).
+WINLIBS = -lcomctl32 -lgdi32 -luser32 -lshell32
 
 .PHONY: all clean
 all: ais-gui.exe

@@ -12,6 +12,7 @@
 #include <windows.h>
 #include <commctrl.h>
 #include <shellapi.h>
+#include <shlobj.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -35,16 +36,21 @@ static HFONT g_font;
  * and repeated errors are not lost. No "started/stopped" noise -- errors only. */
 static void log_error(const char *fmt, ...)
 {
-    char dir[MAX_PATH], path[MAX_PATH];
-    const char *base = getenv("LOCALAPPDATA");
+    char base[MAX_PATH], dir[MAX_PATH], path[MAX_PATH];
     FILE *f;
     SYSTEMTIME t;
     va_list ap;
 
-    if (base == NULL) base = getenv("TEMP");
-    if (base == NULL) base = ".";
+    /* canonical per-user local app-data dir (works XP->11, no env dependency);
+     * fall back to %LOCALAPPDATA% / %TEMP% / "." if the shell call fails. */
+    if (SHGetFolderPathA(NULL, CSIDL_LOCAL_APPDATA, NULL, 0, base) != S_OK) {
+        const char *e = getenv("LOCALAPPDATA");
+        if (e == NULL) e = getenv("TEMP");
+        if (e == NULL) e = ".";
+        snprintf(base, sizeof base, "%s", e);
+    }
     snprintf(dir, sizeof dir, "%s\\AIS", base);
-    CreateDirectoryA(dir, NULL);
+    CreateDirectoryA(dir, NULL);     /* one level under an always-present parent */
     snprintf(path, sizeof path, "%s\\ais-error.log", dir);
 
     f = fopen(path, "a");          /* lazily created on the first error */
