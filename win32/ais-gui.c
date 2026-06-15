@@ -5,9 +5,9 @@
  * only user32/gdi32/comctl32, present on every Windows (XP -> 11), so the exe is
  * tiny and self-contained. Build: see win32/Makefile (MinGW cross-compile).
  *
- * UI: a keys box + Recall (with an OR toggle) over a results list (double-click
- * an http(s) value to open it), and a value+keys row with Add. One window, the
- * common controls only -- no resource (.rc) file. */
+ * UI: a labelled keys box + Get (with an OR toggle) over a results list
+ * (double-click an http(s) value to open it), and a labelled value+keys row with
+ * Add. One window, common controls only -- no resource (.rc) file. */
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <commctrl.h>
@@ -21,10 +21,10 @@
 #include "embed.h"
 #include "locate.h"
 
-enum { ID_KEYS = 1001, ID_RECALL, ID_OR, ID_LIST, ID_VALUE, ID_VKEYS, ID_ADD };
+enum { ID_KEYS = 1001, ID_GET, ID_OR, ID_LIST, ID_VALUE, ID_VKEYS, ID_ADD };
 
 static void *g_ais;                 /* engine handle (ais_embed_open) */
-static HWND  g_keys, g_or, g_list, g_value, g_vkeys;
+static HWND  g_keys, g_or, g_list, g_value, g_vkeys, g_lget, g_ladd;
 static HFONT g_font;
 static int   g_dpi = 96;            /* system DPI; the layout scales from 96 */
 
@@ -98,7 +98,7 @@ static HWND mk(HWND parent, const char *cls, const char *text, DWORD style, int 
     return h;
 }
 
-static void do_recall(void)
+static void do_get(void)
 {
     char *keys = get_text(g_keys);
     int or_mode = (SendMessage(g_or, BM_GETCHECK, 0, 0) == BST_CHECKED);
@@ -125,7 +125,7 @@ static void do_recall(void)
             }
             ais_embed_free(res);
         } else {
-            log_error("recall failed (keys='%s')", keys);
+            log_error("get failed (keys='%s')", keys);
         }
     }
     free(keys);
@@ -142,7 +142,7 @@ static void do_add(void)
         SetWindowTextA(g_value, "");
         if (vk != NULL && vk[0] != '\0')                 /* show what was added */
             SetWindowTextA(g_keys, vk);
-        do_recall();
+        do_get();
     }
     free(val);
     free(vk);
@@ -169,26 +169,30 @@ static void open_selected(void)
 static void layout(HWND hwnd)
 {
     RECT r;
-    int w, pad = dp(8), bh = dp(26), btn = dp(88), orw = dp(56);
-    int row3;
+    int w, pad = dp(8), bh = dp(26), lh = dp(16), btn = dp(88), orw = dp(56);
+    int gety, addrow, addlbl, fieldw;
     GetClientRect(hwnd, &r);
     w = r.right;
-    row3 = r.bottom - pad - bh;
 
-    /* row 1: keys edit | Recall | OR */
-    MoveWindow(g_keys,   pad, pad, w - pad * 4 - btn - orw, bh, TRUE);
-    MoveWindow(GetDlgItem(hwnd, ID_RECALL), w - pad * 2 - btn - orw, pad, btn, bh, TRUE);
-    MoveWindow(g_or,     w - pad - orw, pad, orw, bh, TRUE);
+    /* TOP -- the "Get" area: a label, then [keys | Get | OR] */
+    MoveWindow(g_lget, pad, pad, w - pad * 2, lh, TRUE);
+    gety = pad + lh;
+    MoveWindow(g_keys, pad, gety, w - pad * 4 - btn - orw, bh, TRUE);
+    MoveWindow(GetDlgItem(hwnd, ID_GET), w - pad * 2 - btn - orw, gety, btn, bh, TRUE);
+    MoveWindow(g_or,   w - pad - orw, gety, orw, bh, TRUE);
 
-    /* middle: results list fills the gap between row 1 and row 3 */
-    MoveWindow(g_list, pad, pad * 2 + bh, w - pad * 2,
-               row3 - (pad * 3 + bh), TRUE);
+    /* BOTTOM -- the "Add" area at the foot: its label sits just above the row */
+    addrow = r.bottom - pad - bh;
+    addlbl = addrow - lh;
+    fieldw = w - pad * 4 - btn;
+    MoveWindow(g_ladd,  pad, addlbl, w - pad * 2, lh, TRUE);
+    MoveWindow(g_value, pad, addrow, fieldw * 3 / 5, bh, TRUE);
+    MoveWindow(g_vkeys, pad * 2 + fieldw * 3 / 5, addrow, fieldw * 2 / 5, bh, TRUE);
+    MoveWindow(GetDlgItem(hwnd, ID_ADD), w - pad - btn, addrow, btn, bh, TRUE);
 
-    /* row 3: value edit | keys edit | Add */
-    MoveWindow(g_value, pad, row3, (w - pad * 4 - btn) * 3 / 5, bh, TRUE);
-    MoveWindow(g_vkeys, pad * 2 + (w - pad * 4 - btn) * 3 / 5, row3,
-               (w - pad * 4 - btn) * 2 / 5, bh, TRUE);
-    MoveWindow(GetDlgItem(hwnd, ID_ADD), w - pad - btn, row3, btn, bh, TRUE);
+    /* MIDDLE -- results list fills the space between the two areas */
+    MoveWindow(g_list, pad, gety + bh + pad, w - pad * 2,
+               addlbl - pad - (gety + bh + pad), TRUE);
 }
 
 static LRESULT CALLBACK wndproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
@@ -209,14 +213,15 @@ static LRESULT CALLBACK wndproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
             g_font = CreateFontIndirectA(&ncm.lfMessageFont);
         if (g_font == NULL)
             g_font = (HFONT)GetStockObject(DEFAULT_GUI_FONT);
+        g_lget  = mk(hwnd, "STATIC", "Get:  type keys, then press Get (or Enter)", SS_LEFT, 0);
         g_keys  = mk(hwnd, "EDIT",   "", WS_BORDER | ES_AUTOHSCROLL, ID_KEYS);
-        mk(hwnd, "BUTTON", "Recall", BS_DEFPUSHBUTTON, ID_RECALL);
+        mk(hwnd, "BUTTON", "Get", BS_DEFPUSHBUTTON, ID_GET);
         g_or    = mk(hwnd, "BUTTON", "OR", BS_AUTOCHECKBOX, ID_OR);
         g_list  = mk(hwnd, "LISTBOX", "", WS_BORDER | WS_VSCROLL | LBS_NOTIFY, ID_LIST);
+        g_ladd  = mk(hwnd, "STATIC", "Add:  left = value (URL, note, path),  right = keys", SS_LEFT, 0);
         g_value = mk(hwnd, "EDIT",   "", WS_BORDER | ES_AUTOHSCROLL, ID_VALUE);
         g_vkeys = mk(hwnd, "EDIT",   "", WS_BORDER | ES_AUTOHSCROLL, ID_VKEYS);
         mk(hwnd, "BUTTON", "Add", BS_PUSHBUTTON, ID_ADD);
-        SendMessageA(g_value, EM_SETCUEBANNER, TRUE, (LPARAM)L"");   /* no-op cue */
         if (ais_locate(NULL, dir, sizeof dir) == 0)
             g_ais = ais_embed_open(dir);
         if (g_ais == NULL) {
@@ -233,7 +238,7 @@ static LRESULT CALLBACK wndproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
         return 0;
     case WM_COMMAND:
         switch (LOWORD(wp)) {
-        case ID_RECALL: do_recall(); return 0;
+        case ID_GET: do_get(); return 0;
         case ID_ADD:    do_add();    return 0;
         case ID_LIST:
             if (HIWORD(wp) == LBN_DBLCLK)
@@ -259,7 +264,7 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmd, int show)
     MSG msg;
     HACCEL acc;
     int dpi = 96;
-    ACCEL a = { FVIRTKEY, VK_RETURN, ID_RECALL };   /* Enter = Recall */
+    ACCEL a = { FVIRTKEY, VK_RETURN, ID_GET };   /* Enter = Get */
 
     (void)prev; (void)cmd;
     SetUnhandledExceptionFilter(on_crash);   /* capture hard crashes to the log */
