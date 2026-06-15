@@ -10,6 +10,7 @@
 # A native Windows toolchain works too if CC points at a MinGW gcc.
 
 CC      ?= x86_64-w64-mingw32-gcc
+WINDRES ?= x86_64-w64-mingw32-windres
 CFLAGS  ?= -O2 -std=gnu99 -W -Wall
 CORE     = ../c
 
@@ -26,8 +27,12 @@ WINLIBS = -lcomctl32 -lgdi32 -luser32 -lshell32 -lws2_32
 .PHONY: all clean
 all: ais-gui.exe
 
-ais-gui.exe: ais-gui.c $(ENGINE)
-	$(CC) $(CFLAGS) -I$(CORE) -mwindows -static -o $@ ais-gui.c $(ENGINE) $(WINLIBS)
+# ais.res.o embeds the application manifest (visual styles + asInvoker).
+ais-gui.exe: ais-gui.c $(ENGINE) ais.res.o
+	$(CC) $(CFLAGS) -I$(CORE) -mwindows -static -o $@ ais-gui.c $(ENGINE) ais.res.o $(WINLIBS)
+
+ais.res.o: ais.rc ais.manifest
+	$(WINDRES) ais.rc -O coff -o ais.res.o
 
 clean:
-	-rm -f ais-gui.exe
+	-rm -f ais-gui.exe ais.res.o

@@ -294,7 +294,14 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmd, int show)
         HDC dc = GetDC(NULL);
         if (dc != NULL) { dpi = GetDeviceCaps(dc, LOGPIXELSY); ReleaseDC(NULL, dc); }
     }
-    InitCommonControls();
+    {
+        /* register the standard control classes with comctl32 v6 so the manifest's
+         * visual styles theme them (the modern, native look). */
+        INITCOMMONCONTROLSEX icc;
+        icc.dwSize = sizeof icc;
+        icc.dwICC  = ICC_STANDARD_CLASSES | ICC_WIN95_CLASSES;
+        InitCommonControlsEx(&icc);
+    }
 
     memset(&wc, 0, sizeof wc);
     wc.lpfnWndProc   = wndproc;

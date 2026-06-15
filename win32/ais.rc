@@ -1,0 +1,6 @@
+/* ais.rc -- embed the application manifest as a resource.
+ * id 1   = CREATEPROCESS_MANIFEST_RESOURCE_ID (the manifest for an .exe)
+ * type 24 = RT_MANIFEST
+ * The manifest turns on comctl32 v6 visual styles (the native themed look,
+ * the Win32 equivalent of Swing's System look-and-feel) and asInvoker (no UAC). */
+1 24 "ais.manifest"
