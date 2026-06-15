@@ -20,7 +20,8 @@ ENGINE = $(addprefix $(CORE)/, embed.c ais.c store.c post.c key.c merge.c \
 
 # only ever-present system DLLs -- no .NET, no Cygwin, no extra runtime.
 # shell32: ShellExecute (open URLs) + SHGetFolderPath (the local app-data dir).
-WINLIBS = -lcomctl32 -lgdi32 -luser32 -lshell32
+# ws2_32: Winsock, referenced by win.c (ais_net_init); always present on Windows.
+WINLIBS = -lcomctl32 -lgdi32 -luser32 -lshell32 -lws2_32
 
 .PHONY: all clean
 all: ais-gui.exe
