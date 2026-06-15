@@ -14,6 +14,7 @@
 #include "compact.h"
 #include "post.h"
 #include "store.h"
+#include "win.h"          /* lstat/mkdir shims on native Windows; empty on POSIX */
 
 /* Build "<dir>/<name>" into OUT. Returns 0, or -1 if it would not fit. */
 static int compact_path(const ais *a, const char *name, char *out, size_t outsz)

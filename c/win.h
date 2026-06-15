@@ -7,6 +7,7 @@
  *   - nftw(3)   -> opendir/readdir   (feed.c -R directory walk)
  *   - realpath  -> _fullpath         (feed.c path canonicalisation)
  *   - mkdir(p,mode) -> _mkdir(p)     (mode ignored on Windows)
+ *   - lstat -> stat                  (no POSIX symlinks on Windows)
  * The MinGW build is cross-compiled from Linux CI; see native-windows.yml. */
 #ifndef AIS_WIN_H
 #define AIS_WIN_H
@@ -31,6 +32,12 @@
 #undef mkdir
 #endif
 #define mkdir(path, mode) _mkdir(path)
+
+/* lstat(2): Windows has no POSIX symlinks, so lstat == stat here. */
+#ifdef lstat
+#undef lstat
+#endif
+#define lstat(path, buf) stat((path), (buf))
 
 /* flock(2) subset: advisory whole-file locks via LockFileEx. */
 #ifndef LOCK_SH
