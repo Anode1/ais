@@ -60,69 +60,79 @@ jobs:
           name: ais-${{ matrix.name }}
           path: dist/*
 
-  # Windows is its own job: ais here is a Cygwin build (links cygwin1.dll), so it
-  # needs a Cygwin toolchain, and its ZIP must also carry the runtime DLL beside
-  # the exe. The unix jobs above build their own ZIP bundles via the same
-  # scripts/dist.sh; this job differs only in the toolchain and the bundled DLL.
-  # A native, Cygwin-free build is left as a future contribution (MSVC or mingw +
-  # a POSIX->Winsock port -- see scripts/dist.sh notes).
+  # Windows ships the NATIVE build (Cygwin-free): the engine and the Win32 GUI are
+  # cross-compiled with MinGW-w64 into self-contained ais.exe (CLI) + ais-gui.exe
+  # (desktop app), using the win.h/win.c shims (Winsock, flock->LockFileEx, etc.).
+  # No cygwin1.dll, no .NET, no runtime. ISCC (the installer compiler) needs
+  # Windows, so the build is split: cross-compile here on Linux, assemble the
+  # installer on windows-latest. The Cygwin path stays buildable via
+  # scripts/dist.sh as a fallback, but is no longer published.
+  windows-native:
+    name: cross-compile native windows (mingw-w64)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0          # full history + tags so `git describe` sees the tag
+      - name: install MinGW-w64
+        run: sudo apt-get update && sudo apt-get install -y gcc-mingw-w64-x86-64
+      - name: cross-compile native CLI + GUI (static, self-contained)
+        run: |
+          make -C c clean
+          # gnu99 (not strict c99) so MinGW's <windows.h> isn't hidden by
+          # __STRICT_ANSI__; -static folds in libgcc so the exe stands alone.
+          make -C c CC=x86_64-w64-mingw32-gcc AIS_STD=-std=gnu99 \
+                    BIN=ais.exe LDFLAGS=-static LDLIBS="-lws2_32 -lshell32"
+          make -C win32 CC=x86_64-w64-mingw32-gcc
+          file c/ais.exe win32/ais-gui.exe
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ais-windows-native-bin
+          path: |
+            c/ais.exe
+            win32/ais-gui.exe
+
+  # Assemble the per-user installer from the native exes (Inno Setup; ISCC is a
+  # native Windows tool). Start-Menu shortcut -> the native GUI (ais-gui.exe);
+  # ais.exe goes on PATH only (no console-flashing CLI shortcut). Per-user install
+  # to %LOCALAPPDATA%\Programs\AIS, no admin prompt.
   build-windows:
-    name: build windows-x86_64
+    name: build windows installer (native)
+    needs: windows-native
     runs-on: windows-latest
     outputs:
       artifact-id: ${{ steps.upload.outputs.artifact-id }}
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0          # full history + tags so `git describe` sees the tag
-
-      # Compile with Cygwin's gcc and bundle cygwin1.dll beside ais.exe so the
-      # package runs on any Windows with NO Cygwin install. 'zip' packages it.
-      - name: set up Cygwin
-        uses: cygwin/cygwin-install-action@v4
+          fetch-depth: 0
+      - name: get native exes
+        uses: actions/download-artifact@v4
         with:
-          packages: gcc-core, make, zip
-
-      # CHERE_INVOKING keeps `bash --login` in the checkout dir instead of $HOME.
-      - name: build, test, package
-        env:
-          CHERE_INVOKING: '1'
-        shell: C:\cygwin\bin\bash.exe --login -eo pipefail -o igncr '{0}'
-        run: |
-          make check                 # build the engine + run the unit/CLI tests
-          ./ais --version
-          sh scripts/dist.sh bin     # canonical Windows bundle (ais.exe + cygwin1.dll + gui/ais-web.bat + docs) -> releases/windows/*.zip
-          # Re-stamp with the tag to match the unix jobs' naming and add a
-          # SHA-256 sidecar (dist.sh names by its own VERSION and emits .md5).
-          src=$(ls releases/windows/ais-*-windows-*.zip | head -n1)
-          name="ais-${GITHUB_REF_NAME}-windows-x86_64-portable"   # unzip-and-run (no install)
-          mkdir -p dist
-          cp "$src" "dist/$name.zip"
-          ( cd dist && sha256sum "$name.zip" > "$name.zip.sha256" )
-
-      # Build the double-click installer from the same bundle (Inno Setup, run in
-      # PowerShell -- ISCC is a native Windows tool, not a Cygwin one). Per-user
-      # install, Start-Menu shortcut to the GUI, optional PATH entry.
+          name: ais-windows-native-bin
+          path: native
       - name: build Windows installer
         shell: pwsh
         run: |
           choco install innosetup --no-progress -y
           $ver = "${{ github.ref_name }}" -replace '^v',''   # numeric, for Inno AppVersion
-          $zip = Get-ChildItem dist\ais-*-windows-x86_64-portable.zip | Select-Object -First 1
-          Expand-Archive -Path $zip.FullName -DestinationPath inst -Force
-          $src = (Get-ChildItem inst -Directory | Select-Object -First 1).FullName
-          Copy-Item gui\ais-start.bat $src            # installed launcher (uses the default index)
-          Copy-Item icons\ais.ico $src                # installer + Start-Menu shortcut icon
+          # assemble the installer source dir (native, Cygwin-free)
+          New-Item -ItemType Directory -Force -Path src | Out-Null
+          Copy-Item native\c\ais.exe         src\ais.exe
+          Copy-Item native\win32\ais-gui.exe src\ais-gui.exe
+          Copy-Item icons\ais.ico            src\ais.ico
+          Copy-Item COPYING                  src\COPYING
+          Copy-Item doc\about.txt            src\about.txt
+          Copy-Item doc\USING.txt            src\USING.txt
+          Copy-Item installer\README.txt     src\README.txt
           $iscc = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
-          & $iscc /DSrcDir="$src" /DAppVersion="$ver" installer\ais.iss
+          & $iscc /DSrcDir="$((Resolve-Path src).Path)" /DAppVersion="$ver" installer\ais.iss
           if ($LASTEXITCODE -ne 0) { throw "ISCC failed ($LASTEXITCODE)" }
           $setup = Get-ChildItem installer\Output\*installer.exe | Select-Object -First 1
           $name = "ais-${{ github.ref_name }}-windows-x86_64-installer.exe"   # double-click to install
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
           Copy-Item $setup.FullName "dist\$name"
           ((Get-FileHash "dist\$name" -Algorithm SHA256).Hash.ToLower() + "  $name") | Out-File -Encoding ascii "dist\$name.sha256"
-          # Curate: Windows ships ONE asset, the installer (the standard download).
-          # The portable zip was only the installer's input, not a headline file.
-          Remove-Item dist\*-portable.zip, dist\*-portable.zip.sha256 -Force -ErrorAction SilentlyContinue
 
       - id: upload
         uses: actions/upload-artifact@v4

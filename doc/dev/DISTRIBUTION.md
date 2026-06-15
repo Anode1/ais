@@ -8,7 +8,7 @@ the repo; the Releases page stays minimal so users never have to ask "which one?
 
 | Platform | The one download | GUI the user gets |
 |----------|------------------|-------------------|
-| Windows  | `ais-<tag>-windows-x86_64-installer.exe` | a **native window** (`ais-gui.exe`) after the convergence below; today, the web GUI via the Start-Menu shortcut |
+| Windows  | `ais-<tag>-windows-x86_64-installer.exe` | a **native window** (`ais-gui.exe`); the CLI `ais.exe` is on PATH only |
 | macOS    | `ais-<tag>-macos-arm64.zip`              | **web** (`ais --serve`) via the `.command` launcher |
 | Linux    | `ais-<tag>-linux-x86_64.zip`, `…-arm64.zip` | **web** (`ais --serve`) via the `.desktop` launcher |
 | Phones   | the PWA (hosted, later)                  | web |
@@ -20,21 +20,21 @@ is present under every download.
 Rule of thumb, matching how normal apps ship: **Windows gets a native Windows
 app; the unix desktops get the universal web GUI; the CLI is under everything.**
 
-## Plan A -- Windows: converge on the native build (retire Cygwin from shipping)
+## Plan A -- Windows: converge on the native build (DONE; one step left to verify)
 
-Today Windows ships a **Cygwin** `ais.exe` (needs `cygwin1.dll` + the LGPL
-notice). Target: a **single native (MinGW) Windows build**, no DLL.
+Windows now ships the **native (MinGW) build**, no `cygwin1.dll`. Status:
 
-1. Prove the native build on CI (`native-windows.yml`) and test `ais.exe` +
-   `ais-gui.exe` on real Windows (Marina).
-2. Switch the `build-windows` job in `release.yml` from the Cygwin toolchain to
-   the **MinGW native** build, producing native `ais.exe` (CLI + `--serve`) and
-   `ais-gui.exe` (native GUI).
-3. The **installer** bundles both; the Start-Menu shortcut points at
-   `ais-gui.exe` (the native window). Drop `ais-web.bat` + `cygwin1.dll`.
-4. Remove the Cygwin shipping path, `THIRD-PARTY-NOTICES.txt`, and the LGPL
-   notice wiring (no `cygwin1.dll` to attribute). Keep the Cygwin Makefile bits
-   only as an internal fallback, **unshipped**.
+1. Native build proven on CI (`native-windows.yml`). **Remaining:** confirm
+   `ais-gui.exe` runs on real Windows (Marina) before relying on it.
+2. **Done** -- `release.yml` cross-compiles native `ais.exe` (CLI + `--serve`)
+   and `ais-gui.exe` (native GUI) with MinGW-w64 on Linux, then assembles the
+   installer on `windows-latest`.
+3. **Done** -- the installer bundles both; the Start-Menu shortcut launches
+   `ais-gui.exe`; `ais.exe` is on PATH only (no console-flashing CLI shortcut).
+   No `cygwin1.dll`, no `ais-start.bat`, no `ais.tcl`.
+4. **Done** -- the installer drops `THIRD-PARTY-NOTICES.txt` / the Cygwin LGPL
+   wiring (nothing to attribute). The Cygwin path stays buildable via
+   `scripts/dist.sh` as an internal fallback, **unshipped**.
 
 Result: one Windows download, a native app, no runtime, no third-party DLL.
 
