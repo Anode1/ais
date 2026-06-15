@@ -11,10 +11,8 @@ The latest stable build for every platform — this link always points at the cu
 
 > **<https://github.com/Anode1/ais/releases/latest>**
 
-- **Windows** — run the `…-installer.exe` (per-user, no admin).
-- **macOS / Linux** — unzip the `…-<os>-<arch>.zip` and run `ais` (add it to your PATH to use it anywhere).
-
-Then `ais --serve` opens the GUI in your browser.
+- **Windows** — unzip `…-windows-x86_64.zip` and double-click **`ais-gui.exe`** (the native desktop app). Nothing is installed; to remove it, delete the folder. Prefer a Start-Menu entry? Run `…-installer.exe` instead (per-user, no admin).
+- **macOS / Linux** — unzip the `…-<os>-<arch>.zip`, then `./ais --serve` opens the GUI in your browser (or use the `ais` CLI; add it to your PATH to use it anywhere).
 
 **macOS first run.** The binaries are not yet notarized by Apple, so a downloaded
 copy is quarantined and Gatekeeper says *"Apple could not verify 'ais' is free of

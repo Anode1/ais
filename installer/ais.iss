@@ -51,6 +51,14 @@ Source: "{#SrcDir}\COPYING";       DestDir: "{app}"; Flags: ignoreversion
 Source: "{#SrcDir}\about.txt";     DestDir: "{app}"; Flags: ignoreversion
 Source: "{#SrcDir}\USING.txt";     DestDir: "{app}"; Flags: ignoreversion
 
+[InstallDelete]
+; Upgrading over a pre-native (Cygwin) install: remove the now-unused leftovers
+; so the folder doesn't accumulate dead files. Runs before the new files copy.
+Type: files; Name: "{app}\cygwin1.dll"
+Type: files; Name: "{app}\ais-start.bat"
+Type: files; Name: "{app}\ais.tcl"
+Type: files; Name: "{app}\THIRD-PARTY-NOTICES.txt"
+
 [Icons]
 ; The native desktop app (no console window). The command-line ais.exe is
 ; deliberately given NO shortcut -- it lives on PATH for terminal use only, so a

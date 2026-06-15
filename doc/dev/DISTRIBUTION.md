@@ -8,14 +8,16 @@ the repo; the Releases page stays minimal so users never have to ask "which one?
 
 | Platform | The one download | GUI the user gets |
 |----------|------------------|-------------------|
-| Windows  | `ais-<tag>-windows-x86_64-installer.exe` | a **native window** (`ais-gui.exe`); the CLI `ais.exe` is on PATH only |
+| Windows  | `ais-<tag>-windows-x86_64.zip` (primary; `…-installer.exe` optional) | a **native window** (`ais-gui.exe`); delete the folder to uninstall. CLI `ais.exe` beside it |
 | macOS    | `ais-<tag>-macos-arm64.zip`              | **web** (`ais --serve`) via the `.command` launcher |
 | Linux    | `ais-<tag>-linux-x86_64.zip`, `…-arm64.zip` | **web** (`ais --serve`) via the `.desktop` launcher |
 | Phones   | the PWA (hosted, later)                  | web |
 
-Each asset ships a `.sha256`. **Not shipped:** the Windows portable zip (it's
-only the installer's build input), source bundles, or duplicate engines. The CLI
-is present under every download.
+Each asset ships a `.sha256`. **Windows ships two:** the **portable zip**
+(primary — unzip, double-click `ais-gui.exe`, delete the folder to uninstall; no
+registry, the Java/xcopy model) and the **installer** (optional, for a Start-Menu
+entry). **Not shipped:** source bundles or duplicate engines. The CLI is present
+under every download.
 
 Rule of thumb, matching how normal apps ship: **Windows gets a native Windows
 app; the unix desktops get the universal web GUI; the CLI is under everything.**

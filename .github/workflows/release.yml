@@ -75,7 +75,7 @@ jobs:
         with:
           fetch-depth: 0          # full history + tags so `git describe` sees the tag
       - name: install MinGW-w64
-        run: sudo apt-get update && sudo apt-get install -y gcc-mingw-w64-x86-64
+        run: sudo apt-get update && sudo apt-get install -y gcc-mingw-w64-x86-64 zip
       - name: cross-compile native CLI + GUI (static, self-contained)
         run: |
           make -C c clean
@@ -91,6 +91,24 @@ jobs:
           path: |
             c/ais.exe
             win32/ais-gui.exe
+
+      # The PRIMARY Windows download: a portable zip (native exes + docs). No
+      # installer, no registry -- unzip, double-click ais-gui.exe; delete the
+      # folder to uninstall. Same xcopy/zip model as the linux/macos bundles.
+      - name: package portable zip (delete-to-uninstall)
+        run: |
+          name="ais-${{ github.ref_name }}-windows-x86_64"
+          mkdir -p "stage/$name"
+          cp c/ais.exe win32/ais-gui.exe COPYING doc/about.txt doc/USING.txt "stage/$name/"
+          cp installer/README-portable.txt "stage/$name/README.txt"
+          ( cd stage && zip -rq "$name.zip" "$name" && sha256sum "$name.zip" > "$name.zip.sha256" )
+          ls -l stage
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ais-windows-portable
+          path: |
+            stage/*.zip
+            stage/*.zip.sha256
 
   # Assemble the per-user installer from the native exes (Inno Setup; ISCC is a
   # native Windows tool). Start-Menu shortcut -> the native GUI (ais-gui.exe);
