@@ -5,8 +5,19 @@
 #ifdef _WIN32
 
 #include <dirent.h>
+#include <fcntl.h>      /* _O_BINARY, _fmode */
 #include <stdlib.h>
 #include <string.h>
+
+/* AIS's store/idx/off files are LF plain text addressed by EXACT byte offsets
+ * (store.c fseek by id*width; compact.c ftell). MinGW defaults new streams to
+ * TEXT mode, which inserts CR on write and makes ftell/fseek return opaque
+ * cookies -- corrupting that offset arithmetic (recall then finds nothing).
+ * Force BINARY mode for every fopen, before main() runs, so the on-disk format
+ * stays byte-exact and LF-only, identical to POSIX. (Cygwin was binary already,
+ * which is why this never showed there.) */
+__attribute__((constructor))
+static void ais_force_binary_mode(void) { _fmode = _O_BINARY; }
 
 /* flock(2) -> LockFileEx / UnlockFileEx on the underlying OS handle. */
 int ais_flock(int fd, int op)

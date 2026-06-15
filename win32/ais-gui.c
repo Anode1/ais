@@ -26,6 +26,10 @@ enum { ID_KEYS = 1001, ID_RECALL, ID_OR, ID_LIST, ID_VALUE, ID_VKEYS, ID_ADD };
 static void *g_ais;                 /* engine handle (ais_embed_open) */
 static HWND  g_keys, g_or, g_list, g_value, g_vkeys;
 static HFONT g_font;
+static int   g_dpi = 96;            /* system DPI; the layout scales from 96 */
+
+/* scale a value expressed in 96-DPI ("logical") pixels to the actual DPI */
+static int dp(int px) { return MulDiv(px, g_dpi, 96); }
 
 /* ---- error log -----------------------------------------------------------
  * Written ONLY on error and created lazily, so the file's mere existence means
@@ -165,7 +169,7 @@ static void open_selected(void)
 static void layout(HWND hwnd)
 {
     RECT r;
-    int w, pad = 8, bh = 26, btn = 88, orw = 56;
+    int w, pad = dp(8), bh = dp(26), btn = dp(88), orw = dp(56);
     int row3;
     GetClientRect(hwnd, &r);
     w = r.right;
@@ -192,7 +196,19 @@ static LRESULT CALLBACK wndproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
     switch (msg) {
     case WM_CREATE: {
         char dir[4096];
-        g_font = (HFONT)GetStockObject(DEFAULT_GUI_FONT);
+        NONCLIENTMETRICSA ncm;
+        HDC hdc = GetDC(hwnd);
+        if (hdc != NULL) {
+            g_dpi = GetDeviceCaps(hdc, LOGPIXELSY);   /* real DPI (we are DPI-aware) */
+            ReleaseDC(hwnd, hdc);
+        }
+        /* Use the actual Windows UI font (Segoe UI on modern Windows), already
+         * DPI-scaled -- not the tiny legacy DEFAULT_GUI_FONT bitmap font. */
+        ncm.cbSize = sizeof ncm;
+        if (SystemParametersInfoA(SPI_GETNONCLIENTMETRICS, sizeof ncm, &ncm, 0))
+            g_font = CreateFontIndirectA(&ncm.lfMessageFont);
+        if (g_font == NULL)
+            g_font = (HFONT)GetStockObject(DEFAULT_GUI_FONT);
         g_keys  = mk(hwnd, "EDIT",   "", WS_BORDER | ES_AUTOHSCROLL, ID_KEYS);
         mk(hwnd, "BUTTON", "Recall", BS_DEFPUSHBUTTON, ID_RECALL);
         g_or    = mk(hwnd, "BUTTON", "OR", BS_AUTOCHECKBOX, ID_OR);
@@ -228,6 +244,8 @@ static LRESULT CALLBACK wndproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
     case WM_DESTROY:
         if (g_ais != NULL)
             ais_embed_close(g_ais);
+        if (g_font != NULL)
+            DeleteObject(g_font);
         PostQuitMessage(0);
         return 0;
     }
@@ -240,10 +258,25 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmd, int show)
     HWND hwnd;
     MSG msg;
     HACCEL acc;
+    int dpi = 96;
     ACCEL a = { FVIRTKEY, VK_RETURN, ID_RECALL };   /* Enter = Recall */
 
     (void)prev; (void)cmd;
     SetUnhandledExceptionFilter(on_crash);   /* capture hard crashes to the log */
+
+    /* Become DPI-aware so text and controls are crisp (not blurry-stretched) on
+     * high-DPI displays. Loaded dynamically so the exe still launches on pre-Vista
+     * Windows that lacks the API. Must precede any DPI query / window creation. */
+    {
+        union { FARPROC p; BOOL (WINAPI *fn)(void); } u;
+        u.p = GetProcAddress(GetModuleHandleA("user32.dll"), "SetProcessDPIAware");
+        if (u.fn != NULL)
+            u.fn();
+    }
+    {
+        HDC dc = GetDC(NULL);
+        if (dc != NULL) { dpi = GetDeviceCaps(dc, LOGPIXELSY); ReleaseDC(NULL, dc); }
+    }
     InitCommonControls();
 
     memset(&wc, 0, sizeof wc);
@@ -257,7 +290,8 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmd, int show)
         return 1;
 
     hwnd = CreateWindowA("AisMainWnd", "AIS", WS_OVERLAPPEDWINDOW,
-                         CW_USEDEFAULT, CW_USEDEFAULT, 640, 480,
+                         CW_USEDEFAULT, CW_USEDEFAULT,
+                         MulDiv(640, dpi, 96), MulDiv(480, dpi, 96),
                          NULL, NULL, inst, NULL);
     if (hwnd == NULL)
         return 1;
