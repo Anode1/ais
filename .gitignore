@@ -5,7 +5,7 @@
 # =====================================================================
 
 # ---- C engine (c/): build artifacts & binaries ----
-# (.exe variants are the Cygwin/Windows builds of the same binaries)
+# (.exe variants are the native MinGW Windows builds of the same binaries)
 *.o
 *.d
 /c/ais

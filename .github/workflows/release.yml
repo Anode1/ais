@@ -65,8 +65,8 @@ jobs:
   # (desktop app), using the win.h/win.c shims (Winsock, flock->LockFileEx, etc.).
   # No cygwin1.dll, no .NET, no runtime. ISCC (the installer compiler) needs
   # Windows, so the build is split: cross-compile here on Linux, assemble the
-  # installer on windows-latest. The Cygwin path stays buildable via
-  # scripts/dist.sh as a fallback, but is no longer published.
+  # installer on windows-latest. (The Cygwin shipping path has been removed
+  # entirely -- there are effectively no Cygwin users to serve.)
   windows-native:
     name: cross-compile native windows (mingw-w64)
     runs-on: ubuntu-latest

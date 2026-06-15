@@ -32,9 +32,10 @@ Windows now ships the **native (MinGW) build**, no `cygwin1.dll`. Status:
 3. **Done** -- the installer bundles both; the Start-Menu shortcut launches
    `ais-gui.exe`; `ais.exe` is on PATH only (no console-flashing CLI shortcut).
    No `cygwin1.dll`, no `ais-start.bat`, no `ais.tcl`.
-4. **Done** -- the installer drops `THIRD-PARTY-NOTICES.txt` / the Cygwin LGPL
-   wiring (nothing to attribute). The Cygwin path stays buildable via
-   `scripts/dist.sh` as an internal fallback, **unshipped**.
+4. **Done** -- removed the Cygwin shipping path entirely: `THIRD-PARTY-NOTICES.txt`,
+   `gui/ais-web.bat`, `gui/ais-start.bat`, and the `dist.sh` Cygwin branch. There
+   are effectively no Cygwin users to serve (WSL and native MinGW cover that
+   ground), so nothing Cygwin is shipped or built.
 
 Result: one Windows download, a native app, no runtime, no third-party DLL.
 

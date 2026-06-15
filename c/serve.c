@@ -492,9 +492,9 @@ int ais_serve(ais *a, int port)
         snprintf(cmd, sizeof(cmd), "start \"\" http://127.0.0.1:%d/", port);
 #else
         snprintf(cmd, sizeof(cmd),
-                 "{ xdg-open 'http://127.0.0.1:%d/' || open 'http://127.0.0.1:%d/'"
-                 " || cygstart 'http://127.0.0.1:%d/'; } >/dev/null 2>&1 &",
-                 port, port, port);     /* xdg-open: Linux, open: macOS, cygstart: Cygwin */
+                 "{ xdg-open 'http://127.0.0.1:%d/' || open 'http://127.0.0.1:%d/'; }"
+                 " >/dev/null 2>&1 &",
+                 port, port);           /* xdg-open: Linux, open: macOS */
 #endif
         rc = system(cmd);
         (void)rc;

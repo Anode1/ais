@@ -34,14 +34,6 @@ LDFLAGS  ?=
 LDLIBS   ?=
 
 # -- project-required flags (always applied, before yours) -----------------
-NOCYGWIN =
-ifeq ($(UNAME), CYGWIN32/95)
-	NOCYGWIN = -mno-cygwin
-endif
-ifeq ($(UNAME), CYGWIN32/NT)
-	NOCYGWIN = -mno-cygwin
-endif
-
 # macOS/clang hide BSD+POSIX extras (flock, LOCK_*, INADDR_LOOPBACK, ...) under
 # -std=c99 (__STRICT_ANSI__). _DARWIN_C_SOURCE re-exposes the full system API.
 # glibc exposes them by default, so this is Darwin-only.
@@ -52,7 +44,7 @@ endif
 
 AIS_STD    = -std=c99
 AIS_WARN   = -W -Wall
-AIS_CFLAGS = $(NOCYGWIN) $(AIS_PORT) $(AIS_STD) $(AIS_WARN)
+AIS_CFLAGS = $(AIS_PORT) $(AIS_STD) $(AIS_WARN)
 
 # Version: single source = the git tag. `git describe` gives the exact tag on a
 # release build (e.g. v0.1.4 -> 0.1.4) and tag+commits+sha between tags; a bare
