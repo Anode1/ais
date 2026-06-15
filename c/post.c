@@ -11,6 +11,7 @@
 #include "common.h"
 #include "key.h"
 #include "post.h"
+#include "win.h"          /* mkdir shim on native Windows; empty on POSIX */
 
 /* mkdir PATH, tolerating an existing directory. Returns 0, or -1 on error. */
 static int post_mkdir(const char *path)

@@ -44,7 +44,7 @@ int merge_run(ais *a, post_stream *streams, int nstreams, ais_mode mode,
         return 0;
 
     for (;;) {
-        long min;
+        long min = 0;   /* set by merge_min_head below; init silences -Wmaybe-uninitialized under inlining */
         int i, all, stop, emit;
 
         if (!merge_min_head(streams, nstreams, &min))
