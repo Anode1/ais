@@ -24,7 +24,8 @@
 enum { ID_KEYS = 1001, ID_GET, ID_OR, ID_LIST, ID_VALUE, ID_VKEYS, ID_ADD };
 
 static void *g_ais;                 /* engine handle (ais_embed_open) */
-static HWND  g_keys, g_or, g_list, g_value, g_vkeys, g_lget, g_ladd;
+static HWND  g_keys, g_or, g_list, g_value, g_vkeys;
+static HWND  g_lkeys, g_lval, g_lvk;   /* inline field labels: Keys:/Value:/Keys: */
 static HFONT g_font;
 static int   g_dpi = 96;            /* system DPI; the layout scales from 96 */
 
@@ -169,30 +170,38 @@ static void open_selected(void)
 static void layout(HWND hwnd)
 {
     RECT r;
-    int w, pad = dp(8), bh = dp(26), lh = dp(16), btn = dp(88), orw = dp(56);
-    int gety, addrow, addlbl, fieldw;
+    int w, pad = dp(8), gap = dp(6), bh = dp(26);
+    int btn = dp(80), orw = dp(48), lblk = dp(40), lblv = dp(48);
+    int y, by, getx, orx, x, fields, valw, vkw;
     GetClientRect(hwnd, &r);
     w = r.right;
 
-    /* TOP -- the "Get" area: a label, then [keys | Get | OR] */
-    MoveWindow(g_lget, pad, pad, w - pad * 2, lh, TRUE);
-    gety = pad + lh;
-    MoveWindow(g_keys, pad, gety, w - pad * 4 - btn - orw, bh, TRUE);
-    MoveWindow(GetDlgItem(hwnd, ID_GET), w - pad * 2 - btn - orw, gety, btn, bh, TRUE);
-    MoveWindow(g_or,   w - pad - orw, gety, orw, bh, TRUE);
+    /* TOP row: [Keys:] [keys ......] [Get] [OR] */
+    y    = pad;
+    orx  = w - pad - orw;
+    getx = orx - gap - btn;
+    MoveWindow(g_lkeys, pad, y, lblk, bh, TRUE);
+    MoveWindow(g_keys,  pad + lblk + gap, y, getx - gap - (pad + lblk + gap), bh, TRUE);
+    MoveWindow(GetDlgItem(hwnd, ID_GET), getx, y, btn, bh, TRUE);
+    MoveWindow(g_or,    orx, y, orw, bh, TRUE);
 
-    /* BOTTOM -- the "Add" area at the foot: its label sits just above the row */
-    addrow = r.bottom - pad - bh;
-    addlbl = addrow - lh;
-    fieldw = w - pad * 4 - btn;
-    MoveWindow(g_ladd,  pad, addlbl, w - pad * 2, lh, TRUE);
-    MoveWindow(g_value, pad, addrow, fieldw * 3 / 5, bh, TRUE);
-    MoveWindow(g_vkeys, pad * 2 + fieldw * 3 / 5, addrow, fieldw * 2 / 5, bh, TRUE);
-    MoveWindow(GetDlgItem(hwnd, ID_ADD), w - pad - btn, addrow, btn, bh, TRUE);
+    /* BOTTOM row: [Value:] [value ...] [Keys:] [vkeys ...] [Add] */
+    by = r.bottom - pad - bh;
+    fields = w - pad * 2 - lblv - lblk - btn - gap * 5;   /* width left for the two edits */
+    if (fields < dp(120))
+        fields = dp(120);
+    valw = fields * 3 / 5;
+    vkw  = fields - valw;
+    x = pad;
+    MoveWindow(g_lval,  x, by, lblv, bh, TRUE); x += lblv + gap;
+    MoveWindow(g_value, x, by, valw, bh, TRUE); x += valw + gap;
+    MoveWindow(g_lvk,   x, by, lblk, bh, TRUE); x += lblk + gap;
+    MoveWindow(g_vkeys, x, by, vkw,  bh, TRUE);
+    MoveWindow(GetDlgItem(hwnd, ID_ADD), w - pad - btn, by, btn, bh, TRUE);
 
-    /* MIDDLE -- results list fills the space between the two areas */
-    MoveWindow(g_list, pad, gety + bh + pad, w - pad * 2,
-               addlbl - pad - (gety + bh + pad), TRUE);
+    /* MIDDLE: results list fills the gap between the two rows */
+    MoveWindow(g_list, pad, y + bh + pad, w - pad * 2,
+               by - pad - (y + bh + pad), TRUE);
 }
 
 static LRESULT CALLBACK wndproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
@@ -213,15 +222,18 @@ static LRESULT CALLBACK wndproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
             g_font = CreateFontIndirectA(&ncm.lfMessageFont);
         if (g_font == NULL)
             g_font = (HFONT)GetStockObject(DEFAULT_GUI_FONT);
-        g_lget  = mk(hwnd, "STATIC", "Get:  type keys, then press Get (or Enter)", SS_LEFT, 0);
-        g_keys  = mk(hwnd, "EDIT",   "", WS_BORDER | ES_AUTOHSCROLL, ID_KEYS);
-        mk(hwnd, "BUTTON", "Get", BS_DEFPUSHBUTTON, ID_GET);
-        g_or    = mk(hwnd, "BUTTON", "OR", BS_AUTOCHECKBOX, ID_OR);
-        g_list  = mk(hwnd, "LISTBOX", "", WS_BORDER | WS_VSCROLL | LBS_NOTIFY, ID_LIST);
-        g_ladd  = mk(hwnd, "STATIC", "Add:  left = value (URL, note, path),  right = keys", SS_LEFT, 0);
-        g_value = mk(hwnd, "EDIT",   "", WS_BORDER | ES_AUTOHSCROLL, ID_VALUE);
-        g_vkeys = mk(hwnd, "EDIT",   "", WS_BORDER | ES_AUTOHSCROLL, ID_VKEYS);
-        mk(hwnd, "BUTTON", "Add", BS_PUSHBUTTON, ID_ADD);
+        /* WS_TABSTOP on every interactive control so Tab/Shift+Tab cycle them
+         * (handled by IsDialogMessage in the loop); statics are labels, no stop. */
+        g_lkeys = mk(hwnd, "STATIC", "Keys:",  SS_LEFT, 0);
+        g_keys  = mk(hwnd, "EDIT",   "", WS_BORDER | WS_TABSTOP | ES_AUTOHSCROLL, ID_KEYS);
+        mk(hwnd, "BUTTON", "Get", WS_TABSTOP | BS_DEFPUSHBUTTON, ID_GET);
+        g_or    = mk(hwnd, "BUTTON", "OR", WS_TABSTOP | BS_AUTOCHECKBOX, ID_OR);
+        g_list  = mk(hwnd, "LISTBOX", "", WS_BORDER | WS_TABSTOP | WS_VSCROLL | LBS_NOTIFY, ID_LIST);
+        g_lval  = mk(hwnd, "STATIC", "Value:", SS_LEFT, 0);
+        g_value = mk(hwnd, "EDIT",   "", WS_BORDER | WS_TABSTOP | ES_AUTOHSCROLL, ID_VALUE);
+        g_lvk   = mk(hwnd, "STATIC", "Keys:",  SS_LEFT, 0);
+        g_vkeys = mk(hwnd, "EDIT",   "", WS_BORDER | WS_TABSTOP | ES_AUTOHSCROLL, ID_VKEYS);
+        mk(hwnd, "BUTTON", "Add", WS_TABSTOP | BS_PUSHBUTTON, ID_ADD);
         if (ais_locate(NULL, dir, sizeof dir) == 0)
             g_ais = ais_embed_open(dir);
         if (g_ais == NULL) {
@@ -304,7 +316,9 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmd, int show)
 
     acc = CreateAcceleratorTable(&a, 1);
     while (GetMessage(&msg, NULL, 0, 0) > 0) {
-        if (!TranslateAccelerator(hwnd, acc, &msg)) {
+        /* IsDialogMessage gives Tab/Shift+Tab/arrow focus navigation across the
+         * WS_TABSTOP controls (it skips hidden/disabled ones automatically). */
+        if (!TranslateAccelerator(hwnd, acc, &msg) && !IsDialogMessage(hwnd, &msg)) {
             TranslateMessage(&msg);
             DispatchMessage(&msg);
         }
