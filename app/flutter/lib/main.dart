@@ -42,6 +42,7 @@ class _RecallPageState extends State<RecallPage> {
   List<TlRow> _tl = const [];
   List<TagRow> _tags = const [];
   String _view = 'recall'; // recall | timeline | tags
+  bool _matchAll = false; // false = OR (any key, default); true = AND (all keys)
   bool _voice = false;
   bool _searched = false;
   String _status = 'opening index…';
@@ -92,7 +93,7 @@ class _RecallPageState extends State<RecallPage> {
     final keys = _q.text.trim();
     if (_ais == null || keys.isEmpty) return;
     final t0 = DateTime.now();
-    final r = _ais!.recall(keys);
+    final r = _ais!.recall(keys, orMode: !_matchAll);
     setState(() {
       _query = keys;
       _searched = true;
@@ -209,7 +210,7 @@ class _RecallPageState extends State<RecallPage> {
                       textInputAction: TextInputAction.search,
                       onSubmitted: (_) => _recall(),
                       decoration: InputDecoration(
-                        hintText: 'type keys to recall…',
+                        hintText: 'type keys to get…',
                         prefixIcon: const Icon(Icons.search),
                         filled: true,
                         fillColor: Colors.white.withValues(alpha: 0.85),
@@ -222,7 +223,21 @@ class _RecallPageState extends State<RecallPage> {
                             : null,
                       ),
                     ),
-                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        Checkbox(
+                          value: _matchAll,
+                          visualDensity: VisualDensity.compact,
+                          materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          onChanged: (v) {
+                            setState(() => _matchAll = v ?? false);
+                            if (_q.text.trim().isNotEmpty) _recall();
+                          },
+                        ),
+                        const Text('Match all keys', style: TextStyle(fontSize: 13)),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
                     SizedBox(
                       width: double.infinity,
                       child: SegmentedButton<String>(
@@ -233,7 +248,7 @@ class _RecallPageState extends State<RecallPage> {
                               TextStyle(fontSize: 13, color: cs.onSurface)),
                         ),
                         segments: const [
-                          ButtonSegment(value: 'recall', label: Text('Recall')),
+                          ButtonSegment(value: 'recall', label: Text('Get')),
                           ButtonSegment(value: 'timeline', label: Text('Timeline')),
                           ButtonSegment(value: 'tags', label: Text('Tags')),
                         ],
@@ -390,6 +405,15 @@ class _RecallPageState extends State<RecallPage> {
                 style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600)),
             const SizedBox(height: 14),
             TextField(
+              controller: keysCtrl,
+              decoration: const InputDecoration(
+                labelText: 'Keys (space-separated, optional)',
+                hintText: 'e.g. venice italy hotel',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
               controller: valCtrl,
               autofocus: true,
               minLines: 1,
@@ -397,15 +421,6 @@ class _RecallPageState extends State<RecallPage> {
               decoration: const InputDecoration(
                 labelText: 'What to remember',
                 hintText: 'a link, a note, a phone number…',
-                border: OutlineInputBorder(),
-              ),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: keysCtrl,
-              decoration: const InputDecoration(
-                labelText: 'Keys (space-separated, optional)',
-                hintText: 'e.g. venice italy hotel',
                 border: OutlineInputBorder(),
               ),
             ),

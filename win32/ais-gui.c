@@ -102,7 +102,8 @@ static HWND mk(HWND parent, const char *cls, const char *text, DWORD style, int 
 static void do_get(void)
 {
     char *keys = get_text(g_keys);
-    int or_mode = (SendMessage(g_or, BM_GETCHECK, 0, 0) == BST_CHECKED);
+    /* default is OR (any key); the "Match all keys" checkbox switches to AND. */
+    int or_mode = (SendMessage(g_or, BM_GETCHECK, 0, 0) != BST_CHECKED);
 
     SendMessage(g_list, LB_RESETCONTENT, 0, 0);
     if (g_ais != NULL && keys != NULL && keys[0] != '\0') {
@@ -171,32 +172,32 @@ static void layout(HWND hwnd)
 {
     RECT r;
     int w, pad = dp(8), gap = dp(6), bh = dp(26);
-    int btn = dp(80), orw = dp(48), lblk = dp(40), lblv = dp(48);
-    int y, by, getx, orx, x, fields, valw, vkw;
+    int btn = dp(80), cbw = dp(130), lblk = dp(40), lblv = dp(48);
+    int y, by, getx, cbx, x, fields, valw, vkw;
     GetClientRect(hwnd, &r);
     w = r.right;
 
-    /* TOP row: [Keys:] [keys ......] [Get] [OR] */
+    /* TOP row: [Keys:] [keys ......] [Get] [Match all keys] */
     y    = pad;
-    orx  = w - pad - orw;
-    getx = orx - gap - btn;
+    cbx  = w - pad - cbw;
+    getx = cbx - gap - btn;
     MoveWindow(g_lkeys, pad, y, lblk, bh, TRUE);
     MoveWindow(g_keys,  pad + lblk + gap, y, getx - gap - (pad + lblk + gap), bh, TRUE);
     MoveWindow(GetDlgItem(hwnd, ID_GET), getx, y, btn, bh, TRUE);
-    MoveWindow(g_or,    orx, y, orw, bh, TRUE);
+    MoveWindow(g_or,    cbx, y, cbw, bh, TRUE);
 
-    /* BOTTOM row: [Value:] [value ...] [Keys:] [vkeys ...] [Add] */
+    /* BOTTOM row: [Keys:] [vkeys ...] [Value:] [value ...] [Add] (keys first) */
     by = r.bottom - pad - bh;
-    fields = w - pad * 2 - lblv - lblk - btn - gap * 5;   /* width left for the two edits */
+    fields = w - pad * 2 - lblk - lblv - btn - gap * 5;   /* width left for the two edits */
     if (fields < dp(120))
         fields = dp(120);
-    valw = fields * 3 / 5;
-    vkw  = fields - valw;
+    vkw  = fields * 2 / 5;       /* keys are short; the value gets the rest */
+    valw = fields - vkw;
     x = pad;
-    MoveWindow(g_lval,  x, by, lblv, bh, TRUE); x += lblv + gap;
-    MoveWindow(g_value, x, by, valw, bh, TRUE); x += valw + gap;
     MoveWindow(g_lvk,   x, by, lblk, bh, TRUE); x += lblk + gap;
-    MoveWindow(g_vkeys, x, by, vkw,  bh, TRUE);
+    MoveWindow(g_vkeys, x, by, vkw,  bh, TRUE); x += vkw + gap;
+    MoveWindow(g_lval,  x, by, lblv, bh, TRUE); x += lblv + gap;
+    MoveWindow(g_value, x, by, valw, bh, TRUE);
     MoveWindow(GetDlgItem(hwnd, ID_ADD), w - pad - btn, by, btn, bh, TRUE);
 
     /* MIDDLE: results list fills the gap between the two rows */
@@ -227,12 +228,13 @@ static LRESULT CALLBACK wndproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
         g_lkeys = mk(hwnd, "STATIC", "Keys:",  SS_LEFT, 0);
         g_keys  = mk(hwnd, "EDIT",   "", WS_BORDER | WS_TABSTOP | ES_AUTOHSCROLL, ID_KEYS);
         mk(hwnd, "BUTTON", "Get", WS_TABSTOP | BS_DEFPUSHBUTTON, ID_GET);
-        g_or    = mk(hwnd, "BUTTON", "OR", WS_TABSTOP | BS_AUTOCHECKBOX, ID_OR);
+        g_or    = mk(hwnd, "BUTTON", "Match all keys", WS_TABSTOP | BS_AUTOCHECKBOX, ID_OR);
         g_list  = mk(hwnd, "LISTBOX", "", WS_BORDER | WS_TABSTOP | WS_VSCROLL | LBS_NOTIFY, ID_LIST);
-        g_lval  = mk(hwnd, "STATIC", "Value:", SS_LEFT, 0);
-        g_value = mk(hwnd, "EDIT",   "", WS_BORDER | WS_TABSTOP | ES_AUTOHSCROLL, ID_VALUE);
+        /* Add row, keys before value (consistent with the Get row above). */
         g_lvk   = mk(hwnd, "STATIC", "Keys:",  SS_LEFT, 0);
         g_vkeys = mk(hwnd, "EDIT",   "", WS_BORDER | WS_TABSTOP | ES_AUTOHSCROLL, ID_VKEYS);
+        g_lval  = mk(hwnd, "STATIC", "Value:", SS_LEFT, 0);
+        g_value = mk(hwnd, "EDIT",   "", WS_BORDER | WS_TABSTOP | ES_AUTOHSCROLL, ID_VALUE);
         mk(hwnd, "BUTTON", "Add", WS_TABSTOP | BS_PUSHBUTTON, ID_ADD);
         if (ais_locate(NULL, dir, sizeof dir) == 0)
             g_ais = ais_embed_open(dir);

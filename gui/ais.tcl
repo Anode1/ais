@@ -24,6 +24,7 @@ if {[auto_execok ais] ne ""} {
 set ADDSHOWN 0
 set INDEX ""       ;# current index dir (passed as -f); empty = default resolution
 set VIEW  recall   ;# recall | timeline | tags  (the segmented control)
+set MATCHALL 0     ;# 0 = OR (any key, the default); 1 = AND (match all keys)
 
 wm title   . "AIS"
 wm minsize . 540 460
@@ -34,6 +35,7 @@ pack .f -fill both -expand 1
 # --- GET first: the search row + results ----------------------------------
 ttk::entry  .f.q   -font {TkDefaultFont 12}
 ttk::button .f.get -text "Get" -command do_get
+ttk::checkbutton .f.all -text "Match all keys" -variable MATCHALL
 text        .f.res -height 14 -wrap word -font {TkTextFont 11} -state disabled \
                    -relief solid -borderwidth 1 -padx 8 -pady 8
 .f.res tag configure head -foreground "#777777" -spacing3 10
@@ -44,7 +46,7 @@ text        .f.res -height 14 -wrap word -font {TkTextFont 11} -state disabled \
 
 # --- Recall / Timeline / Tags switch (a segmented control) ------------------
 ttk::frame       .f.seg
-ttk::radiobutton .f.seg.r -text "Recall"   -value recall   -variable VIEW \
+ttk::radiobutton .f.seg.r -text "Get"      -value recall   -variable VIEW \
                  -style Toolbutton -command show_view
 ttk::radiobutton .f.seg.t -text "Timeline" -value timeline -variable VIEW \
                  -style Toolbutton -command show_view
@@ -54,11 +56,12 @@ pack .f.seg.r .f.seg.t .f.seg.g -side left -fill x -expand 1
 
 ttk::button .f.add -text "+ add" -command toggle_add
 ttk::button .f.storeb -text "Store…" -command choose_store
-ttk::label  .f.status -text "type keys to recall, then Get" -anchor w
+ttk::label  .f.status -text "type keys, then Get" -anchor w
 ttk::label  .f.storel -text "" -anchor w -foreground "#777777"
 
 grid .f.q      -row 0 -column 0 -sticky ew -ipady 4
 grid .f.get    -row 0 -column 1 -sticky e -padx {6 0}
+grid .f.all    -row 0 -column 2 -sticky e -padx {6 0}
 grid .f.seg    -row 1 -column 0 -columnspan 2 -sticky ew -pady {8 0}
 grid .f.res    -row 2 -column 0 -columnspan 2 -sticky nsew -pady {10 0}
 grid .f.add    -row 3 -column 0 -sticky w -pady {8 0}
@@ -73,7 +76,7 @@ grid rowconfigure    .f 2 -weight 1
 .f.res tag bind tagkey <Enter> {.f.res configure -cursor hand2}
 .f.res tag bind tagkey <Leave> {.f.res configure -cursor xterm}
 
-# --- ADD panel (hidden until "+ add"): value-first, with its OWN keys field
+# --- ADD panel (hidden until "+ add"): keys-first, with its OWN keys field
 # (prefilled from search, but editable; keys are optional). ------------------
 ttk::frame  .f.p
 ttk::label  .f.p.klab -text "Keys (space-separated, optional)"
@@ -195,7 +198,7 @@ proc tag_click {x y} {
 }
 
 proc do_get {} {
-    global AIS VIEW
+    global AIS VIEW MATCHALL
     set VIEW recall
     set keys [string trim [.f.q get]]
     if {$keys eq ""} {
@@ -210,7 +213,8 @@ proc do_get {} {
         return
     }
     set t0 [clock milliseconds]
-    if {[catch {exec $AIS {*}[ais_args] {*}$keys} out]} {
+    set mode [expr {$MATCHALL ? [list] : [list -o]}]   ;# default OR; -o = union (any key)
+    if {[catch {exec $AIS {*}[ais_args] {*}$mode {*}$keys} out]} {
         .f.status configure -text "error: $out"
         return
     }

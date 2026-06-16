@@ -101,16 +101,17 @@ static const char PAGE[] =
 ".tagcount{font-size:.8rem;color:var(--muted);background:#fff;border:1px solid var(--line);border-radius:10px;padding:.1rem .5rem;min-width:2rem;text-align:center}"
 "</style>"
 "<header id=bar><div class=titlerow><span class=brand>AIS</span><span id=count class=muted></span></div>"
-"<div class=searchrow><input id=q type=search placeholder='type keys to recall...' autocomplete=off autofocus></div>"
-"<div class=seg><button id=seg-recall class='segbtn active'>Recall</button>"
+"<div class=searchrow><input id=q type=search placeholder='type keys to get...' autocomplete=off autofocus>"
+"<label class=allk style='display:flex;align-items:center;gap:.4rem;font-size:.85rem;color:var(--muted);margin-top:.45rem'><input id=allk type=checkbox style='width:auto'> Match all keys</label></div>"
+"<div class=seg><button id=seg-recall class='segbtn active'>Get</button>"
 "<button id=seg-timeline class=segbtn>Timeline</button>"
 "<button id=seg-tags class=segbtn>Tags</button></div>"
 "<div class=storerow><span id=store class=muted></span><button id=storebtn class=link>change</button></div></header>"
 "<main id=out><p class=empty>Type keys, then Enter. Click + Add to store.</p></main>"
 "<button id=addbtn class=fab>+ Add</button>"
 "<div id=sheet hidden><div class=card><h2>Add to your memory</h2>"
-"<textarea id=v rows=3 placeholder='What to remember: a link, a note, a number...'></textarea>"
 "<input id=vk placeholder='Keys (space-separated, optional)'>"
+"<textarea id=v rows=3 placeholder='What to remember: a link, a note, a number...'></textarea>"
 "<div class=actions><button id=cancel class=ghost>Cancel</button><button id=save class=primary>Save</button></div>"
 "</div></div>"
 "<script>"
@@ -133,7 +134,8 @@ static const char PAGE[] =
 "r=document.createElement('div');r.className='hit';"
 "fillVal(r,v);o.appendChild(r)})}"
 "async function recall(){var q=$('q').value.trim();if(!q)return;var t0=performance.now();"
-"var t=await(await fetch('/api/get?keys='+encodeURIComponent(q))).text();render(t,q,performance.now()-t0)}"
+"var all=$('allk')&&$('allk').checked?'&all=1':'';"
+"var t=await(await fetch('/api/get?keys='+encodeURIComponent(q)+all)).text();render(t,q,performance.now()-t0)}"
 "function parseTL(ln){var a=ln.indexOf('|'),b=ln.indexOf('|',a+1),c=ln.indexOf('|',b+1);"
 "return{ts:ln.slice(a+1,b),keys:ln.slice(b+1,c),value:ln.slice(c+1)}}"
 "function fmtDay(d){var p=d.split('-'),M=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];"
@@ -251,7 +253,7 @@ static int on_id(long id, void *vp)
     return 0;
 }
 
-static void do_get(ais *a, char *keys, int fd)
+static void do_get(ais *a, char *keys, int all, int fd)
 {
     char *kv[AIS_KEYS_MAX];
     int nkeys = 0;
@@ -263,8 +265,8 @@ static void do_get(ais *a, char *keys, int fd)
         kv[nkeys++] = tok;
 
     s.a = a; s.fd = fd;
-    if (nkeys > 0)
-        ais_get(a, kv, nkeys, AIS_AND, on_id, &s);
+    if (nkeys > 0)                          /* default OR (any key); all => AND */
+        ais_get(a, kv, nkeys, all ? AIS_AND : AIS_OR, on_id, &s);
 }
 
 /* ---- put: the WHOLE body is one record ----------------------------------
@@ -359,6 +361,7 @@ static void handle(ais *a, int fd)
     char nokeys[1] = "";
     ssize_t n;
     char *method, *path, *query, *body, *keys = nokeys, *sp;
+    int want_all = 0;                     /* "Match all keys" -> AIS_AND; default OR */
 
     n = SOCK_READ(fd, buf, sizeof(buf) - 1);   /* assume the request fits (a sketch) */
     if (n <= 0)
@@ -379,18 +382,21 @@ static void handle(ais *a, int fd)
     query = strchr(path, '?');
     if (query != NULL) *query++ = '\0';
 
-    if (query != NULL) {                  /* keys=... (the only param we read) */
+    while (query != NULL && *query != '\0') {   /* params: keys=... & optional all=1 */
         char *amp = strchr(query, '&');
         if (amp != NULL) *amp = '\0';
         if (strncmp(query, "keys=", 5) == 0) {
             keys = query + 5;
             url_decode(keys);
+        } else if (strncmp(query, "all=", 4) == 0) {
+            want_all = (query[4] == '1');
         }
+        query = (amp != NULL) ? amp + 1 : NULL;
     }
 
     if (strcmp(method, "GET") == 0 && strcmp(path, "/api/get") == 0) {
         send_head(fd, "text/plain");
-        do_get(a, keys, fd);
+        do_get(a, keys, want_all, fd);
     } else if (strcmp(method, "POST") == 0 && strcmp(path, "/api/put") == 0) {
         char msg[64];
         long c = do_put(a, keys, body);
