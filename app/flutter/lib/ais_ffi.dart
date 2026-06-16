@@ -20,6 +20,10 @@ typedef _TimelineC = Pointer<Utf8> Function(Pointer<Void>, Int32);
 typedef _TimelineD = Pointer<Utf8> Function(Pointer<Void>, int);
 typedef _TagsC = Pointer<Utf8> Function(Pointer<Void>);
 typedef _TagsD = Pointer<Utf8> Function(Pointer<Void>);
+typedef _DefaultSetC = Int32 Function(Pointer<Utf8>);
+typedef _DefaultSetD = int Function(Pointer<Utf8>);
+typedef _LocateC = Int32 Function(Pointer<Utf8>, IntPtr);     // (out, outsz)
+typedef _LocateD = int Function(Pointer<Utf8>, int);
 
 /// One timeline row: a record's save time (empty if undated), its keys, value.
 class TlRow {
@@ -40,6 +44,39 @@ DynamicLibrary _load() {
   // iOS / macOS: the C is statically linked into the app binary.
   if (Platform.isIOS || Platform.isMacOS) return DynamicLibrary.process();
   throw UnsupportedError('AIS: unsupported platform');
+}
+
+/// Index resolution and saved-default, independent of an open handle -- so the
+/// app can find the same index the CLI would (and persist a new choice) before
+/// it opens anything. No env vars: the C resolves home via the OS.
+class AisIndex {
+  static final DynamicLibrary _lib = _load();
+  static final _LocateD _locate =
+      _lib.lookupFunction<_LocateC, _LocateD>('ais_embed_locate');
+  static final _DefaultSetD _defaultSet =
+      _lib.lookupFunction<_DefaultSetC, _DefaultSetD>('ais_embed_default_set');
+
+  /// The index a bare run would use (nearest .ais/, ~/.ais/config, else ~/.ais),
+  /// or null if it cannot be resolved.
+  static String? locate() {
+    final buf = calloc<Uint8>(4096);
+    try {
+      final rc = _locate(buf.cast<Utf8>(), 4096);
+      return rc == 0 ? buf.cast<Utf8>().toDartString() : null;
+    } finally {
+      calloc.free(buf);
+    }
+  }
+
+  /// Persist [dir] as the saved default index (~/.ais/config). True on success.
+  static bool setDefault(String dir) {
+    final d = dir.toNativeUtf8();
+    try {
+      return _defaultSet(d) == 0;
+    } finally {
+      calloc.free(d);
+    }
+  }
 }
 
 /// A handle to one on-disk index. Open once, recall/store many times, close.

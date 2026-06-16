@@ -76,15 +76,15 @@ WHERE YOUR DATA LIVES
 
       ais --where
 
-  to print the exact directory. By default it is $XDG_DATA_HOME/ais, else
-  ~/.local/share/ais, under your home:
+  to print the exact directory. By default it is ~/.ais, under your home:
 
-      Linux    /home/<you>/.local/share/ais
-      macOS    /Users/<you>/.local/share/ais        (not ~/Library)
-      Windows  %LOCALAPPDATA%\ais  (e.g. C:\Users\<you>\AppData\Local\ais)
+      Linux    /home/<you>/.ais
+      macOS    /Users/<you>/.ais        (not ~/Library)
+      Windows  %USERPROFILE%\.ais  (e.g. C:\Users\<you>\.ais)
 
-  (`ais --where` always prints the exact path; on Windows the index is at
-  %LOCALAPPDATA%\ais.)
+  (`ais --where` always prints the exact path.) To use a different folder as
+  your everyday index, run `ais --default PATH`; the choice is saved in
+  ~/.ais/config and used whenever you are not inside a local .ais/ tree.
 
   Or run `ais --init` to keep a local .ais/ next to a project, the way git does.
   Either way the bytes are yours, on your disk - not a company's.

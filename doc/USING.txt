@@ -48,8 +48,8 @@ PREFER TYPING? (Linux and macOS)
 WHERE YOUR THINGS ARE SAVED
 ---------------------------
 
-Plain text files on your own computer, in your home folder under
-.local/share/ais (Windows: %LOCALAPPDATA%\ais). Type  ais --where  to see the
+Plain text files on your own computer, in your home folder at
+~/.ais (Windows: %USERPROFILE%\.ais). Type  ais --where  to see the
 exact location. They are yours: copy them, back them up to a USB stick, or
 delete them. Nothing is ever uploaded anywhere.
 

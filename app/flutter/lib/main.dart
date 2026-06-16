@@ -56,19 +56,19 @@ class _RecallPageState extends State<RecallPage> {
     _init();
   }
 
-  // Desktop shares the user's REAL index (same default the CLI uses); mobile
-  // uses the app's private dir.
+  // Desktop shares the user's REAL index (the same one the CLI resolves: nearest
+  // .ais/, ~/.ais/config, else ~/.ais) via the engine, so no env vars and no
+  // duplicated logic. Mobile uses the app's private dir.
   Future<String> _indexDir() async {
     if (Platform.isAndroid || Platform.isIOS) {
       final docs = await getApplicationDocumentsDirectory();
       return '${docs.path}/ais';
     }
-    final env = Platform.environment;
-    final ai = env['AIS_INDEX'];
-    if (ai != null && ai.isNotEmpty) return ai;
-    final xdg = env['XDG_DATA_HOME'];
-    if (xdg != null && xdg.isNotEmpty) return '$xdg/ais';
-    return '${env['HOME']}/.local/share/ais';
+    final dir = AisIndex.locate();
+    if (dir == null || dir.isEmpty) {
+      throw Exception('cannot resolve the default index');
+    }
+    return dir;
   }
 
   Future<void> _init() async {
@@ -162,6 +162,9 @@ class _RecallPageState extends State<RecallPage> {
       _ais?.close();
       Directory(picked).createSync(recursive: true);
       _ais = AisEngine(picked);
+      // Desktop: remember the choice the same way `ais --default` does, so the
+      // next launch (and the CLI) opens it too. Mobile's index is fixed.
+      if (!Platform.isAndroid && !Platform.isIOS) AisIndex.setDefault(picked);
       setState(() {
         _dir = picked;
         _results = const [];

@@ -6,7 +6,7 @@ boring on purpose.
 Whole-index backup (everything; survives any version)
   Copy or rsync the index directory -- all plain files (store, meta, blobs/, the
   version stamp, and the rebuildable idx/ off multi tomb). rsync -a is exact:
-      rsync -a ~/.local/share/ais/  /backup/ais/
+      rsync -a ~/.ais/  /backup/ais/
   Restore: copy it back. blobs/ (your documents) travel with it.
 
 Portable export (one file, like a bookmark export)
@@ -22,7 +22,7 @@ Format version
   Each index carries a one-line  version  file (the on-disk format number; v1
   today). ais stamps it on create and refreshes it on  compact. An ais too old
   for an index's version refuses to open it, rather than risk corruption.
-      cat ~/.local/share/ais/version
+      cat ~/.ais/version
 
 Upgrading across a format change (the procedure, if the format ever changes)
   Golden rule: an ais can always DUMP an older store, so a migration is:

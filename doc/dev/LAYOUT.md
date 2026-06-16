@@ -159,10 +159,12 @@ flag selects a command; else `-v`/`-i` mean store; else recall the keys.
     ais [-f DIR] --doc KEY... < FILE   save a multi-line document as a blob file
     ais [-f DIR] --del ID | --del-key KEY | --dump | --keys | --stats | --compact
     ais [-f DIR] --import < FILE | --where | --project [KEY] | --serve [PORT]
+    ais --default [PATH]              show/set/clear the saved default index
     ais --init                        create a local .ais here
 
-INDEX location precedence: `-f/--index DIR` > `$AIS_INDEX` > nearest `.ais/`
-(walking up, git-style) > `$XDG_DATA_HOME/ais` (else `~/.local/share/ais`).
+INDEX location precedence (no env vars; `-f` is the only override): `-f/--index
+DIR` > nearest `.ais/` (walking up, git-style) > the saved default in
+`~/.ais/config` (set with `--default`) > `~/.ais` (created on first use).
 No args -> usage_short to stderr, exit 2. `-h` -> usage_short. `--help` ->
 usage_long.
 

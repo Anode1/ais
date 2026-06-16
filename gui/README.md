@@ -24,20 +24,19 @@ expandable **+ add** panel below holds put/doc (adding is the rarer action).
 ## Which index a GUI uses
 
 A GUI is the same `ais` engine behind a window, so it resolves the index exactly
-like the CLI: `-f DIR` > `$AIS_INDEX` > nearest `.ais/` above the working dir >
-the per-user default (`~/.local/share/ais`).
+like the CLI (no env vars): `-f DIR` > nearest `.ais/` at or above the working
+directory (git-style) > the saved default in `~/.ais/config` > `~/.ais`.
 
-The double-click launchers set `AIS_INDEX` to a `.ais/` **next to themselves**
-(`ais-web.bat` uses `%~dp0.ais`; `ais-web.command` uses `$dir/.ais`), so the GUI
-uses the index that ships in the bundle, with no `-f`. To **seed** it, drop a
-`.ais/` beside the launcher (for example, copy one from another project), and the
-GUI opens that one. To point elsewhere, set `AIS_INDEX` or pass `-f DIR`. (The
-Linux `.desktop` launcher can't locate itself, so there `ais --serve` falls back
-to the per-user default unless `AIS_INDEX` is set.)
+The double-click launchers `cd` to their **own folder** before running
+`ais --serve`, so a `.ais/` shipped **next to the launcher** is found by the
+git-style walk, with no `-f`. To **seed** it, drop a `.ais/` beside the launcher
+(for example, copy one from another project) and the GUI opens that one;
+otherwise it opens your saved default, or `~/.ais`. To switch indexes for good,
+use the GUI's "Store…" chooser (it persists via `ais --default`) or run
+`ais --default PATH` once.
 
-The Tk GUI, or `ais --serve` run by hand, follows the plain resolution (no
-`AIS_INDEX` preset): the per-user index, unless you cd into a `.ais/` tree or
-pass `-f`.
+The Tk GUI, or `ais --serve` run by hand, follows the same resolution: your saved
+default (or `~/.ais`), unless you cd into a `.ais/` tree or pass `-f`.
 
 ## Why so thin
 

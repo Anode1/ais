@@ -4,6 +4,12 @@ An AIS plugin is just an **executable** that extends `ais`. It does its work by
 calling the `ais` command line (or reading the plain-text index directly). The
 GUI wrappers in `../gui` are plugins in spirit; anything that speaks `ais` qualifies.
 
+The seam exists so the **core stays small and exact** while richer, fuzzier
+behavior lives outside it: the motivating cases are fuzzy / NLP extensions over
+the plain-text index -- approximate key matching, query expansion, summarizing
+or clustering results -- that read the index and call `ais` to get/add, without
+ever bloating the append-only core. (Invocation is still planned; see below.)
+
 ## Layout (one directory per plugin)
 
     plugins/<name>/
@@ -33,7 +39,7 @@ AIS is **append-only by policy** -- users and plugins are meant to *add*.
 ## Installing a plugin
 
 Drop its directory under `plugins/` (shipped with AIS) or under
-`$XDG_DATA_HOME/ais/plugins/` (per-user; discovery prefers this one).
+`~/.ais/plugins/` (per-user; discovery prefers this one).
 
 ## Invocation (planned)
 
@@ -42,8 +48,9 @@ run through a reserved dispatch verb rather than guessed from the name:
 
     ais x <name> [args...]        # (planned) run plugin <name>
 
-AIS exports the resolved index location in `$AIS_INDEX` before exec, so the
-plugin's own `ais` calls hit the same index. Until the dispatch verb is wired,
-run a plugin directly:
+AIS exports the resolved index location in `$AIS_INDEX` before exec; a plugin
+passes it on to its own `ais` calls with `-f "$AIS_INDEX"` (the engine reads no
+env var for the index -- `-f` is the only override). Until the dispatch verb is
+wired, run a plugin directly:
 
     AIS_INDEX=/path/to/index plugins/<name>/ais-<verb> [args...]

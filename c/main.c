@@ -11,8 +11,9 @@
  *                 are the bare args; values come through -v.
  * No bare word is ever a command, so a tag named "doc" or "find" recalls fine.
  *
- * INDEX location precedence: -f DIR > $AIS_INDEX > nearest .ais/ > per-user
- * (see locate.h). The CLI front-end (this file and feed.c) calls die(); the
+ * INDEX location precedence: -f DIR > nearest .ais/ > saved default in
+ * ~/.ais/config > the built-in ~/.ais (see locate.h). No env vars -- the index
+ * comes from argv. The CLI front-end (this file and feed.c) calls die(); the
  * engine modules return codes.
  */
 #define _DEFAULT_SOURCE          /* getopt_long */
@@ -135,22 +136,15 @@ static int write_project(const ais *a, const char *key)
 }
 
 /* The effective project key for this invocation, by precedence:
- *   -p flag (empty = explicit none) > $AIS_PROJECT > INDEX/project. */
+ *   -p flag (empty = explicit none) > the stored default (set via ais --project). */
 static void resolve_project(const ais *a, const char *flag, int given,
                             char *out, size_t outsz)
 {
-    const char *env;
-
     if (given) {                      /* -p given: its value wins ("" = none) */
         snprintf(out, outsz, "%s", flag ? flag : "");
         return;
     }
-    env = getenv("AIS_PROJECT");
-    if (env != NULL && env[0] != '\0') {
-        snprintf(out, outsz, "%s", env);
-        return;
-    }
-    read_project(a, out, outsz);
+    read_project(a, out, outsz);      /* else the stored default */
 }
 
 /* OUT = "PROJECT KEYS" (two writes, so no "%s %s" truncation warning). */
@@ -236,7 +230,7 @@ int main(int argc, char **argv)
     enum { OPT_HELP = 1000, OPT_VERSION,
            CMD_FIND, CMD_ADD, CMD_DEL, CMD_DELKEY, CMD_DUMP, CMD_KEYS, CMD_STATS,
            CMD_COMPACT, CMD_INIT, CMD_IMPORT, CMD_WHERE, CMD_SERVE, CMD_PROJECT,
-           CMD_DOC, CMD_TIMELINE, CMD_TAGS };
+           CMD_DOC, CMD_TIMELINE, CMD_TAGS, CMD_DEFAULT };
     static const struct option longopts[] = {
         { "index",       required_argument, NULL, 'f' },
         { "or",          no_argument,       NULL, 'o' },
@@ -246,6 +240,7 @@ int main(int argc, char **argv)
         { "value",       required_argument, NULL, 'v' },
         { "key",         required_argument, NULL, 'k' },
         { "project",     no_argument,       NULL, CMD_PROJECT },
+        { "default",     no_argument,       NULL, CMD_DEFAULT },
         { "help",        no_argument,       NULL, OPT_HELP },
         { "version",     no_argument,       NULL, OPT_VERSION },
         { "find",        no_argument,       NULL, CMD_FIND },
@@ -299,6 +294,7 @@ int main(int argc, char **argv)
         case CMD_DUMP: case CMD_KEYS: case CMD_STATS: case CMD_COMPACT:
         case CMD_INIT: case CMD_IMPORT: case CMD_WHERE: case CMD_SERVE:
         case CMD_PROJECT: case CMD_DOC: case CMD_TIMELINE: case CMD_TAGS:
+        case CMD_DEFAULT:
             if (cmd != 0) die("only one command at a time");
             cmd = c;
             break;
@@ -320,7 +316,7 @@ int main(int argc, char **argv)
             snprintf(resolved, sizeof(resolved), ".ais");
             dir = resolved;
         } else if (ais_locate(dir, resolved, sizeof(resolved)) != 0) {
-            die("cannot determine an index location (use -f, or set $HOME / $XDG_DATA_HOME)");
+            die("cannot determine an index location (use -f DIR)");
         } else {
             dir = resolved;
         }
@@ -407,6 +403,18 @@ int main(int argc, char **argv)
                 char cur[AIS_KEY_MAX];
                 read_project(&a, cur, sizeof(cur));
                 printf("%s\n", cur[0] != '\0' ? cur : "(no default project)");
+            }
+            break;
+        case CMD_DEFAULT:
+            if (optind < argc) {              /* set (empty arg clears it) */
+                if (ais_default_set(argv[optind]) != 0)
+                    die("default: cannot write ~/.ais/config");
+                if (argv[optind][0] == '\0') printf("default index cleared\n");
+                else printf("default index: %s\n", argv[optind]);
+            } else {                          /* show */
+                char cur[AIS_PATH_MAX];
+                printf("%s\n", ais_default_get(cur, sizeof cur) == 1
+                                   ? cur : "(no saved default; using ~/.ais)");
             }
             break;
         case CMD_DOC:

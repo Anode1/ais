@@ -110,10 +110,11 @@ proc cur_store {} {
 }
 proc refresh_store {} { .f.storel configure -text "store: [cur_store]" }
 proc choose_store {} {
-    global INDEX
+    global INDEX AIS
     set d [tk_chooseDirectory -title "Choose AIS index folder"]
     if {$d eq ""} return
     set INDEX $d
+    catch {exec $AIS --default $d}   ;# persist the choice (~/.ais/config)
     refresh_store
     if {[string trim [.f.q get]] ne ""} { do_get }
 }
@@ -290,7 +291,9 @@ proc do_put {} {
     } else {
         .f.status configure -text "saved $what under: [where_txt $keys]"
         .f.p.val delete 1.0 end
+        .f.p.keys delete 0 end                    ;# reset the Add panel for the next entry
         if {$keys ne ""} { .f.q delete 0 end; .f.q insert 0 $keys; do_get }
+        focus .f.p.keys
     }
 }
 

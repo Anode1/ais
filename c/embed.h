@@ -16,6 +16,8 @@
 #ifndef AIS_EMBED_H
 #define AIS_EMBED_H
 
+#include <stddef.h>     /* size_t */
+
 /* Open (creating if absent) the index directory; takes the single-writer lock
  * for the life of the handle. Returns an opaque handle, or NULL on failure. */
 void *ais_embed_open(const char *dir);
@@ -43,5 +45,15 @@ void  ais_embed_free(char *buf);
 
 /* Release the lock, flush the id counter, free the handle. */
 void  ais_embed_close(void *handle);
+
+/* Persist DIR as the saved default index in ~/.ais/config (for a GUI's "change
+ * store"), so the next run opens it. 0 on success, -1 on failure. */
+int   ais_embed_default_set(const char *dir);
+
+/* Resolve the index a bare run would use (same precedence as the CLI: nearest
+ * .ais/, then ~/.ais/config, then ~/.ais), writing it into OUT (size OUTSZ).
+ * 0 on success, -1 on error. Lets an embedder open the same index as the CLI
+ * without duplicating the resolution logic. */
+int   ais_embed_locate(char *out, size_t outsz);
 
 #endif /* AIS_EMBED_H */

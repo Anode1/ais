@@ -99,7 +99,7 @@ jobs:
         run: |
           name="ais-${{ github.ref_name }}-windows-x86_64"
           mkdir -p "stage/$name"
-          cp c/ais.exe win32/ais-gui.exe COPYING doc/about.txt doc/USING.txt "stage/$name/"
+          cp c/ais.exe win32/ais-gui.exe gui/ais-web.bat COPYING doc/about.txt doc/USING.txt "stage/$name/"
           cp installer/README-portable.txt "stage/$name/README.txt"
           ( cd stage && zip -rq "$name.zip" "$name" && sha256sum "$name.zip" > "$name.zip.sha256" )
           ls -l stage

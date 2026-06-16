@@ -8,7 +8,7 @@ Command line (if you ticked "Add ais to PATH"): open a NEW terminal and run
     ais --where           print where your memory is stored
 
 Your memory (the index) lives in your user profile, NOT in this folder:
-    %LOCALAPPDATA%\ais
+    %USERPROFILE%\.ais
 so uninstalling AIS never touches your data. It is plain text you can read,
 back up, or copy elsewhere.
 

@@ -12,6 +12,7 @@
 #include "common.h"
 #include "doc.h"
 #include "embed.h"
+#include "locate.h"
 
 void *ais_embed_open(const char *dir)
 {
@@ -197,4 +198,17 @@ char *ais_embed_tags(void *handle)
         return NULL;
     ais_tags((ais *)handle, tag_emit, &c);
     return buf_finish(&b, c.oom);
+}
+
+/* Persist DIR as the saved default index (~/.ais/config), for a GUI's "change
+ * store" so the choice sticks next run. 0 on success, -1 on failure. */
+int ais_embed_default_set(const char *dir)
+{
+    return ais_default_set(dir);
+}
+
+/* Resolve the same index the CLI would open with no -f (see embed.h). */
+int ais_embed_locate(char *out, size_t outsz)
+{
+    return ais_locate(NULL, out, outsz);
 }

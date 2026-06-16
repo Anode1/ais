@@ -140,11 +140,13 @@ static void do_add(void)
 
     if (g_ais != NULL && val != NULL && val[0] != '\0') {
         if (ais_embed_store(g_ais, (vk != NULL) ? vk : "", val) < 0)
-            log_error("store failed (keys='%s')", (vk != NULL) ? vk : "");
-        SetWindowTextA(g_value, "");
-        if (vk != NULL && vk[0] != '\0')                 /* show what was added */
+            log_error("save failed (keys='%s')", (vk != NULL) ? vk : "");
+        if (vk != NULL && vk[0] != '\0')                 /* echo the save into the Get box */
             SetWindowTextA(g_keys, vk);
-        do_get();
+        SetWindowTextA(g_value, "");                     /* reset the Add form for the next entry */
+        SetWindowTextA(g_vkeys, "");
+        do_get();                                        /* the saved item shows in the results */
+        SetFocus(g_vkeys);
     }
     free(val);
     free(vk);

@@ -14,7 +14,8 @@ Help is welcome: open an issue to claim a piece.
 
 ## Planned
 
-Roughly in priority order. Each is UI or platform glue; the engine does not change.
+Roughly in priority order. Most are UI or platform glue; the engine changes only
+for the two items flagged engine-level below (merging/sync and encrypted secrets).
 
 ### Mobile — Android and iPhone (PWA + Flutter) · next up
 
@@ -33,7 +34,7 @@ Depends on the Android app above. Google Play is a separate, optional track.
 
 ### Seamless index merging and sync
 
-The one engine-level item here (not just a wrapper). Today, combining two indexes
+An engine-level item (not just a wrapper). Today, combining two indexes
 is manual: `ais --dump` from one piped into `ais --import` on another, or rsync
 the plain files and rebuild. The goal is automatic, conflict-free merging — point
 two indexes (or two copies of one) at each other and have them reconcile into the
@@ -41,6 +42,21 @@ union of records, de-duplicated, with the key index rebuilt. Because the store i
 append-only plain text, merges compose cleanly (the same property that makes
 rsync-style replication safe). This is the backbone of multi-device use: your
 phone and laptop holding the same memory, with no central server.
+
+### Encrypted secrets — passwords under keys
+
+The second engine-level item. Store secret values (passwords, tokens) encrypted
+but retrievable by key like any other record: `ais` encrypts the value with a
+user passphrase *before* it enters the store, so the on-disk file still holds
+only opaque ciphertext text — the append-only, greppable, rsync-safe properties
+are untouched (the field is simply unreadable without the key). Recall decrypts
+on demand (an unlocked session, or a per-get passphrase prompt); secrets are a
+distinct value class, never emitted in plaintext by `--dump`. Constraints, to
+stay true to the project: a small, dependency-free, audited primitive (e.g. a
+single-file ChaCha20-Poly1305 / AES-GCM — never a heavyweight crypto library or
+hand-rolled cipher), authenticated encryption (tamper-evident), and an explicit
+passphrase→key derivation (a KDF). This is the one place AIS would hold data it
+cannot itself read — so the design bar (and review) is correspondingly higher.
 
 ### Speech support
 

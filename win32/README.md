@@ -27,8 +27,8 @@ since the GUI needs no CLI, web server, or directory-walk.
 - A **keys** box + **Recall** (with an **OR** toggle) -> results list.
 - Double-click an `http(s)` result to open it in the browser.
 - A **value** + **keys** row + **Add** to store a new record.
-- Opens the same default index the CLI uses (`ais_locate`): `-f`/`$AIS_INDEX`/
-  nearest `.ais/`/the per-user index.
+- Opens the same default index the CLI uses (`ais_locate`): `-f`/nearest
+  `.ais/`/the saved default in `~/.ais/config`/`~/.ais`.
 
 It coexists with `ais --serve` (the cross-platform browser GUI); native users who
 want a real window without a browser tab use this.

@@ -84,33 +84,21 @@ okempty "find: absent term prints nothing"    "$out"
 
 # 4. git-style location: `--init` creates a local .ais, found from subdirectories
 TREE=$(mktemp -d "${TMPDIR:-/tmp}/ais_tree.XXXXXX") || exit 2
-( cd "$TREE" && AIS_INDEX= "$AIS" --init >/dev/null )
+( cd "$TREE" && "$AIS" --init >/dev/null )
 if [ -d "$TREE/.ais" ]; then
     pass=$((pass + 1)); echo "  ok   init: creates .ais in the current dir"
 else
     fail=$((fail + 1)); echo "  FAIL init: no .ais created"
 fi
 mkdir -p "$TREE/sub/deep"
-( cd "$TREE/sub/deep" && printf 'a note\n' | AIS_INDEX= "$AIS" -v - memo >/dev/null )
-out=$(cd "$TREE" && AIS_INDEX= "$AIS" memo)
+( cd "$TREE/sub/deep" && printf 'a note\n' | "$AIS" -v - memo >/dev/null )
+out=$(cd "$TREE" && "$AIS" memo)
 ok "discovery: a put from a subdir walked up to .ais" "a note" "$out"
-keys=$(cd "$TREE/sub" && AIS_INDEX= "$AIS" --keys)
+keys=$(cd "$TREE/sub" && "$AIS" --keys)
 ok "discovery: key visible from another subdir"       "memo"   "$keys"
 rm -rf "$TREE"
 
-# 5. global fallback: no -f, no .ais -> $XDG_DATA_HOME/ais (auto-created, isolated)
-G=$(mktemp -d "${TMPDIR:-/tmp}/ais_glob.XXXXXX") || exit 2
-( cd "$G" && AIS_INDEX= XDG_DATA_HOME="$G/xdg" "$AIS" -v global-note gk >/dev/null )
-if [ -d "$G/xdg/ais" ]; then
-    pass=$((pass + 1)); echo "  ok   global: \$XDG_DATA_HOME/ais auto-created"
-else
-    fail=$((fail + 1)); echo "  FAIL global: \$XDG_DATA_HOME/ais not created"
-fi
-out=$(cd "$G" && AIS_INDEX= XDG_DATA_HOME="$G/xdg" "$AIS" gk)
-ok "global: value retrievable from the per-user index" "global-note" "$out"
-rm -rf "$G"
-
-# 6. immutability: --del needs confirmation; no input aborts, -y bypasses
+# 5. immutability: --del needs confirmation; no input aborts, -y bypasses
 DD=$(mktemp -d "${TMPDIR:-/tmp}/ais_del.XXXXXX") || exit 2
 id=$("$AIS" -f "$DD" -v "scratch value" tmp)
 "$AIS" -f "$DD" --del "$id" </dev/null >/dev/null 2>&1     # no -y, EOF -> aborted
@@ -121,7 +109,7 @@ out=$("$AIS" -f "$DD" tmp)
 okempty "guard: del -y removes the record" "$out"
 rm -rf "$DD"
 
-# 7. interactive: stdin = values, keys read per line from $AIS_TTY (scripted tty)
+# 6. interactive: stdin = values, keys read per line from $AIS_TTY (scripted tty)
 II=$(mktemp -d "${TMPDIR:-/tmp}/ais_i.XXXXXX") || exit 2
 printf 'x1\nx2\n' > "$II/keys"
 printf 'http://a\nhttp://b\n' | AIS_TTY="$II/keys" "$AIS" -f "$II/idx" -i kul >/dev/null 2>&1
@@ -136,7 +124,7 @@ case "$out" in
 esac
 rm -rf "$II"
 
-# 8. import: keys|value lines; same keys recall together; round-trips dump
+# 7. import: keys|value lines; same keys recall together; round-trips dump
 IM=$(mktemp -d "${TMPDIR:-/tmp}/ais_import.XXXXXX") || exit 2
 printf 'a b|first\na b|second\nc|third\n# comment\n\nnobar-skip\n' | "$AIS" -f "$IM" --import 2>/dev/null
 out=$("$AIS" -f "$IM" a b)
@@ -151,7 +139,7 @@ out=$("$AIS" -f "$IM2" a b)
 ok "import: dump|import round-trips"    "second" "$out"
 rm -rf "$IM" "$IM2"
 
-# 9. doc: a multi-line document becomes a blob file; the value is its path
+# 8. doc: a multi-line document becomes a blob file; the value is its path
 DC=$(mktemp -d "${TMPDIR:-/tmp}/ais_doc.XXXXXX") || exit 2
 printf 'line one\nline two\nline three\n' | "$AIS" -f "$DC" --doc kul memo >/dev/null 2>&1
 out=$("$AIS" -f "$DC" kul memo)
@@ -166,7 +154,7 @@ okeq "doc: blob preserved 3 lines"   "3" "$(( $(wc -l < "$blob") ))"   # $(()) s
 ok "where: prints the index dir"     "$DC" "$("$AIS" -f "$DC" --where)"
 rm -rf "$DC"
 
-# 10. multi-link: two -v under one key make one record (id) with two values
+# 9. multi-link: two -v under one key make one record (id) with two values
 ML=$(mktemp -d "${TMPDIR:-/tmp}/ais_ml.XXXXXX") || exit 2
 mlid=$("$AIS" -f "$ML" -v linkA -v linkB project)
 out=$("$AIS" -f "$ML" project)
@@ -176,14 +164,14 @@ n=$(printf '%s\n' "$out" | grep -c .)
 okeq "multi-link: both under one record" "2" "$n"
 rm -rf "$ML"
 
-# 11. keyless capture: -v with no key stores a value, found by --find / --dump
+# 10. keyless capture: -v with no key stores a value, found by --find / --dump
 KL=$(mktemp -d "${TMPDIR:-/tmp}/ais_kl.XXXXXX") || exit 2
 "$AIS" -f "$KL" -v "call Marina back" >/dev/null
 out=$("$AIS" -f "$KL" --find Marina)
 ok "keyless: stored value is findable" "call Marina back" "$out"
 rm -rf "$KL"
 
-# 12. default project key: set it, every put gets it; -p '' resets; env overrides
+# 11. default project key: set it, every put gets it; -p '' resets
 PJ=$(mktemp -d "${TMPDIR:-/tmp}/ais_proj.XXXXXX") || exit 2
 "$AIS" -f "$PJ" --project kul >/dev/null
 "$AIS" -f "$PJ" -v "deploy-cmd" deploy >/dev/null
@@ -194,12 +182,10 @@ case "$("$AIS" -f "$PJ" kul)" in
     *"global note"*) fail=$((fail + 1)); echo "  FAIL project: -p '' leaked into kul" ;;
     *)               pass=$((pass + 1)); echo "  ok   project: -p '' resets (not under kul)" ;;
 esac
-out=$(AIS_PROJECT=env1 "$AIS" -f "$PJ" -v "envval" thing >/dev/null; "$AIS" -f "$PJ" env1)
-ok "project: \$AIS_PROJECT overrides the file"   "envval" "$out"
 ok "project: show the default"                   "kul"    "$("$AIS" -f "$PJ" --project)"
 rm -rf "$PJ"
 
-# 13. --add attaches another value to an existing record; --stats summarizes
+# 12. --add attaches another value to an existing record; --stats summarizes
 AD=$(mktemp -d "${TMPDIR:-/tmp}/ais_add.XXXXXX") || exit 2
 aid=$("$AIS" -f "$AD" -v firstlink note)
 "$AIS" -f "$AD" --add "$aid" -v secondlink >/dev/null
@@ -211,7 +197,7 @@ if [ -n "$st" ]; then pass=$((pass + 1)); echo "  ok   stats: prints a summary"
 else fail=$((fail + 1)); echo "  FAIL stats: empty"; fi
 rm -rf "$AD"
 
-# 14. --del-key tombstones every record under a key (-y skips the prompt)
+# 13. --del-key tombstones every record under a key (-y skips the prompt)
 DK=$(mktemp -d "${TMPDIR:-/tmp}/ais_dk.XXXXXX") || exit 2
 "$AIS" -f "$DK" -v a1 gone >/dev/null
 "$AIS" -f "$DK" -v a2 gone >/dev/null
@@ -219,7 +205,7 @@ DK=$(mktemp -d "${TMPDIR:-/tmp}/ais_dk.XXXXXX") || exit 2
 okempty "del-key: all records under the key removed" "$("$AIS" -f "$DK" gone)"
 rm -rf "$DK"
 
-# 15. --compact reclaims space: a deleted record physically leaves the store
+# 14. --compact reclaims space: a deleted record physically leaves the store
 CP=$(mktemp -d "${TMPDIR:-/tmp}/ais_cp.XXXXXX") || exit 2
 cid=$("$AIS" -f "$CP" -v doomed scratch)
 "$AIS" -f "$CP" -y --del "$cid" >/dev/null
@@ -230,7 +216,7 @@ case "$(cat "$CP"/store)" in
 esac
 rm -rf "$CP"
 
-# 16. concurrency: two parallel writers never collide on an id (per-op write
+# 15. concurrency: two parallel writers never collide on an id (per-op write
 #     lock + fresh next_id). Regression for the reader/writer lock change.
 CC=$(mktemp -d "${TMPDIR:-/tmp}/ais_cc.XXXXXX") || exit 2
 ( i=0; while [ $i -lt 50 ]; do "$AIS" -f "$CC" -v "a$i" w1 >/dev/null; i=$((i+1)); done ) &
@@ -242,7 +228,7 @@ okeq "concurrency: 100 records written"            "100" "$total"
 okeq "concurrency: all ids unique (no collision)"  "$total" "$uniq"
 rm -rf "$CC"
 
-# 17. --timeline (newest first; a dateless/hand-edited record shown first, not
+# 16. --timeline (newest first; a dateless/hand-edited record shown first, not
 #     lost) and --tags (every key with its count, busiest first)
 TT=$(mktemp -d "${TMPDIR:-/tmp}/ais_tl.XXXXXX") || exit 2
 "$AIS" -f "$TT" -v "https://a.example" alpha shared >/dev/null
@@ -259,6 +245,27 @@ ok    "timeline: dateless record shown first"   "(undated)" "$(printf '%s\n' "$t
 ok    "timeline: hand-pasted record survived"   "pasted with no date" "$tl"
 okeq  "timeline: all four records listed"        "4" "$(printf '%s\n' "$tl" | grep -c .)"
 rm -rf "$TT"
+
+# 17. saved default index persists in ~/.ais/config ACROSS PROCESSES. Each ais
+#     call is a fresh process, so reading the path back -- and resolving --where
+#     to it from a dir with no local .ais -- proves it was written to disk, not
+#     held in memory. Idempotent: saving the same path twice is stable.
+#     --default writes the real ~/.ais/config (home is the OS account dir, not a
+#     redirectable env var), so snapshot it and restore on exit.
+CFG="$HOME/.ais/config"
+CFGBAK="$DIR/config.orig"; HADCFG=no
+[ -f "$CFG" ] && { cp "$CFG" "$CFGBAK"; HADCFG=yes; }
+restore_cfg() { if [ "$HADCFG" = yes ]; then cp "$CFGBAK" "$CFG"; else rm -f "$CFG"; fi; }
+trap 'rm -rf "$DIR"; restore_cfg' EXIT
+
+TGT="$DIR/saved-default"
+"$AIS" --default "$TGT" >/dev/null                              # save (process A)
+okeq "default: a new process reads back the saved path" "$TGT" "$("$AIS" --default)"
+okeq "default: --where resolves to the saved index"     "$TGT" "$(cd "$DIR" && "$AIS" --where)"
+"$AIS" --default "$TGT" >/dev/null                              # save again
+okeq "default: saving the same path twice is idempotent" "$TGT" "$("$AIS" --default)"
+"$AIS" --default '' >/dev/null                                  # clear
+ok   "default: clearing falls back to the built-in default" "no saved default" "$("$AIS" --default)"
 
 echo "---- $pass passed, $fail failed"
 [ "$fail" -eq 0 ]

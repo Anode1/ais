@@ -33,6 +33,7 @@
 #include "ais.h"
 #include "common.h"
 #include "doc.h"
+#include "locate.h"       /* ais_default_set: persist the chosen store */
 #include "win.h"          /* Winsock + socket shims on native Windows; empty on POSIX */
 #include "serve.h"
 
@@ -329,7 +330,7 @@ static const char *ctype_of(const char *name)
  * '/' or "..", so the browser cannot escape the dir. Returns 1 if served. */
 static int serve_asset(int fd, const char *name)
 {
-    const char *webdir = getenv("AIS_WEB");
+    const char *webdir = "gui/web";       /* external assets if present (dev); no env */
     char path[AIS_PATH_MAX], buf[8192];
     FILE *fp;
     size_t n;
@@ -340,8 +341,6 @@ static int serve_asset(int fd, const char *name)
     for (p = name; *p != '\0'; p++)
         if (!isalnum((unsigned char)*p) && *p != '.' && *p != '_' && *p != '-')
             return 0;                     /* reject '/', '..', anything unsafe */
-    if (webdir == NULL || webdir[0] == '\0')
-        webdir = "gui/web";
     if (snprintf(path, sizeof(path), "%s/%s", webdir, name) >= (int)sizeof(path))
         return 0;
     fp = fopen(path, "rb");
@@ -439,6 +438,7 @@ static void handle(ais *a, int fd)
                 write_all(fd, e, sizeof(e) - 1);
                 return;                        /* accept loop closes fd */
             }
+            ais_default_set(nd);              /* persist: it's the default next run */
         }
         send_head(fd, "text/plain");
         write_all(fd, a->dir, strlen(a->dir));

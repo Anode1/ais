@@ -38,7 +38,7 @@ ais \- associative index: save values under keys, get them back by keys
 .B ais
 .RB [ \-f
 .IR DIR ]
-.BR \-\-del | \-\-del-key | \-\-dump | \-\-keys | \-\-stats | \-\-compact | \-\-import | \-\-where | \-\-project | \-\-serve | \-\-init
+.BR \-\-del | \-\-del-key | \-\-dump | \-\-keys | \-\-stats | \-\-compact | \-\-import | \-\-where | \-\-project | \-\-default | \-\-serve | \-\-init
 .RI [ ARG ]
 .SH DESCRIPTION
 .B ais
@@ -65,15 +65,15 @@ value already saved is idempotent.
 .SH OPTIONS
 .TP
 .BI \-f " DIR"
-Index directory. With no flag, the index is located by precedence: this flag,
-then
-.BR $AIS_INDEX ,
-then the nearest
+Index directory, and the only way to point AIS at one explicitly (no env var).
+With no flag, the index is located by precedence: the nearest
 .I .ais/
-at or above the current directory (like git), then the per-user index
-.I $XDG_DATA_HOME/ais
-(else
-.IR ~/.local/share/ais ),
+at or above the current directory (like git), then the saved default in
+.IR ~/.ais/config
+(set with
+.BR "ais \-\-default PATH" ),
+then the built-in default
+.IR ~/.ais ,
 created on first use.
 .TP
 .B \-o
@@ -91,11 +91,9 @@ An explicit key, for a key that begins with
 .RB ' \- '.
 .TP
 .BI \-p " KEY"
-Default project key prepended to this save ('' = none); persistent default is set
-with
-.BR "ais \-\-project KEY" ,
-or via
-.BR $AIS_PROJECT .
+Default project key prepended to this save ('' = none); the persistent default is
+set with
+.BR "ais \-\-project KEY" .
 .TP
 .B \-i
 Interactive save: standard-input lines are values, keys are prompted per line.
@@ -179,6 +177,14 @@ Print the resolved index directory (e.g. to locate a blob file).
 .B \-\-project \fR[\fIKEY\fR]
 Show, set, or clear ('') the persistent default project key.
 .TP
+.B \-\-default \fR[\fIPATH\fR]
+Show, set, or clear ('') the saved default index in
+.IR ~/.ais/config .
+With no argument, print the saved default (or a note that none is set); with
+PATH, save it as the index used when no
+.I .ais/
+is found nearby.
+.TP
 .B \-\-serve \fR[\fIPORT\fR]
 Start the local web GUI on 127.0.0.1 (default port 8765).
 .SH EXAMPLES
@@ -193,8 +199,8 @@ ais -v "call Marina back"
 .SH FILES
 These live inside the index directory (e.g.
 .I .ais/
-or
-.IR ~/.local/share/ais ):
+or the per-user default
+.IR ~/.ais ):
 .TP
 .I store
 Append-only records,
@@ -216,23 +222,14 @@ Tombstoned (deleted) ids.
 Documents saved by
 .B \-\-doc
 (real data; not rebuildable).
-.SH ENVIRONMENT
+.PP
+Outside the index, in your home AIS dir:
 .TP
-.B AIS_INDEX
-Index directory used when
-.B \-f
-is not given (takes precedence over discovery).
-.TP
-.B XDG_DATA_HOME
-Base for the per-user index
-.RI ( $XDG_DATA_HOME /ais );
-defaults to
-.IR ~/.local/share .
-.TP
-.B AIS_PROJECT
-Default project key when neither
-.B \-p
-nor a stored default is set.
+.I ~/.ais/config
+Plain-text config; an
+.I index = PATH
+line records the saved default index (see
+.BR "ais \-\-default" ).
 .SH AUTHOR
 Vasili Gavrilov.
 .SH SEE ALSO
