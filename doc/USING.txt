@@ -17,13 +17,11 @@ OPEN IT
 Each one opens AIS in your web browser at  http://127.0.0.1:8765 . A small
 window may stay open while AIS runs; close it when you are done.
 
-(On Linux there is also a plain desktop window:  wish gui/ais.tcl )
-
 
 USE IT
 ------
 
-There are only two things to do.
+The everyday actions are recall and add; you can also fix or remove an item.
 
   Recall    Type keywords in the search box and press Enter. Matching items
             appear, one per line; links are clickable.
@@ -33,7 +31,12 @@ There are only two things to do.
             few keywords below if you like (optional), then Save. It appears
             right away.
 
-That is the whole program: type to recall, "+ Add" to remember.
+  Edit /    Each result has small  edit keys  and  delete  actions. "Edit keys"
+  remove    adds or removes keywords on that one item -- type a keyword to add
+            it, or  -keyword  to remove it; the item itself stays. "Delete"
+            removes the whole item.
+
+The timeline shows your most recent items; "Load more" reveals older ones.
 
 
 PREFER TYPING? (Linux and macOS)
@@ -42,6 +45,9 @@ PREFER TYPING? (Linux and macOS)
   ais venice italy                  recall items under BOTH keywords
   ais -o venice rome                recall items under EITHER keyword
   ais -v "Hotel Danieli" venice     save a value under keywords
+  ais --update 42 rome -- -venice   on item 42 (the id shown as id|value):
+                                    add 'rome', remove 'venice'
+  ais --del 42                      delete item 42
   ais --help                        the full list of commands
 
 

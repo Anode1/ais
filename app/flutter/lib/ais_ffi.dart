@@ -12,12 +12,16 @@ typedef _RecallC = Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>, Int32);
 typedef _RecallD = Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>, int);
 typedef _StoreC = Int64 Function(Pointer<Void>, Pointer<Utf8>, Pointer<Utf8>);
 typedef _StoreD = int Function(Pointer<Void>, Pointer<Utf8>, Pointer<Utf8>);
+typedef _DelC = Int32 Function(Pointer<Void>, Int64);
+typedef _DelD = int Function(Pointer<Void>, int);
+typedef _UpdateC = Int32 Function(Pointer<Void>, Int64, Pointer<Utf8>);
+typedef _UpdateD = int Function(Pointer<Void>, int, Pointer<Utf8>);
 typedef _FreeC = Void Function(Pointer<Utf8>);
 typedef _FreeD = void Function(Pointer<Utf8>);
 typedef _CloseC = Void Function(Pointer<Void>);
 typedef _CloseD = void Function(Pointer<Void>);
-typedef _TimelineC = Pointer<Utf8> Function(Pointer<Void>, Int32);
-typedef _TimelineD = Pointer<Utf8> Function(Pointer<Void>, int);
+typedef _TimelineC = Pointer<Utf8> Function(Pointer<Void>, Int64, Int32);
+typedef _TimelineD = Pointer<Utf8> Function(Pointer<Void>, int, int);
 typedef _TagsC = Pointer<Utf8> Function(Pointer<Void>);
 typedef _TagsD = Pointer<Utf8> Function(Pointer<Void>);
 typedef _DefaultSetC = Int32 Function(Pointer<Utf8>);
@@ -25,10 +29,19 @@ typedef _DefaultSetD = int Function(Pointer<Utf8>);
 typedef _LocateC = Int32 Function(Pointer<Utf8>, IntPtr);     // (out, outsz)
 typedef _LocateD = int Function(Pointer<Utf8>, int);
 
-/// One timeline row: a record's save time (empty if undated), its keys, value.
+/// One recall hit: the record id (the handle for delete/update) and its value.
+class Hit {
+  final int id;
+  final String value;
+  const Hit(this.id, this.value);
+}
+
+/// One timeline row: the record id (the paging cursor and delete/update handle),
+/// its save time (empty if undated), its keys, value.
 class TlRow {
+  final int id;
   final String ts, keys, value;
-  const TlRow(this.ts, this.keys, this.value);
+  const TlRow(this.id, this.ts, this.keys, this.value);
 }
 
 /// One tag: the key and how many records are filed under it.
@@ -91,6 +104,8 @@ class AisEngine {
   late final _TimelineD _timelineFn =
       _lib.lookupFunction<_TimelineC, _TimelineD>('ais_embed_timeline');
   late final _TagsD _tagsFn = _lib.lookupFunction<_TagsC, _TagsD>('ais_embed_tags');
+  late final _DelD _del = _lib.lookupFunction<_DelC, _DelD>('ais_embed_del');
+  late final _UpdateD _update = _lib.lookupFunction<_UpdateC, _UpdateD>('ais_embed_update');
 
   AisEngine(String indexDir) {
     final dir = indexDir.toNativeUtf8();
@@ -99,8 +114,9 @@ class AisEngine {
     if (_h == nullptr) throw Exception('AIS: cannot open index at $indexDir');
   }
 
-  /// Recall the values filed under [keys]. orMode false = AND, true = OR.
-  List<String> recall(String keys, {bool orMode = false}) {
+  /// Recall the records filed under [keys]. orMode false = AND, true = OR.
+  /// Each hit keeps its id (the handle for [del]/[update]) and value.
+  List<Hit> recall(String keys, {bool orMode = false}) {
     final k = keys.toNativeUtf8();
     final p = _recall(_h, k, orMode ? 1 : 0);
     calloc.free(k);
@@ -111,15 +127,18 @@ class AisEngine {
         .split('\n')
         .where((l) => l.isNotEmpty)
         .map((l) {
-          final i = l.indexOf('|'); // strip the "id|" prefix
-          return i >= 0 ? l.substring(i + 1) : l;
+          final i = l.indexOf('|'); // split the "id|value" line (value may hold '|')
+          if (i < 0) return Hit(0, l);
+          return Hit(int.tryParse(l.substring(0, i)) ?? 0, l.substring(i + 1));
         })
         .toList();
   }
 
-  /// The most-recent records, dateless first then newest. limit <= 0 = default.
-  List<TlRow> timeline({int limit = 0}) {
-    final p = _timelineFn(_h, limit);
+  /// A timeline page: the [count] records with id < [before], newest id first.
+  /// before <= 0 starts from the newest; pass the last row's id to page on. A
+  /// page shorter than [count] means there are no more.
+  List<TlRow> timeline({int before = 0, int count = 0}) {
+    final p = _timelineFn(_h, before, count);
     if (p == nullptr) return const [];
     final text = p.toDartString();
     _free(p);
@@ -127,7 +146,8 @@ class AisEngine {
       final a = l.indexOf('|'),
           b = l.indexOf('|', a + 1),
           c = l.indexOf('|', b + 1); // value may contain '|', so take the rest
-      return TlRow(l.substring(a + 1, b), l.substring(b + 1, c), l.substring(c + 1));
+      return TlRow(int.tryParse(l.substring(0, a)) ?? 0,
+          l.substring(a + 1, b), l.substring(b + 1, c), l.substring(c + 1));
     }).toList();
   }
 
@@ -151,6 +171,18 @@ class AisEngine {
     calloc.free(k);
     calloc.free(v);
     return id;
+  }
+
+  /// Delete record [id]. True on success.
+  bool del(int id) => _del(_h, id) == 0;
+
+  /// Edit record [id]'s keys: a bare token attaches, a `-key` token detaches.
+  /// True on success (false if id unknown/deleted).
+  bool update(int id, String keys) {
+    final k = keys.toNativeUtf8();
+    final rc = _update(_h, id, k);
+    calloc.free(k);
+    return rc == 0;
   }
 
   void close() => _close(_h);

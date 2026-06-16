@@ -33,7 +33,7 @@ Windows now ships the **native (MinGW) build**, no `cygwin1.dll`. Status:
    installer on `windows-latest`.
 3. **Done** -- the installer bundles both; the Start-Menu shortcut launches
    `ais-gui.exe`; `ais.exe` is on PATH only (no console-flashing CLI shortcut).
-   No `cygwin1.dll`, no `ais-start.bat`, no `ais.tcl`.
+   No `cygwin1.dll`, no `ais-start.bat`.
 4. **Done** -- removed the Cygwin shipping path entirely: `THIRD-PARTY-NOTICES.txt`,
    `gui/ais-web.bat`, `gui/ais-start.bat`, and the `dist.sh` Cygwin branch. There
    are effectively no Cygwin users to serve (WSL and native MinGW cover that
@@ -41,18 +41,10 @@ Windows now ships the **native (MinGW) build**, no `cygwin1.dll`. Status:
 
 Result: one Windows download, a native app, no runtime, no third-party DLL.
 
-## Plan B -- retire the Tk GUI
+## GUIs -- one purpose each
 
-`gui/ais.tcl` overlaps both the native Win32 window (Windows) and the web GUI
-(everywhere), and it is the only front-end needing a runtime (`wish`/Tcl-Tk).
-Remove it to cut a confusing third option and a maintenance surface:
-
-- delete `gui/ais.tcl`, its copy in `scripts/dist.sh`, and references in
-  `gui/README.md` and `doc/OVERVIEW.md`;
-- it stays in git history if ever wanted.
-
-GUIs then reduce to: **native Win32 (Windows) + web `--serve` (all) + PWA
-(phones)** -- each with a clear, single purpose.
+**native Win32 (Windows) + web `--serve` (all) + Flutter (mobile and desktop)
++ PWA (phones)** -- each with a clear, single purpose, and none needs a runtime.
 
 ## What we keep maintaining
 
@@ -65,5 +57,5 @@ GUIs then reduce to: **native Win32 (Windows) + web `--serve` (all) + PWA
 
 Do nothing that breaks current (Cygwin) releases until the native build is
 proven on real Windows. Order: prove native -> switch Windows to native +
-installer-bundles-GUI -> drop Cygwin/notice -> retire Tk. Each step is a small,
+installer-bundles-GUI -> drop Cygwin/notice. Each step is a small,
 separate change; releases stay green throughout.

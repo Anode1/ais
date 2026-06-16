@@ -25,6 +25,11 @@ int post_append(const ais *a, const char *key, long id);
  * that is renamed into place. Returns 0, or -1 on error. */
 int post_insert(const ais *a, const char *key, long id);
 
+/* Remove ID from KEY's posting list (idempotent: a missing file or an absent id
+ * is success). If the list becomes empty the posting file is unlinked, so the
+ * key stops appearing in --keys / --tags. Returns 0, or -1 on error. */
+int post_remove(const ais *a, const char *key, long id);
+
 /* A forward reader over one key's posting file. Bounded: an open FILE and the
  * current head. Declare on the stack; post_open then post_next/post_close. */
 typedef struct post_stream {

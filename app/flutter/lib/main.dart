@@ -38,9 +38,12 @@ class _RecallPageState extends State<RecallPage> {
   final _q = TextEditingController();
   final _speech = SpeechToText();
   AisEngine? _ais;
-  List<String> _results = const [];
+  List<Hit> _results = const [];
   List<TlRow> _tl = const [];
   List<TagRow> _tags = const [];
+  int _tlBefore = 0; // keyset cursor: last id of the loaded timeline page
+  bool _tlMore = false; // last page was full, so more may exist
+  static const int _tlPage = 100;
   String _view = 'recall'; // recall | timeline | tags
   bool _matchAll = false; // false = OR (any key, default); true = AND (all keys)
   bool _voice = false;
@@ -116,7 +119,13 @@ class _RecallPageState extends State<RecallPage> {
         });
       }
     } else if (v == 'timeline') {
-      setState(() => _tl = _ais?.timeline() ?? const []);
+      // fresh load: reset the cursor and pull page one from the newest.
+      final page = _ais?.timeline(before: 0, count: _tlPage) ?? const [];
+      setState(() {
+        _tl = page;
+        _tlBefore = page.isNotEmpty ? page.last.id : 0;
+        _tlMore = page.length == _tlPage;
+      });
     } else {
       setState(() => _tags = _ais?.tags() ?? const []);
     }
@@ -169,6 +178,8 @@ class _RecallPageState extends State<RecallPage> {
         _dir = picked;
         _results = const [];
         _tl = const [];
+        _tlBefore = 0;
+        _tlMore = false;
         _tags = const [];
         _view = 'recall';
         _searched = false;
@@ -314,6 +325,48 @@ class _RecallPageState extends State<RecallPage> {
     }
   }
 
+  // Delete one record by id, after a confirm; then refresh the results.
+  Future<void> _deleteHit(Hit hit) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete this record?'),
+        content: SelectableText(hit.value),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Delete')),
+        ],
+      ),
+    );
+    if (ok != true || _ais == null) return;
+    _ais!.del(hit.id);
+    _recall();
+  }
+
+  // Edit a record's keys by id: a bare KEY attaches, a -KEY detaches.
+  Future<void> _editKeys(Hit hit) async {
+    final ctrl = TextEditingController();
+    final text = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Edit keys'),
+        content: TextField(
+          controller: ctrl,
+          autofocus: true,
+          onSubmitted: (v) => Navigator.pop(ctx, v),
+          decoration: const InputDecoration(hintText: 'a KEY adds it, -KEY removes it'),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, ctrl.text), child: const Text('Apply')),
+        ],
+      ),
+    );
+    if (text == null || text.trim().isEmpty || _ais == null) return;
+    _ais!.update(hit.id, text.trim());
+    _recall();
+  }
+
   Widget _recallBody(ColorScheme cs) {
     if (_results.isEmpty) {
       return _centerMsg(_searched ? 'No results for "$_query"' : _status, cs);
@@ -323,21 +376,49 @@ class _RecallPageState extends State<RecallPage> {
       itemCount: _results.length,
       separatorBuilder: (_, __) => const Divider(height: 1),
       itemBuilder: (_, i) {
-        final v = _results[i];
+        final hit = _results[i];
+        final v = hit.value;
         return ListTile(
           title: SelectableText(v, style: TextStyle(color: _isUrl(v) ? cs.primary : null)),
-          trailing: IconButton(
-            icon: const Icon(Icons.copy, size: 18),
-            tooltip: 'Copy',
-            onPressed: () {
-              Clipboard.setData(ClipboardData(text: v));
-              ScaffoldMessenger.of(context)
-                  .showSnackBar(const SnackBar(content: Text('Copied')));
-            },
+          trailing: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              IconButton(
+                icon: const Icon(Icons.copy, size: 18),
+                tooltip: 'Copy',
+                onPressed: () {
+                  Clipboard.setData(ClipboardData(text: v));
+                  ScaffoldMessenger.of(context)
+                      .showSnackBar(const SnackBar(content: Text('Copied')));
+                },
+              ),
+              IconButton(
+                icon: const Icon(Icons.edit_outlined, size: 18),
+                tooltip: 'Edit keys',
+                onPressed: () => _editKeys(hit),
+              ),
+              IconButton(
+                icon: const Icon(Icons.delete_outline, size: 18),
+                tooltip: 'Delete',
+                onPressed: () => _deleteHit(hit),
+              ),
+            ],
           ),
         );
       },
     );
+  }
+
+  // Page on with the keyset cursor: fetch the next page of records older than
+  // the last id we hold, append it, and advance the cursor.
+  void _loadMoreTimeline() {
+    if (_ais == null) return;
+    final page = _ais!.timeline(before: _tlBefore, count: _tlPage);
+    setState(() {
+      _tl = [..._tl, ...page];
+      if (page.isNotEmpty) _tlBefore = page.last.id;
+      _tlMore = page.length == _tlPage;
+    });
   }
 
   // Timeline: dateless rows surface first, then newest; grouped by day.
@@ -361,6 +442,17 @@ class _RecallPageState extends State<RecallPage> {
             style: TextStyle(color: _isUrl(r.value) ? cs.primary : null)),
         subtitle: Text('$time${r.keys.isEmpty ? '(no keys)' : r.keys}',
             style: TextStyle(color: cs.outline, fontSize: 12)),
+      ));
+    }
+    if (_tlMore) {
+      items.add(Padding(
+        padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+        child: Center(
+          child: OutlinedButton(
+            onPressed: _loadMoreTimeline,
+            child: const Text('Load more'),
+          ),
+        ),
       ));
     }
     return ListView(padding: const EdgeInsets.only(bottom: 88), children: items);

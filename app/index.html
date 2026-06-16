@@ -44,6 +44,7 @@
 <script>
 var $ = function (i) { return document.getElementById(i); };
 var view = 'recall';
+var tlBefore = 0, tlDay = null, tlN = 0, tlPage = 100;  // timeline keyset paging
 
 function isUrl(v){ return v.slice(0,7)=='http://' || v.slice(0,8)=='https://'; }
 
@@ -53,14 +54,35 @@ function render(text, q, ms) {
   var out = $('out'); out.innerHTML = '';
   if (!lines.length) { out.innerHTML = '<p class="empty">No results for "' + q + '"</p>'; return; }
   lines.forEach(function (ln) {
-    var p = ln.indexOf('|'), v = p>=0 ? ln.slice(p+1) : ln;
+    var p = ln.indexOf('|'), id = p>=0 ? ln.slice(0,p) : '', v = p>=0 ? ln.slice(p+1) : ln;
     var row = document.createElement('div'); row.className = 'hit';
     var span = document.createElement(isUrl(v) ? 'a' : 'span');
     span.textContent = v;
     if (isUrl(v)) { span.href = v; span.target = '_blank'; span.rel = 'noopener'; }
     row.appendChild(span);
+    if (id) row.appendChild(rowActions(id));
     out.appendChild(row);
   });
+}
+
+// per-record edit (attach/detach keys by id) and delete; both refresh the view
+function rowActions(id) {
+  var d = document.createElement('div'); d.className = 'act';
+  var e = document.createElement('button'); e.className = 'actbtn'; e.textContent = 'edit keys';
+  e.onclick = function () { editRec(id); };
+  var x = document.createElement('button'); x.className = 'actbtn del'; x.textContent = '✕ delete';
+  x.onclick = function () { delRec(id); };
+  d.appendChild(e); d.appendChild(x); return d;
+}
+async function delRec(id) {
+  if (!confirm('Delete this record?')) return;
+  await fetch('/api/del?id=' + id, { method:'POST' }); setView(view);
+}
+async function editRec(id) {
+  var s = prompt('Edit keys: a KEY adds it, -KEY removes it (space-separated)');
+  if (s === null || !s.trim()) return;
+  await fetch('/api/update?id=' + id + '&keys=' + encodeURIComponent(s.trim()), { method:'POST' });
+  setView(view);
 }
 
 async function recall() {
@@ -73,24 +95,26 @@ async function recall() {
 // timeline: id|ts|keys|value (value may contain '|', so split off the first 3)
 function parseTL(ln) {
   var a = ln.indexOf('|'), b = ln.indexOf('|', a+1), c = ln.indexOf('|', b+1);
-  return { ts: ln.slice(a+1, b), keys: ln.slice(b+1, c), value: ln.slice(c+1) };
+  return { id: ln.slice(0, a), ts: ln.slice(a+1, b), keys: ln.slice(b+1, c), value: ln.slice(c+1) };
 }
 function fmtDay(d) {
   var p = d.split('-'),
       M = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
   return p[2] + ' ' + M[(+p[1]) - 1] + ' ' + p[0];
 }
-async function loadTimeline() {
-  var t = await (await fetch('/api/timeline')).text();
-  var lines = t.split('\n').filter(function (s){ return s.length; });
-  var out = $('out'); out.innerHTML = '';
-  $('count').textContent = lines.length + ' record' + (lines.length==1?'':'s');
-  if (!lines.length) { out.innerHTML = '<p class="empty">Nothing saved yet.</p>'; return; }
-  var day = null;
+// keyset paging: fetch `count` records older than the last id shown (tlBefore);
+// 'more' appends a page, otherwise reload from the newest.
+async function loadTimeline(more) {
+  var out = $('out');
+  if (!more) { tlBefore = 0; tlDay = null; tlN = 0; out.innerHTML = ''; }
+  var u = '/api/timeline?count=' + tlPage + (tlBefore > 0 ? '&before=' + tlBefore : '');
+  var lines = (await (await fetch(u)).text()).split('\n').filter(function (s){ return s.length; });
+  var mb = $('tlmore'); if (mb) mb.remove();
+  if (!tlN && !lines.length) { out.innerHTML = '<p class="empty">Nothing saved yet.</p>'; return; }
   lines.forEach(function (ln) {
     var r = parseTL(ln), d = r.ts ? r.ts.slice(0, 10) : '';
-    if (d !== day) {
-      day = d;
+    if (d !== tlDay) {
+      tlDay = d;
       var h = document.createElement('div'); h.className = 'daygroup';
       h.textContent = d ? fmtDay(d) : '(undated)';
       out.appendChild(h);
@@ -104,8 +128,16 @@ async function loadTimeline() {
     var tm = r.ts.indexOf('T') >= 0 ? r.ts.slice(11, 16) + ' · ' : '';
     m.textContent = tm + (r.keys || '(no keys)');
     row.appendChild(m);
+    if (r.id) { row.appendChild(rowActions(r.id)); tlBefore = r.id; }
     out.appendChild(row);
   });
+  tlN += lines.length;
+  $('count').textContent = tlN + ' record' + (tlN == 1 ? '' : 's');
+  if (lines.length == tlPage) {
+    var b = document.createElement('button'); b.id = 'tlmore'; b.className = 'loadmore';
+    b.textContent = 'Load more'; b.onclick = function () { loadTimeline(true); };
+    out.appendChild(b);
+  }
 }
 async function loadTags() {
   var t = await (await fetch('/api/tags')).text();

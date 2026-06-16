@@ -119,7 +119,7 @@ libais.so: $(LIBSRC)
 # main/serve/feed/help/tests/win (no CLI, sockets, dir-walk, or tty in a browser).
 WASM_SRC     = embed.c ais.c store.c post.c key.c merge.c compact.c stats.c find.c doc.c locate.c log.c
 WASM_OUT     = ../app/engine/ais.js
-WASM_EXPORTS = _ais_embed_open,_ais_embed_close,_ais_embed_store,_ais_embed_recall,_ais_embed_timeline,_ais_embed_tags,_ais_embed_free,_malloc,_free
+WASM_EXPORTS = _ais_embed_open,_ais_embed_close,_ais_embed_store,_ais_embed_recall,_ais_embed_timeline,_ais_embed_tags,_ais_embed_del,_ais_embed_update,_ais_embed_free,_malloc,_free
 wasm:
 	@command -v emcc >/dev/null 2>&1 || { echo "wasm: emcc not found -- install emsdk (https://emscripten.org)"; exit 1; }
 	mkdir -p ../app/engine

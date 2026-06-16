@@ -8,7 +8,7 @@ What it is, in one phrase: an extension of your **associative memory** — the *
 
 Design in one line: an **immutable content store** plus a small, **rebuildable key index**.
 
-GUIs available: a local **web app** (`ais --serve`), a **Tk desktop app**, and an installable **PWA** — all thin clients over the one CLI/engine.
+GUIs available: a local **web app** (`ais --serve`), a **native Windows app**, a **Flutter app** (mobile and desktop), and an installable **PWA** — all thin clients over the one CLI/engine.
 
 ## Repository layout
 

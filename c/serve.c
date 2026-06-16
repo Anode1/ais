@@ -100,6 +100,12 @@ static const char PAGE[] =
 ".tagrow{display:flex;align-items:center;justify-content:space-between;padding:.55rem .2rem;border-bottom:1px solid var(--line)}"
 ".taglink{border:0;background:none;color:var(--accent);font:inherit;cursor:pointer;padding:0;text-align:left;word-break:break-word}"
 ".tagcount{font-size:.8rem;color:var(--muted);background:#fff;border:1px solid var(--line);border-radius:10px;padding:.1rem .5rem;min-width:2rem;text-align:center}"
+".act{display:flex;gap:.8rem;margin-top:.35rem}"
+".actbtn{border:0;background:none;color:var(--muted);font:inherit;font-size:.8rem;cursor:pointer;padding:0}"
+".actbtn:hover{color:var(--accent)}"
+".actbtn.del:hover{color:#c0392b}"
+".loadmore{display:block;width:100%;margin:1rem 0;padding:.6rem;border:1px solid var(--line);background:#fff;color:var(--accent);border-radius:8px;cursor:pointer;font:inherit}"
+".loadmore:hover{background:#f5f5fa}"
 "</style>"
 "<header id=bar><div class=titlerow><span class=brand>AIS</span><span id=count class=muted></span></div>"
 "<div class=searchrow><input id=q type=search placeholder='type keys to get...' autocomplete=off autofocus>"
@@ -118,6 +124,7 @@ static const char PAGE[] =
 "<script>"
 "var $=function(i){return document.getElementById(i)};"
 "var view='recall';"
+"var tlBefore=0,tlDay=null,tlN=0,tlPage=100;"   /* timeline keyset paging state */
 /* fillVal: append V to NODE, turning every embedded http(s) URL into a real
  * link -- not only values that are wholly a URL (a "Title - https://..." value
  * gets its URL linked, with the title left as text). */
@@ -131,28 +138,47 @@ static const char PAGE[] =
 "$('count').textContent=L.length+' result'+(L.length==1?'':'s')+' - '+ms.toFixed(0)+' ms';"
 "var o=$('out');o.innerHTML='';"
 "if(!L.length){o.textContent='No results for '+q;o.className='empty';return}o.className='';"
-"L.forEach(function(ln){var p=ln.indexOf('|'),v=p>=0?ln.slice(p+1):ln,"
+"L.forEach(function(ln){var p=ln.indexOf('|'),id=p>=0?ln.slice(0,p):'',v=p>=0?ln.slice(p+1):ln,"
 "r=document.createElement('div');r.className='hit';"
-"fillVal(r,v);o.appendChild(r)})}"
+"fillVal(r,v);if(id)r.appendChild(rowActions(id));o.appendChild(r)})}"
+/* per-row edit (attach/detach keys by id) and delete; both refresh the view */
+"function rowActions(id){var d=document.createElement('div');d.className='act';"
+"var e=document.createElement('button');e.className='actbtn';e.textContent='edit keys';"
+"e.onclick=function(){editRec(id)};"
+"var x=document.createElement('button');x.className='actbtn del';x.textContent='\\u2715 delete';"
+"x.onclick=function(){delRec(id)};"
+"d.appendChild(e);d.appendChild(x);return d}"
+"async function delRec(id){if(!confirm('Delete this record?'))return;"
+"await fetch('/api/del?id='+id,{method:'POST'});setView(view)}"
+"async function editRec(id){var s=prompt('Edit keys: a KEY adds it, -KEY removes it (space-separated)');"
+"if(s===null||!s.trim())return;"
+"await fetch('/api/update?id='+id+'&keys='+encodeURIComponent(s.trim()),{method:'POST'});setView(view)}"
 "async function recall(){var q=$('q').value.trim();if(!q)return;var t0=performance.now();"
 "var all=$('allk')&&$('allk').checked?'&all=1':'';"
 "var t=await(await fetch('/api/get?keys='+encodeURIComponent(q)+all)).text();render(t,q,performance.now()-t0)}"
 "function parseTL(ln){var a=ln.indexOf('|'),b=ln.indexOf('|',a+1),c=ln.indexOf('|',b+1);"
-"return{ts:ln.slice(a+1,b),keys:ln.slice(b+1,c),value:ln.slice(c+1)}}"
+"return{id:ln.slice(0,a),ts:ln.slice(a+1,b),keys:ln.slice(b+1,c),value:ln.slice(c+1)}}"
 "function fmtDay(d){var p=d.split('-'),M=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];"
 "return p[2]+' '+M[(+p[1])-1]+' '+p[0]}"
-"async function loadTimeline(){var t=await(await fetch('/api/timeline')).text();"
-"var L=t.split('\\n').filter(function(s){return s.length}),o=$('out');o.className='';o.innerHTML='';"
-"$('count').textContent=L.length+' record'+(L.length==1?'':'s');"
-"if(!L.length){o.innerHTML='<p class=empty>Nothing saved yet.</p>';return}"
-"var day=null;L.forEach(function(ln){var r=parseTL(ln),d=r.ts?r.ts.slice(0,10):'';"
-"if(d!==day){day=d;var h=document.createElement('div');h.className='daygroup';"
+/* keyset paging: each call fetches `count` records older than the last id shown
+ * (tlBefore); 'more' appends, otherwise it reloads from the newest. */
+"async function loadTimeline(more){var o=$('out');"
+"if(!more){tlBefore=0;tlDay=null;tlN=0;o.className='';o.innerHTML=''}"
+"var u='/api/timeline?count='+tlPage+(tlBefore>0?'&before='+tlBefore:'');"
+"var L=(await(await fetch(u)).text()).split('\\n').filter(function(s){return s.length});"
+"var mb=$('tlmore');if(mb)mb.remove();"
+"if(!tlN&&!L.length){o.innerHTML='<p class=empty>Nothing saved yet.</p>';return}"
+"L.forEach(function(ln){var r=parseTL(ln),d=r.ts?r.ts.slice(0,10):'';"
+"if(d!==tlDay){tlDay=d;var h=document.createElement('div');h.className='daygroup';"
 "h.textContent=d?fmtDay(d):'(undated)';o.appendChild(h)}"
-"var row=document.createElement('div');row.className='hit';"
-"fillVal(row,r.value);"
+"var row=document.createElement('div');row.className='hit';fillVal(row,r.value);"
 "var m=document.createElement('div');m.className='meta';"
 "var tm=r.ts.indexOf('T')>=0?r.ts.slice(11,16)+' - ':'';"
-"m.textContent=tm+(r.keys||'(no keys)');row.appendChild(m);o.appendChild(row)})}"
+"m.textContent=tm+(r.keys||'(no keys)');row.appendChild(m);"
+"if(r.id){row.appendChild(rowActions(r.id));tlBefore=r.id}o.appendChild(row)});"
+"tlN+=L.length;$('count').textContent=tlN+' record'+(tlN==1?'':'s');"
+"if(L.length==tlPage){var b=document.createElement('button');b.id='tlmore';b.className='loadmore';"
+"b.textContent='Load more';b.onclick=function(){loadTimeline(true)};o.appendChild(b)}}"
 "async function loadTags(){var t=await(await fetch('/api/tags')).text();"
 "var L=t.split('\\n').filter(function(s){return s.length}),o=$('out');o.className='';o.innerHTML='';"
 "$('count').textContent=L.length+' tag'+(L.length==1?'':'s');"
@@ -361,6 +387,9 @@ static void handle(ais *a, int fd)
     ssize_t n;
     char *method, *path, *query, *body, *keys = nokeys, *sp;
     int want_all = 0;                     /* "Match all keys" -> AIS_AND; default OR */
+    long reqid = 0;                       /* ?id= for /api/del and /api/update      */
+    long before = 0;                      /* ?before= cursor for /api/timeline paging */
+    int  count = 0;                       /* ?count= page size (0 => engine default)  */
 
     n = SOCK_READ(fd, buf, sizeof(buf) - 1);   /* assume the request fits (a sketch) */
     if (n <= 0)
@@ -389,6 +418,12 @@ static void handle(ais *a, int fd)
             url_decode(keys);
         } else if (strncmp(query, "all=", 4) == 0) {
             want_all = (query[4] == '1');
+        } else if (strncmp(query, "id=", 3) == 0) {
+            reqid = atol(query + 3);
+        } else if (strncmp(query, "before=", 7) == 0) {
+            before = atol(query + 7);
+        } else if (strncmp(query, "count=", 6) == 0) {
+            count = atoi(query + 6);
         }
         query = (amp != NULL) ? amp + 1 : NULL;
     }
@@ -403,11 +438,31 @@ static void handle(ais *a, int fd)
         send_head(fd, "text/plain");
         if (m > 0)
             write_all(fd, msg, (size_t)m);
+    } else if (strcmp(method, "POST") == 0 && strcmp(path, "/api/del") == 0) {
+        /* delete record ?id=N (the handle from the id|value lines) */
+        if (reqid > 0 && ais_del(a, reqid) == 0) {
+            send_head(fd, "text/plain");
+            write_all(fd, "deleted\n", 8);
+        } else {
+            static const char e[] = "HTTP/1.0 400 Bad Request\r\n"
+                "Connection: close\r\n\r\ncannot delete\n";
+            write_all(fd, e, sizeof(e) - 1);
+        }
+    } else if (strcmp(method, "POST") == 0 && strcmp(path, "/api/update") == 0) {
+        /* edit record ?id=N keys=...  (KEY attaches, -KEY detaches) */
+        if (reqid > 0 && keys[0] != '\0' && ais_update(a, reqid, keys) == 0) {
+            send_head(fd, "text/plain");
+            write_all(fd, "updated\n", 8);
+        } else {
+            static const char e[] = "HTTP/1.0 400 Bad Request\r\n"
+                "Connection: close\r\n\r\ncannot update\n";
+            write_all(fd, e, sizeof(e) - 1);
+        }
     } else if (strcmp(method, "GET") == 0 && strcmp(path, "/api/timeline") == 0) {
         struct sink s;
         s.a = a; s.fd = fd;
         send_head(fd, "text/plain");
-        ais_timeline(a, 0, tl_sink, &s);      /* default cap; dateless first */
+        ais_timeline(a, before, count, tl_sink, &s);   /* keyset page (before/count) */
     } else if (strcmp(method, "GET") == 0 && strcmp(path, "/api/tags") == 0) {
         struct sink s;
         s.a = a; s.fd = fd;

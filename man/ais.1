@@ -38,6 +38,13 @@ ais \- associative index: save values under keys, get them back by keys
 .B ais
 .RB [ \-f
 .IR DIR ]
+.B \-\-update
+.I ID
+.RI [ KEY ...]
+.br
+.B ais
+.RB [ \-f
+.IR DIR ]
 .BR \-\-del | \-\-del-key | \-\-dump | \-\-keys | \-\-stats | \-\-compact | \-\-import | \-\-where | \-\-project | \-\-default | \-\-serve | \-\-init
 .RI [ ARG ]
 .SH DESCRIPTION
@@ -132,6 +139,25 @@ Get live records whose value contains TEXT (a plain substring).
 Attach another value to record ID (repeat
 .B \-v
 for several).
+.TP
+.B \-\-update \fIID\fR \fIKEY ...\fR
+Edit the keys of record ID: a bare KEY attaches, a
+.B \-KEY
+detaches it (the record keeps its id and value; detaching the last key leaves it
+keyless). ID is the handle shown as
+.IR id | value
+by get,
+.BR \-\-find ,
+and
+.BR \-\-dump .
+A leading
+.B \-KEY
+must follow
+.BR \-\- ,
+e.g.\&
+.BR "ais \-\-update 42 \-\- \-venice" .
+A detached key is hidden at once and removed from the store by
+.BR \-\-compact .
 .TP
 .B \-\-del \fIID\fR
 Delete record ID.

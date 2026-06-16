@@ -64,6 +64,129 @@ int tomb_contains(const ais *a, long id)
     return found;
 }
 
+/* Parse one "id|key" ktomb line IN PLACE: returns the id (>= 0), sets *KP to the
+ * key (text after the first '|', newline trimmed), or -1 if the line has no '|'. */
+static long ktomb_parse(char *line, const char **kp)
+{
+    char *bar = strchr(line, '|');
+    char *e;
+
+    if (bar == NULL)
+        return -1;
+    *bar = '\0';
+    *kp = bar + 1;
+    e = bar + 1 + strlen(bar + 1);
+    while (e > bar + 1 && (e[-1] == '\n' || e[-1] == '\r'))
+        *--e = '\0';
+    return atol(line);
+}
+
+int ktomb_append(const ais *a, long id, const char *key)
+{
+    char path[AIS_PATH_MAX];
+    FILE *fp;
+
+    if (compact_path(a, "ktomb", path, sizeof(path)) != 0)
+        return -1;
+    fp = fopen(path, "a");
+    if (fp == NULL)
+        return -1;
+    fprintf(fp, "%ld|%s\n", id, key);
+    if (fclose(fp) != 0)
+        return -1;
+    return 0;
+}
+
+int ktomb_contains(const ais *a, long id, const char *key)
+{
+    char path[AIS_PATH_MAX];
+    char line[AIS_LINE_MAX];
+    FILE *fp;
+    int found = 0;
+
+    if (compact_path(a, "ktomb", path, sizeof(path)) != 0)
+        return -1;
+    fp = fopen(path, "r");
+    if (fp == NULL)
+        return (errno == ENOENT) ? 0 : -1;
+
+    while (fgets(line, sizeof(line), fp) != NULL) {
+        const char *k = NULL;
+        if (ktomb_parse(line, &k) == id && k != NULL && strcmp(k, key) == 0) {
+            found = 1;
+            break;
+        }
+    }
+    fclose(fp);
+    return found;
+}
+
+int ktomb_remove(const ais *a, long id, const char *key)
+{
+    char path[AIS_PATH_MAX], tmp[AIS_PATH_MAX];
+    char orig[AIS_LINE_MAX], work[AIS_LINE_MAX];
+    FILE *in, *out;
+    long kept = 0;
+    int removed = 0;
+
+    if (compact_path(a, "ktomb", path, sizeof(path)) != 0)
+        return -1;
+    in = fopen(path, "r");
+    if (in == NULL)
+        return (errno == ENOENT) ? 0 : -1;   /* nothing to remove */
+
+    if (snprintf(tmp, sizeof(tmp), "%s.tmp", path) >= (int)sizeof(tmp)) {
+        fclose(in);
+        return -1;
+    }
+    out = fopen(tmp, "w");
+    if (out == NULL) {
+        fclose(in);
+        return -1;
+    }
+    while (fgets(orig, sizeof(orig), in) != NULL) {
+        const char *k = NULL;
+        snprintf(work, sizeof(work), "%s", orig);   /* parse a copy; emit orig */
+        if (ktomb_parse(work, &k) == id && k != NULL && strcmp(k, key) == 0) {
+            removed = 1;
+            continue;                                /* drop this pair */
+        }
+        fputs(orig, out);
+        kept++;
+    }
+    fclose(in);
+    if (fclose(out) != 0) {
+        unlink(tmp);
+        return -1;
+    }
+    if (!removed) {                  /* pair not present: leave the file as it was */
+        unlink(tmp);
+        return 0;
+    }
+    if (kept == 0) {                 /* emptied: drop the file */
+        unlink(tmp);
+        unlink(path);
+        return 0;
+    }
+    if (rename(tmp, path) != 0) {
+        unlink(tmp);
+        return -1;
+    }
+    return 0;
+}
+
+int ktomb_active(const ais *a)
+{
+    char path[AIS_PATH_MAX];
+    struct stat st;
+
+    if (compact_path(a, "ktomb", path, sizeof(path)) != 0)
+        return -1;
+    if (stat(path, &st) != 0)
+        return (errno == ENOENT) ? 0 : -1;
+    return st.st_size > 0;
+}
+
 /* Recursively remove a directory tree. Returns 0, or -1 on error. Bounded by
  * the index's directory depth (idx/<p>/<key>), not by data size. */
 static int compact_rmtree(const char *path)
@@ -111,8 +234,38 @@ struct compact_ctx {
     FILE *multi_out;   /* rebuilding "multi": ids that carry >1 line          */
     long  maxid;       /* highest id seen; first-appearance test + next_id    */
     long  last_off_id; /* highest id written to "off" (drives gap sentinels)  */
+    int   filter;      /* 1 if ktomb has entries: strip detached keys         */
     int   error;
 };
+
+/* Write KEYS minus any key detached from ID (per ktomb) into OUT. Tokens are
+ * space-separated, order preserved. Returns 0, or -1 on error / overflow. */
+static int compact_visible_keys(const ais *a, long id, const char *keys,
+                                char *out, size_t outsz)
+{
+    char buf[AIS_LINE_MAX];
+    char *tok, *save;
+    size_t used = 0;
+    int n;
+
+    n = snprintf(buf, sizeof(buf), "%s", keys);
+    if (n < 0 || (size_t)n >= sizeof(buf))
+        return -1;
+    out[0] = '\0';
+    for (tok = strtok_r(buf, " \t", &save); tok != NULL;
+         tok = strtok_r(NULL, " \t", &save)) {
+        int t = ktomb_contains(a, id, tok);
+        if (t < 0)
+            return -1;
+        if (t == 1)
+            continue;                /* detached: strip permanently */
+        n = snprintf(out + used, outsz - used, "%s%s", used ? " " : "", tok);
+        if (n < 0 || used + (size_t)n >= outsz)
+            return -1;
+        used += (size_t)n;
+    }
+    return 0;
+}
 
 /* Copy one surviving store line into store.new and re-post its keys. The line's
  * original timestamp is carried through unchanged (compaction preserves when a
@@ -123,6 +276,8 @@ static int compact_line(long id, const char *ts, const char *keys,
     struct compact_ctx *c = vp;
     int t = tomb_contains(c->a, id);
     char keysbuf[AIS_LINE_MAX];
+    char fkeys[AIS_LINE_MAX];
+    const char *wkeys = keys;                /* keys to write + re-post */
     char *tok, *save;
     long offset;
     int n;
@@ -134,11 +289,19 @@ static int compact_line(long id, const char *ts, const char *keys,
     if (t == 1)
         return 0;   /* dropped */
 
+    if (c->filter) {                         /* strip keys detached from this id */
+        if (compact_visible_keys(c->a, id, keys, fkeys, sizeof(fkeys)) != 0) {
+            c->error = 1;
+            return -1;
+        }
+        wkeys = fkeys;
+    }
+
     offset = ftell(c->out);                  /* this line's offset in store.new */
     if (ts != NULL && ts[0] != '\0')
-        fprintf(c->out, "%ld|%s|%s|%s\n", id, ts, keys, value);
+        fprintf(c->out, "%ld|%s|%s|%s\n", id, ts, wkeys, value);
     else
-        fprintf(c->out, "%ld|%s|%s\n", id, keys, value);
+        fprintf(c->out, "%ld|%s|%s\n", id, wkeys, value);
 
     /* Re-index keys once per record, on its FIRST appearance. Records are first
      * written in id order, so a record's first line is the one whose id exceeds
@@ -160,7 +323,7 @@ static int compact_line(long id, const char *ts, const char *keys,
     c->last_off_id = id;
     c->maxid = id;
 
-    n = snprintf(keysbuf, sizeof(keysbuf), "%s", keys);
+    n = snprintf(keysbuf, sizeof(keysbuf), "%s", wkeys);
     if (n < 0 || (size_t)n >= sizeof(keysbuf)) {
         c->error = 1;
         return -1;
@@ -191,6 +354,9 @@ static int compact_locked(ais *a)
     c.maxid = 0;
     c.last_off_id = 0;
     c.error = 0;
+    c.filter = ktomb_active(a);              /* strip detached keys if any */
+    if (c.filter < 0)
+        return -1;
 
     if (compact_path(a, "store", storepath, sizeof(storepath)) != 0 ||
         compact_path(a, "store.new", newpath, sizeof(newpath)) != 0 ||
@@ -239,11 +405,18 @@ static int compact_locked(ais *a)
     if (rename(newpath, storepath) != 0)
         goto cleanup;
 
-    /* clear the tombstone log (truncate) */
+    /* clear the tombstone logs (truncate): detached keys are now stripped from
+     * the rewritten store, and dropped records are gone, so both logs reset. */
     {
+        char ktombpath[AIS_PATH_MAX];
         FILE *t = fopen(tombpath, "w");
         if (t != NULL)
             fclose(t);
+        if (compact_path(a, "ktomb", ktombpath, sizeof(ktombpath)) == 0) {
+            t = fopen(ktombpath, "w");
+            if (t != NULL)
+                fclose(t);
+        }
     }
 
     a->next_id = c.maxid + 1;

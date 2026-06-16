@@ -230,7 +230,7 @@ int main(int argc, char **argv)
     enum { OPT_HELP = 1000, OPT_VERSION,
            CMD_FIND, CMD_ADD, CMD_DEL, CMD_DELKEY, CMD_DUMP, CMD_KEYS, CMD_STATS,
            CMD_COMPACT, CMD_INIT, CMD_IMPORT, CMD_WHERE, CMD_SERVE, CMD_PROJECT,
-           CMD_DOC, CMD_TIMELINE, CMD_TAGS, CMD_DEFAULT };
+           CMD_DOC, CMD_TIMELINE, CMD_TAGS, CMD_DEFAULT, CMD_UPDATE };
     static const struct option longopts[] = {
         { "index",       required_argument, NULL, 'f' },
         { "or",          no_argument,       NULL, 'o' },
@@ -245,6 +245,7 @@ int main(int argc, char **argv)
         { "version",     no_argument,       NULL, OPT_VERSION },
         { "find",        no_argument,       NULL, CMD_FIND },
         { "add",         no_argument,       NULL, CMD_ADD },
+        { "update",      no_argument,       NULL, CMD_UPDATE },
         { "del",         no_argument,       NULL, CMD_DEL },
         { "del-key",     no_argument,       NULL, CMD_DELKEY },
         { "dump",        no_argument,       NULL, CMD_DUMP },
@@ -294,7 +295,7 @@ int main(int argc, char **argv)
         case CMD_DUMP: case CMD_KEYS: case CMD_STATS: case CMD_COMPACT:
         case CMD_INIT: case CMD_IMPORT: case CMD_WHERE: case CMD_SERVE:
         case CMD_PROJECT: case CMD_DOC: case CMD_TIMELINE: case CMD_TAGS:
-        case CMD_DEFAULT:
+        case CMD_DEFAULT: case CMD_UPDATE:
             if (cmd != 0) die("only one command at a time");
             cmd = c;
             break;
@@ -335,7 +336,7 @@ int main(int argc, char **argv)
         case CMD_TAGS:  if (ais_tags(&a, print_tag, stdout) < 0) die("tags failed"); break;
         case CMD_TIMELINE: {
             int lim = (optind < argc) ? atoi(argv[optind]) : 0;   /* optional N */
-            if (ais_timeline(&a, lim, print_tl, stdout) < 0) die("timeline failed");
+            if (ais_timeline(&a, 0, lim, print_tl, stdout) < 0) die("timeline failed");
             break;
         }
         case CMD_STATS: if (ais_stats(&a, stdout) != 0) die("stats failed"); break;
@@ -354,6 +355,21 @@ int main(int argc, char **argv)
             for (j = 0; j < nval; j++)
                 if (ais_add(&a, id, values[j]) != 0)
                     die("--add: no record id %ld", id);
+            break;
+        }
+        case CMD_UPDATE: {
+            long id;
+            if (optind >= argc) die("--update needs an ID");
+            id = atol(argv[optind]);
+            /* keys after the ID; -key detaches. Leading-'-' keys need '--':
+             *   ais --update 42 rome        (attach rome)
+             *   ais --update 42 -- -venice  (detach venice) */
+            if (collect_keys(argv, optind + 1, argc, exkeys, nexk, keys, sizeof(keys)) != 0)
+                die("key list too long");
+            if (keys[0] == '\0')
+                die("--update needs at least one key (KEY to add, -KEY to remove)");
+            if (ais_update(&a, id, keys) != 0)
+                die("--update: no live record with id %ld", id);
             break;
         }
         case CMD_DEL: {

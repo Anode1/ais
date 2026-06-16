@@ -246,6 +246,25 @@ ok    "timeline: hand-pasted record survived"   "pasted with no date" "$tl"
 okeq  "timeline: all four records listed"        "4" "$(printf '%s\n' "$tl" | grep -c .)"
 rm -rf "$TT"
 
+# 17b. --update edits a record's keys by id (the handle): -KEY detaches, KEY
+#      attaches; the record (id + value) survives, and a detach survives compact.
+UP=$(mktemp -d "${TMPDIR:-/tmp}/ais_upd.XXXXXX") || exit 2
+uid=$("$AIS" -f "$UP" -v "https://trip.example/venice" venice italy)
+"$AIS" -f "$UP" --update "$uid" -- -venice                       # detach 'venice'
+okempty "update: detached key recalls nothing"      "$("$AIS" -f "$UP" venice)"
+ok      "update: record survives via another key"   "venice" "$("$AIS" -f "$UP" italy)"
+case "$("$AIS" -f "$UP" --keys)" in
+    *venice*) fail=$((fail + 1)); echo "  FAIL update: 'venice' still listed in --keys" ;;
+    *)        pass=$((pass + 1)); echo "  ok   update: 'venice' gone from --keys" ;;
+esac
+"$AIS" -f "$UP" --update "$uid" venice                           # re-attach
+ok      "update: re-attached key recalls again"     "venice" "$("$AIS" -f "$UP" venice)"
+"$AIS" -f "$UP" --update "$uid" -- -italy >/dev/null             # detach + compact
+"$AIS" -f "$UP" -y --compact >/dev/null
+okempty "update: detach is durable through compact" "$("$AIS" -f "$UP" italy)"
+ok      "update: other key survives compact"        "venice" "$("$AIS" -f "$UP" venice)"
+rm -rf "$UP"
+
 # 17. saved default index persists in ~/.ais/config ACROSS PROCESSES. Each ais
 #     call is a fresh process, so reading the path back -- and resolving --where
 #     to it from a dir with no local .ais -- proves it was written to disk, not

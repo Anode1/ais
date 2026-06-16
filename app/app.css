@@ -36,6 +36,12 @@ body { font: 16px/1.45 system-ui, sans-serif; color: #14141a; background: var(--
 .hit { padding: .85rem .2rem; border-bottom: 1px solid var(--line); word-break: break-word; }
 .hit:last-child { border-bottom: 0; }
 .hit a { color: var(--accent); text-decoration: none; }
+.act { display: flex; gap: 1.1rem; margin-top: .45rem; }
+.actbtn { border: 0; background: none; color: var(--muted); font: inherit; font-size: .8rem; cursor: pointer; padding: 0; }
+.actbtn:active { color: var(--accent); }
+.actbtn.del:active { color: #c0392b; }
+.loadmore { display: block; width: 100%; margin: 1rem 0; padding: .7rem; border: 1px solid var(--line);
+  background: #fff; color: var(--accent); border-radius: 8px; cursor: pointer; font: inherit; }
 .empty { color: var(--muted); text-align: center; margin-top: 3rem; }
 
 /* timeline day headers + per-row meta */

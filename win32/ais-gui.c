@@ -22,6 +22,8 @@
 #include "locate.h"
 
 enum { ID_KEYS = 1001, ID_GET, ID_OR, ID_LIST, ID_VALUE, ID_VKEYS, ID_ADD };
+/* context-menu command ids for a result row (kept clear of the control ids) */
+enum { ID_EDIT = 1101, ID_DELETE };
 
 static void *g_ais;                 /* engine handle (ais_embed_open) */
 static HWND  g_keys, g_or, g_list, g_value, g_vkeys;
@@ -115,11 +117,16 @@ static void do_get(void)
                 char *bar;
                 if (nl != NULL)
                     *nl = '\0';
-                bar = strchr(line, '|');             /* drop the leading "id|" */
+                bar = strchr(line, '|');             /* split the leading "id|" */
                 {
                     const char *val = (bar != NULL) ? bar + 1 : line;
-                    if (*val != '\0')
-                        SendMessageA(g_list, LB_ADDSTRING, 0, (LPARAM)val);
+                    /* keep the id with the row so Edit/Delete can target it */
+                    long id = (bar != NULL) ? strtol(line, NULL, 10) : 0;
+                    if (*val != '\0') {
+                        LRESULT ix = SendMessageA(g_list, LB_ADDSTRING, 0, (LPARAM)val);
+                        if (ix != LB_ERR && ix != LB_ERRSPACE)
+                            SendMessage(g_list, LB_SETITEMDATA, (WPARAM)ix, (LPARAM)id);
+                    }
                 }
                 if (nl == NULL)
                     break;
@@ -168,6 +175,196 @@ static void open_selected(void)
     if (strncmp(s, "http://", 7) == 0 || strncmp(s, "https://", 8) == 0)
         ShellExecuteA(NULL, "open", s, NULL, NULL, SW_SHOWNORMAL);
     free(s);
+}
+
+/* ---- a minimal modal "input box" (Win32 has none built in) --------------
+ * Built from an in-memory dialog template so we still need no .rc file. It
+ * shows a prompt static, a single edit, and OK/Cancel. On OK the edit text is
+ * copied into OUT (size OUTSZ); returns 1 if OK was pressed, else 0. */
+enum { IB_PROMPT = 200, IB_EDIT = 201 };
+
+struct ib_ctx { const char *prompt; char *out; int outsz; int ok; };
+
+static INT_PTR CALLBACK ib_proc(HWND dlg, UINT msg, WPARAM wp, LPARAM lp)
+{
+    struct ib_ctx *c;
+    switch (msg) {
+    case WM_INITDIALOG:
+        SetWindowLongPtr(dlg, GWLP_USERDATA, (LONG_PTR)lp);
+        c = (struct ib_ctx *)lp;
+        SetDlgItemTextA(dlg, IB_PROMPT, c->prompt);
+        SetDlgItemTextA(dlg, IB_EDIT, c->out);   /* seed with current text */
+        SetFocus(GetDlgItem(dlg, IB_EDIT));
+        SendMessage(GetDlgItem(dlg, IB_EDIT), EM_SETSEL, 0, (LPARAM)-1);
+        return FALSE;       /* we set the focus ourselves */
+    case WM_CLOSE:                 /* the title-bar X: same as Cancel, never stuck */
+        EndDialog(dlg, 0);
+        return TRUE;
+    case WM_COMMAND:
+        c = (struct ib_ctx *)GetWindowLongPtr(dlg, GWLP_USERDATA);
+        if (LOWORD(wp) == IDOK) {
+            if (c != NULL)
+                GetDlgItemTextA(dlg, IB_EDIT, c->out, c->outsz);
+            if (c != NULL)
+                c->ok = 1;
+            EndDialog(dlg, 1);
+            return TRUE;
+        }
+        if (LOWORD(wp) == IDCANCEL) {
+            EndDialog(dlg, 0);
+            return TRUE;
+        }
+        return FALSE;
+    }
+    return FALSE;
+}
+
+static int input_box(HWND owner, const char *title, const char *prompt,
+                     char *buf, int bufsz)
+{
+    /* DLGTEMPLATE + four DLGITEMTEMPLATEs assembled by hand, WORD-aligned.
+     * Sizes are in dialog units. Controls: prompt static, edit, OK, Cancel. */
+    struct ib_ctx ctx;
+    WORD *tpl, *p;
+    static const WCHAR cls_static[] = { 0xFFFF, 0x0082, 0 };  /* STATIC */
+    static const WCHAR cls_edit[]   = { 0xFFFF, 0x0081, 0 };  /* EDIT   */
+    static const WCHAR cls_button[] = { 0xFFFF, 0x0080, 0 };  /* BUTTON */
+    static const WCHAR empty[]      = { 0 };
+    char *raw;
+    INT_PTR rc;
+    int i;
+
+    ctx.prompt = prompt;
+    ctx.out    = buf;
+    ctx.outsz  = bufsz;
+    ctx.ok     = 0;
+
+    raw = (char *)calloc(1, 2048);
+    if (raw == NULL)
+        return 0;
+    p = (WORD *)raw;
+
+    /* DLGTEMPLATE header */
+    *(DWORD *)p = WS_POPUP | WS_BORDER | WS_SYSMENU | WS_CAPTION | DS_MODALFRAME
+                  | DS_SETFONT; p += 2;
+    *(DWORD *)p = 0; p += 2;     /* dwExtendedStyle */
+    *p++ = 4;                    /* cdit: number of controls */
+    *p++ = 30; *p++ = 30;        /* x, y */
+    *p++ = 220; *p++ = 80;       /* cx, cy */
+    *p++ = 0;                    /* no menu */
+    *p++ = 0;                    /* default class */
+    /* title (wide) */
+    for (i = 0; title[i] != '\0'; i++)
+        *p++ = (WORD)(unsigned char)title[i];
+    *p++ = 0;
+    /* font (DS_SETFONT): point size + face name */
+    *p++ = 9;
+    for (i = 0; "Segoe UI"[i] != '\0'; i++)
+        *p++ = (WORD)(unsigned char)"Segoe UI"[i];
+    *p++ = 0;
+
+#define IB_ALIGN(pp) do { \
+        if (((UINT_PTR)(pp) & 2) != 0) (pp)++; \
+    } while (0)
+
+    /* control 1: prompt static */
+    IB_ALIGN(p);
+    *(DWORD *)p = WS_CHILD | WS_VISIBLE | SS_LEFT; p += 2;
+    *(DWORD *)p = 0; p += 2;
+    *p++ = 8; *p++ = 8; *p++ = 204; *p++ = 24;     /* x y cx cy */
+    *p++ = IB_PROMPT;
+    for (i = 0; cls_static[i] != 0; i++) *p++ = cls_static[i];
+    *p++ = 0;
+    for (i = 0; empty[i] != 0; i++) *p++ = empty[i];
+    *p++ = 0;
+    *p++ = 0;                                      /* no creation data */
+
+    /* control 2: edit */
+    IB_ALIGN(p);
+    *(DWORD *)p = WS_CHILD | WS_VISIBLE | WS_BORDER | WS_TABSTOP | ES_AUTOHSCROLL;
+    p += 2;
+    *(DWORD *)p = 0; p += 2;
+    *p++ = 8; *p++ = 36; *p++ = 204; *p++ = 14;
+    *p++ = IB_EDIT;
+    for (i = 0; cls_edit[i] != 0; i++) *p++ = cls_edit[i];
+    *p++ = 0;
+    for (i = 0; empty[i] != 0; i++) *p++ = empty[i];
+    *p++ = 0;
+    *p++ = 0;
+
+    /* control 3: OK */
+    IB_ALIGN(p);
+    *(DWORD *)p = WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_DEFPUSHBUTTON; p += 2;
+    *(DWORD *)p = 0; p += 2;
+    *p++ = 108; *p++ = 58; *p++ = 50; *p++ = 14;
+    *p++ = IDOK;
+    for (i = 0; cls_button[i] != 0; i++) *p++ = cls_button[i];
+    *p++ = 0;
+    { const char *t = "OK"; for (i = 0; t[i] != '\0'; i++) *p++ = (WORD)(unsigned char)t[i]; }
+    *p++ = 0;
+    *p++ = 0;
+
+    /* control 4: Cancel */
+    IB_ALIGN(p);
+    *(DWORD *)p = WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON; p += 2;
+    *(DWORD *)p = 0; p += 2;
+    *p++ = 162; *p++ = 58; *p++ = 50; *p++ = 14;
+    *p++ = IDCANCEL;
+    for (i = 0; cls_button[i] != 0; i++) *p++ = cls_button[i];
+    *p++ = 0;
+    { const char *t = "Cancel"; for (i = 0; t[i] != '\0'; i++) *p++ = (WORD)(unsigned char)t[i]; }
+    *p++ = 0;
+    *p++ = 0;
+
+#undef IB_ALIGN
+
+    tpl = (WORD *)raw;
+    rc = DialogBoxIndirectParamA(GetModuleHandle(NULL), (LPCDLGTEMPLATEA)tpl,
+                                 owner, ib_proc, (LPARAM)&ctx);
+    free(raw);
+    return (rc == 1 && ctx.ok) ? 1 : 0;
+}
+
+/* The id stored with the currently selected result row, or 0 if none. */
+static long selected_id(void)
+{
+    LRESULT i = SendMessage(g_list, LB_GETCURSEL, 0, 0);
+    if (i == LB_ERR)
+        return 0;
+    return (long)SendMessage(g_list, LB_GETITEMDATA, (WPARAM)i, 0);
+}
+
+/* Delete the selected record after confirmation, then refresh the list. */
+static void delete_selected(HWND hwnd)
+{
+    long id = selected_id();
+    if (id <= 0 || g_ais == NULL)
+        return;
+    if (MessageBoxA(hwnd, "Delete this record?", "AIS",
+                    MB_YESNO | MB_ICONQUESTION) != IDYES)
+        return;
+    if (ais_embed_del(g_ais, id) < 0)
+        log_error("delete failed (id=%ld)", id);
+    do_get();
+}
+
+/* Edit the selected record's keys (a KEY adds it, -KEY removes it), refresh. */
+static void edit_selected(HWND hwnd)
+{
+    long id = selected_id();
+    char buf[1024];
+    if (id <= 0 || g_ais == NULL)
+        return;
+    buf[0] = '\0';
+    if (!input_box(hwnd, "Edit keys",
+                   "Keys to change (a KEY adds it, -KEY removes it):",
+                   buf, (int)sizeof buf))
+        return;
+    if (buf[0] == '\0')
+        return;
+    if (ais_embed_update(g_ais, id, buf) < 0)
+        log_error("update failed (id=%ld, keys='%s')", id, buf);
+    do_get();
 }
 
 static void layout(HWND hwnd)
@@ -256,12 +453,48 @@ static LRESULT CALLBACK wndproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
         switch (LOWORD(wp)) {
         case ID_GET: do_get(); return 0;
         case ID_ADD:    do_add();    return 0;
+        case ID_EDIT:   edit_selected(hwnd);   return 0;
+        case ID_DELETE: delete_selected(hwnd); return 0;
         case ID_LIST:
             if (HIWORD(wp) == LBN_DBLCLK)
                 open_selected();
             return 0;
         }
         return 0;
+    case WM_CONTEXTMENU:
+        /* right-click (or the menu key) on a result row -> Edit keys / Delete */
+        if ((HWND)wp == g_list) {
+            int x = (short)LOWORD(lp), y = (short)HIWORD(lp);
+            if (x == -1 && y == -1) {
+                /* menu-key (Shift+F10) passes -1,-1: anchor on the selection */
+                RECT wr;
+                GetWindowRect(g_list, &wr);
+                x = wr.left + 16;
+                y = wr.top + 16;
+            } else {
+                /* right-click selects the row under the cursor so the action
+                 * targets it (a LISTBOX does not auto-select on right-click) */
+                POINT pt;
+                LRESULT hit;
+                pt.x = x; pt.y = y;
+                ScreenToClient(g_list, &pt);
+                hit = SendMessage(g_list, LB_ITEMFROMPOINT, 0,
+                                  MAKELPARAM(pt.x, pt.y));
+                if (HIWORD(hit) == 0)        /* low word valid only if in-client */
+                    SendMessage(g_list, LB_SETCURSEL, (WPARAM)LOWORD(hit), 0);
+            }
+            if (SendMessage(g_list, LB_GETCURSEL, 0, 0) != LB_ERR) {
+                HMENU m = CreatePopupMenu();
+                if (m != NULL) {
+                    AppendMenuA(m, MF_STRING, ID_EDIT, "Edit keys");
+                    AppendMenuA(m, MF_STRING, ID_DELETE, "Delete");
+                    TrackPopupMenu(m, TPM_LEFTALIGN | TPM_TOPALIGN, x, y, 0, hwnd, NULL);
+                    DestroyMenu(m);
+                }
+            }
+            return 0;
+        }
+        return DefWindowProc(hwnd, msg, wp, lp);
     case WM_DESTROY:
         if (g_ais != NULL)
             ais_embed_close(g_ais);

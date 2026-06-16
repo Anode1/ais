@@ -49,6 +49,20 @@ long ais_embed_store(void *handle, const char *keys, const char *value)
     return ais_put_value((ais *)handle, keys, value);
 }
 
+int ais_embed_del(void *handle, long id)
+{
+    if (handle == NULL)
+        return -1;
+    return ais_del((ais *)handle, id);
+}
+
+int ais_embed_update(void *handle, long id, const char *keys)
+{
+    if (handle == NULL || keys == NULL)
+        return -1;
+    return ais_update((ais *)handle, id, keys);
+}
+
 void ais_embed_free(char *buf)
 {
     free(buf);
@@ -178,14 +192,14 @@ static int tag_emit(const char *key, long count, void *vp)
     return c->oom ? -1 : 0;
 }
 
-char *ais_embed_timeline(void *handle, int limit)
+char *ais_embed_timeline(void *handle, long before_id, int count)
 {
     struct buf b = { NULL, 0, 0 };
     struct emit_ctx c = { &b, 0 };
 
     if (handle == NULL)
         return NULL;
-    ais_timeline((ais *)handle, limit, tl_emit, &c);
+    ais_timeline((ais *)handle, before_id, count, tl_emit, &c);
     return buf_finish(&b, c.oom);
 }
 

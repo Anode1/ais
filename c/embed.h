@@ -31,10 +31,19 @@ char *ais_embed_recall(void *handle, const char *keys, int or_mode);
 /* Store VALUE under KEYS. Returns the record id (> 0), or -1 on error. */
 long  ais_embed_store(void *handle, const char *keys, const char *value);
 
-/* The LIMIT most-recent records as "id|ts|keys|value\n" lines (LIMIT <= 0 =
- * default cap), ordered for a timeline: dateless first, then newest. Free with
- * ais_embed_free(). NULL only on bad args / allocation failure. */
-char *ais_embed_timeline(void *handle, int limit);
+/* Delete record ID (the id is the "id|value" handle from recall/timeline).
+ * Returns 0 on success, -1 on error. */
+int   ais_embed_del(void *handle, long id);
+
+/* Edit record ID's keys: each bare token in KEYS attaches, each "-key" detaches.
+ * The id and value are unchanged. Returns 0, or -1 if id is unknown/deleted. */
+int   ais_embed_update(void *handle, long id, const char *keys);
+
+/* One timeline page as "id|ts|keys|value\n" lines: the COUNT records with id <
+ * BEFORE_ID (BEFORE_ID <= 0 = from newest; COUNT <= 0 = default), newest first.
+ * Keyset paging -- "load more" passes the last id of the previous page as
+ * BEFORE_ID. Free with ais_embed_free(). NULL only on bad args / alloc failure. */
+char *ais_embed_timeline(void *handle, long before_id, int count);
 
 /* Every distinct key as "count|key\n" lines, busiest first. Free with
  * ais_embed_free(). NULL only on bad args / allocation failure. */

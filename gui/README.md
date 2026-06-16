@@ -4,16 +4,11 @@ AIS is a command-line tool; the CLI is the portable, stable core. A GUI is a
 thin front end that drives `ais` and renders its plain-text output -- it never
 reimplements the engine, so it stays optional and replaceable.
 
-## Two GUIs, both recall-first
+## The web GUI, recall-first
 
 Layout follows the v1 search look: a keys box on top, **Get** (or Enter) lists
 the results one value per line with a `N results for Q - T ms` header; an
 expandable **+ add** panel below holds put/doc (adding is the rarer action).
-
-- **Desktop (Tk):** `wish gui/ais.tcl`  (or `./gui/ais.tcl`)
-  Pure Tcl/Tk -- needs only `wish`. The maintained GUI. One text box where the
-  whole content is a single entry (a multi-line value is saved as a document
-  via `ais --doc`), plus **File…/Folder…** pickers that index a path as a record.
 
 - **Web:** `ais --serve`  -- then open <http://127.0.0.1:8765/>
   Built INTO the binary (`c/serve.c`): no Python, no framework, no extra files.
@@ -35,8 +30,8 @@ otherwise it opens your saved default, or `~/.ais`. To switch indexes for good,
 use the GUI's "Store…" chooser (it persists via `ais --default`) or run
 `ais --default PATH` once.
 
-The Tk GUI, or `ais --serve` run by hand, follows the same resolution: your saved
-default (or `~/.ais`), unless you cd into a `.ais/` tree or pass `-f`.
+`ais --serve` run by hand follows the same resolution: your saved default
+(or `~/.ais`), unless you cd into a `.ais/` tree or pass `-f`.
 
 ## Why so thin
 
@@ -53,6 +48,6 @@ wrapper is the hedge. A GTK / Qt / Cocoa front end is equally possible: port the
 
 - **Show the current store** (the resolved index path) in each GUI's header, so
   you always know which index you are looking at.
-- A **Store** button to switch the active index from inside the GUI (Tk, the web
-  page, and the Flutter app), so users never need `-f` or the command line to
-  point at a different index.
+- A **Store** button to switch the active index from inside the GUI (the web
+  page, the native Windows app, and the Flutter app), so users never need `-f`
+  or the command line to point at a different index.

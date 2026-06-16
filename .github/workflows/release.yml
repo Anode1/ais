@@ -45,8 +45,8 @@ jobs:
 
       - name: package bundle + checksum
         run: |
-          # One zip per platform: the ais binary (CLI) + GUI launcher + Tk
-          # wrapper + docs + man/. dist.sh picks static (Linux) / dynamic (macOS)
+          # One zip per platform: the ais binary (CLI) + GUI launcher
+          # + docs + man/. dist.sh picks static (Linux) / dynamic (macOS)
           # by uname, so the matrix `make` field is no longer needed here.
           sh scripts/dist.sh bin
           src=$(ls releases/*/ais-*.zip | head -n1)

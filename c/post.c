@@ -133,6 +133,56 @@ int post_insert(const ais *a, const char *key, long id)
     return 0;
 }
 
+int post_remove(const ais *a, const char *key, long id)
+{
+    char path[AIS_PATH_MAX];
+    char tmp[AIS_PATH_MAX];
+    char line[64];
+    FILE *in, *out;
+    long kept = 0;
+    int rc;
+
+    rc = post_path(a, key, 0, path, sizeof(path));   /* no make: only removing */
+    if (rc != 0)
+        return (rc > 0) ? 0 : -1;
+
+    in = fopen(path, "r");
+    if (in == NULL)
+        return 0;   /* no postings for this key -> nothing to remove */
+
+    if (snprintf(tmp, sizeof(tmp), "%s.tmp", path) >= (int)sizeof(tmp)) {
+        fclose(in);
+        return -1;
+    }
+    out = fopen(tmp, "w");
+    if (out == NULL) {
+        fclose(in);
+        return -1;
+    }
+    while (fgets(line, sizeof(line), in) != NULL) {
+        long v = atol(line);
+        if (v == id)
+            continue;                /* drop this id */
+        fprintf(out, "%ld\n", v);
+        kept++;
+    }
+    fclose(in);
+    if (fclose(out) != 0) {
+        unlink(tmp);
+        return -1;
+    }
+    if (kept == 0) {                 /* key now has no records: drop the file */
+        unlink(tmp);
+        unlink(path);
+        return 0;
+    }
+    if (rename(tmp, path) != 0) {
+        unlink(tmp);
+        return -1;
+    }
+    return 0;
+}
+
 int post_open(const ais *a, const char *key, post_stream *s)
 {
     char path[AIS_PATH_MAX];

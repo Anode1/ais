@@ -37,6 +37,11 @@ long ais_put(ais *a, const char *keys, const char *value);
  * Returns 0 on success, -1 if `id` is unknown. */
 int  ais_add(ais *a, long id, const char *value);
 
+/* Edit the keys of an existing record (id is the handle, from any "id|value"
+ * line). Each bare token in KEYS is attached, each "-key" detached; the record's
+ * id and value are unchanged. Returns 0, or -1 if `id` is unknown/deleted. */
+int  ais_update(ais *a, long id, const char *keys);
+
 /* Tombstone a record. Idempotent (deleting an absent id is a no-op).
  * Space is reclaimed later by ais_compact(). Returns 0. */
 int  ais_del(ais *a, long id);
@@ -87,12 +92,13 @@ void ais_dump(ais *a, FILE *out);
 typedef int (*ais_tl_cb)(long id, const char *ts, const char *keys,
                          const char *value, void *ctx);
 
-/* Emit the LIMIT most-recently-saved live records (LIMIT <= 0 = a default cap),
- * ordered for a timeline view: dateless records FIRST (so a hand-edited or
- * missing date is surfaced, never lost), then dated records newest-first.
- * Bounded memory: one heap block of LIMIT entries, freed before return.
- * Returns 0, the callback's stop code, or -1 on error. */
-int ais_timeline(ais *a, int limit, ais_tl_cb cb, void *ctx);
+/* Emit one timeline page: the COUNT live records with id < BEFORE_ID (BEFORE_ID
+ * <= 0 = from the newest; COUNT <= 0 = a default), newest id first, one row per
+ * record. Keyset pagination -- "load more" passes the last id shown as the next
+ * BEFORE_ID, so each page is read by seeking, not by scanning the whole store.
+ * Order is id-descending (~ reverse-chronological, since ids are monotonic).
+ * Returns 0, or -1 on error. */
+int ais_timeline(ais *a, long before_id, int count, ais_tl_cb cb, void *ctx);
 
 /* Callback for ais_tags(): one distinct key and how many records are filed
  * under it (its posting count). Return 0 to continue, negative to stop. */

@@ -773,34 +773,46 @@ static void test_timeline(void)
 
     scratch_rm(dir);
     ais_open(&a, dir);
-    ais_put(&a, "alpha", "first");        /* id 1, dated now */
-    ais_put(&a, "beta",  "second");       /* id 2, dated now */
+    ais_put(&a, "alpha", "first");        /* id 1 */
+    ais_put(&a, "beta",  "second");       /* id 2 */
+    ais_put(&a, "gamma", "third");        /* id 3 */
+    ais_put(&a, "delta", "fourth");       /* id 4 */
     ais_close(&a);
 
-    /* append a LEGACY (no-ts) line by hand, in ascending id order, then
-     * rebuild the derived files by compacting -- the record must survive and
-     * appear in the timeline, undated, FIRST. */
+    /* append a LEGACY (no-ts) line by hand (id 5), rebuild the derived files by
+     * compacting -- the record must survive and appear in the timeline undated. */
     snprintf(path, sizeof(path), "%s/store", dir);
     fp = fopen(path, "a");
-    if (fp != NULL) { fprintf(fp, "3|oldkey|hand-pasted, no date\n"); fclose(fp); }
+    if (fp != NULL) { fprintf(fp, "5|oldkey|hand-pasted, no date\n"); fclose(fp); }
     snprintf(path, sizeof(path), "%s/next_id", dir); remove(path);
     snprintf(path, sizeof(path), "%s/off",     dir); remove(path);
     snprintf(path, sizeof(path), "%s/multi",   dir); remove(path);
 
     ais_open(&a, dir);
-    ais_compact(&a);
+    ais_compact(&a);                      /* rebuilds off; next_id -> 6 */
 
+    /* full timeline: newest id first (keyset, id-descending) */
     v.n = 0;
-    ais_timeline(&a, 0, collect_tl, &v);
-    CHECK(v.n == 3, "timeline: every live record appears");
-    CHECK(v.n >= 1 && v.r[0].ts[0] == '\0' && v.r[0].id == 3,
-          "timeline: the dateless record is shown FIRST (not lost)");
-    CHECK(v.n == 3 && v.r[1].id == 2 && v.r[2].id == 1,
-          "timeline: dated records follow, newest first");
+    ais_timeline(&a, 0, 0, collect_tl, &v);
+    CHECK(v.n == 5, "timeline: every live record appears");
+    CHECK(v.n == 5 && v.r[0].id == 5 && v.r[4].id == 1,
+          "timeline: newest id first (5..1)");
+    CHECK(v.n >= 1 && v.r[0].ts[0] == '\0',
+          "timeline: the undated record survived (empty ts)");
     CHECK(v.n >= 2 && strchr(v.r[1].ts, 'T') != NULL,
           "timeline: dated rows carry a timestamp");
-    ais_close(&a);
 
+    /* keyset paging: page size 2, cursor = the last id of the previous page */
+    v.n = 0; ais_timeline(&a, 0, 2, collect_tl, &v);
+    CHECK(v.n == 2 && v.r[0].id == 5 && v.r[1].id == 4, "timeline: page 1 = {5,4}");
+    v.n = 0; ais_timeline(&a, 4, 2, collect_tl, &v);
+    CHECK(v.n == 2 && v.r[0].id == 3 && v.r[1].id == 2, "timeline: page 2 (before 4) = {3,2}");
+    v.n = 0; ais_timeline(&a, 2, 2, collect_tl, &v);
+    CHECK(v.n == 1 && v.r[0].id == 1, "timeline: page 3 (before 2) = {1}");
+    v.n = 0; ais_timeline(&a, 1, 2, collect_tl, &v);
+    CHECK(v.n == 0, "timeline: page 4 (before 1) = {} (no more)");
+
+    ais_close(&a);
     scratch_rm(dir);
 }
 
@@ -861,7 +873,7 @@ static void test_embed(void)
     CHECK(r != NULL && r[0] == '\0', "embed: no match -> empty string");
     ais_embed_free(r);
 
-    r = ais_embed_timeline(h, 0);                        /* id|ts|keys|value */
+    r = ais_embed_timeline(h, 0, 0);                     /* id|ts|keys|value */
     CHECK(r != NULL && strstr(r, "|venice italy|https://example.org/p\n") != NULL,
           "embed: timeline returns id|ts|keys|value lines");
     ais_embed_free(r);
@@ -928,6 +940,77 @@ static void test_put_value(void)
     scratch_rm(dir);
 }
 
+/* ---- update: attach/detach keys by id (the handle); idempotent ----------
+ * The cycle the user asked for: add a key, verify it's findable; remove it,
+ * verify it's gone but the record (id + value) survives; re-attach; and confirm
+ * a detach is durable through compaction. Every step is idempotent. */
+static void test_update(void)
+{
+    ais a;
+    long id, vids[16];
+    int n, asc;
+    struct idvec v;
+    struct valvec vv;
+    const char *dir = "/tmp/ais_ut_update";
+
+    scratch_rm(dir);
+    ais_open(&a, dir);
+
+    /* seed: one record under three keys; each key finds it */
+    id = ais_put(&a, "venice italy 2023", "https://trip.example/venice");
+    CHECK(id == 1, "update: seed record id == 1");
+    query(&a, AIS_AND, &v, 1, "venice"); { long w[1] = {1}; CHECK(ids_eq(&v, w, 1), "update: 'venice' finds it"); }
+    query(&a, AIS_AND, &v, 1, "italy");  { long w[1] = {1}; CHECK(ids_eq(&v, w, 1), "update: 'italy' finds it"); }
+
+    /* detach 'venice': recall by it empties, record survives via other keys */
+    CHECK(ais_update(&a, id, "-venice") == 0, "update: detach 'venice' ok");
+    query(&a, AIS_AND, &v, 1, "venice"); CHECK(v.n == 0, "update: 'venice' now empty");
+    query(&a, AIS_AND, &v, 1, "italy");  { long w[1] = {1}; CHECK(ids_eq(&v, w, 1), "update: 'italy' still finds it"); }
+    CHECK(read_posting(dir, "venice", vids, 16, &asc) == -1, "update: 'venice' posting file removed");
+    CHECK(ktomb_contains(&a, id, "venice") == 1, "update: (id,'venice') recorded in ktomb");
+
+    /* the value and id are unchanged: the handle is stable */
+    vv.n = 0; ais_record(&a, id, collect_val, &vv);
+    CHECK(vv.n == 1 && strcmp(vv.vals[0], "https://trip.example/venice") == 0,
+          "update: value unchanged after detach");
+
+    /* idempotent: detaching again changes nothing and does not error */
+    CHECK(ais_update(&a, id, "-venice") == 0, "update: detach again ok (idempotent)");
+    query(&a, AIS_AND, &v, 1, "venice"); CHECK(v.n == 0, "update: still empty after 2nd detach");
+
+    /* re-attach 'venice': back, and the posting holds the id exactly once */
+    CHECK(ais_update(&a, id, "venice") == 0, "update: re-attach 'venice' ok");
+    n = read_posting(dir, "venice", vids, 16, &asc);
+    CHECK(n == 1 && vids[0] == 1, "update: 'venice' posting == {1} (no dup)");
+    CHECK(ktomb_contains(&a, id, "venice") == 0, "update: re-attach cleared the ktomb pair");
+
+    /* idempotent re-attach: still exactly one posting */
+    CHECK(ais_update(&a, id, "venice") == 0, "update: re-attach again ok");
+    n = read_posting(dir, "venice", vids, 16, &asc);
+    CHECK(n == 1 && vids[0] == 1, "update: posting still == {1} after 2nd attach");
+
+    /* attach a brand-new key by id; unknown id is refused */
+    CHECK(ais_update(&a, id, "rome") == 0, "update: attach new key 'rome'");
+    query(&a, AIS_AND, &v, 1, "rome"); { long w[1] = {1}; CHECK(ids_eq(&v, w, 1), "update: 'rome' finds it"); }
+    CHECK(ais_update(&a, 999, "x") == -1, "update: unknown id -> -1");
+
+    /* a detach is durable through compaction: store line rewritten without the
+     * key, ktomb cleared, recall stays empty, posting stays gone */
+    CHECK(ais_update(&a, id, "-italy") == 0, "update: detach 'italy' before compact");
+    CHECK(ais_compact(&a) == 0, "update: compact ok");
+    query(&a, AIS_AND, &v, 1, "italy");  CHECK(v.n == 0, "update: 'italy' empty after compact");
+    query(&a, AIS_AND, &v, 1, "venice"); { long w[1] = {1}; CHECK(ids_eq(&v, w, 1), "update: 'venice' survives compact"); }
+    CHECK(ktomb_active(&a) == 0, "update: ktomb cleared by compact");
+    CHECK(read_posting(dir, "italy", vids, 16, &asc) == -1, "update: 'italy' posting gone after compact");
+
+    /* a deleted record cannot be updated */
+    ais_del(&a, id);
+    CHECK(ais_update(&a, id, "rome") == -1, "update: deleted id -> -1");
+
+    ais_close(&a);
+    scratch_rm(dir);
+}
+
 int main(void)
 {
     printf("AIS regression tests (make ut)\n");
@@ -943,6 +1026,8 @@ int main(void)
     test_get_multikey();
     printf("add:\n");
     test_add_multilink();
+    printf("update:\n");
+    test_update();
     printf("del:\n");
     test_del();
     test_del_key();

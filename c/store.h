@@ -101,6 +101,11 @@ int  off_get(const ais *a, long id, long *offset);
  * equals ID (else the offset is stale). 1 served, 0 mismatch/empty, -1 error. */
 int  store_value_at(const ais *a, long id, long offset, ais_val_cb cb, void *ctx);
 
+/* Parse the WHOLE record (id|ts|keys|value) at byte OFFSET and forward it to CB,
+ * but only if that line's id equals ID. For paging by id (timeline) without a
+ * scan. 1 served, 0 mismatch/stale, -1 error. */
+int  store_record_at(const ais *a, long id, long offset, store_rec_cb cb, void *ctx);
+
 /* The "multi" set: ids carrying more than one value line (ais_add). */
 int  multi_append(const ais *a, long id);
 int  multi_contains(const ais *a, long id);   /* 1 yes, 0 no, -1 error */

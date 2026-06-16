@@ -500,6 +500,39 @@ int store_value_at(const ais *a, long id, long offset, ais_val_cb cb, void *ctx)
     return 1;
 }
 
+/* Like store_value_at, but parses the WHOLE record (id|ts|keys|value) at OFFSET
+ * and forwards it to a store_rec_cb -- so a caller paging by id (the timeline)
+ * can read one record without scanning. 1 served, 0 stale/mismatch, -1 error. */
+int store_record_at(const ais *a, long id, long offset, store_rec_cb cb, void *ctx)
+{
+    char path[AIS_PATH_MAX];
+    char line[AIS_LINE_MAX];
+    FILE *fp;
+    long lid;
+    char *ts, *keys, *val;
+
+    if (store_path(a, "store", path, sizeof(path)) != 0)
+        return -1;
+    fp = fopen(path, "r");
+    if (fp == NULL)
+        return -1;
+    if (fseek(fp, offset, SEEK_SET) != 0) {
+        fclose(fp);
+        return 0;
+    }
+    if (fgets(line, sizeof(line), fp) == NULL) {
+        fclose(fp);
+        return 0;
+    }
+    fclose(fp);
+    if (store_parse(line, &lid, &ts, &keys, &val) != 0)
+        return 0;
+    if (lid != id)
+        return 0;                            /* offset stale */
+    cb(id, ts, keys, val, ctx);
+    return 1;
+}
+
 int multi_append(const ais *a, long id)
 {
     char path[AIS_PATH_MAX];
