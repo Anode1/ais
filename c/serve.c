@@ -107,7 +107,7 @@ static const char PAGE[] =
 "<button id=seg-timeline class=segbtn>Timeline</button>"
 "<button id=seg-tags class=segbtn>Tags</button></div>"
 "<div class=storerow><span id=store class=muted></span><button id=storebtn class=link>change</button></div></header>"
-"<main id=out><p class=empty>Type keys, then Enter. Click + Add to store.</p></main>"
+"<main id=out><p class=empty>Type keys, then Enter. Click + Add to save.</p></main>"
 "<button id=addbtn class=fab>+ Add</button>"
 "<div id=sheet hidden><div class=card><h2>Add to your memory</h2>"
 "<input id=vk placeholder='Keys (space-separated, optional)'>"
@@ -400,7 +400,7 @@ static void handle(ais *a, int fd)
     } else if (strcmp(method, "POST") == 0 && strcmp(path, "/api/put") == 0) {
         char msg[64];
         long c = do_put(a, keys, body);
-        int m = snprintf(msg, sizeof(msg), "stored %ld record(s)\n", c);
+        int m = snprintf(msg, sizeof(msg), "saved %ld record(s)\n", c);
         send_head(fd, "text/plain");
         if (m > 0)
             write_all(fd, msg, (size_t)m);

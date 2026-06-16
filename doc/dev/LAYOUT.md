@@ -149,11 +149,10 @@ writers serialize without colliding on an id, and a long-lived reader
 
 Flag-based so no tag is shadowed: a bare word is always a KEY (recall is the
 default), a value is marked `-v`, a command is a `--word`. Dispatch: a `--CMD`
-flag selects a command; else `-v`/`-R`/`-i` mean store; else recall the keys.
+flag selects a command; else `-v`/`-i` mean store; else recall the keys.
 
     ais [-f DIR] [-o] KEY...           recall (AND; -o = OR)        <-- default
     ais [-f DIR] -v VALUE [KEY...]     store (-v - = stdin; repeat -v = multi-link)
-    ais [-f DIR] -R DIR [KEY...]       store every file under DIR
     ais [-f DIR] -i [KEY...]           interactive: keys per piped line
     ais [-f DIR] --find TEXT           search values by substring
     ais [-f DIR] --add ID -v VALUE

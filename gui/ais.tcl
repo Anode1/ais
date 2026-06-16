@@ -209,7 +209,7 @@ proc do_get {} {
         .f.res delete 1.0 end
         .f.res insert end "type keys above, then Get\n" head
         .f.res configure -state disabled
-        .f.status configure -text "recall"
+        .f.status configure -text "get"
         return
     }
     set t0 [clock milliseconds]
@@ -235,7 +235,7 @@ proc do_get {} {
         .f.res insert end "$v\n" $tags
     }
     .f.res configure -state disabled
-    .f.status configure -text "recall: $keys"
+    .f.status configure -text "get: $keys"
 }
 
 proc toggle_add {} {
@@ -288,7 +288,7 @@ proc do_put {} {
     if {$rc} {
         .f.status configure -text "error: $err"
     } else {
-        .f.status configure -text "stored $what under: [where_txt $keys]"
+        .f.status configure -text "saved $what under: [where_txt $keys]"
         .f.p.val delete 1.0 end
         if {$keys ne ""} { .f.q delete 0 end; .f.q insert 0 $keys; do_get }
     }

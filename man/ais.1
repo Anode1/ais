@@ -1,6 +1,6 @@
 .TH AIS 1 "June 2026" "ais @VERSION@" "User Commands"
 .SH NAME
-ais \- associative index: store values under keys, retrieve them by keys
+ais \- associative index: save values under keys, get them back by keys
 .SH SYNOPSIS
 .B ais
 .RB [ \-f
@@ -13,13 +13,6 @@ ais \- associative index: store values under keys, retrieve them by keys
 .IR DIR ]
 .B \-v
 .I VALUE
-.RI [ KEY ...]
-.br
-.B ais
-.RB [ \-f
-.IR DIR ]
-.B \-R
-.I DIR
 .RI [ KEY ...]
 .br
 .B ais
@@ -55,20 +48,20 @@ text) is filed under one or more keys; records are retrieved by the intersection
 .PP
 The grammar is flag-based so no tag is ever shadowed by a command: a
 .B bare
-word is always a KEY (recall is the default action), a value to store is marked
+word is always a KEY (get is the default action), a value to save is marked
 with
 .BR \-v ,
 and a command is a
 .BR \-\-word .
 Thus
 .B ais doc
-recalls the tag "doc", while
+gets the tag "doc", while
 .B ais \-\-doc
 is the command.
 .PP
 The store is append-only plain text and the index is navigable plain files, so
 the whole index can be read, grepped, rsynced, and repaired by hand. Re-filing a
-value already stored is idempotent.
+value already saved is idempotent.
 .SH OPTIONS
 .TP
 .BI \-f " DIR"
@@ -84,10 +77,10 @@ at or above the current directory (like git), then the per-user index
 created on first use.
 .TP
 .B \-o
-Recall ANY key (union) instead of ALL (intersection).
+Get ANY key (union) instead of ALL (intersection).
 .TP
 .BI \-v " VALUE"
-A value to store (put mode). Repeatable: extra
+A value to save (save mode). Repeatable: extra
 .B \-v
 values attach to the same record (multi-link).
 .B \-v \-
@@ -98,14 +91,14 @@ An explicit key, for a key that begins with
 .RB ' \- '.
 .TP
 .BI \-p " KEY"
-Default project key prepended to this put ('' = none); persistent default is set
+Default project key prepended to this save ('' = none); persistent default is set
 with
 .BR "ais \-\-project KEY" ,
 or via
 .BR $AIS_PROJECT .
 .TP
 .B \-i
-Interactive store: standard-input lines are values, keys are prompted per line.
+Interactive save: standard-input lines are values, keys are prompted per line.
 .TP
 .B \-y
 Assume yes for
@@ -124,23 +117,18 @@ prints the version.
 .SH COMMANDS
 .TP
 .RB [ \-o "] " KEY ...
-(default) Recall records filed under all, or with
+(default) Get records filed under all, or with
 .BR \-o
 any, of the keys, as
 .IR id | value .
 .TP
 .B \-v \fIVALUE\fR [\fIKEY ...\fR]
-Store VALUE under zero or more keys (keyless is allowed; recall it later by
+Save VALUE under zero or more keys (keyless is allowed; get it later by
 .B \-\-find
 or by tagging it).
 .TP
-.B \-R \fIDIR\fR [\fIKEY ...\fR]
-Store every file under DIR. Paths are stored relative to the
-.I .ais
-worktree root when there is one (so a moved tree still resolves), else absolute.
-.TP
 .B \-\-find \fITEXT\fR
-Recall live records whose value contains TEXT (a plain substring).
+Get live records whose value contains TEXT (a plain substring).
 .TP
 .B \-\-add \fIID\fR \-v \fIVALUE\fR
 Attach another value to record ID (repeat
@@ -156,7 +144,7 @@ Delete every record filed under KEY.
 .B \-\-doc \fIKEY ...\fR
 Save standard input as a document: write it to
 .I <index>/blobs/<timestamp>.txt
-and store that relative path as a value under the keys. For multi-line or large
+and save that relative path as a value under the keys. For multi-line or large
 text. Blobs are named by local time, so
 .I ls blobs/
 lists your documents in chronological order.
@@ -176,7 +164,7 @@ Reclaim space from deleted records.
 .B \-\-import
 Read
 .IR keys | value
-lines from standard input and store each (the inverse of
+lines from standard input and save each (the inverse of
 .BR \-\-dump ;
 blank lines and #-comments are skipped).
 .TP
@@ -196,7 +184,6 @@ Start the local web GUI on 127.0.0.1 (default port 8765).
 .SH EXAMPLES
 .nf
 ais -v ~/photos/IMG_3920.jpg italy venice 2023
-ais -R ~/photos/venice       italy venice 2023
 find ~/photos -name '*.jpg' | ais -v - italy venice 2023
 ais italy venice
 ais -o venice rome

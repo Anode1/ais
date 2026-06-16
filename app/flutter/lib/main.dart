@@ -77,7 +77,7 @@ class _RecallPageState extends State<RecallPage> {
       Directory(dir).createSync(recursive: true);
       _ais = AisEngine(dir);
       _dir = dir;
-      _status = 'Type keys, then search. Tap Add to store.';
+      _status = 'Type keys, then search. Tap Add to save.';
     } catch (e) {
       _status = 'cannot open index: $e';
     }

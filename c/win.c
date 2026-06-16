@@ -4,9 +4,7 @@
 
 #ifdef _WIN32
 
-#include <dirent.h>
 #include <fcntl.h>      /* _O_BINARY, _fmode */
-#include <stdlib.h>
 #include <string.h>
 
 /* AIS's store/idx/off files are LF plain text addressed by EXACT byte offsets
@@ -37,83 +35,6 @@ int ais_flock(int fd, int op)
     if (op & LOCK_NB)
         flags |= LOCKFILE_FAIL_IMMEDIATELY;
     return LockFileEx(h, flags, 0, MAXDWORD, MAXDWORD, &ov) ? 0 : -1;
-}
-
-/* nftw(3) subset: recurse PATH with opendir/readdir (MinGW provides dirent),
- * calling FN(child, &st, FTW_F|FTW_D, &ftw) for each entry. Non-zero FN return
- * stops the walk (as nftw specifies). Only the fields feed_dir() reads are
- * filled. */
-static int walk(char *path, size_t len, int level,
-                int (*fn)(const char *, const struct stat *, int, struct FTW *))
-{
-    DIR *d = opendir(path);
-    struct dirent *e;
-    int rc = 0;
-
-    if (d == NULL)
-        return 0;                       /* unreadable dir: skip, like FTW */
-    while ((e = readdir(d)) != NULL) {
-        struct stat st;
-        struct FTW ftw;
-        size_t n;
-        if (strcmp(e->d_name, ".") == 0 || strcmp(e->d_name, "..") == 0)
-            continue;
-        n = strlen(e->d_name);
-        if (len + 1 + n + 1 > PATH_MAX)
-            continue;                   /* path too long: skip */
-        path[len] = '/';
-        memcpy(path + len + 1, e->d_name, n + 1);
-        if (stat(path, &st) != 0) {
-            path[len] = '\0';
-            continue;
-        }
-        ftw.base = (int)len + 1;
-        ftw.level = level;
-        if (st.st_mode & S_IFDIR) {
-            rc = fn(path, &st, FTW_D, &ftw);
-            if (rc == 0)
-                rc = walk(path, len + 1 + n, level + 1, fn);
-        } else {
-            rc = fn(path, &st, FTW_F, &ftw);
-        }
-        path[len] = '\0';
-        if (rc != 0)
-            break;
-    }
-    closedir(d);
-    return rc;
-}
-
-int nftw(const char *path,
-         int (*fn)(const char *, const struct stat *, int, struct FTW *),
-         int nopenfd, int flags)
-{
-    char buf[PATH_MAX];
-    struct stat st;
-    struct FTW ftw;
-    size_t len = strlen(path);
-
-    (void)nopenfd;
-    (void)flags;
-    if (len >= sizeof buf)
-        return -1;
-    memcpy(buf, path, len + 1);
-    while (len > 1 && buf[len - 1] == '/')   /* trim trailing slash */
-        buf[--len] = '\0';
-    if (stat(buf, &st) != 0)
-        return -1;
-    ftw.base = 0;
-    ftw.level = 0;
-    if (!(st.st_mode & S_IFDIR))
-        return fn(buf, &st, FTW_F, &ftw);
-    if (fn(buf, &st, FTW_D, &ftw) != 0)
-        return 0;
-    return walk(buf, len, 1, fn);
-}
-
-char *realpath(const char *path, char *resolved)
-{
-    return _fullpath(resolved, path, PATH_MAX);
 }
 
 void ais_net_init(void)

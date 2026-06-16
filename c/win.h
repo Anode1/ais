@@ -4,8 +4,6 @@
  * a general implementation:
  *   - Winsock init (ais_net_init) for serve.c
  *   - flock(2)  -> LockFileEx        (store.c index lock)
- *   - nftw(3)   -> opendir/readdir   (feed.c -R directory walk)
- *   - realpath  -> _fullpath         (feed.c path canonicalisation)
  *   - mkdir(p,mode) -> _mkdir(p)     (mode ignored on Windows)
  *   - lstat -> stat                  (no POSIX symlinks on Windows)
  * The MinGW build is cross-compiled from Linux CI; see native-windows.yml. */
@@ -22,10 +20,6 @@
 #include <io.h>
 #include <sys/types.h>
 #include <sys/stat.h>
-
-#ifndef PATH_MAX
-#define PATH_MAX 4096
-#endif
 
 /* mkdir(path, mode): Windows _mkdir takes no mode. */
 #ifdef mkdir
@@ -48,21 +42,6 @@
 #endif
 int ais_flock(int fd, int op);
 #define flock(fd, op) ais_flock((fd), (op))
-
-/* nftw(3) subset used by feed_dir(): a FTW_PHYS walk reporting FTW_F/FTW_D. */
-#ifndef FTW_F
-#define FTW_F    1
-#define FTW_D    2
-#define FTW_PHYS 1
-#endif
-struct FTW { int base; int level; };
-int nftw(const char *path,
-         int (*fn)(const char *, const struct stat *, int, struct FTW *),
-         int nopenfd, int flags);
-
-/* realpath(3): resolve PATH to an absolute path (Windows _fullpath). RESOLVED
- * must point at a buffer of at least PATH_MAX bytes (AIS always passes one). */
-char *realpath(const char *path, char *resolved);
 
 /* Initialise Winsock once (WSAStartup); no-op after the first call. */
 void ais_net_init(void);

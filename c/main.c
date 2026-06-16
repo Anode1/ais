@@ -5,7 +5,6 @@
  *   -v VALUE      store VALUE under the keys (repeat -v = one multi-link
  *                 record; -v - reads values from stdin, one per line)
  *   -k KEY        an explicit key (for a key that looks like a flag)
- *   -R DIR        store every file under DIR
  *   -i            interactive: ask keys per piped line
  *   --CMD         a command: find add del del-key dump keys tags timeline
  *                 stats compact init import where serve project doc. Operands
@@ -244,7 +243,6 @@ int main(int argc, char **argv)
         { "debug",       no_argument,       NULL, 'd' },
         { "yes",         no_argument,       NULL, 'y' },
         { "interactive", no_argument,       NULL, 'i' },
-        { "recurse",     required_argument, NULL, 'R' },
         { "value",       required_argument, NULL, 'v' },
         { "key",         required_argument, NULL, 'k' },
         { "project",     no_argument,       NULL, CMD_PROJECT },
@@ -269,7 +267,6 @@ int main(int argc, char **argv)
     };
     const char *dir = NULL;
     const char *project_arg = NULL;
-    const char *recurse_dir = NULL;
     const char *values[AIS_KEYS_MAX];
     const char *exkeys[AIS_KEYS_MAX];
     int nval = 0, nexk = 0;
@@ -283,14 +280,13 @@ int main(int argc, char **argv)
 
     /* -p is the per-call project override; --project (CMD_PROJECT) manages the
      * stored default. They are intentionally distinct. */
-    while ((c = getopt_long(argc, argv, "f:odhyiR:v:k:p:", longopts, NULL)) != -1) {
+    while ((c = getopt_long(argc, argv, "f:odhyiv:k:p:", longopts, NULL)) != -1) {
         switch (c) {
         case 'f': dir = optarg; break;
         case 'o': mode = AIS_OR; break;
         case 'd': ais_debug_flag = 1; break;
         case 'y': assume_yes = 1; break;
         case 'i': interactive = 1; break;
-        case 'R': recurse_dir = optarg; break;
         case 'v': if (nval >= AIS_KEYS_MAX) die("too many -v values");
                   values[nval++] = optarg; break;
         case 'k': if (nexk >= AIS_KEYS_MAX) die("too many -k keys");
@@ -311,7 +307,7 @@ int main(int argc, char **argv)
     }
 
     /* nothing asked for at all */
-    if (cmd == 0 && nval == 0 && recurse_dir == NULL && !interactive &&
+    if (cmd == 0 && nval == 0 && !interactive &&
         optind >= argc && nexk == 0) {
         usage_short(stderr);
         return 2;
@@ -424,15 +420,13 @@ int main(int argc, char **argv)
         return 0;
     }
 
-    /* ---- store (put mode): -v, -R, or -i ---- */
-    if (nval > 0 || recurse_dir != NULL || interactive) {
+    /* ---- save (put mode): -v or -i ---- */
+    if (nval > 0 || interactive) {
         if (collect_keys(argv, optind, argc, exkeys, nexk, keys, sizeof(keys)) != 0)
             die("key list too long");
         build_keys(project, keys, full, sizeof(full));
 
-        if (recurse_dir != NULL) {
-            feed_dir(&a, recurse_dir, full);
-        } else if (interactive) {
+        if (interactive) {
             feed_interactive(&a, full);
         } else if (nval == 1 && strcmp(values[0], "-") == 0) {
             feed_stdin(&a, full);                 /* values from stdin */

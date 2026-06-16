@@ -13,18 +13,18 @@
   <div class="titlerow"><span class="brand">AIS</span><span id="count" class="muted"></span></div>
   <div class="searchrow">
     <span class="sicon">&#128269;</span>
-    <input id="q" type="search" enterkeyhint="search" placeholder="type keys to recall…" autocomplete="off" autofocus>
+    <input id="q" type="search" enterkeyhint="search" placeholder="type keys to get…" autocomplete="off" autofocus>
     <button id="mic" class="iconbtn" title="Speak" hidden>&#127908;</button>
   </div>
   <div class="seg">
-    <button id="seg-recall" class="segbtn active">Recall</button>
+    <button id="seg-recall" class="segbtn active">Get</button>
     <button id="seg-timeline" class="segbtn">Timeline</button>
     <button id="seg-tags" class="segbtn">Tags</button>
   </div>
   <div class="storerow"><span id="store" class="muted"></span><button id="storebtn" class="link">change</button></div>
 </header>
 
-<main id="out"><p class="empty">Type keys, then Enter. Tap + Add to store.</p></main>
+<main id="out"><p class="empty">Type keys, then Enter. Tap + Add to save.</p></main>
 
 <button id="addbtn" class="fab">+ Add</button>
 
@@ -130,7 +130,7 @@ function setView(v) {
   });
   if (v == 'recall') {
     if ($('q').value.trim()) recall();
-    else { $('out').innerHTML = '<p class="empty">Type keys, then Enter. Tap + Add to store.</p>'; $('count').textContent = ''; }
+    else { $('out').innerHTML = '<p class="empty">Type keys, then Enter. Tap + Add to save.</p>'; $('count').textContent = ''; }
   } else if (v == 'timeline') loadTimeline();
   else loadTags();
 }
@@ -172,7 +172,7 @@ async function changeStore(){
   var d = prompt('Index folder (full path):', cur);
   if (!d || d == cur) return;
   var r = await fetch('/api/store', { method:'POST', body:d });
-  if (r.ok) { $('q').value=''; $('out').innerHTML='<p class="empty">Type keys to recall.</p>'; $('count').textContent=''; loadStore(); }
+  if (r.ok) { $('q').value=''; $('out').innerHTML='<p class="empty">Type keys to get.</p>'; $('count').textContent=''; loadStore(); }
   else alert('Could not open that index');
 }
 $('storebtn').onclick = changeStore;
