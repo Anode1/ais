@@ -72,7 +72,7 @@ Because a bundled engine is a dependency you do not control. An early AIS versio
 On purpose. The keys you assign *are* the point: they are your prior, your ordering of the world. Full-text search finds words; keys find the meaning you committed to. (`ais --find` still searches values and paths.) To search a document's contents, keep it as a file and index its path.
 
 **Is the built-in web server not a toy?**
-Yes, deliberately. `ais --serve` is a single-user, localhost-only loop so the binary can show a GUI with no framework, no daemon, no account. It binds 127.0.0.1 and nothing else. The command line is the contract; every GUI is a thin wrapper over it.
+It is deliberately minimal, and it is not the main interface. The command line is the contract, and the primary way to use AIS; every GUI is just a thin wrapper over it. `ais --serve` is one such wrapper: a single-user, localhost-only loop that opens a GUI in any browser with no framework, no daemon, and no account (it binds 127.0.0.1 and nothing else). The native Windows app (`win32/`) is another wrapper, and a Flutter app covers mobile. (An earlier Tk desktop wrapper was dropped once `ais --serve` covered the same ground.) The engine depends on none of them, so a wrapper can be swapped or added without touching the core.
 
 **Is this not just a bookmark manager / recoll / org-mode?**
 It overlaps all three and copies none. Not a bookmark manager: it files *anything* under *any* keys, not URLs in a browser. Not full-text (recoll): it indexes the keys you choose, not document bodies. Not org-mode: no single tree, no app lock-in, no markup to learn, just keys with set algebra (AND / OR) over plain files. The distinctive part is that the index *is your bias*, kept unaveraged and portable.
