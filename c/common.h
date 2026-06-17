@@ -25,7 +25,11 @@
 /* On-disk format version (INDEX/version). Bump only if the canonical store
  * format changes; derived files (idx/off/multi) are rebuilt by compact.
  *   v1: id|keys|value
- *   v2: id|ts|keys|value   (ts = save time; v2 readers still read v1 lines) */
-#define AIS_FORMAT_VERSION 2
+ *   v2: id|ts|keys|value          (ts = local save time, no zone)
+ *   v3: ts is UTC ISO-8601 with a trailing 'Z' (canonical across devices).
+ * A v3 reader still reads v1/v2 lines (old ts kept as-is); a v2 reader would
+ * misread a 'Z' timestamp, so v3 indexes carry version 3 and old binaries
+ * refuse them rather than corrupt-on-read. */
+#define AIS_FORMAT_VERSION 3
 
 #endif /* AIS_COMMON_H */

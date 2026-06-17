@@ -68,7 +68,11 @@ static int looks_like_ts(const char *p)
         return 1;                         /* to the minute:  ...Thh:mm */
     if (p[16] != ':' || p[17] == '\0' || p[18] == '\0' || !ts_digits(p, 17, 2))
         return 0;
-    return p[19] == '|' || p[19] == '\0'; /* to the second:  ...Thh:mm:ss */
+    if (p[19] == '|' || p[19] == '\0')
+        return 1;                         /* to the second:  ...Thh:mm:ss (v2) */
+    if (p[19] == 'Z')                     /* UTC:  ...Thh:mm:ssZ (v3) */
+        return p[20] == '|' || p[20] == '\0';
+    return 0;
 }
 
 /* Split a store line in place: "id|ts|keys|value" (v2) or "id|keys|value" (v1,
@@ -119,10 +123,10 @@ static int store_parse(char *line, long *id, char **ts, char **keys, char **valu
 int store_now(char *buf, size_t bufsz)
 {
     time_t now = time(NULL);
-    struct tm *lt = localtime(&now);
+    struct tm *gt = gmtime(&now);          /* UTC: one canonical instant across devices */
 
     buf[0] = '\0';
-    if (lt == NULL || strftime(buf, bufsz, "%Y-%m-%dT%H:%M:%S", lt) == 0) {
+    if (gt == NULL || strftime(buf, bufsz, "%Y-%m-%dT%H:%M:%SZ", gt) == 0) {
         buf[0] = '\0';
         return -1;
     }

@@ -751,6 +751,7 @@ static void test_timestamp(void)
           strstr(line, "T") != NULL && line[1] == '|' &&
           line[2] >= '0' && line[2] <= '9',
           "timestamp: a new put records id|ts|keys|value");
+    CHECK(strstr(line, "Z|") != NULL, "timestamp: a new ts is UTC (ends with Z)");
     if (fp != NULL) fclose(fp);
 
     /* a year used as a key is NOT mistaken for a date: recall by 2026 works */
@@ -758,6 +759,37 @@ static void test_timestamp(void)
     query(&a, AIS_AND, &ids, 1, "2026");
     CHECK(ids.n == 1 && ids.ids[0] == 1, "timestamp: a year-key (2026) is not eaten as a date");
     ais_close(&a);
+
+    /* backward compatibility (Zoya's 0.1.4 case): a current reader still reads
+     * old v2 lines (ts with no 'Z') and v1 lines (no ts at all). */
+    {
+        const char *odir = "/tmp/ais_ut_ts_old";
+        ais b;
+        struct idvec ov;
+        char op[AIS_PATH_MAX];
+        FILE *of;
+
+        scratch_rm(odir);
+        ais_open(&b, odir);
+        ais_close(&b);
+        snprintf(op, sizeof op, "%s/store", odir);
+        of = fopen(op, "w");
+        if (of != NULL) {
+            fprintf(of, "1|2024-03-01T09:00:00|legacy two|old-v2-value\n"); /* v2: no Z */
+            fprintf(of, "2|legacy one|old-v1-value\n");                     /* v1: no ts */
+            fclose(of);
+        }
+        snprintf(op, sizeof op, "%s/next_id", odir); remove(op);
+        snprintf(op, sizeof op, "%s/off",     odir); remove(op);
+        ais_open(&b, odir);
+        ais_compact(&b);
+        query(&b, AIS_AND, &ov, 1, "two");
+        CHECK(ov.n == 1 && ov.ids[0] == 1, "timestamp: reads an old v2 (no-Z) record");
+        query(&b, AIS_AND, &ov, 1, "one");
+        CHECK(ov.n == 1 && ov.ids[0] == 2, "timestamp: reads an old v1 (no-ts) record");
+        ais_close(&b);
+        scratch_rm(odir);
+    }
 
     scratch_rm(dir);
 }
@@ -1065,6 +1097,54 @@ static void test_update(void)
     scratch_rm(dir);
 }
 
+/* regression + case study: a real index accumulates all three line formats as
+ * AIS evolves -- v1 (no ts), v2 (local ts, no Z), v3 (UTC ts with Z). One engine
+ * must read them all (mirrors Vasili's own ~/.ais after upgrades). */
+static void test_mixed_formats(void)
+{
+    const char *dir = "/tmp/ais_ut_mixed";
+    ais a;
+    struct idvec v;
+    struct tlvec tl;
+    char path[AIS_PATH_MAX];
+    FILE *fp;
+    int i, undated = 0, local = 0, utc = 0;
+
+    scratch_rm(dir);
+    ais_open(&a, dir);
+    ais_close(&a);
+    snprintf(path, sizeof path, "%s/store", dir);
+    fp = fopen(path, "w");
+    if (fp != NULL) {
+        fprintf(fp, "1|alpha old|v1-no-timestamp\n");               /* v1: no ts   */
+        fprintf(fp, "2|2026-06-11T14:51:09|beta local|v2-local\n"); /* v2: local   */
+        fprintf(fp, "3|2026-06-17T18:00:00Z|gamma utc|v3-utc\n");   /* v3: UTC + Z */
+        fclose(fp);
+    }
+    snprintf(path, sizeof path, "%s/next_id", dir); remove(path);
+    snprintf(path, sizeof path, "%s/off",     dir); remove(path);
+    ais_open(&a, dir);
+    ais_compact(&a);                            /* rebuild idx/off from the mix */
+
+    query(&a, AIS_AND, &v, 1, "old");   CHECK(v.n == 1 && v.ids[0] == 1, "mixed: v1 (no-ts) record recalled");
+    query(&a, AIS_AND, &v, 1, "local"); CHECK(v.n == 1 && v.ids[0] == 2, "mixed: v2 (local ts) record recalled");
+    query(&a, AIS_AND, &v, 1, "utc");   CHECK(v.n == 1 && v.ids[0] == 3, "mixed: v3 (UTC ts) record recalled");
+
+    tl.n = 0; ais_timeline(&a, 0, 0, "", "", collect_tl, &tl);
+    CHECK(tl.n == 3, "mixed: all three formats appear in the timeline");
+    for (i = 0; i < tl.n; i++) {
+        if (tl.r[i].id == 1) undated = (tl.r[i].ts[0] == '\0');
+        if (tl.r[i].id == 2) local   = (strchr(tl.r[i].ts, 'T') != NULL && strchr(tl.r[i].ts, 'Z') == NULL);
+        if (tl.r[i].id == 3) utc     = (strchr(tl.r[i].ts, 'Z') != NULL);
+    }
+    CHECK(undated, "mixed: the v1 row is undated (empty ts)");
+    CHECK(local,   "mixed: the v2 row keeps its local ts (no Z)");
+    CHECK(utc,     "mixed: the v3 row keeps its UTC ts (Z)");
+
+    ais_close(&a);
+    scratch_rm(dir);
+}
+
 int main(void)
 {
     printf("AIS regression tests (make ut)\n");
@@ -1101,6 +1181,8 @@ int main(void)
     test_rebuild_from_store();
     printf("timestamp:\n");
     test_timestamp();
+    printf("mixed formats (v1/v2/v3 in one store):\n");
+    test_mixed_formats();
     printf("timeline:\n");
     test_timeline();
     test_timeline_dates();

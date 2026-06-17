@@ -1,0 +1,31 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.defaultLocale.1.6.0.schema.json
+PackageIdentifier: Anode1.AIS
+PackageVersion: 0.2.3
+PackageLocale: en-US
+Publisher: Vasili Gavrilov
+PublisherUrl: https://github.com/Anode1
+PublisherSupportUrl: https://github.com/Anode1/ais/issues
+PackageName: AIS
+PackageUrl: https://github.com/Anode1/ais
+License: GPL-2.0-only
+LicenseUrl: https://github.com/Anode1/ais/blob/main/COPYING
+Copyright: Copyright (C) Vasili Gavrilov
+ShortDescription: A personal, plain-text associative memory -- file anything under keys, recall it by keys.
+Description: >-
+  AIS (Associative Indexing Service) is an extension of your associative memory:
+  file a link, a note, or a file path under one or more keys and recall it by
+  those keys, the way your mind recalls -- by association. The store is
+  append-only plain text on your own device: no server, no account, nothing
+  phones home, and you can read or back it up by hand. One tiny native engine
+  with a command line and a local (127.0.0.1-only) web GUI.
+Moniker: ais
+Tags:
+  - pkm
+  - notes
+  - search
+  - index
+  - bookmarks
+  - plain-text
+  - memex
+ManifestType: defaultLocale
+ManifestVersion: 1.6.0

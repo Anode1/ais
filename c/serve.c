@@ -164,6 +164,12 @@ static const char PAGE[] =
 "return{id:ln.slice(0,a),ts:ln.slice(a+1,b),keys:ln.slice(b+1,c),value:ln.slice(c+1)}}"
 "function fmtDay(d){var p=d.split('-'),M=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];"
 "return p[2]+' '+M[(+p[1])-1]+' '+p[0]}"
+/* a stored ts (UTC '...Z', or an old local '...' with no zone) -> LOCAL day+time
+ * for display. Engine stores UTC; the viewer localizes. */
+"function locDT(ts){if(!ts)return null;if(ts.length<=10)return{day:ts,time:''};"
+"var d=new Date(ts);if(isNaN(d.getTime()))return null;"
+"var p=function(n){return(n<10?'0':'')+n};"
+"return{day:d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate()),time:p(d.getHours())+':'+p(d.getMinutes())}}"
 /* keyset paging: each call fetches `count` records older than the last id shown
  * (tlBefore); 'more' appends, otherwise it reloads from the newest. */
 "async function loadTimeline(more){var o=$('out');"
@@ -173,12 +179,12 @@ static const char PAGE[] =
 "var L=(await(await fetch(u)).text()).split('\\n').filter(function(s){return s.length});"
 "var mb=$('tlmore');if(mb)mb.remove();"
 "if(!tlN&&!L.length){o.innerHTML='<p class=empty>Nothing saved yet.</p>';return}"
-"L.forEach(function(ln){var r=parseTL(ln),d=r.ts?r.ts.slice(0,10):'';"
+"L.forEach(function(ln){var r=parseTL(ln),lt=locDT(r.ts),d=lt?lt.day:'';"
 "if(d!==tlDay){tlDay=d;var h=document.createElement('div');h.className='daygroup';"
 "h.textContent=d?fmtDay(d):'(undated)';o.appendChild(h)}"
 "var row=document.createElement('div');row.className='hit';fillVal(row,r.value);"
 "var m=document.createElement('div');m.className='meta';"
-"var tm=r.ts.indexOf('T')>=0?r.ts.slice(11,16)+' - ':'';"
+"var tm=lt&&lt.time?lt.time+' - ':'';"
 "m.textContent=tm+(r.keys||'(no keys)');row.appendChild(m);"
 "if(r.id){row.appendChild(rowActions(r.id));tlBefore=r.id}o.appendChild(row)});"
 "tlN+=L.length;$('count').textContent=tlN+' record'+(tlN==1?'':'s');"

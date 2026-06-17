@@ -495,8 +495,11 @@ class _RecallPageState extends State<RecallPage> {
     }
     final items = <Widget>[];
     String? day;
+    String p2(int n) => n.toString().padLeft(2, '0');
     for (final r in _tl) {
-      final d = r.ts.isNotEmpty ? r.ts.substring(0, 10) : '';
+      // engine stores UTC ('…Z'); show local. An old local ts (no Z) parses as local.
+      final dt = r.ts.isEmpty ? null : DateTime.tryParse(r.ts)?.toLocal();
+      final d = dt == null ? '' : '${dt.year}-${p2(dt.month)}-${p2(dt.day)}';
       if (d != day) {
         day = d;
         items.add(Padding(
@@ -505,7 +508,7 @@ class _RecallPageState extends State<RecallPage> {
               style: TextStyle(fontSize: 12, color: cs.outline, fontWeight: FontWeight.w600)),
         ));
       }
-      final time = r.ts.contains('T') ? '${r.ts.substring(11, 16)} · ' : '';
+      final time = (dt != null && r.ts.contains('T')) ? '${p2(dt.hour)}:${p2(dt.minute)} · ' : '';
       items.add(ListTile(
         title: SelectableText(r.value,
             style: TextStyle(color: _isUrl(r.value) ? cs.primary : null)),

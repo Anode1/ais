@@ -1,0 +1,22 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.installer.1.6.0.schema.json
+PackageIdentifier: Anode1.AIS
+PackageVersion: 0.2.3
+Platform:
+  - Windows.Desktop
+MinimumOSVersion: 10.0.0.0
+InstallerType: inno
+Scope: user
+InstallModes:
+  - interactive
+  - silent
+  - silentWithProgress
+UpgradeBehavior: install
+ReleaseDate: 2026-06-17
+Installers:
+  - Architecture: x64
+    InstallerUrl: https://github.com/Anode1/ais/releases/download/v0.2.3/ais-v0.2.3-windows-x86_64-installer.exe
+    InstallerSha256: ED5C843C7B152D5EE6FA39E028905509D3AA40B0E18E405E43E24F25946214CB
+    AppsAndFeaturesEntries:
+      - ProductCode: '{BE2750EB-72A2-4016-AFD0-98818CBB51E7}_is1'
+ManifestType: installer
+ManifestVersion: 1.6.0

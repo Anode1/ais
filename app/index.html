@@ -110,6 +110,16 @@ function fmtDay(d) {
       M = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
   return p[2] + ' ' + M[(+p[1]) - 1] + ' ' + p[0];
 }
+// a stored ts (UTC '...Z', or old local '...' with no zone) -> LOCAL day+time.
+// The engine stores UTC; the viewer localizes.
+function locDT(ts) {
+  if (!ts) return null;
+  if (ts.length <= 10) return { day: ts, time: '' };
+  var d = new Date(ts); if (isNaN(d.getTime())) return null;
+  var p = function (n) { return (n < 10 ? '0' : '') + n; };
+  return { day: d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()),
+           time: p(d.getHours()) + ':' + p(d.getMinutes()) };
+}
 // keyset paging: fetch `count` records older than the last id shown (tlBefore);
 // 'more' appends a page, otherwise reload from the newest.
 async function loadTimeline(more) {
@@ -122,7 +132,7 @@ async function loadTimeline(more) {
   var mb = $('tlmore'); if (mb) mb.remove();
   if (!tlN && !lines.length) { out.innerHTML = '<p class="empty">Nothing saved yet.</p>'; return; }
   lines.forEach(function (ln) {
-    var r = parseTL(ln), d = r.ts ? r.ts.slice(0, 10) : '';
+    var r = parseTL(ln), lt = locDT(r.ts), d = lt ? lt.day : '';
     if (d !== tlDay) {
       tlDay = d;
       var h = document.createElement('div'); h.className = 'daygroup';
@@ -135,7 +145,7 @@ async function loadTimeline(more) {
     if (isUrl(r.value)) { s.href = r.value; s.target = '_blank'; s.rel = 'noopener'; }
     row.appendChild(s);
     var m = document.createElement('div'); m.className = 'meta';
-    var tm = r.ts.indexOf('T') >= 0 ? r.ts.slice(11, 16) + ' · ' : '';
+    var tm = lt && lt.time ? lt.time + ' · ' : '';
     m.textContent = tm + (r.keys || '(no keys)');
     row.appendChild(m);
     if (r.id) { row.appendChild(rowActions(r.id)); tlBefore = r.id; }

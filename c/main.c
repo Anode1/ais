@@ -193,10 +193,12 @@ static int print_tl(long id, const char *ts, const char *keys,
     if (ts[0] == '\0')
         snprintf(when, sizeof(when), "(undated)");
     else {
-        snprintf(when, sizeof(when), "%.16s", ts);   /* trim seconds */
+        snprintf(when, sizeof(when), "%.16s", ts);   /* date + hh:mm */
         t = strchr(when, 'T');
         if (t != NULL)
             *t = ' ';
+        if (strchr(ts, 'Z') != NULL)                 /* keep the UTC marker */
+            strncat(when, "Z", sizeof(when) - strlen(when) - 1);
     }
     fprintf(out, "%s\t%s\t%s\n", when, keys[0] ? keys : "(no keys)", value);
     return 0;
