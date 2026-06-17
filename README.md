@@ -12,25 +12,18 @@ The latest stable build for every platform. The link below always points at the 
 > **<https://github.com/Anode1/ais/releases/latest>**
 
 - **Windows**: unzip `…-windows-x86_64.zip` and double-click **`ais-gui.exe`** (the native desktop app). Nothing is installed; to remove it, delete the folder. Prefer a Start-Menu entry? Run `…-installer.exe` instead (per-user, no admin).
+
+  *First run:* this build is not yet code-signed, so Windows may show a blue **"Windows protected your PC"** screen the first time you run the installer or `ais-gui.exe`. That is SmartScreen flagging a new, unrecognized download, not a virus warning. Click **More info**, then **Run anyway** (once per file). A signed build is [on the way](doc/ROADMAP.md); you can also build from source, which Windows never flags.
+
 - **macOS / Linux**: unzip the `…-<os>-<arch>.zip`, then `./ais --serve` opens the GUI in your browser (or use the `ais` CLI; add it to your PATH to use it anywhere).
 
-**Windows first run.** This build is not yet code-signed, so Windows may show a
-blue **"Windows protected your PC"** screen the first time you run the installer
-or `ais-gui.exe`. That is SmartScreen flagging a new, unrecognized download, not
-a virus warning. Click **More info**, then **Run anyway** (once per file). A signed
-build is [on the way](doc/ROADMAP.md); you can also build from source, which
-Windows never flags.
+  *macOS first run:* the binaries are not yet notarized by Apple, so a downloaded copy is quarantined and Gatekeeper says *"Apple could not verify 'ais' is free of malware."* Clear the quarantine flag once, in Terminal from the unzipped folder:
 
-**macOS first run.** The binaries are not yet notarized by Apple, so a downloaded
-copy is quarantined and Gatekeeper says *"Apple could not verify 'ais' is free of
-malware."* Clear the quarantine flag once, in Terminal from the unzipped folder:
+  ```sh
+  xattr -dr com.apple.quarantine .
+  ```
 
-```sh
-xattr -dr com.apple.quarantine .
-```
-
-(or **System Settings ▸ Privacy & Security ▸ Open Anyway**). Locally built copies
-aren't affected. Notarization is on the [roadmap](doc/ROADMAP.md).
+  (or **System Settings ▸ Privacy & Security ▸ Open Anyway**). Locally built copies aren't affected. Notarization is on the [roadmap](doc/ROADMAP.md).
 
 ## Quick start (from source)
 
