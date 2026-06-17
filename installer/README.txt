@@ -2,6 +2,10 @@ AIS -- your memory, yours to keep.
 
 Start Menu: launch "AIS" for the desktop app (the native window).
 
+First run: this build is not yet code-signed, so Windows may show a blue
+"Windows protected your PC" screen. That is SmartScreen flagging a new file,
+not a virus warning -- click "More info", then "Run anyway" (once per file).
+
 Command line (if you ticked "Add ais to PATH"): open a NEW terminal and run
     ais --help            e.g.  ais venice italy
     ais --serve           open the web GUI in your browser instead
