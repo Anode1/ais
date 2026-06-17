@@ -109,10 +109,14 @@ static const char PAGE[] =
 "</style>"
 "<header id=bar><div class=titlerow><span class=brand>AIS</span><span id=count class=muted></span></div>"
 "<div class=searchrow><input id=q type=search placeholder='type keys to get...' autocomplete=off autofocus>"
-"<label class=allk style='display:flex;align-items:center;gap:.4rem;font-size:.85rem;color:var(--muted);margin-top:.45rem'><input id=allk type=checkbox style='width:auto'> Match all keys</label></div>"
+"<label class=allk style='display:flex;align-items:center;gap:.4rem;font-size:.85rem;color:var(--muted);margin-top:.45rem'><input id=anyk type=checkbox style='width:auto'> Match any key</label></div>"
 "<div class=seg><button id=seg-recall class='segbtn active'>Get</button>"
 "<button id=seg-timeline class=segbtn>Timeline</button>"
 "<button id=seg-tags class=segbtn>Tags</button></div>"
+"<div id=tlrange style='display:none;gap:.4rem;align-items:center;margin-top:.5rem;font-size:.85rem;color:var(--muted)'>"
+"<span>from</span><input id=tlfrom type=date style='font:inherit'>"
+"<span>to</span><input id=tlto type=date style='font:inherit'>"
+"<button id=tlclear class=link>clear</button></div>"
 "<div class=storerow><span id=store class=muted></span><button id=storebtn class=link>change</button></div></header>"
 "<main id=out><p class=empty>Type keys, then Enter. Click + Add to save.</p></main>"
 "<button id=addbtn class=fab>+ Add</button>"
@@ -154,8 +158,8 @@ static const char PAGE[] =
 "if(s===null||!s.trim())return;"
 "await fetch('/api/update?id='+id+'&keys='+encodeURIComponent(s.trim()),{method:'POST'});setView(view)}"
 "async function recall(){var q=$('q').value.trim();if(!q)return;var t0=performance.now();"
-"var all=$('allk')&&$('allk').checked?'&all=1':'';"
-"var t=await(await fetch('/api/get?keys='+encodeURIComponent(q)+all)).text();render(t,q,performance.now()-t0)}"
+"var oo=$('anyk')&&$('anyk').checked?'&or=1':'';"
+"var t=await(await fetch('/api/get?keys='+encodeURIComponent(q)+oo)).text();render(t,q,performance.now()-t0)}"
 "function parseTL(ln){var a=ln.indexOf('|'),b=ln.indexOf('|',a+1),c=ln.indexOf('|',b+1);"
 "return{id:ln.slice(0,a),ts:ln.slice(a+1,b),keys:ln.slice(b+1,c),value:ln.slice(c+1)}}"
 "function fmtDay(d){var p=d.split('-'),M=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];"
@@ -163,8 +167,9 @@ static const char PAGE[] =
 /* keyset paging: each call fetches `count` records older than the last id shown
  * (tlBefore); 'more' appends, otherwise it reloads from the newest. */
 "async function loadTimeline(more){var o=$('out');"
+"var f=$('tlfrom')?$('tlfrom').value:'',tt=$('tlto')?$('tlto').value:'';"
 "if(!more){tlBefore=0;tlDay=null;tlN=0;o.className='';o.innerHTML=''}"
-"var u='/api/timeline?count='+tlPage+(tlBefore>0?'&before='+tlBefore:'');"
+"var u='/api/timeline?count='+tlPage+(tlBefore>0?'&before='+tlBefore:'')+(f?'&from='+f:'')+(tt?'&to='+tt:'');"
 "var L=(await(await fetch(u)).text()).split('\\n').filter(function(s){return s.length});"
 "var mb=$('tlmore');if(mb)mb.remove();"
 "if(!tlN&&!L.length){o.innerHTML='<p class=empty>Nothing saved yet.</p>';return}"
@@ -191,6 +196,7 @@ static const char PAGE[] =
 "row.appendChild(b);row.appendChild(n);o.appendChild(row)})}"
 "function setView(v){view=v;['recall','timeline','tags'].forEach(function(k){"
 "$('seg-'+k).className='segbtn'+(k==v?' active':'')});"
+"$('tlrange').style.display=(v=='timeline')?'flex':'none';"   /* date range only in Timeline */
 "if(v=='recall'){var q=$('q').value.trim();if(q)recall();"
 "else{$('out').innerHTML='<p class=empty>Type keys, then Enter.</p>';$('out').className='';$('count').textContent=''}}"
 "else if(v=='timeline')loadTimeline();else loadTags()}"
@@ -202,6 +208,8 @@ static const char PAGE[] =
 "$('seg-recall').onclick=function(){setView('recall')};"
 "$('seg-timeline').onclick=function(){setView('timeline')};"
 "$('seg-tags').onclick=function(){setView('tags')};"
+"$('tlfrom').onchange=function(){loadTimeline()};$('tlto').onchange=function(){loadTimeline()};"
+"$('tlclear').onclick=function(){$('tlfrom').value='';$('tlto').value='';loadTimeline()};"
 "$('addbtn').onclick=openSheet;$('cancel').onclick=closeSheet;$('save').onclick=save;"
 "$('sheet').addEventListener('click',function(e){if(e.target==$('sheet'))closeSheet()});"
 "async function loadStore(){$('store').textContent='store: '+await(await fetch('/api/where')).text()}"
@@ -280,7 +288,10 @@ static int on_id(long id, void *vp)
     return 0;
 }
 
-static void do_get(ais *a, char *keys, int all, int fd)
+/* Get records under the keys: AND (intersection) by default, OR (union) when
+ * want_or is set (the "Match any key" box). The user toggles it -- if AND finds
+ * nothing they check the box and Get again. No automatic relaxation. */
+static void do_get(ais *a, char *keys, int want_or, int fd)
 {
     char *kv[AIS_KEYS_MAX];
     int nkeys = 0;
@@ -292,8 +303,8 @@ static void do_get(ais *a, char *keys, int all, int fd)
         kv[nkeys++] = tok;
 
     s.a = a; s.fd = fd;
-    if (nkeys > 0)                          /* default OR (any key); all => AND */
-        ais_get(a, kv, nkeys, all ? AIS_AND : AIS_OR, on_id, &s);
+    if (nkeys > 0)
+        ais_get(a, kv, nkeys, want_or ? AIS_OR : AIS_AND, on_id, &s);
 }
 
 /* ---- put: the WHOLE body is one record ----------------------------------
@@ -386,10 +397,11 @@ static void handle(ais *a, int fd)
     char nokeys[1] = "";
     ssize_t n;
     char *method, *path, *query, *body, *keys = nokeys, *sp;
-    int want_all = 0;                     /* "Match all keys" -> AIS_AND; default OR */
+    int want_or = 0;                      /* "Match any key" -> AIS_OR; default AND+relax */
     long reqid = 0;                       /* ?id= for /api/del and /api/update      */
     long before = 0;                      /* ?before= cursor for /api/timeline paging */
     int  count = 0;                       /* ?count= page size (0 => engine default)  */
+    char *tlfrom = nokeys, *tlto = nokeys; /* ?from= ?to= date range (YYYY-MM-DD)      */
 
     n = SOCK_READ(fd, buf, sizeof(buf) - 1);   /* assume the request fits (a sketch) */
     if (n <= 0)
@@ -416,21 +428,27 @@ static void handle(ais *a, int fd)
         if (strncmp(query, "keys=", 5) == 0) {
             keys = query + 5;
             url_decode(keys);
-        } else if (strncmp(query, "all=", 4) == 0) {
-            want_all = (query[4] == '1');
+        } else if (strncmp(query, "or=", 3) == 0) {
+            want_or = (query[3] == '1');
         } else if (strncmp(query, "id=", 3) == 0) {
             reqid = atol(query + 3);
         } else if (strncmp(query, "before=", 7) == 0) {
             before = atol(query + 7);
         } else if (strncmp(query, "count=", 6) == 0) {
             count = atoi(query + 6);
+        } else if (strncmp(query, "from=", 5) == 0) {
+            tlfrom = query + 5;
+            url_decode(tlfrom);
+        } else if (strncmp(query, "to=", 3) == 0) {
+            tlto = query + 3;
+            url_decode(tlto);
         }
         query = (amp != NULL) ? amp + 1 : NULL;
     }
 
     if (strcmp(method, "GET") == 0 && strcmp(path, "/api/get") == 0) {
         send_head(fd, "text/plain");
-        do_get(a, keys, want_all, fd);
+        do_get(a, keys, want_or, fd);
     } else if (strcmp(method, "POST") == 0 && strcmp(path, "/api/put") == 0) {
         char msg[64];
         long c = do_put(a, keys, body);
@@ -462,7 +480,7 @@ static void handle(ais *a, int fd)
         struct sink s;
         s.a = a; s.fd = fd;
         send_head(fd, "text/plain");
-        ais_timeline(a, before, count, tl_sink, &s);   /* keyset page (before/count) */
+        ais_timeline(a, before, count, tlfrom, tlto, tl_sink, &s);  /* keyset page + date range */
     } else if (strcmp(method, "GET") == 0 && strcmp(path, "/api/tags") == 0) {
         struct sink s;
         s.a = a; s.fd = fd;

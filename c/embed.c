@@ -131,6 +131,8 @@ char *ais_embed_recall(void *handle, const char *keys, int or_mode)
         kv[nkeys++] = tok;
 
     c.a = a; c.b = &b; c.oom = 0;
+    /* or_mode is the mode switch: 0 = AND (intersection), 1 = OR (union). The
+     * GUI's "Match any key" box picks it; no automatic relaxation. */
     if (nkeys > 0)
         ais_get(a, kv, nkeys, or_mode ? AIS_OR : AIS_AND, on_id, &c);
 
@@ -192,14 +194,16 @@ static int tag_emit(const char *key, long count, void *vp)
     return c->oom ? -1 : 0;
 }
 
-char *ais_embed_timeline(void *handle, long before_id, int count)
+char *ais_embed_timeline(void *handle, long before_id, int count,
+                         const char *from, const char *to)
 {
     struct buf b = { NULL, 0, 0 };
     struct emit_ctx c = { &b, 0 };
 
     if (handle == NULL)
         return NULL;
-    ais_timeline((ais *)handle, before_id, count, tl_emit, &c);
+    ais_timeline((ais *)handle, before_id, count,
+                 from ? from : "", to ? to : "", tl_emit, &c);
     return buf_finish(&b, c.oom);
 }
 

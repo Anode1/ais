@@ -514,8 +514,38 @@ void ais_dump(ais *a, FILE *out)
 #define AIS_TL_MAX    10000    /* hard cap on one page (bounds the fallback heap)*/
 #define AIS_TL_VAL_MAX 2048    /* value snippet held per row in the fallback     */
 
-/* Forward a record to the caller's cb, hiding any ktomb-detached keys first. */
-struct tl_emit { ais_tl_cb cb; void *ctx; ais *a; int filter; };
+/* Forward a record to the caller's cb -- hiding ktomb-detached keys, and only if
+ * its date falls in the [from,to] range. Counts the rows actually emitted, so
+ * the seek loop pages by in-range records, not by ids scanned. */
+struct tl_emit {
+    ais_tl_cb   cb;
+    void       *ctx;
+    ais        *a;
+    int         filter;
+    const char *from, *to;   /* "YYYY-MM-DD" bounds; "" / NULL = open-ended */
+    int         emitted;
+};
+
+/* Is TS's date (its first 10 chars) within [FROM,TO]? An empty bound is open; a
+ * dateless record (TS == "") is in range only when there is NO bound at all. */
+static int tl_in_range(const char *ts, const char *from, const char *to)
+{
+    char d[11];
+    int i;
+
+    if ((from == NULL || from[0] == '\0') && (to == NULL || to[0] == '\0'))
+        return 1;                            /* no date filter */
+    if (ts[0] == '\0')
+        return 0;                            /* dateless: excluded by a range */
+    for (i = 0; i < 10 && ts[i] != '\0'; i++)
+        d[i] = ts[i];
+    d[i] = '\0';
+    if (from != NULL && from[0] != '\0' && strcmp(d, from) < 0)
+        return 0;
+    if (to != NULL && to[0] != '\0' && strcmp(d, to) > 0)
+        return 0;
+    return 1;
+}
 
 static int tl_emit_one(long id, const char *ts, const char *keys,
                        const char *value, void *vp)
@@ -524,11 +554,14 @@ static int tl_emit_one(long id, const char *ts, const char *keys,
     char vis[AIS_LINE_MAX];
     const char *k = keys;
 
+    if (!tl_in_range(ts, e->from, e->to))
+        return 0;                            /* out of range: skip, do not count */
     if (e->filter) {
         if (keys_visible(e->a, id, keys, vis, sizeof(vis)) != 0)
             return -1;
         k = vis;
     }
+    e->emitted++;
     return e->cb(id, ts, k, value, e->ctx);
 }
 
@@ -546,6 +579,7 @@ struct tl_scan_ctx {
     long             bound;   /* keep only ids strictly below this              */
     struct tl_entry *top;     /* the COUNT highest qualifying ids (unsorted)    */
     int              cap, n;
+    const char      *from, *to;   /* date range, "" = open                      */
 };
 
 static int tl_scan_collect(long id, const char *ts, const char *keys,
@@ -556,6 +590,8 @@ static int tl_scan_collect(long id, const char *ts, const char *keys,
 
     if (id >= s->bound)
         return 0;
+    if (!tl_in_range(ts, s->from, s->to))
+        return 0;                 /* out of the date range */
     t = tomb_contains(s->a, id);
     if (t < 0)
         return -1;
@@ -597,6 +633,8 @@ static int tl_scan(ais *a, long before_id, int count, struct tl_emit *e)
     s.bound = (before_id > 0) ? before_id : a->next_id;   /* next_id > every id */
     s.cap = count;
     s.n = 0;
+    s.from = e->from;
+    s.to = e->to;
     s.top = malloc((size_t)count * sizeof(s.top[0]));
     if (s.top == NULL)
         return -1;
@@ -614,11 +652,11 @@ static int tl_scan(ais *a, long before_id, int count, struct tl_emit *e)
     return (rc < 0) ? -1 : 0;
 }
 
-int ais_timeline(ais *a, long before_id, int count, ais_tl_cb cb, void *ctx)
+int ais_timeline(ais *a, long before_id, int count,
+                 const char *from, const char *to, ais_tl_cb cb, void *ctx)
 {
     struct tl_emit e;
     long id, maxid;
-    int emitted = 0;
 
     if (count <= 0)
         count = AIS_TL_DEFAULT;
@@ -626,15 +664,17 @@ int ais_timeline(ais *a, long before_id, int count, ais_tl_cb cb, void *ctx)
         count = AIS_TL_MAX;
     e.cb = cb; e.ctx = ctx; e.a = a;
     e.filter = (ktomb_active(a) == 1);
+    e.from = from; e.to = to; e.emitted = 0;
 
     if (off_consistent(a) != 1)               /* no usable index: bounded scan */
         return tl_scan(a, before_id, count, &e);
 
     /* seek path: walk ids downward, reading only the page (the older records
-     * are never touched) -- the scalable case. */
+     * are never touched) -- the scalable case. Counting is by in-range rows
+     * (tl_emit_one increments e.emitted only for records the range admits). */
     maxid = a->next_id - 1;
     id = (before_id > 0 && before_id - 1 < maxid) ? before_id - 1 : maxid;
-    for (; id >= 1 && emitted < count; id--) {
+    for (; id >= 1 && e.emitted < count; id--) {
         long offset;
         int t = tomb_contains(a, id);
         if (t < 0)
@@ -643,11 +683,8 @@ int ais_timeline(ais *a, long before_id, int count, ais_tl_cb cb, void *ctx)
             continue;                          /* deleted */
         if (off_get(a, id, &offset) != 1)
             continue;                          /* gap / sentinel / short off */
-        t = store_record_at(a, id, offset, tl_emit_one, &e);
-        if (t < 0)
+        if (store_record_at(a, id, offset, tl_emit_one, &e) < 0)
             return -1;
-        if (t == 1)
-            emitted++;
     }
     return 0;
 }

@@ -94,11 +94,14 @@ typedef int (*ais_tl_cb)(long id, const char *ts, const char *keys,
 
 /* Emit one timeline page: the COUNT live records with id < BEFORE_ID (BEFORE_ID
  * <= 0 = from the newest; COUNT <= 0 = a default), newest id first, one row per
- * record. Keyset pagination -- "load more" passes the last id shown as the next
- * BEFORE_ID, so each page is read by seeking, not by scanning the whole store.
- * Order is id-descending (~ reverse-chronological, since ids are monotonic).
- * Returns 0, or -1 on error. */
-int ais_timeline(ais *a, long before_id, int count, ais_tl_cb cb, void *ctx);
+ * record, restricted to those whose save date is within [FROM,TO]. FROM and TO
+ * are "YYYY-MM-DD" (inclusive by day); either "" / NULL is open-ended, and a
+ * dateless record drops out of any bounded range. Keyset pagination -- "load
+ * more" passes the last id shown as the next BEFORE_ID (FROM/TO held constant),
+ * so each page is read by seeking, not by scanning the whole store. Order is
+ * id-descending (~ reverse-chronological). Returns 0, or -1 on error. */
+int ais_timeline(ais *a, long before_id, int count,
+                 const char *from, const char *to, ais_tl_cb cb, void *ctx);
 
 /* Callback for ais_tags(): one distinct key and how many records are filed
  * under it (its posting count). Return 0 to continue, negative to stop. */

@@ -16,10 +16,17 @@
     <input id="q" type="search" enterkeyhint="search" placeholder="type keys to get…" autocomplete="off" autofocus>
     <button id="mic" class="iconbtn" title="Speak" hidden>&#127908;</button>
   </div>
+  <label style="display:flex;align-items:center;gap:.4rem;font-size:.85rem;color:var(--muted);margin-top:.45rem">
+    <input id="anyk" type="checkbox" style="width:auto"> Match any key</label>
   <div class="seg">
     <button id="seg-recall" class="segbtn active">Get</button>
     <button id="seg-timeline" class="segbtn">Timeline</button>
     <button id="seg-tags" class="segbtn">Tags</button>
+  </div>
+  <div id="tlrange" style="display:none;gap:.4rem;align-items:center;margin-top:.5rem;font-size:.85rem;color:var(--muted)">
+    <span>from</span><input id="tlfrom" type="date" style="font:inherit">
+    <span>to</span><input id="tlto" type="date" style="font:inherit">
+    <button id="tlclear" class="link">clear</button>
   </div>
   <div class="storerow"><span id="store" class="muted"></span><button id="storebtn" class="link">change</button></div>
 </header>
@@ -88,7 +95,8 @@ async function editRec(id) {
 async function recall() {
   var q = $('q').value.trim(); if (!q) return;
   var t0 = performance.now();
-  var t = await (await fetch('/api/get?keys=' + encodeURIComponent(q))).text();
+  var oo = $('anyk') && $('anyk').checked ? '&or=1' : '';
+  var t = await (await fetch('/api/get?keys=' + encodeURIComponent(q) + oo)).text();
   render(t, q, performance.now() - t0);
 }
 
@@ -106,8 +114,10 @@ function fmtDay(d) {
 // 'more' appends a page, otherwise reload from the newest.
 async function loadTimeline(more) {
   var out = $('out');
+  var f = $('tlfrom') ? $('tlfrom').value : '', tt = $('tlto') ? $('tlto').value : '';
   if (!more) { tlBefore = 0; tlDay = null; tlN = 0; out.innerHTML = ''; }
-  var u = '/api/timeline?count=' + tlPage + (tlBefore > 0 ? '&before=' + tlBefore : '');
+  var u = '/api/timeline?count=' + tlPage + (tlBefore > 0 ? '&before=' + tlBefore : '')
+        + (f ? '&from=' + f : '') + (tt ? '&to=' + tt : '');
   var lines = (await (await fetch(u)).text()).split('\n').filter(function (s){ return s.length; });
   var mb = $('tlmore'); if (mb) mb.remove();
   if (!tlN && !lines.length) { out.innerHTML = '<p class="empty">Nothing saved yet.</p>'; return; }
@@ -160,6 +170,7 @@ function setView(v) {
   ['recall','timeline','tags'].forEach(function (k) {
     $('seg-' + k).className = 'segbtn' + (k == v ? ' active' : '');
   });
+  $('tlrange').style.display = (v == 'timeline') ? 'flex' : 'none';  // date range: Timeline only
   if (v == 'recall') {
     if ($('q').value.trim()) recall();
     else { $('out').innerHTML = '<p class="empty">Type keys, then Enter. Tap + Add to save.</p>'; $('count').textContent = ''; }
@@ -182,6 +193,9 @@ $('q').addEventListener('keydown', function (e){ if (e.key=='Enter') setView('re
 $('seg-recall').onclick = function (){ setView('recall'); };
 $('seg-timeline').onclick = function (){ setView('timeline'); };
 $('seg-tags').onclick = function (){ setView('tags'); };
+$('tlfrom').onchange = function (){ loadTimeline(); };
+$('tlto').onchange = function (){ loadTimeline(); };
+$('tlclear').onclick = function (){ $('tlfrom').value = ''; $('tlto').value = ''; loadTimeline(); };
 $('addbtn').onclick = openSheet;
 $('cancel').onclick = closeSheet;
 $('save').onclick = save;

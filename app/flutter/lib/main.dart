@@ -43,9 +43,11 @@ class _RecallPageState extends State<RecallPage> {
   List<TagRow> _tags = const [];
   int _tlBefore = 0; // keyset cursor: last id of the loaded timeline page
   bool _tlMore = false; // last page was full, so more may exist
+  String _tlFrom = ''; // timeline date range, "YYYY-MM-DD" ('' = open)
+  String _tlTo = '';
   static const int _tlPage = 100;
   String _view = 'recall'; // recall | timeline | tags
-  bool _matchAll = false; // false = OR (any key, default); true = AND (all keys)
+  bool _matchOr = false; // false = AND (default; engine relaxes to OR if empty); true = OR
   bool _voice = false;
   bool _searched = false;
   String _status = 'opening index…';
@@ -96,7 +98,7 @@ class _RecallPageState extends State<RecallPage> {
     final keys = _q.text.trim();
     if (_ais == null || keys.isEmpty) return;
     final t0 = DateTime.now();
-    final r = _ais!.recall(keys, orMode: !_matchAll);
+    final r = _ais!.recall(keys, orMode: _matchOr);
     setState(() {
       _query = keys;
       _searched = true;
@@ -119,16 +121,48 @@ class _RecallPageState extends State<RecallPage> {
         });
       }
     } else if (v == 'timeline') {
-      // fresh load: reset the cursor and pull page one from the newest.
-      final page = _ais?.timeline(before: 0, count: _tlPage) ?? const [];
-      setState(() {
-        _tl = page;
-        _tlBefore = page.isNotEmpty ? page.last.id : 0;
-        _tlMore = page.length == _tlPage;
-      });
+      _loadTimeline();
     } else {
       setState(() => _tags = _ais?.tags() ?? const []);
     }
+  }
+
+  // Fresh timeline load: reset the cursor and pull page one from the newest,
+  // within the current [_tlFrom, _tlTo] range.
+  void _loadTimeline() {
+    final page = _ais?.timeline(before: 0, count: _tlPage, from: _tlFrom, to: _tlTo) ?? const [];
+    setState(() {
+      _tl = page;
+      _tlBefore = page.isNotEmpty ? page.last.id : 0;
+      _tlMore = page.length == _tlPage;
+    });
+  }
+
+  // Open a date picker for one bound; on pick, store it and reload from page one.
+  Future<void> _pickDate({required bool isFrom}) async {
+    final cur = isFrom ? _tlFrom : _tlTo;
+    final init = cur.isNotEmpty ? DateTime.tryParse(cur) ?? DateTime.now() : DateTime.now();
+    final d = await showDatePicker(
+      context: context,
+      initialDate: init,
+      firstDate: DateTime(2000),
+      lastDate: DateTime(2100),
+    );
+    if (d == null) return;
+    final s = '${d.year.toString().padLeft(4, '0')}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
+    if (isFrom) {
+      _tlFrom = s;
+    } else {
+      _tlTo = s;
+    }
+    _loadTimeline();
+  }
+
+  void _clearRange() {
+    if (_tlFrom.isEmpty && _tlTo.isEmpty) return;
+    _tlFrom = '';
+    _tlTo = '';
+    _loadTimeline();
   }
 
   static const _months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
@@ -180,6 +214,8 @@ class _RecallPageState extends State<RecallPage> {
         _tl = const [];
         _tlBefore = 0;
         _tlMore = false;
+        _tlFrom = '';
+        _tlTo = '';
         _tags = const [];
         _view = 'recall';
         _searched = false;
@@ -240,15 +276,15 @@ class _RecallPageState extends State<RecallPage> {
                     Row(
                       children: [
                         Checkbox(
-                          value: _matchAll,
+                          value: _matchOr,
                           visualDensity: VisualDensity.compact,
                           materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
                           onChanged: (v) {
-                            setState(() => _matchAll = v ?? false);
+                            setState(() => _matchOr = v ?? false);
                             if (_q.text.trim().isNotEmpty) _recall();
                           },
                         ),
-                        const Text('Match all keys', style: TextStyle(fontSize: 13)),
+                        const Text('Match any key', style: TextStyle(fontSize: 13)),
                       ],
                     ),
                     const SizedBox(height: 4),
@@ -413,7 +449,7 @@ class _RecallPageState extends State<RecallPage> {
   // the last id we hold, append it, and advance the cursor.
   void _loadMoreTimeline() {
     if (_ais == null) return;
-    final page = _ais!.timeline(before: _tlBefore, count: _tlPage);
+    final page = _ais!.timeline(before: _tlBefore, count: _tlPage, from: _tlFrom, to: _tlTo);
     setState(() {
       _tl = [..._tl, ...page];
       if (page.isNotEmpty) _tlBefore = page.last.id;
@@ -421,9 +457,42 @@ class _RecallPageState extends State<RecallPage> {
     });
   }
 
+  // A compact from/to date-range filter, shown above the timeline list only.
+  Widget _rangeBar(ColorScheme cs) {
+    final on = _tlFrom.isNotEmpty || _tlTo.isNotEmpty;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+      child: Row(children: [
+        InputChip(
+          label: Text(_tlFrom.isEmpty ? 'From' : 'From: $_tlFrom'),
+          visualDensity: VisualDensity.compact,
+          onPressed: () => _pickDate(isFrom: true),
+        ),
+        const SizedBox(width: 8),
+        InputChip(
+          label: Text(_tlTo.isEmpty ? 'To' : 'To: $_tlTo'),
+          visualDensity: VisualDensity.compact,
+          onPressed: () => _pickDate(isFrom: false),
+        ),
+        if (on)
+          IconButton(
+            icon: const Icon(Icons.clear, size: 18),
+            tooltip: 'Clear range',
+            visualDensity: VisualDensity.compact,
+            onPressed: _clearRange,
+          ),
+      ]),
+    );
+  }
+
   // Timeline: dateless rows surface first, then newest; grouped by day.
   Widget _timelineBody(ColorScheme cs) {
-    if (_tl.isEmpty) return _centerMsg('Nothing saved yet.', cs);
+    if (_tl.isEmpty) {
+      return Column(children: [
+        _rangeBar(cs),
+        Expanded(child: _centerMsg('Nothing saved yet.', cs)),
+      ]);
+    }
     final items = <Widget>[];
     String? day;
     for (final r in _tl) {
@@ -455,7 +524,12 @@ class _RecallPageState extends State<RecallPage> {
         ),
       ));
     }
-    return ListView(padding: const EdgeInsets.only(bottom: 88), children: items);
+    return Column(children: [
+      _rangeBar(cs),
+      Expanded(
+        child: ListView(padding: const EdgeInsets.only(bottom: 88), children: items),
+      ),
+    ]);
   }
 
   // Tags: every key with its count, busiest first; tap a key to recall it.

@@ -22,10 +22,10 @@
  * for the life of the handle. Returns an opaque handle, or NULL on failure. */
 void *ais_embed_open(const char *dir);
 
-/* Recall records under space-separated KEYS. or_mode: 0 = AND (intersection),
- * non-zero = OR (union). Returns a newly allocated, NUL-terminated buffer of
- * "id|value\n" lines (empty string if no matches); free it with
- * ais_embed_free(). Returns NULL only on bad arguments or allocation failure. */
+/* Recall records under space-separated KEYS. or_mode is the mode switch:
+ * 0 = AND (intersection), non-zero = OR (union); no automatic relaxation.
+ * Returns a newly allocated, NUL-terminated buffer of "id|value\n" lines (empty
+ * string if no matches); free with ais_embed_free(). NULL on bad args / OOM. */
 char *ais_embed_recall(void *handle, const char *keys, int or_mode);
 
 /* Store VALUE under KEYS. Returns the record id (> 0), or -1 on error. */
@@ -40,10 +40,12 @@ int   ais_embed_del(void *handle, long id);
 int   ais_embed_update(void *handle, long id, const char *keys);
 
 /* One timeline page as "id|ts|keys|value\n" lines: the COUNT records with id <
- * BEFORE_ID (BEFORE_ID <= 0 = from newest; COUNT <= 0 = default), newest first.
- * Keyset paging -- "load more" passes the last id of the previous page as
- * BEFORE_ID. Free with ais_embed_free(). NULL only on bad args / alloc failure. */
-char *ais_embed_timeline(void *handle, long before_id, int count);
+ * BEFORE_ID (BEFORE_ID <= 0 = from newest; COUNT <= 0 = default), newest first,
+ * whose save date is within [FROM,TO] ("YYYY-MM-DD", inclusive; "" / NULL = open
+ * end). Keyset paging -- "load more" passes the last id of the previous page as
+ * BEFORE_ID (FROM/TO held). Free with ais_embed_free(); NULL only on bad args. */
+char *ais_embed_timeline(void *handle, long before_id, int count,
+                         const char *from, const char *to);
 
 /* Every distinct key as "count|key\n" lines, busiest first. Free with
  * ais_embed_free(). NULL only on bad args / allocation failure. */

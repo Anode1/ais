@@ -104,8 +104,9 @@ static HWND mk(HWND parent, const char *cls, const char *text, DWORD style, int 
 static void do_get(void)
 {
     char *keys = get_text(g_keys);
-    /* default is OR (any key); the "Match all keys" checkbox switches to AND. */
-    int or_mode = (SendMessage(g_or, BM_GETCHECK, 0, 0) != BST_CHECKED);
+    /* default is AND (the engine relaxes to OR when AND matches nothing); the
+     * "Match any key" checkbox forces OR (union). */
+    int or_mode = (SendMessage(g_or, BM_GETCHECK, 0, 0) == BST_CHECKED);
 
     SendMessage(g_list, LB_RESETCONTENT, 0, 0);
     if (g_ais != NULL && keys != NULL && keys[0] != '\0') {
@@ -376,7 +377,7 @@ static void layout(HWND hwnd)
     GetClientRect(hwnd, &r);
     w = r.right;
 
-    /* TOP row: [Keys:] [keys ......] [Get] [Match all keys] */
+    /* TOP row: [Keys:] [keys ......] [Get] [Match any key] */
     y    = pad;
     cbx  = w - pad - cbw;
     getx = cbx - gap - btn;
@@ -427,7 +428,7 @@ static LRESULT CALLBACK wndproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
         g_lkeys = mk(hwnd, "STATIC", "Keys:",  SS_LEFT, 0);
         g_keys  = mk(hwnd, "EDIT",   "", WS_BORDER | WS_TABSTOP | ES_AUTOHSCROLL, ID_KEYS);
         mk(hwnd, "BUTTON", "Get", WS_TABSTOP | BS_DEFPUSHBUTTON, ID_GET);
-        g_or    = mk(hwnd, "BUTTON", "Match all keys", WS_TABSTOP | BS_AUTOCHECKBOX, ID_OR);
+        g_or    = mk(hwnd, "BUTTON", "Match any key", WS_TABSTOP | BS_AUTOCHECKBOX, ID_OR);
         g_list  = mk(hwnd, "LISTBOX", "", WS_BORDER | WS_TABSTOP | WS_VSCROLL | LBS_NOTIFY, ID_LIST);
         /* Add row, keys before value (consistent with the Get row above). */
         g_lvk   = mk(hwnd, "STATIC", "Keys:",  SS_LEFT, 0);

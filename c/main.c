@@ -336,7 +336,7 @@ int main(int argc, char **argv)
         case CMD_TAGS:  if (ais_tags(&a, print_tag, stdout) < 0) die("tags failed"); break;
         case CMD_TIMELINE: {
             int lim = (optind < argc) ? atoi(argv[optind]) : 0;   /* optional N */
-            if (ais_timeline(&a, 0, lim, print_tl, stdout) < 0) die("timeline failed");
+            if (ais_timeline(&a, 0, lim, "", "", print_tl, stdout) < 0) die("timeline failed");
             break;
         }
         case CMD_STATS: if (ais_stats(&a, stdout) != 0) die("stats failed"); break;

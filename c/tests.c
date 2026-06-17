@@ -793,7 +793,7 @@ static void test_timeline(void)
 
     /* full timeline: newest id first (keyset, id-descending) */
     v.n = 0;
-    ais_timeline(&a, 0, 0, collect_tl, &v);
+    ais_timeline(&a, 0, 0, "", "", collect_tl, &v);
     CHECK(v.n == 5, "timeline: every live record appears");
     CHECK(v.n == 5 && v.r[0].id == 5 && v.r[4].id == 1,
           "timeline: newest id first (5..1)");
@@ -803,14 +803,68 @@ static void test_timeline(void)
           "timeline: dated rows carry a timestamp");
 
     /* keyset paging: page size 2, cursor = the last id of the previous page */
-    v.n = 0; ais_timeline(&a, 0, 2, collect_tl, &v);
+    v.n = 0; ais_timeline(&a, 0, 2, "", "", collect_tl, &v);
     CHECK(v.n == 2 && v.r[0].id == 5 && v.r[1].id == 4, "timeline: page 1 = {5,4}");
-    v.n = 0; ais_timeline(&a, 4, 2, collect_tl, &v);
+    v.n = 0; ais_timeline(&a, 4, 2, "", "", collect_tl, &v);
     CHECK(v.n == 2 && v.r[0].id == 3 && v.r[1].id == 2, "timeline: page 2 (before 4) = {3,2}");
-    v.n = 0; ais_timeline(&a, 2, 2, collect_tl, &v);
+    v.n = 0; ais_timeline(&a, 2, 2, "", "", collect_tl, &v);
     CHECK(v.n == 1 && v.r[0].id == 1, "timeline: page 3 (before 2) = {1}");
-    v.n = 0; ais_timeline(&a, 1, 2, collect_tl, &v);
+    v.n = 0; ais_timeline(&a, 1, 2, "", "", collect_tl, &v);
     CHECK(v.n == 0, "timeline: page 4 (before 1) = {} (no more)");
+
+    ais_close(&a);
+    scratch_rm(dir);
+}
+
+/* ---- timeline date range: from/to bounds over the keyset page ------------ */
+static void test_timeline_dates(void)
+{
+    const char *dir = "/tmp/ais_ut_tldate";
+    ais a;
+    struct tlvec v;
+    char path[AIS_PATH_MAX];
+    FILE *fp;
+
+    scratch_rm(dir);
+    ais_open(&a, dir);                        /* create the index dir + files */
+    ais_close(&a);
+
+    /* hand-write records with KNOWN, distinct save dates (ascending id), plus a
+     * dateless legacy line (id 4); then rebuild the derived files by compacting. */
+    snprintf(path, sizeof(path), "%s/store", dir);
+    fp = fopen(path, "w");
+    if (fp != NULL) {
+        fprintf(fp, "1|2020-01-01T10:00:00|k|old\n");
+        fprintf(fp, "2|2022-06-15T12:00:00|k|mid\n");
+        fprintf(fp, "3|2024-12-31T23:00:00|k|new\n");
+        fprintf(fp, "4|k|undated\n");         /* legacy v1: no ts */
+        fclose(fp);
+    }
+    snprintf(path, sizeof(path), "%s/next_id", dir); remove(path);
+    snprintf(path, sizeof(path), "%s/off",     dir); remove(path);
+    ais_open(&a, dir);
+    ais_compact(&a);                          /* rebuild off; next_id -> 5 */
+
+    v.n = 0; ais_timeline(&a, 0, 0, "", "", collect_tl, &v);
+    CHECK(v.n == 4, "tl-date: no filter -> all 4 records");
+
+    v.n = 0; ais_timeline(&a, 0, 0, "2022-01-01", "", collect_tl, &v);
+    CHECK(v.n == 2 && v.r[0].id == 3 && v.r[1].id == 2, "tl-date: from 2022-01-01 -> {3,2}");
+
+    v.n = 0; ais_timeline(&a, 0, 0, "", "2022-12-31", collect_tl, &v);
+    CHECK(v.n == 2 && v.r[0].id == 2 && v.r[1].id == 1, "tl-date: to 2022-12-31 -> {2,1}");
+
+    v.n = 0; ais_timeline(&a, 0, 0, "2022-01-01", "2022-12-31", collect_tl, &v);
+    CHECK(v.n == 1 && v.r[0].id == 2, "tl-date: range 2022 -> {2}");
+
+    v.n = 0; ais_timeline(&a, 0, 0, "2000-01-01", "2099-01-01", collect_tl, &v);
+    CHECK(v.n == 3, "tl-date: a bounded range excludes the dateless record");
+
+    /* date range composes with keyset paging (count + cursor) */
+    v.n = 0; ais_timeline(&a, 0, 1, "2000-01-01", "2099-01-01", collect_tl, &v);
+    CHECK(v.n == 1 && v.r[0].id == 3, "tl-date: range + count=1 -> newest in range {3}");
+    v.n = 0; ais_timeline(&a, 3, 1, "2000-01-01", "2099-01-01", collect_tl, &v);
+    CHECK(v.n == 1 && v.r[0].id == 2, "tl-date: range + before 3 -> {2}");
 
     ais_close(&a);
     scratch_rm(dir);
@@ -873,7 +927,7 @@ static void test_embed(void)
     CHECK(r != NULL && r[0] == '\0', "embed: no match -> empty string");
     ais_embed_free(r);
 
-    r = ais_embed_timeline(h, 0, 0);                     /* id|ts|keys|value */
+    r = ais_embed_timeline(h, 0, 0, "", "");             /* id|ts|keys|value */
     CHECK(r != NULL && strstr(r, "|venice italy|https://example.org/p\n") != NULL,
           "embed: timeline returns id|ts|keys|value lines");
     ais_embed_free(r);
@@ -1049,6 +1103,7 @@ int main(void)
     test_timestamp();
     printf("timeline:\n");
     test_timeline();
+    test_timeline_dates();
     printf("tags:\n");
     test_tags();
     printf("put_value (one paste -> one record):\n");

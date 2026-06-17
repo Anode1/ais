@@ -20,8 +20,8 @@ typedef _FreeC = Void Function(Pointer<Utf8>);
 typedef _FreeD = void Function(Pointer<Utf8>);
 typedef _CloseC = Void Function(Pointer<Void>);
 typedef _CloseD = void Function(Pointer<Void>);
-typedef _TimelineC = Pointer<Utf8> Function(Pointer<Void>, Int64, Int32);
-typedef _TimelineD = Pointer<Utf8> Function(Pointer<Void>, int, int);
+typedef _TimelineC = Pointer<Utf8> Function(Pointer<Void>, Int64, Int32, Pointer<Utf8>, Pointer<Utf8>);
+typedef _TimelineD = Pointer<Utf8> Function(Pointer<Void>, int, int, Pointer<Utf8>, Pointer<Utf8>);
 typedef _TagsC = Pointer<Utf8> Function(Pointer<Void>);
 typedef _TagsD = Pointer<Utf8> Function(Pointer<Void>);
 typedef _DefaultSetC = Int32 Function(Pointer<Utf8>);
@@ -136,9 +136,15 @@ class AisEngine {
 
   /// A timeline page: the [count] records with id < [before], newest id first.
   /// before <= 0 starts from the newest; pass the last row's id to page on. A
-  /// page shorter than [count] means there are no more.
-  List<TlRow> timeline({int before = 0, int count = 0}) {
-    final p = _timelineFn(_h, before, count);
+  /// page shorter than [count] means there are no more. [from]/[to] are
+  /// "YYYY-MM-DD" bounds (inclusive; '' = open); a bounded range drops dateless
+  /// records. The range is held constant while paging on [before].
+  List<TlRow> timeline({int before = 0, int count = 0, String from = '', String to = ''}) {
+    final f = from.toNativeUtf8();
+    final t = to.toNativeUtf8();
+    final p = _timelineFn(_h, before, count, f, t);
+    calloc.free(f);
+    calloc.free(t);
     if (p == nullptr) return const [];
     final text = p.toDartString();
     _free(p);
