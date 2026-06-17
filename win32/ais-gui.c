@@ -21,13 +21,15 @@
 #include "embed.h"
 #include "locate.h"
 
-enum { ID_KEYS = 1001, ID_GET, ID_OR, ID_LIST, ID_VALUE, ID_VKEYS, ID_ADD };
+enum { ID_KEYS = 1001, ID_GET, ID_OR, ID_LIST, ID_VALUE, ID_VKEYS, ID_ADD, ID_STORE };
 /* context-menu command ids for a result row (kept clear of the control ids) */
 enum { ID_EDIT = 1101, ID_DELETE };
 
 static void *g_ais;                 /* engine handle (ais_embed_open) */
+static char  g_dir[4096];           /* current index dir: shown, and restored on a failed switch */
 static HWND  g_keys, g_or, g_list, g_value, g_vkeys;
 static HWND  g_lkeys, g_lval, g_lvk;   /* inline field labels: Keys:/Value:/Keys: */
+static HWND  g_store;                  /* "store: <dir>" status label (Store button is by id) */
 static HFONT g_font;
 static int   g_dpi = 96;            /* system DPI; the layout scales from 96 */
 
@@ -368,6 +370,67 @@ static void edit_selected(HWND hwnd)
     do_get();
 }
 
+/* Show the current index path in the status label. */
+static void set_store_label(void)
+{
+    char s[sizeof g_dir + 16];
+    if (g_store == NULL)
+        return;
+    snprintf(s, sizeof s, "store: %s", g_dir);
+    SetWindowTextA(g_store, s);
+}
+
+/* Switch the active index: type a folder path (seeded with the current one),
+ * reopen the engine there, and persist it (so the next launch and the CLI use
+ * it too). On failure the previous index is reopened. */
+static void change_store(HWND hwnd)
+{
+    BROWSEINFOA bi;
+    LPITEMIDLIST pidl;
+    char path[MAX_PATH];
+    char sp[MAX_PATH + 8];
+
+    memset(&bi, 0, sizeof bi);
+    bi.hwndOwner = hwnd;
+    bi.lpszTitle = "Choose the AIS index folder (any folder; a new one is created if empty)";
+    bi.ulFlags   = BIF_RETURNONLYFSDIRS;       /* directories only */
+    pidl = SHBrowseForFolderA(&bi);
+    if (pidl == NULL)
+        return;                                /* cancelled */
+    if (!SHGetPathFromIDListA(pidl, path)) {
+        ILFree(pidl);
+        return;
+    }
+    ILFree(pidl);
+    if (path[0] == '\0' || strcmp(path, g_dir) == 0)
+        return;
+
+    /* an AIS index is recognized by its "store" file (name-independent). If the
+     * chosen folder has none, confirm before creating a new index there. */
+    snprintf(sp, sizeof sp, "%s\\store", path);
+    if (GetFileAttributesA(sp) == INVALID_FILE_ATTRIBUTES &&
+        MessageBoxA(hwnd, "No AIS index in that folder. Create a new one there?",
+                    "AIS", MB_YESNO | MB_ICONQUESTION) != IDYES)
+        return;
+
+    if (g_ais != NULL) {
+        ais_embed_close(g_ais);
+        g_ais = NULL;
+    }
+    g_ais = ais_embed_open(path);
+    if (g_ais == NULL) {                        /* could not open: restore the old index */
+        log_error("could not open index '%s'", path);
+        g_ais = ais_embed_open(g_dir);
+        MessageBoxA(hwnd, "Could not open that index.", "AIS", MB_ICONWARNING);
+        return;
+    }
+    ais_embed_default_set(path);                /* persist for next launch + the CLI */
+    snprintf(g_dir, sizeof g_dir, "%s", path);
+    SendMessage(g_list, LB_RESETCONTENT, 0, 0);
+    SetWindowTextA(g_keys, "");
+    set_store_label();
+}
+
 static void layout(HWND hwnd)
 {
     RECT r;
@@ -386,8 +449,16 @@ static void layout(HWND hwnd)
     MoveWindow(GetDlgItem(hwnd, ID_GET), getx, y, btn, bh, TRUE);
     MoveWindow(g_or,    cbx, y, cbw, bh, TRUE);
 
-    /* BOTTOM row: [Keys:] [vkeys ...] [Value:] [value ...] [Add] (keys first) */
-    by = r.bottom - pad - bh;
+    /* STORE row (bottom-most): [store: <dir> ...........] [Store...] */
+    {
+        int sy = r.bottom - pad - bh;
+        MoveWindow(g_store, pad, sy, w - pad * 2 - btn - gap, bh, TRUE);
+        MoveWindow(GetDlgItem(hwnd, ID_STORE), w - pad - btn, sy, btn, bh, TRUE);
+    }
+
+    /* BOTTOM (add) row: [Keys:] [vkeys ...] [Value:] [value ...] [Add] (keys
+     * first), sitting just above the store row */
+    by = r.bottom - pad - bh - (bh + gap);
     fields = w - pad * 2 - lblk - lblv - btn - gap * 5;   /* width left for the two edits */
     if (fields < dp(120))
         fields = dp(120);
@@ -436,12 +507,17 @@ static LRESULT CALLBACK wndproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
         g_lval  = mk(hwnd, "STATIC", "Value:", SS_LEFT, 0);
         g_value = mk(hwnd, "EDIT",   "", WS_BORDER | WS_TABSTOP | ES_AUTOHSCROLL, ID_VALUE);
         mk(hwnd, "BUTTON", "Add", WS_TABSTOP | BS_PUSHBUTTON, ID_ADD);
-        if (ais_locate(NULL, dir, sizeof dir) == 0)
+        g_store = mk(hwnd, "STATIC", "", SS_LEFT | SS_PATHELLIPSIS, 0);
+        mk(hwnd, "BUTTON", "Store...", WS_TABSTOP | BS_PUSHBUTTON, ID_STORE);
+        if (ais_locate(NULL, dir, sizeof dir) == 0) {
+            snprintf(g_dir, sizeof g_dir, "%s", dir);
             g_ais = ais_embed_open(dir);
+        }
         if (g_ais == NULL) {
             log_error("could not open the index (dir='%s')", dir);
             MessageBoxA(hwnd, "Could not open the AIS index.", "AIS", MB_ICONWARNING);
         }
+        set_store_label();
         return 0;
     }
     case WM_SIZE:
@@ -454,6 +530,7 @@ static LRESULT CALLBACK wndproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
         switch (LOWORD(wp)) {
         case ID_GET: do_get(); return 0;
         case ID_ADD:    do_add();    return 0;
+        case ID_STORE:  change_store(hwnd);    return 0;
         case ID_EDIT:   edit_selected(hwnd);   return 0;
         case ID_DELETE: delete_selected(hwnd); return 0;
         case ID_LIST:
