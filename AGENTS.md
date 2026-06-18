@@ -59,7 +59,7 @@ building agent infrastructure that itself needs maintaining.
                + main.c (CLI) + tests.c
     c/attic/   the pre-rewrite v0 prototype -- reference only, not built
     doc/       about.txt, OVERVIEW.md, foundation.md, migration.txt              (public)
-    doc/history/ PRIORITY.md -- frozen, deposited record (Zenodo DOI)
+    doc/history/ first-interaction log + screenshot (priority record = Zenodo DOI, not committed)
     doc/dev/   STYLE.md, LAYOUT.md, LOCKING.md                                     (developers)
     tests/     the committed fixture (tests/INDEX/store)
     gui/       future reference GUI wrappers (thin callers of the CLI)

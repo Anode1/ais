@@ -15,9 +15,7 @@ GUIs available: a local **web app** (`ais --serve`), a **native Windows app**, a
 | Path | What |
 |------|------|
 | `c/` | The **ANSI C / C99 reference implementation** — the current tool. |
-| `legacy/` | The preserved original project: the **2005 shell scripts** (`ais-scripts`, the earliest implementation) and the **2009 Java/Lucene** release, plus screenshots and SourceForge metadata. |
-| `doc/history/PRIORITY.md` | Authorship and provenance record (priority trail, 2001 → 2026) — frozen deposit, [doi.org/10.5281/zenodo.20647048](https://doi.org/10.5281/zenodo.20647048). |
-| `doc/dev/STYLE.md` | Coding style and ideology: C99, stack/streaming discipline, append-only sharded storage. |
+| `legacy/` | The preserved original project: the **2005 shell scripts** (`ais-scripts`, the earliest implementation) and the **2009 Java/Lucene** release, plus screenshots and SourceForge metadata. || `doc/dev/STYLE.md` | Coding style and ideology: C99, stack/streaming discipline, append-only sharded storage. |
 | `tests/INDEX/store` | A small sample index — the test fixture and a worked example of the store format. |
 | `example/` | A ready-to-use **sample index**: `ais -f example docs`, or read `example/store` by hand. Models correct usage — links (paths, URLs) and short notes, **not** stored documents. |
 
@@ -48,6 +46,8 @@ confirmation-guarded deletes, multi-link records, UTF-8 keys, and a local web GU
 ## Provenance
 
 Conceived as a by-hand filesystem index (~2001), registered on SourceForge **2004-11-22**,
-first implemented as shell scripts (**2005**, `legacy/ais-scripts/`), then as a Java/Lucene
-web app (**2009**, `legacy/ais/`), and re-engineered from scratch in ANSI C (**2026**, `c/`).
-Full trail in [`history/PRIORITY.md`](history/PRIORITY.md) — deposited, citable record: [doi.org/10.5281/zenodo.20647048](https://doi.org/10.5281/zenodo.20647048).
+first implemented as shell scripts (**2005**, `legacy/ais-scripts/`). Early C and Java editions
+ran on Berkeley DB / Sleepycat (**2005-2007**) before Lucene; the Java/Lucene web app was
+running by **2007** and published (after a delay) in **2009** (`legacy/ais/`). Re-engineered
+from scratch in ANSI C (**2026**, `c/`).
+Full trail in the deposited, citable record: [doi.org/10.5281/zenodo.20647048](https://doi.org/10.5281/zenodo.20647048).
