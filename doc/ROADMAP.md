@@ -74,13 +74,18 @@ calling `embed.h`.
 ### Signing and notarization
 
 So a *downloaded* build runs without security warnings. **macOS notarization**
-(Apple Developer ID: `codesign` + `notarytool` + `staple` in CI) removes the
+(Apple Developer ID: `codesign` + `notarytool` + `staple` in CI) would remove the
 "Apple could not verify 'ais' is free of malware" Gatekeeper block on downloaded
-binaries — until then, clear the quarantine flag once with
-`xattr -dr com.apple.quarantine .` (see the README), or just build from source,
-which is never quarantined. **Windows code-signing** (SignPath's OSS program) is
-already wired into the release workflow and activates once the account is
-approved.
+binaries, but it requires the paid Apple Developer Program ($99/year) and is not
+planned. Meanwhile, clear the quarantine flag once with
+`xattr -dr com.apple.quarantine .` (see the README), verify a download by its
+SHA-256, or just build from source, which is never quarantined. **Windows code-signing** is already wired into the
+release workflow (the SignPath OSS program), but is not active: SignPath's
+Foundation program declined the project in June 2026 as too new — it gates on
+community-adoption signals (stars, forks, third-party references) that a fresh
+repo cannot yet show. Paid signing is not planned. The wiring stays in place;
+reapply once the project has visible adoption. Until a build is signed, verify a
+download by its SHA-256 or build from source (see the README).
 
 ## Not planned (non-goals)
 

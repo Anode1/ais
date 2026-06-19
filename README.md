@@ -13,7 +13,7 @@ The latest stable build for every platform. The link below always points at the 
 
 - **Windows**: unzip `…-windows-x86_64.zip` and double-click **`ais-gui.exe`** (the native desktop app). Nothing is installed; to remove it, delete the folder. Prefer a Start-Menu entry? Run `…-installer.exe` instead (per-user, no admin).
 
-  *First run:* this build is not yet code-signed, so Windows may show a blue **"Windows protected your PC"** screen the first time you run the installer or `ais-gui.exe`. That is SmartScreen flagging a new, unrecognized download, not a virus warning. Click **More info**, then **Run anyway** (once per file). A signed build is [on the way](doc/ROADMAP.md); you can also build from source, which Windows never flags.
+  *First run:* this build is not yet code-signed, so Windows may show a blue **"Windows protected your PC"** screen the first time you run the installer or `ais-gui.exe`. That is SmartScreen flagging a new, unrecognized download, not a virus warning. Click **More info**, then **Run anyway** (once per file). To confirm the download is genuine first, see ["Unknown publisher" — and how to verify a download](#unknown-publisher--and-how-to-verify-a-download); building from source is never flagged.
 
 - **macOS / Linux**: unzip the `…-<os>-<arch>.zip`, then `./ais --serve` opens the GUI in your browser (or use the `ais` CLI; add it to your PATH to use it anywhere).
 
@@ -23,7 +23,26 @@ The latest stable build for every platform. The link below always points at the 
   xattr -dr com.apple.quarantine .
   ```
 
-  (or **System Settings ▸ Privacy & Security ▸ Open Anyway**). Locally built copies aren't affected. Notarization is on the [roadmap](doc/ROADMAP.md).
+  (or **System Settings ▸ Privacy & Security ▸ Open Anyway**). Locally built copies aren't affected.
+
+## "Unknown publisher" — and how to verify a download
+
+The Windows and macOS binaries are not code-signed, so a fresh download is flagged as coming from an unidentified developer: Windows SmartScreen calls it an **"unknown publisher"**, macOS Gatekeeper says it **"could not verify"** the app. This means only that the file is new and unsigned — it is *not* a malware finding, and the OS has not inspected the code. Signing is a paid trust service, not a safety check; AIS skips it and gives you a way to check the bytes yourself instead.
+
+Two ways to be sure a download is the genuine, untampered release:
+
+**1. Check the SHA-256.** Every release file ships beside a matching `…zip.sha256` holding its hash. Download both, then:
+
+- **Windows** (PowerShell), compare the printed hash against the `.sha256` file:
+  ```powershell
+  Get-FileHash ais-*-windows-x86_64.zip -Algorithm SHA256
+  ```
+- **macOS / Linux**, with both files in the same folder (prints `OK` on a match):
+  ```sh
+  shasum -a 256 -c ais-*-*.zip.sha256
+  ```
+
+**2. Or build from source.** The releases are built in the open by GitHub Actions, not on anyone's personal machine (workflow: `.github/workflows/release.yml`), and a copy you compile yourself is never flagged — see *Quick start (from source)* below.
 
 ## Quick start (from source)
 
