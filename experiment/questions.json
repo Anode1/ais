@@ -1,0 +1,10 @@
+[
+  {"id": "mary_photos",     "question": "Find all photos of Mary.",                         "expect": ["IMG_2001", "IMG_2002", "IMG_2007", "IMG_2015", "IMG_2020", "IMG_2008"]},
+  {"id": "mary_mother",     "question": "Photos with both Mary and Mother in them.",        "expect": ["IMG_2001", "IMG_2007", "IMG_2015"]},
+  {"id": "peter_video",     "question": "Videos of Peter.",                                 "expect": "VID_0006"},
+  {"id": "venice_2021",     "question": "Everything taken in Venice in 2021.",              "expect": ["IMG_2002", "VID_0006", "IMG_2013"]},
+  {"id": "mother_paris",    "question": "Photos of Mother in Paris.",                       "expect": ["IMG_2007", "IMG_2015", "IMG_2009"]},
+  {"id": "birthday_videos", "question": "All birthday videos.",                             "expect": ["VID_0003", "VID_0006", "VID_0014"]},
+  {"id": "mary_beach",      "question": "Photos of Mary at the beach.",                     "expect": ["IMG_2001", "IMG_2020", "IMG_2008"]},
+  {"id": "peter_all",       "question": "All pictures and videos of Peter.",               "expect": ["IMG_2007", "VID_0006", "IMG_2016", "IMG_2011"]}
+]
