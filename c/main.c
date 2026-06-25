@@ -204,6 +204,16 @@ static int print_tl(long id, const char *ts, const char *keys,
     return 0;
 }
 
+/* One registered index as "<*| > name\tpath" for --indexes; '*' = the current. */
+struct index_ctx { const char *cur; };
+static int print_index(const char *name, const char *path, void *vp)
+{
+    struct index_ctx *ic = vp;
+    printf("%c %s\t%s\n",
+           (ic->cur[0] != '\0' && strcmp(name, ic->cur) == 0) ? '*' : ' ', name, path);
+    return 0;
+}
+
 static void do_get(ais *a, char *const keys[], int nkeys, ais_mode mode)
 {
     struct get_ctx g;
@@ -232,7 +242,8 @@ int main(int argc, char **argv)
     enum { OPT_HELP = 1000, OPT_VERSION,
            CMD_FIND, CMD_ADD, CMD_DEL, CMD_DELKEY, CMD_DUMP, CMD_KEYS, CMD_STATS,
            CMD_COMPACT, CMD_INIT, CMD_IMPORT, CMD_IMPORTI, CMD_WHERE, CMD_SERVE, CMD_PROJECT,
-           CMD_DOC, CMD_TIMELINE, CMD_TAGS, CMD_DEFAULT, CMD_UPDATE };
+           CMD_DOC, CMD_TIMELINE, CMD_TAGS, CMD_DEFAULT, CMD_UPDATE,
+           CMD_SWITCH, CMD_INDEXES, CMD_FORGET };
     static const struct option longopts[] = {
         { "index",       required_argument, NULL, 'f' },
         { "or",          no_argument,       NULL, 'o' },
@@ -243,6 +254,9 @@ int main(int argc, char **argv)
         { "key",         required_argument, NULL, 'k' },
         { "project",     no_argument,       NULL, CMD_PROJECT },
         { "default",     no_argument,       NULL, CMD_DEFAULT },
+        { "switch",      no_argument,       NULL, CMD_SWITCH },
+        { "indexes",     no_argument,       NULL, CMD_INDEXES },
+        { "forget",      no_argument,       NULL, CMD_FORGET },
         { "help",        no_argument,       NULL, OPT_HELP },
         { "version",     no_argument,       NULL, OPT_VERSION },
         { "find",        no_argument,       NULL, CMD_FIND },
@@ -270,7 +284,7 @@ int main(int argc, char **argv)
     const char *exkeys[AIS_KEYS_MAX];
     int nval = 0, nexk = 0;
     ais_mode mode = AIS_AND;
-    int assume_yes = 0, interactive = 0, project_given = 0;
+    int assume_yes = 0, interactive = 0, project_given = 0, create = 0;
     int cmd = 0;
     char project[AIS_KEY_MAX];
     char keys[AIS_LINE_MAX], full[AIS_LINE_MAX];
@@ -279,13 +293,14 @@ int main(int argc, char **argv)
 
     /* -p is the per-call project override; --project (CMD_PROJECT) manages the
      * stored default. They are intentionally distinct. */
-    while ((c = getopt_long(argc, argv, "f:odhyiv:k:p:", longopts, NULL)) != -1) {
+    while ((c = getopt_long(argc, argv, "f:odhyiv:k:p:c", longopts, NULL)) != -1) {
         switch (c) {
         case 'f': dir = optarg; break;
         case 'o': mode = AIS_OR; break;
         case 'd': ais_debug_flag = 1; break;
         case 'y': assume_yes = 1; break;
         case 'i': interactive = 1; break;
+        case 'c': create = 1; break;
         case 'v': if (nval >= AIS_KEYS_MAX) die("too many -v values");
                   values[nval++] = optarg; break;
         case 'k': if (nexk >= AIS_KEYS_MAX) die("too many -k keys");
@@ -299,6 +314,7 @@ int main(int argc, char **argv)
         case CMD_INIT: case CMD_IMPORT: case CMD_IMPORTI: case CMD_WHERE: case CMD_SERVE:
         case CMD_PROJECT: case CMD_DOC: case CMD_TIMELINE: case CMD_TAGS:
         case CMD_DEFAULT: case CMD_UPDATE:
+        case CMD_SWITCH: case CMD_INDEXES: case CMD_FORGET:
             if (cmd != 0) die("only one command at a time");
             cmd = c;
             break;
@@ -437,6 +453,70 @@ int main(int argc, char **argv)
                                    ? cur : "(no saved default; using ~/.ais)");
             }
             break;
+        case CMD_SWITCH: {
+            char path[AIS_PATH_MAX];
+            if (optind >= argc) {                 /* no NAME -> show current */
+                char cur[AIS_KEY_MAX];
+                if (ais_current_get(cur, sizeof cur) == 1
+                    && cur[0] != '\0' && strcmp(cur, "home") != 0) {
+                    if (ais_index_path(cur, path, sizeof path) != 1)
+                        snprintf(path, sizeof path, "(unregistered)");
+                    printf("%s\t%s\n", cur, path);
+                } else {
+                    if (ais_home_path(path, sizeof path) != 0) die("no home dir");
+                    printf("home\t%s\n", path);
+                }
+                break;
+            }
+            {
+                const char *name = argv[optind];
+                if (create) {                     /* -c: create a new index + switch */
+                    ais nb;
+                    char dir[AIS_PATH_MAX];
+                    if (optind + 1 < argc) {
+                        if (snprintf(dir, sizeof dir, "%s", argv[optind + 1]) >= (int)sizeof dir)
+                            die("switch -c: DIR too long");
+                    } else if (ais_index_default_dir(name, dir, sizeof dir) != 0) {
+                        die("switch -c: cannot form a default dir for '%s'", name);
+                    }
+                    if (ais_index_add(name, dir) != 0)
+                        die("switch -c: cannot register '%s' ('home' is reserved)", name);
+                    if (ais_open(&nb, dir) != 0)
+                        die("switch -c: cannot create index at %s", dir);
+                    ais_close(&nb);
+                    fprintf(stderr, "created index '%s' at %s\n", name, dir);
+                } else if (strcmp(name, "home") != 0
+                           && ais_index_path(name, path, sizeof path) != 1) {
+                    die("switch: no index named '%s' "
+                        "(create: ais --switch -c %s [DIR]; list: ais --indexes)", name, name);
+                }
+                if (ais_current_set(name) != 0)
+                    die("switch: cannot set current to '%s'", name);
+                printf("switched to %s\n", name);
+            }
+            break;
+        }
+        case CMD_INDEXES: {
+            char cur[AIS_KEY_MAX], home[AIS_PATH_MAX];
+            struct index_ctx ic;
+            int cur_named = (ais_current_get(cur, sizeof cur) == 1
+                             && cur[0] != '\0' && strcmp(cur, "home") != 0);
+            if (ais_home_path(home, sizeof home) != 0) die("no home dir");
+            printf("%c home\t%s\n", cur_named ? ' ' : '*', home);
+            ic.cur = cur_named ? cur : "";
+            if (ais_index_list(print_index, &ic) < 0) die("indexes failed");
+            break;
+        }
+        case CMD_FORGET: {
+            char cur[AIS_KEY_MAX];
+            if (optind >= argc) die("--forget needs a NAME");
+            if (ais_current_get(cur, sizeof cur) == 1 && strcmp(cur, argv[optind]) == 0)
+                die("--forget: '%s' is the current index; switch away first", argv[optind]);
+            if (ais_index_remove(argv[optind]) != 0)
+                die("--forget: cannot remove '%s' ('home' is reserved)", argv[optind]);
+            printf("forgot '%s' (its data dir was left untouched)\n", argv[optind]);
+            break;
+        }
         case CMD_DOC:
             if (collect_keys(argv, optind, argc, exkeys, nexk, keys, sizeof(keys)) != 0)
                 die("key list too long");

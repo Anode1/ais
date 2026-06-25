@@ -3,14 +3,20 @@
  * Precedence (git-like):
  *   1. -f DIR  (the only explicit override -- AIS reads no env var for this)
  *   2. nearest .ais/ at or above the current dir
- *   3. the saved default in ~/.ais/config  (an `index = PATH` line)
- *   4. the built-in default ~/.ais  (Windows: %USERPROFILE%\.ais)
+ *   3. the CURRENT named index from ~/.ais/config (`current = NAME` ->
+ *      `index.NAME = PATH`); if no `current`, the legacy `index = PATH` line
+ *   4. the built-in "home" index ~/.ais  (Windows: %USERPROFILE%\.ais)
  * For #4, if ~/.ais does not exist yet but the pre-1.0 location does, the old
  * one is used (with a one-line notice) so existing data is never stranded.
  *
+ * Multiple indexes are like git branches: ~/.ais/config holds a registry of
+ * `index.NAME = PATH` entries plus a `current = NAME` pointer; "home" (~/.ais)
+ * is the always-present built-in. `--switch` moves current; `--indexes` lists.
+ * Switching just repoints "current": indexes are separate stores, so there is
+ * no merge of history (move records with --import / --import-interactively).
+ *
  * Everything lives under one self-evident dir, ~/.ais (the SSH model: ~/.ssh +
- * ~/.ssh/config) -- no env-var indirection, identical on every OS, and the same
- * ".ais" that a local `ais --init` creates.
+ * ~/.ssh/config) -- no env-var indirection, identical on every OS.
  */
 #define _DEFAULT_SOURCE      /* getcwd, mkdir */
 #define _POSIX_C_SOURCE 200809L
@@ -28,6 +34,17 @@
 #include "common.h"
 #include "locate.h"
 #include "win.h"          /* mkdir shim on native Windows; empty on POSIX */
+
+/* Home-dir override (NULL/"" = the OS account home). A test seam, and a hook for
+ * embedders wanting a custom config home. Set before any locate/registry call. */
+static char g_home_override[AIS_PATH_MAX];
+void ais_home_override(const char *dir)
+{
+    if (dir == NULL || dir[0] == '\0')
+        g_home_override[0] = '\0';
+    else
+        snprintf(g_home_override, sizeof g_home_override, "%s", dir);
+}
 
 /* Copy SRC into OUT (size OUTSZ). Returns 0, or -1 if it would not fit. */
 static int put_str(char *out, size_t outsz, const char *src)
@@ -68,6 +85,8 @@ static int mkdir_p(const char *path)
  * unix: getpwuid. 0/-1. */
 static int home_base(char *out, size_t outsz)
 {
+    if (g_home_override[0] != '\0')
+        return put_str(out, outsz, g_home_override);
 #ifdef _WIN32
     char base[AIS_PATH_MAX];
     if (SHGetFolderPathA(NULL, CSIDL_PROFILE, NULL, 0, base) != S_OK)
@@ -153,73 +172,100 @@ static int legacy_dir(char *out, size_t outsz)
     return (n >= 0 && (size_t)n < outsz) ? 0 : -1;
 }
 
-/* Read the `index = PATH` line from ~/.ais/config (the saved default index).
- * 1 if set (-> OUT), 0 if no config / no index key, -1 on error. */
-int ais_default_get(char *out, size_t outsz)
+/* ---- ~/.ais/config: hand-editable `key = value` lines --------------------- */
+
+/* Path of ~/.ais/config into OUT. 0/-1. */
+static int config_path(char *out, size_t outsz)
 {
-    char cfg[AIS_PATH_MAX], line[AIS_LINE_MAX];
-    FILE *f;
+    char dir[AIS_PATH_MAX];
     int n;
-
-    if (home_ais(cfg, sizeof cfg) != 0)
+    if (home_ais(dir, sizeof dir) != 0)
         return -1;
-    n = (int)strlen(cfg);
-    if (n < 0 || snprintf(cfg + n, sizeof(cfg) - (size_t)n, "/config") < 0)
-        return -1;
+    n = snprintf(out, outsz, "%s/config", dir);
+    return (n >= 0 && (size_t)n < outsz) ? 0 : -1;
+}
 
+/* If LINE is `key = value`, copy the trimmed key into KBUF and return a pointer
+ * to the value start (within LINE; trailing whitespace/newline not yet cut).
+ * Returns NULL for a blank line, a `#` comment, or a line with no `=`. Does not
+ * modify LINE. */
+static const char *kv_split(const char *line, char *kbuf, size_t kbufsz)
+{
+    const char *p = line, *eq, *kend, *v;
+    size_t kl;
+
+    while (*p == ' ' || *p == '\t') p++;
+    if (*p == '\0' || *p == '\n' || *p == '#')
+        return NULL;
+    eq = strchr(p, '=');
+    if (eq == NULL)
+        return NULL;
+    kend = eq;
+    while (kend > p && (kend[-1] == ' ' || kend[-1] == '\t')) kend--;
+    if (kend == p)
+        return NULL;
+    kl = (size_t)(kend - p);
+    if (kl >= kbufsz) kl = kbufsz - 1;
+    memcpy(kbuf, p, kl);
+    kbuf[kl] = '\0';
+    v = eq + 1;
+    while (*v == ' ' || *v == '\t') v++;
+    return v;
+}
+
+/* Value of KEY from ~/.ais/config into OUT. 1 found, 0 absent/empty, -1 error. */
+static int config_get(const char *key, char *out, size_t outsz)
+{
+    char cfg[AIS_PATH_MAX], line[AIS_LINE_MAX], kbuf[AIS_KEY_MAX];
+    FILE *f;
+
+    if (config_path(cfg, sizeof cfg) != 0)
+        return -1;
     f = fopen(cfg, "r");
     if (f == NULL)
-        return 0;                       /* no config -> no saved default */
+        return 0;                       /* no config -> not set */
     while (fgets(line, sizeof line, f) != NULL) {
-        char *p = line, *e;
-        while (*p == ' ' || *p == '\t') p++;
-        if (strncmp(p, "index", 5) != 0
-            || (p[5] != ' ' && p[5] != '\t' && p[5] != '='))
-            continue;
-        p += 5;
-        while (*p == ' ' || *p == '\t') p++;
-        if (*p != '=')
-            continue;
-        p++;
-        while (*p == ' ' || *p == '\t') p++;
-        e = p + strlen(p);
-        while (e > p && (e[-1] == '\n' || e[-1] == '\r' || e[-1] == ' ' || e[-1] == '\t'))
-            *--e = '\0';
-        fclose(f);
-        if (p[0] == '\0')
-            return 0;                   /* `index =` (empty) -> none */
-        return (put_str(out, outsz, p) == 0) ? 1 : -1;
+        const char *v = kv_split(line, kbuf, sizeof kbuf);
+        if (v != NULL && strcmp(kbuf, key) == 0) {
+            size_t n = strlen(v);
+            fclose(f);
+            while (n > 0 && (v[n-1] == '\n' || v[n-1] == '\r'
+                             || v[n-1] == ' ' || v[n-1] == '\t')) n--;
+            if (n == 0)
+                return 0;               /* `key =` (empty) -> not set */
+            if (n >= outsz)
+                return -1;
+            memcpy(out, v, n);
+            out[n] = '\0';
+            return 1;
+        }
     }
     fclose(f);
     return 0;
 }
 
-/* Set (PATH non-empty) or clear (PATH NULL/empty) the saved default index in
- * ~/.ais/config, preserving any other lines. 0/-1. */
-int ais_default_set(const char *path)
+/* Set KEY = VALUE in ~/.ais/config, preserving every other line. VALUE NULL or
+ * empty removes the key. Returns 0/-1. */
+static int config_set(const char *key, const char *value)
 {
-    char dir[AIS_PATH_MAX], cfg[AIS_PATH_MAX], line[AIS_LINE_MAX];
-    char keep[AIS_LINE_MAX * 8];        /* other config lines, preserved */
+    char dir[AIS_PATH_MAX], cfg[AIS_PATH_MAX], line[AIS_LINE_MAX], kbuf[AIS_KEY_MAX];
+    static char keep[AIS_LINE_MAX * 4];     /* preserved lines (BSS, not the stack) */
     size_t klen = 0;
     FILE *f;
-    int n;
 
     if (home_ais(dir, sizeof dir) != 0)
         return -1;
-    if (mkdir_p(dir) != 0)              /* create ~/.ais if needed */
+    if (mkdir_p(dir) != 0)                  /* create ~/.ais if needed */
         return -1;
-    n = snprintf(cfg, sizeof cfg, "%s/config", dir);
-    if (n < 0 || (size_t)n >= sizeof cfg)
+    if (config_path(cfg, sizeof cfg) != 0)
         return -1;
 
-    f = fopen(cfg, "r");               /* keep every line except the index one */
+    f = fopen(cfg, "r");                     /* keep every line except KEY's */
     if (f != NULL) {
         while (fgets(line, sizeof line, f) != NULL) {
-            const char *p = line;
+            const char *v = kv_split(line, kbuf, sizeof kbuf);
             size_t ll;
-            while (*p == ' ' || *p == '\t') p++;
-            if (strncmp(p, "index", 5) == 0
-                && (p[5] == ' ' || p[5] == '\t' || p[5] == '='))
+            if (v != NULL && strcmp(kbuf, key) == 0)
                 continue;
             ll = strlen(line);
             if (klen + ll < sizeof keep) {
@@ -236,10 +282,121 @@ int ais_default_set(const char *path)
         return -1;
     if (klen > 0)
         fputs(keep, f);
-    if (path != NULL && path[0] != '\0')
-        fprintf(f, "index = %s\n", path);
+    if (value != NULL && value[0] != '\0')
+        fprintf(f, "%s = %s\n", key, value);
     return (fclose(f) == 0) ? 0 : -1;
 }
+
+/* ---- the named-index registry (the git-branch-like layer) ----------------- */
+
+int ais_home_path(char *out, size_t outsz)
+{
+    return home_ais(out, outsz);
+}
+
+int ais_current_get(char *out, size_t outsz)
+{
+    return config_get("current", out, outsz);
+}
+
+int ais_current_set(const char *name)
+{
+    if (name == NULL || name[0] == '\0' || strcmp(name, "home") == 0)
+        return config_set("current", NULL);     /* clear -> home */
+    return config_set("current", name);
+}
+
+int ais_index_path(const char *name, char *out, size_t outsz)
+{
+    char key[AIS_KEY_MAX];
+
+    if (name == NULL || name[0] == '\0' || strcmp(name, "home") == 0)
+        return (home_ais(out, outsz) == 0) ? 1 : -1;
+    if (snprintf(key, sizeof key, "index.%s", name) >= (int)sizeof key)
+        return -1;
+    return config_get(key, out, outsz);
+}
+
+int ais_index_default_dir(const char *name, char *out, size_t outsz)
+{
+    char base[AIS_PATH_MAX];
+    int n;
+
+    if (name == NULL || name[0] == '\0')
+        return -1;
+    if (home_base(base, sizeof base) != 0)
+        return -1;
+    n = snprintf(out, outsz, "%s/.ais-%s", base, name);
+    return (n >= 0 && (size_t)n < outsz) ? 0 : -1;
+}
+
+int ais_index_add(const char *name, const char *path)
+{
+    char key[AIS_KEY_MAX];
+
+    if (name == NULL || name[0] == '\0' || strcmp(name, "home") == 0)
+        return -1;                               /* "home" is reserved */
+    if (path == NULL || path[0] == '\0')
+        return -1;
+    if (snprintf(key, sizeof key, "index.%s", name) >= (int)sizeof key)
+        return -1;
+    return config_set(key, path);
+}
+
+int ais_index_remove(const char *name)
+{
+    char key[AIS_KEY_MAX];
+
+    if (name == NULL || name[0] == '\0' || strcmp(name, "home") == 0)
+        return -1;
+    if (snprintf(key, sizeof key, "index.%s", name) >= (int)sizeof key)
+        return -1;
+    return config_set(key, NULL);
+}
+
+int ais_index_list(ais_index_cb cb, void *ctx)
+{
+    char cfg[AIS_PATH_MAX], line[AIS_LINE_MAX], kbuf[AIS_KEY_MAX];
+    FILE *f;
+    int rc = 0;
+
+    if (config_path(cfg, sizeof cfg) != 0)
+        return -1;
+    f = fopen(cfg, "r");
+    if (f == NULL)
+        return 0;
+    while (fgets(line, sizeof line, f) != NULL) {
+        const char *v = kv_split(line, kbuf, sizeof kbuf);
+        if (v != NULL && strncmp(kbuf, "index.", 6) == 0 && kbuf[6] != '\0') {
+            char val[AIS_PATH_MAX];
+            size_t n = strlen(v);
+            while (n > 0 && (v[n-1] == '\n' || v[n-1] == '\r'
+                             || v[n-1] == ' ' || v[n-1] == '\t')) n--;
+            if (n >= sizeof val) n = sizeof val - 1;
+            memcpy(val, v, n);
+            val[n] = '\0';
+            rc = cb(kbuf + 6, val, ctx);         /* kbuf+6 skips "index." */
+            if (rc != 0)
+                break;
+        }
+    }
+    fclose(f);
+    return rc;
+}
+
+/* ---- deprecated single default (back-compat) ------------------------------ */
+
+int ais_default_get(char *out, size_t outsz)
+{
+    return config_get("index", out, outsz);
+}
+
+int ais_default_set(const char *path)
+{
+    return config_set("index", path);            /* NULL/empty clears it */
+}
+
+/* ---- resolution ----------------------------------------------------------- */
 
 int ais_locate(const char *opt, char *out, size_t outsz)
 {
@@ -254,13 +411,33 @@ int ais_locate(const char *opt, char *out, size_t outsz)
     if (rc == 1)
         return 0;
 
-    rc = ais_default_get(out, outsz);            /* 3. saved default (~/.ais/config) */
-    if (rc < 0)
-        return -1;
-    if (rc == 1)
-        return 0;
+    {                                            /* 3. current named index */
+        char cur[AIS_KEY_MAX];
+        int have = ais_current_get(cur, sizeof cur);
+        if (have < 0)
+            return -1;
+        if (have == 1) {                         /* `current = NAME` is set */
+            if (cur[0] != '\0' && strcmp(cur, "home") != 0) {
+                rc = ais_index_path(cur, out, outsz);
+                if (rc < 0)
+                    return -1;
+                if (rc == 1)
+                    return 0;
+                fprintf(stderr,
+                        "ais: current index '%s' is not registered; using home (~/.ais).\n"
+                        "     'ais --indexes' to list, 'ais --switch NAME' to fix.\n", cur);
+            }
+            /* current = home/empty, or a dangling name: fall through to home */
+        } else {                                 /* no current -> legacy `index = PATH` */
+            rc = ais_default_get(out, outsz);
+            if (rc < 0)
+                return -1;
+            if (rc == 1)
+                return 0;
+        }
+    }
 
-    {                                            /* 4. built-in default: ~/.ais */
+    {                                            /* 4. built-in "home": ~/.ais */
         char def[AIS_PATH_MAX], legacy[AIS_PATH_MAX];
         if (home_ais(def, sizeof def) != 0)
             return -1;

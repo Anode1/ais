@@ -172,14 +172,40 @@ flag selects a command; else `-v`/`-i` mean store; else recall the keys.
     ais [-f DIR] --del ID | --del-key KEY | --dump | --keys | --stats | --compact
     ais [-f DIR] --import < FILE | --where | --project [KEY] | --serve [PORT]
     ais [-f DIR] --import-interactively   like --import, but y/N per record (answers on the tty)
-    ais --default [PATH]              show/set/clear the saved default index
+    ais --switch [NAME]               switch the current index (no arg shows it; -c NAME [DIR] creates)
+    ais --indexes                     list named indexes (* on current; 'home' = ~/.ais)
+    ais --forget NAME                 drop a name from the registry (its data dir is left alone)
+    ais --default [PATH]              DEPRECATED: the old single saved default (use --switch)
     ais --init                        create a local .ais here
 
 INDEX location precedence (no env vars; `-f` is the only override): `-f/--index
-DIR` > nearest `.ais/` (walking up, git-style) > the saved default in
-`~/.ais/config` (set with `--default`) > `~/.ais` (created on first use).
+DIR` > nearest `.ais/` (walking up, git-style) > the CURRENT named index from
+`~/.ais/config` (set with `--switch`; falls back to the legacy `index = PATH`
+line when there is no `current`) > `~/.ais` (the built-in "home" index, created
+on first use).
 No args -> usage_short to stderr, exit 2. `-h` -> usage_short. `--help` ->
 usage_long.
+
+### Named indexes (multi-index, git-branch-like)
+`~/.ais/config` is a plain `key = value` file holding a registry of named
+indexes plus a `current` pointer:
+
+    current = work
+    index.work = /home/me/work/.ais
+    index.play = /home/me/.ais-play
+
+`--switch NAME` repoints `current`; `--switch -c NAME [DIR]` registers a new
+index (DIR default `~/.ais-NAME`), creates it, and switches; `--indexes` lists
+them (`*` on the current); `--forget NAME` drops the registry entry (never the
+data dir). The reserved name `home` is the built-in `~/.ais` -- never stored,
+always present -- and `--switch home` returns to it. Indexes are SEPARATE
+stores, so switching only repoints `current`: there is no history merge (move
+records between indexes with `--import` / `--import-interactively`). The legacy
+`index = PATH` line (the old `--default`) is still honoured when there is no
+`current`, for one release. Resolution lives in `locate.c`; the config layer
+(`config_get`/`config_set`) and the registry calls (`ais_current_*`,
+`ais_index_*`) are there too. `ais_home_override()` relocates the config home
+(the test seam, and an embedder hook).
 
 ## Implementation order
 

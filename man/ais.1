@@ -45,7 +45,7 @@ ais \- associative index: save values under keys, get them back by keys
 .B ais
 .RB [ \-f
 .IR DIR ]
-.BR \-\-del | \-\-del-key | \-\-dump | \-\-keys | \-\-stats | \-\-compact | \-\-import | \-\-import-interactively | \-\-where | \-\-project | \-\-default | \-\-serve | \-\-init
+.BR \-\-del | \-\-del-key | \-\-dump | \-\-keys | \-\-stats | \-\-compact | \-\-import | \-\-import-interactively | \-\-where | \-\-project | \-\-switch | \-\-indexes | \-\-forget | \-\-default | \-\-serve | \-\-init
 .RI [ ARG ]
 .SH DESCRIPTION
 .B ais
@@ -231,13 +231,45 @@ Print the resolved index directory (e.g. to locate a blob file).
 .B \-\-project \fR[\fIKEY\fR]
 Show, set, or clear ('') the persistent default project key.
 .TP
+.B \-\-switch \fR[\fINAME\fR]
+Switch the current index (several indexes, the git-branch way). No argument
+prints the current name and its directory. The form
+.B \-c
+.I NAME
+.RI [ DIR ]
+creates a new index (DIR default
+.IR ~/.ais\-NAME )
+and switches to it. The reserved name
+.B home
+is the built-in
+.I ~/.ais
+and is always present;
+.B \-\-switch home
+returns to it. Indexes are separate stores, so switching only changes which one
+you read and write; move records between them with
+.B \-\-import
+or
+.BR \-\-import-interactively .
+.TP
+.B \-\-indexes
+List the named indexes (one per line, a
+.B *
+on the current);
+.B home
+is always shown.
+.TP
+.B \-\-forget \fINAME\fR
+Drop NAME from the registry (its data directory is left untouched). The current
+index cannot be forgotten; switch away first.
+.TP
 .B \-\-default \fR[\fIPATH\fR]
-Show, set, or clear ('') the saved default index in
-.IR ~/.ais/config .
-With no argument, print the saved default (or a note that none is set); with
-PATH, save it as the index used when no
-.I .ais/
-is found nearby.
+DEPRECATED (use
+.BR \-\-switch ).
+The legacy single saved default in
+.IR ~/.ais/config ,
+honoured only when no
+.B current
+named index is set.
 .TP
 .B \-\-serve \fR[\fIPORT\fR]
 Start the local web GUI on 127.0.0.1 (default port 8765).

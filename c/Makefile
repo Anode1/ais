@@ -56,8 +56,15 @@ AIS_VERSION := 0.0.0-dev
 endif
 AIS_VERDEF = -DAIS_VERSION='"$(AIS_VERSION)"'
 
-# all *.c are sources (no editing this file when a new .c is added)
-SOURCES.c := $(wildcard *.c)
+# Sources = every *.c at the top level OR one directory down, EXCEPT directories
+# carrying a .nobuild marker (e.g. attic/). Drop in a .c -- or a whole new source
+# dir -- and it compiles, no editing this file. Pure make built-ins: no shell, no
+# find, no nonstandard tools. (A subdir module that needs a vendored dependency,
+# like crypto/ with Monocypher, self-guards in its own source so it compiles inert
+# until vendored -- the Makefile stays oblivious to it.)
+NOBUILD   := $(dir $(wildcard */.nobuild))
+SUBDIRS   := $(filter-out $(NOBUILD),$(sort $(dir $(wildcard */*.c))))
+SOURCES.c := $(wildcard *.c) $(foreach d,$(SUBDIRS),$(wildcard $(d)*.c))
 OBJS       = $(SOURCES.c:.c=.o)
 
 # Library form (for embedders / the Flutter FFI seam): the engine MINUS main().
@@ -75,7 +82,9 @@ static   : LDFLAGS  += -static
 
 .SUFFIXES:
 .SUFFIXES: .d .o .h .c
-.c.o: ; $(CC) $(AIS_CFLAGS) $(AIS_VERDEF) $(CPPFLAGS) $(CFLAGS) -MMD -c $*.c
+# one rule for any depth: the object lands next to its source (subdir-safe)
+%.o: %.c
+	$(CC) $(AIS_CFLAGS) $(AIS_VERDEF) $(CPPFLAGS) $(CFLAGS) -MMD -c $< -o $@
 
 .PHONY: clean ut check static static-guard lib wasm
 
@@ -131,6 +140,6 @@ wasm:
 	@echo "built $(WASM_OUT) (+ ais.wasm)"
 
 clean:
-	-rm -f $(BIN) $(TESTBIN) $(OBJS) libais.a libais.so *.d
+	-rm -f $(BIN) $(TESTBIN) $(OBJS) $(OBJS:.o=.d) libais.a libais.so
 
 -include $(OBJS:.o=.d)

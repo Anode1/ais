@@ -16,6 +16,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 #include "ais.h"
 #include "key.h"
@@ -27,6 +28,7 @@
 #include "doc.h"
 #include "embed.h"
 #include "feed.h"
+#include "locate.h"
 
 #define FIXTURE_STORE "../tests/INDEX/store"   /* cwd is c/ under `make ut` */
 
@@ -1195,6 +1197,65 @@ static void test_import_interactive(void)
     remove(anspath);
 }
 
+/* a counting ais_index_list callback */
+static int count_index(const char *name, const char *path, void *vp)
+{
+    (void)name; (void)path;
+    (*(int *)vp)++;
+    return 0;
+}
+
+/* ---- multi-index: registry round-trip + switch + locate precedence ---- */
+static void test_index_switch(void)
+{
+    const char *home = "/tmp/ais_ut_home";
+    char path[AIS_PATH_MAX], cur[AIS_KEY_MAX], saved[AIS_PATH_MAX];
+    int n;
+
+    scratch_rm(home);
+    ais_home_override(home);              /* config + registry now live under /tmp */
+
+    /* by default the current is the built-in home (no `current` line) */
+    CHECK(ais_current_get(cur, sizeof cur) == 0, "switch: no current -> home by default");
+    CHECK(ais_index_path("home", path, sizeof path) == 1, "home resolves to ~/.ais");
+
+    /* register two named indexes; 'home' is reserved */
+    CHECK(ais_index_add("work", "/tmp/ais_ut_work") == 0, "register 'work'");
+    CHECK(ais_index_add("play", "/tmp/ais_ut_play") == 0, "register 'play'");
+    CHECK(ais_index_add("home", "/x") == -1, "'home' is reserved");
+    n = 0; ais_index_list(count_index, &n);
+    CHECK(n == 2, "two indexes registered (home not in the list)");
+
+    /* switch makes 'work' current and it resolves to its path */
+    CHECK(ais_current_set("work") == 0, "switch to 'work'");
+    CHECK(ais_current_get(cur, sizeof cur) == 1 && strcmp(cur, "work") == 0, "current is 'work'");
+    CHECK(ais_index_path("work", path, sizeof path) == 1
+          && strcmp(path, "/tmp/ais_ut_work") == 0, "'work' -> its path");
+
+    /* ais_locate honors the current named index (no -f, no local .ais): run from
+     * the override home, where find_local stops immediately (step 2 finds none). */
+    if (getcwd(saved, sizeof saved) != NULL && chdir(home) == 0) {
+        char loc[AIS_PATH_MAX];
+        CHECK(ais_locate(NULL, loc, sizeof loc) == 0
+              && strcmp(loc, "/tmp/ais_ut_work") == 0, "locate -> the current named index");
+        if (chdir(saved) != 0) CHECK(0, "restore cwd after chdir");
+    }
+
+    /* switch back to home clears the current pointer */
+    CHECK(ais_current_set("home") == 0, "switch back to home");
+    CHECK(ais_current_get(cur, sizeof cur) == 0, "current cleared (home)");
+
+    /* forget drops the name (data dir untouched), leaves the other */
+    CHECK(ais_index_remove("play") == 0, "forget 'play'");
+    CHECK(ais_index_path("play", path, sizeof path) == 0, "'play' no longer registered");
+    CHECK(ais_index_path("work", path, sizeof path) == 1, "'work' still registered");
+
+    ais_home_override(NULL);              /* restore the OS home for any later test */
+    scratch_rm(home);
+    scratch_rm("/tmp/ais_ut_work");
+    scratch_rm("/tmp/ais_ut_play");
+}
+
 int main(void)
 {
     printf("AIS regression tests (make ut)\n");
@@ -1244,6 +1305,8 @@ int main(void)
     test_embed();
     printf("import-interactively:\n");
     test_import_interactive();
+    printf("switch / indexes:\n");
+    test_index_switch();
     printf("----\n%d passed, %d failed\n", ut_pass, ut_fail);
     return ut_fail == 0 ? 0 : 1;
 }
