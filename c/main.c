@@ -31,6 +31,7 @@
 #include "find.h"
 #include "locate.h"
 #include "serve.h"
+#include "secret.h"
 
 /* Stamped from the git tag at build time (-DAIS_VERSION, see c/Makefile, single
  * source of truth). This default applies only to a build with no git/tag (e.g. a
@@ -48,12 +49,16 @@
 struct get_ctx {
     ais *a;
     int  printed_any;   /* per-id: did ais_record emit at least one value?   */
+    int  reveal;        /* interactive recall at a tty: reveal "aisc:" secrets */
 };
 
 static int print_value(long id, const char *value, void *vp)
 {
     struct get_ctx *g = vp;
-    printf("%ld|%s\n", id, value);
+    if (g->reveal && secret_is_marked(value))
+        secret_reveal(id, value);          /* decrypt-dialog to /dev/tty, not stdout */
+    else
+        printf("%ld|%s\n", id, value);     /* opaque: a normal value, or an "aisc:" blob */
     g->printed_any = 1;
     return 0;
 }
@@ -219,6 +224,7 @@ static void do_get(ais *a, char *const keys[], int nkeys, ais_mode mode)
     struct get_ctx g;
     g.a = a;
     g.printed_any = 0;
+    g.reveal = secret_reveal_context();    /* only an interactive recall reveals secrets */
     if (ais_get(a, keys, nkeys, mode, on_id, &g) < 0)
         die("get failed");
 }

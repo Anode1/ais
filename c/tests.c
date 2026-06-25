@@ -29,6 +29,8 @@
 #include "embed.h"
 #include "feed.h"
 #include "locate.h"
+#include "secret.h"
+#include "b64.h"
 
 #define FIXTURE_STORE "../tests/INDEX/store"   /* cwd is c/ under `make ut` */
 
@@ -1256,6 +1258,48 @@ static void test_index_switch(void)
     scratch_rm("/tmp/ais_ut_play");
 }
 
+/* ---- base64: RFC 4648 vectors + binary round-trip + rejects ---- */
+static void test_b64(void)
+{
+    static const char *in[7]  = {"", "f", "fo", "foo", "foob", "fooba", "foobar"};
+    static const char *out[7] = {"", "Zg==", "Zm8=", "Zm9v", "Zm9vYg==", "Zm9vYmE=", "Zm9vYmFy"};
+    char enc[64];
+    unsigned char dec[64];
+    int i;
+
+    for (i = 0; i < 7; i++) {
+        size_t n = strlen(in[i]);
+        long e = b64_encode((const unsigned char *)in[i], n, enc, sizeof enc);
+        long d;
+        CHECK(e >= 0 && strcmp(enc, out[i]) == 0, "b64: encode matches the RFC vector");
+        d = b64_decode(out[i], strlen(out[i]), dec, sizeof dec);
+        CHECK(d == (long)n && memcmp(dec, in[i], n) == 0, "b64: decode round-trips");
+    }
+    CHECK(b64_decode("Zm9v!", 5, dec, sizeof dec) == -1, "b64: invalid char rejected");
+    CHECK(b64_decode("Zm9", 3, dec, sizeof dec) == -1,   "b64: truncated quad rejected");
+    {   /* every byte value survives a round-trip (the encrypted-image case) */
+        unsigned char bin[256], back[256];
+        char e[512];
+        int k;
+        for (k = 0; k < 256; k++) bin[k] = (unsigned char)k;
+        CHECK(b64_encode(bin, 256, e, sizeof e) > 0, "b64: encode 256 bytes");
+        CHECK(b64_decode(e, strlen(e), back, sizeof back) == 256
+              && memcmp(back, bin, 256) == 0, "b64: 256-byte binary round-trip");
+    }
+}
+
+/* ---- the "aisc:" secret marker: exact prefix, never a heuristic ---- */
+static void test_secret_marker(void)
+{
+    CHECK(secret_is_marked("aisc:AAAA") == 1, "marker: 'aisc:...' is detected");
+    CHECK(secret_is_marked("aisc:") == 1,      "marker: bare 'aisc:' is detected");
+    CHECK(secret_is_marked("http://x") == 0,   "marker: a URL is not a secret");
+    CHECK(secret_is_marked("aisc") == 0,       "marker: 'aisc' without ':' is not a secret");
+    CHECK(secret_is_marked("note aisc:") == 0, "marker: must be a PREFIX, not anywhere in the value");
+    CHECK(secret_is_marked("") == 0,           "marker: empty value is not a secret");
+    CHECK(secret_is_marked(NULL) == 0,         "marker: NULL is not a secret");
+}
+
 int main(void)
 {
     printf("AIS regression tests (make ut)\n");
@@ -1307,6 +1351,10 @@ int main(void)
     test_import_interactive();
     printf("switch / indexes:\n");
     test_index_switch();
+    printf("base64:\n");
+    test_b64();
+    printf("secret marker:\n");
+    test_secret_marker();
     printf("----\n%d passed, %d failed\n", ut_pass, ut_fail);
     return ut_fail == 0 ? 0 : 1;
 }
