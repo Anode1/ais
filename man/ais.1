@@ -18,6 +18,12 @@ ais \- associative index: save values under keys, get them back by keys
 .B ais
 .RB [ \-f
 .IR DIR ]
+.RI [ KEY ...]
+.B \-e
+.br
+.B ais
+.RB [ \-f
+.IR DIR ]
 .B \-\-find
 .I TEXT
 .br
@@ -104,6 +110,27 @@ set with
 .TP
 .B \-i
 Interactive save: standard-input lines are values, keys are prompted per line.
+.TP
+.BR \-e ", " \-\-encrypt
+Store the value encrypted. The secret is read from the terminal with echo off
+(or from standard input with
+.BR "\-v \-" ),
+never from
+.BR \-v
+on the command line, which would leak it to
+.BR ps (1)
+and the shell history; a passphrase is then prompted (twice). The value is
+stored as a self-identifying
+.B aisc:
+marker. On a later recall at a terminal,
+.B ais
+detects the marker, prompts for the passphrase, and writes the cleartext to
+.IR /dev/tty ;
+when output is piped or redirected the marker is passed through opaque, so
+.BR \-\-dump ", " \-\-find ", and sync carry it unchanged. No " \-d " flag is needed \(em"
+decryption is automatic and interactive-only. Requires the crypto module
+(see
+.IR crypto/vendor-monocypher.sh ).
 .TP
 .B \-y
 Assume yes for
@@ -281,6 +308,8 @@ ais italy venice
 ais -o venice rome
 ais --find gelato
 ais -v "call Marina back"
+ais gmail work -e
+printf '%s' "$TOKEN" | ais api token -v - -e
 .fi
 .SH FILES
 These live inside the index directory (e.g.

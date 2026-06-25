@@ -24,6 +24,12 @@ void feed_import(ais *a);
  * For adopting selected bits of another person's shared index/keys-file. */
 void feed_import_interactive(ais *a);
 
+/* Store a single value ENCRYPTED under KEYS (the "aisc:" marker). The secret is
+ * read from the terminal with echo off -- or from stdin if FROM_STDIN -- never
+ * from argv, so it cannot leak via ps or shell history. Prompts for a
+ * passphrase, encrypts (secret_encrypt), puts the value, prints the new id. */
+void feed_encrypt(ais *a, const char *keys, int from_stdin);
+
 /* doc: read a (possibly large, multi-line) document from stdin, save it as a
  * blob file <index>/blobs/<timestamp>.txt, and put that relative path as a value under
  * KEYS. The engine stores only the path; the bytes live in the file. */

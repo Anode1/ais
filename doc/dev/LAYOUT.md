@@ -166,6 +166,7 @@ flag selects a command; else `-v`/`-i` mean store; else recall the keys.
     ais [-f DIR] [-o] KEY...           recall (AND; -o = OR)        <-- default
     ais [-f DIR] -v VALUE [KEY...]     store (-v - = stdin; repeat -v = multi-link)
     ais [-f DIR] -i [KEY...]           interactive: keys per piped line
+    ais [-f DIR] KEY... -e             store ENCRYPTED (prompts value+passphrase; -v - = stdin; reveals on tty recall)
     ais [-f DIR] --find TEXT           search values by substring
     ais [-f DIR] --add ID -v VALUE
     ais [-f DIR] --doc KEY... < FILE   save a multi-line document as a blob file

@@ -12,6 +12,7 @@
 #include "doc.h"
 #include "feed.h"
 #include "log.h"
+#include "secret.h"
 
 /* feed_stdin: file each non-empty stdin line, verbatim, as a value under KEYS. */
 void feed_stdin(ais *a, const char *keys)
@@ -231,4 +232,40 @@ void feed_import_interactive(ais *a)
     }
     fclose(tty);
     fprintf(stderr, "imported %ld of %ld\n", added, seen);
+}
+
+void feed_encrypt(ais *a, const char *keys, int from_stdin)
+{
+    char val[1024], pw[1024], marked[4096];
+    long vn, mn, id;
+
+    if (from_stdin) {                      /* -v - : the value comes from stdin */
+        size_t got = fread(val, 1, sizeof val - 1, stdin);
+        if (got > 0 && val[got - 1] == '\n')
+            got--;                         /* a one-line piped secret */
+        val[got] = '\0';
+        vn = (long)got;
+    } else {                               /* prompt for it, echo off, off the tty */
+        vn = secret_prompt("secret value: ", 0, val, sizeof val);
+    }
+    if (vn < 0)
+        die("-e: no value (or crypto not built; run crypto/vendor-monocypher.sh)");
+
+    if (secret_prompt("passphrase: ", 1, pw, sizeof pw) < 0) {
+        secret_wipe(val, sizeof val);
+        die("-e: passphrase entry failed");
+    }
+
+    mn = secret_encrypt((const unsigned char *)val, (size_t)vn,
+                        (const unsigned char *)pw, strlen(pw), marked, sizeof marked);
+    secret_wipe(val, sizeof val);
+    secret_wipe(pw, sizeof pw);
+    if (mn < 0)
+        die("-e: encryption failed (value too large to inline? big notes: use --doc)");
+
+    id = ais_put(a, keys, marked);
+    secret_wipe(marked, sizeof marked);
+    if (id < 0)
+        die("-e: store failed");
+    printf("%ld\n", id);
 }

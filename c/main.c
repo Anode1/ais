@@ -256,6 +256,7 @@ int main(int argc, char **argv)
         { "debug",       no_argument,       NULL, 'd' },
         { "yes",         no_argument,       NULL, 'y' },
         { "interactive", no_argument,       NULL, 'i' },
+        { "encrypt",     no_argument,       NULL, 'e' },
         { "value",       required_argument, NULL, 'v' },
         { "key",         required_argument, NULL, 'k' },
         { "project",     no_argument,       NULL, CMD_PROJECT },
@@ -290,7 +291,7 @@ int main(int argc, char **argv)
     const char *exkeys[AIS_KEYS_MAX];
     int nval = 0, nexk = 0;
     ais_mode mode = AIS_AND;
-    int assume_yes = 0, interactive = 0, project_given = 0, create = 0;
+    int assume_yes = 0, interactive = 0, project_given = 0, create = 0, encrypt = 0;
     int cmd = 0;
     char project[AIS_KEY_MAX];
     char keys[AIS_LINE_MAX], full[AIS_LINE_MAX];
@@ -299,7 +300,7 @@ int main(int argc, char **argv)
 
     /* -p is the per-call project override; --project (CMD_PROJECT) manages the
      * stored default. They are intentionally distinct. */
-    while ((c = getopt_long(argc, argv, "f:odhyiv:k:p:c", longopts, NULL)) != -1) {
+    while ((c = getopt_long(argc, argv, "f:odhyiv:k:p:ce", longopts, NULL)) != -1) {
         switch (c) {
         case 'f': dir = optarg; break;
         case 'o': mode = AIS_OR; break;
@@ -307,6 +308,7 @@ int main(int argc, char **argv)
         case 'y': assume_yes = 1; break;
         case 'i': interactive = 1; break;
         case 'c': create = 1; break;
+        case 'e': encrypt = 1; break;
         case 'v': if (nval >= AIS_KEYS_MAX) die("too many -v values");
                   values[nval++] = optarg; break;
         case 'k': if (nexk >= AIS_KEYS_MAX) die("too many -k keys");
@@ -329,7 +331,7 @@ int main(int argc, char **argv)
     }
 
     /* nothing asked for at all */
-    if (cmd == 0 && nval == 0 && !interactive &&
+    if (cmd == 0 && nval == 0 && !interactive && !encrypt &&
         optind >= argc && nexk == 0) {
         usage_short(stderr);
         return 2;
@@ -535,10 +537,21 @@ int main(int argc, char **argv)
     }
 
     /* ---- save (put mode): -v or -i ---- */
-    if (nval > 0 || interactive) {
+    if (nval > 0 || interactive || encrypt) {
         if (collect_keys(argv, optind, argc, exkeys, nexk, keys, sizeof(keys)) != 0)
             die("key list too long");
         build_keys(project, keys, full, sizeof(full));
+
+        if (encrypt) {                            /* -e: store one value encrypted */
+            if (full[0] == '\0')
+                die("-e needs at least one KEY");
+            if (nval >= 1 && strcmp(values[0], "-") != 0)
+                die("-e: don't pass the secret via -v (it lands in ps and shell "
+                    "history); omit -v to be prompted, or use -v - to read stdin");
+            feed_encrypt(&a, full, nval == 1);    /* nval==1 means -v - (stdin) */
+            ais_close(&a);
+            return 0;
+        }
 
         if (interactive) {
             feed_interactive(&a, full);

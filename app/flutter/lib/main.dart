@@ -86,11 +86,8 @@ class _RecallPageState extends State<RecallPage> {
     } catch (e) {
       _status = 'cannot open index: $e';
     }
-    try {
-      _voice = await _speech.initialize(); // unsupported on desktop -> false
-    } catch (_) {
-      _voice = false;
-    }
+    // Speech is initialized lazily on the first mic tap (see _listen), so the
+    // permission prompt is tied to a user gesture rather than app launch.
     if (mounted) setState(() {});
   }
 
@@ -173,7 +170,20 @@ class _RecallPageState extends State<RecallPage> {
   }
 
   Future<void> _listen() async {
-    if (!_voice) return;
+    // First tap: init the recognizer, which triggers the runtime mic-permission
+    // prompt on Android/iOS. _voice stays false on desktop or if denied.
+    if (!_voice) {
+      try {
+        _voice = await _speech.initialize();
+      } catch (_) {
+        _voice = false;
+      }
+      if (mounted) setState(() {});
+      if (!_voice) {
+        if (mounted) setState(() => _status = 'Microphone unavailable or permission denied');
+        return;
+      }
+    }
     await _speech.listen(onResult: (r) {
       _q.text = r.recognizedWords;
       if (r.finalResult) _recall();
@@ -268,7 +278,9 @@ class _RecallPageState extends State<RecallPage> {
                           borderRadius: BorderRadius.circular(28),
                           borderSide: BorderSide.none,
                         ),
-                        suffixIcon: _voice
+                        // Show the mic on mobile so the first tap can request the
+                        // permission; desktop has no speech recognizer.
+                        suffixIcon: (_voice || Platform.isAndroid || Platform.isIOS)
                             ? IconButton(icon: const Icon(Icons.mic), onPressed: _listen)
                             : null,
                       ),

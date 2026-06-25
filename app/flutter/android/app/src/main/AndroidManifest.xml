@@ -1,4 +1,7 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Voice recall: native SpeechRecognizer needs the mic. The permission is
+         requested at runtime on the first mic tap (see lib/main.dart). -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO"/>
     <application
         android:label="ais"
         android:name="${applicationName}"
@@ -40,6 +43,10 @@
         <intent>
             <action android:name="android.intent.action.PROCESS_TEXT"/>
             <data android:mimeType="text/plain"/>
+        </intent>
+        <!-- so speech_to_text can see the on-device recognition service (Android 11+) -->
+        <intent>
+            <action android:name="android.speech.RecognitionService"/>
         </intent>
     </queries>
 </manifest>

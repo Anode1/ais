@@ -1336,6 +1336,44 @@ static void test_crypto(void)
 
     aisc_wipe(file, flen); free(file);
 }
+
+/* secret_decrypt's full path: strip "aisc:" -> b64_decode -> aisc_decrypt. We
+ * build the marked value with a CHEAP kdf (the file header carries the cost
+ * params, so the decrypt below is fast); secret_encrypt itself uses the real
+ * default cost and is exercised by hand. */
+static void test_secret_value(void)
+{
+    static const unsigned char plain[] = "wpa2: hunter2hunter2";
+    static const unsigned char pw[] = "master passphrase";
+    uint8_t *file = NULL;
+    size_t flen = 0;
+    char marked[2048];
+    unsigned char back[256];
+    aisc_kdf k = aisc_default_kdf();
+    long n, bn;
+
+    k.mem_blocks = 8; k.passes = 1;
+    CHECK(aisc_encrypt(plain, sizeof plain - 1, pw, sizeof pw - 1, NULL, 0, k, &file, &flen) == AISC_OK,
+          "secret: build a cheap-kdf file image");
+    memcpy(marked, AIS_SECRET_PREFIX, sizeof AIS_SECRET_PREFIX - 1);
+    n = b64_encode(file, flen, marked + (sizeof AIS_SECRET_PREFIX - 1),
+                   sizeof marked - (sizeof AIS_SECRET_PREFIX - 1));
+    aisc_wipe(file, flen); free(file);
+    CHECK(n > 0, "secret: 'aisc:' + base64 marked value");
+    CHECK(secret_is_marked(marked), "secret: built value is detected as marked");
+
+    bn = secret_decrypt(marked, pw, sizeof pw - 1, back, sizeof back);
+    CHECK(bn == (long)(sizeof plain - 1) && memcmp(back, plain, (size_t)bn) == 0,
+          "secret_decrypt: right passphrase round-trips the plaintext");
+
+    bn = secret_decrypt(marked, (const unsigned char *)"wrong", 5, back, sizeof back);
+    CHECK(bn == -1, "secret_decrypt: wrong passphrase fails closed");
+
+    CHECK(secret_decrypt("http://x", pw, sizeof pw - 1, back, sizeof back) == -1,
+          "secret_decrypt: a non-marked value is rejected (no KDF run)");
+    CHECK(secret_decrypt("aisc:!!notbase64", pw, sizeof pw - 1, back, sizeof back) == -1,
+          "secret_decrypt: a bad base64 payload is rejected");
+}
 #endif
 
 int main(void)
@@ -1396,6 +1434,8 @@ int main(void)
 #ifdef AIS_UT_HAVE_CRYPTO
     printf("crypto (vendored monocypher):\n");
     test_crypto();
+    printf("secret value (encrypt/decrypt glue):\n");
+    test_secret_value();
 #endif
     printf("----\n%d passed, %d failed\n", ut_pass, ut_fail);
     return ut_fail == 0 ? 0 : 1;
