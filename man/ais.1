@@ -45,7 +45,7 @@ ais \- associative index: save values under keys, get them back by keys
 .B ais
 .RB [ \-f
 .IR DIR ]
-.BR \-\-del | \-\-del-key | \-\-dump | \-\-keys | \-\-stats | \-\-compact | \-\-import | \-\-where | \-\-project | \-\-default | \-\-serve | \-\-init
+.BR \-\-del | \-\-del-key | \-\-dump | \-\-keys | \-\-stats | \-\-compact | \-\-import | \-\-import-interactively | \-\-where | \-\-project | \-\-default | \-\-serve | \-\-init
 .RI [ ARG ]
 .SH DESCRIPTION
 .B ais
@@ -191,6 +191,34 @@ Read
 lines from standard input and save each (the inverse of
 .BR \-\-dump ;
 blank lines and #-comments are skipped).
+.TP
+.B \-\-import-interactively
+Like
+.BR \-\-import ,
+but confirm each
+.IR keys | value
+record first: it is shown and a
+.RB [ y / N ]
+answer is read from the terminal
+.RI ( /dev/tty ,
+or
+.IR $AIS_TTY ).
+Only
+.B y
+takes the record;
+.BR N ,
+the default and a bare Enter, skips it. Records arrive on standard input and the
+answers on the terminal, so the two streams stay separate. For adopting selected
+records from another person's shared index, or a curated
+.IR keys | value
+file (project knowledge across a workspace), without pulling in everything:
+.RS
+.PP
+.nf
+ais \-f OTHER \-\-dump | sed 's/^[0-9]*|//' | ais \-\-import-interactively
+ais \-\-import-interactively < project-knowledge.txt
+.fi
+.RE
 .TP
 .B \-\-init
 Create a local

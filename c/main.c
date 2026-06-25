@@ -231,7 +231,7 @@ int main(int argc, char **argv)
 {
     enum { OPT_HELP = 1000, OPT_VERSION,
            CMD_FIND, CMD_ADD, CMD_DEL, CMD_DELKEY, CMD_DUMP, CMD_KEYS, CMD_STATS,
-           CMD_COMPACT, CMD_INIT, CMD_IMPORT, CMD_WHERE, CMD_SERVE, CMD_PROJECT,
+           CMD_COMPACT, CMD_INIT, CMD_IMPORT, CMD_IMPORTI, CMD_WHERE, CMD_SERVE, CMD_PROJECT,
            CMD_DOC, CMD_TIMELINE, CMD_TAGS, CMD_DEFAULT, CMD_UPDATE };
     static const struct option longopts[] = {
         { "index",       required_argument, NULL, 'f' },
@@ -258,6 +258,7 @@ int main(int argc, char **argv)
         { "compact",     no_argument,       NULL, CMD_COMPACT },
         { "init",        no_argument,       NULL, CMD_INIT },
         { "import",      no_argument,       NULL, CMD_IMPORT },
+        { "import-interactively", no_argument, NULL, CMD_IMPORTI },
         { "where",       no_argument,       NULL, CMD_WHERE },
         { "serve",       no_argument,       NULL, CMD_SERVE },
         { "doc",         no_argument,       NULL, CMD_DOC },
@@ -295,7 +296,7 @@ int main(int argc, char **argv)
         case OPT_VERSION: printf("ais %s\n", AIS_VERSION); return 0;
         case CMD_FIND: case CMD_ADD: case CMD_DEL: case CMD_DELKEY:
         case CMD_DUMP: case CMD_KEYS: case CMD_STATS: case CMD_COMPACT:
-        case CMD_INIT: case CMD_IMPORT: case CMD_WHERE: case CMD_SERVE:
+        case CMD_INIT: case CMD_IMPORT: case CMD_IMPORTI: case CMD_WHERE: case CMD_SERVE:
         case CMD_PROJECT: case CMD_DOC: case CMD_TIMELINE: case CMD_TAGS:
         case CMD_DEFAULT: case CMD_UPDATE:
             if (cmd != 0) die("only one command at a time");
@@ -345,6 +346,7 @@ int main(int argc, char **argv)
         case CMD_WHERE: printf("%s\n", dir); break;
         case CMD_INIT:  printf("initialized AIS index: %s\n", dir); break;
         case CMD_IMPORT: feed_import(&a); break;
+        case CMD_IMPORTI: feed_import_interactive(&a); break;
         case CMD_FIND:
             if (optind >= argc) die("--find needs TEXT");
             if (ais_find(&a, argv[optind], stdout) != 0) die("find failed");

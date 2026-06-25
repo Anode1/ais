@@ -168,3 +168,67 @@ void feed_doc(ais *a, const char *keys)
         die("doc: put failed");
     printf("%ld|%s\n", got, relval);
 }
+
+/* feed_import_interactive: --import with a per-record gate. Each stdin line is a
+ * "keys|value" record (a --dump of someone else's index, or a shared keys|value
+ * file); we show it and read a [y/N] answer from the terminal -- only y/Y takes
+ * it, N (the default, and a bare Enter) skips. Records come on stdin, answers on
+ * the tty (/dev/tty, or $AIS_TTY for scripting/tests), so the two streams stay
+ * apart, exactly as -i keeps values and keys apart. For sipping the useful bits
+ * of a shared index without pulling in (and polluting yours with) everything. */
+void feed_import_interactive(ais *a)
+{
+    const char *ttypath = getenv("AIS_TTY");   /* a file overrides the terminal */
+    FILE *tty;
+    char line[AIS_LINE_MAX];
+    char ans[16];
+    long added = 0, seen = 0;
+
+#ifdef _WIN32
+    tty = fopen(ttypath != NULL ? ttypath : "CONIN$", "r");
+#else
+    tty = fopen(ttypath != NULL ? ttypath : "/dev/tty", "r");
+#endif
+    if (tty == NULL)
+        die("import-interactively: no terminal for y/N (set AIS_TTY=FILE)");
+
+    /* Same "keys|value" parse as feed_import; the only addition is the prompt. */
+    while (fgets(line, sizeof(line), stdin) != NULL) {
+        char *bar, *keys, *val, *e;
+
+        chomp(line);
+        if (line[0] == '\0' || line[0] == '#')
+            continue;
+        bar = strchr(line, '|');
+        if (bar == NULL) {
+            fprintf(stderr, "import: no '|', skipped: %s\n", line);
+            continue;
+        }
+        *bar = '\0';
+        keys = line;
+        while (*keys == ' ' || *keys == '\t')
+            keys++;
+        for (e = bar - 1; e >= keys && (*e == ' ' || *e == '\t'); e--)
+            *e = '\0';
+        val = bar + 1;
+        while (*val == ' ' || *val == '\t')
+            val++;
+        if (*keys == '\0') {
+            fprintf(stderr, "import: empty keys, skipped: %s\n", val);
+            continue;
+        }
+        seen++;
+
+        fprintf(stderr, "%s | %s\n  take into your index? [y/N] ", keys, val);
+        fflush(stderr);
+        if (fgets(ans, sizeof(ans), tty) == NULL)
+            break;                              /* EOF on the terminal -> done */
+        if (ans[0] == 'y' || ans[0] == 'Y') {
+            if (ais_put(a, keys, val) < 0)
+                die("import-interactively: failed on '%s'", val);
+            added++;
+        }
+    }
+    fclose(tty);
+    fprintf(stderr, "imported %ld of %ld\n", added, seen);
+}

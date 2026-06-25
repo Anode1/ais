@@ -8,6 +8,10 @@
  */
 #ifdef UNIT_TEST
 
+/* setenv() for the AIS_TTY test seam (BSD+POSIX, hidden under bare -std=c99) */
+#define _DEFAULT_SOURCE
+#define _POSIX_C_SOURCE 200809L
+
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -22,6 +26,7 @@
 #include "find.h"
 #include "doc.h"
 #include "embed.h"
+#include "feed.h"
 
 #define FIXTURE_STORE "../tests/INDEX/store"   /* cwd is c/ under `make ut` */
 
@@ -1145,6 +1150,51 @@ static void test_mixed_formats(void)
     scratch_rm(dir);
 }
 
+/* ---- import-interactively: y/N per record; only the chosen ones land ---- */
+static void test_import_interactive(void)
+{
+    ais a;
+    struct idvec v;
+    const char *dir     = "/tmp/ais_ut_impi";
+    const char *recpath = "/tmp/ais_ut_impi_recs";
+    const char *anspath = "/tmp/ais_ut_impi_ans";
+    FILE *f;
+
+    scratch_rm(dir);
+
+    /* three "keys|value" records offered on stdin (a --dump of another index) */
+    f = fopen(recpath, "w");
+    fputs("rome italy|trip-rome\n", f);
+    fputs("paris france|trip-paris\n", f);
+    fputs("tokyo japan|trip-tokyo\n", f);
+    fclose(f);
+
+    /* answers from the "terminal": take #1 (y), skip #2 (bare Enter), take #3 */
+    f = fopen(anspath, "w");
+    fputs("y\n\ny\n", f);
+    fclose(f);
+
+    ais_open(&a, dir);
+    if (freopen(recpath, "r", stdin) == NULL) {
+        CHECK(0, "freopen stdin"); ais_close(&a); return;
+    }
+    setenv("AIS_TTY", anspath, 1);             /* the answers file is the tty */
+    feed_import_interactive(&a);
+    unsetenv("AIS_TTY");
+
+    query(&a, AIS_AND, &v, 1, "rome");
+    CHECK(v.n == 1, "import-interactively: y-accepted 'rome' is stored");
+    query(&a, AIS_AND, &v, 1, "tokyo");
+    CHECK(v.n == 1, "import-interactively: y-accepted 'tokyo' is stored");
+    query(&a, AIS_AND, &v, 1, "paris");
+    CHECK(v.n == 0, "import-interactively: Enter-skipped 'paris' is NOT stored");
+
+    ais_close(&a);
+    scratch_rm(dir);
+    remove(recpath);
+    remove(anspath);
+}
+
 int main(void)
 {
     printf("AIS regression tests (make ut)\n");
@@ -1192,6 +1242,8 @@ int main(void)
     test_put_value();
     printf("embed (FFI seam):\n");
     test_embed();
+    printf("import-interactively:\n");
+    test_import_interactive();
     printf("----\n%d passed, %d failed\n", ut_pass, ut_fail);
     return ut_fail == 0 ? 0 : 1;
 }

@@ -112,6 +112,18 @@ of `ais --dump` (drop the leading `id|`), so an index round-trips:
 skipped (the file stays hand-editable); idempotent re-import changes nothing.
 Lines that share keys recall together.
 
+### import-interactively -- pick records as they go by
+`ais --import-interactively` is `--import` with a per-record `[y/N]` gate: each
+`keys|value` line is shown and only taken on `y` (`N`, the default and a bare
+Enter, skips). It reads the same `keys|value` lines as `--import` from stdin and
+takes the answers from `/dev/tty` (or `$AIS_TTY`), so the two streams stay
+separate exactly as `-i` keeps values and keys apart. To review another index,
+strip the `id|` from its dump just as `--import` expects:
+`ais -f OTHER --dump | sed 's/^[0-9]*|//' | ais --import-interactively`; or sip a
+shared `keys|value` file directly. For adopting bits of someone else's shared
+index without polluting your own; merging your OWN indexes across devices is the
+bulk `--dump | --import` instead.
+
 ### doc, blobs/ -- large or multi-line values
 A value is one line, so multi-line/large text can't be inline. `ais --doc KEYS`
 reads a document from stdin, writes it to `blobs/<timestamp>.txt` (named by local
@@ -159,6 +171,7 @@ flag selects a command; else `-v`/`-i` mean store; else recall the keys.
     ais [-f DIR] --doc KEY... < FILE   save a multi-line document as a blob file
     ais [-f DIR] --del ID | --del-key KEY | --dump | --keys | --stats | --compact
     ais [-f DIR] --import < FILE | --where | --project [KEY] | --serve [PORT]
+    ais [-f DIR] --import-interactively   like --import, but y/N per record (answers on the tty)
     ais --default [PATH]              show/set/clear the saved default index
     ais --init                        create a local .ais here
 
