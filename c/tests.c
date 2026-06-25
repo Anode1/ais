@@ -32,6 +32,13 @@
 #include "secret.h"
 #include "b64.h"
 
+/* The crypto round-trip test compiles only once Monocypher has been vendored
+ * (crypto/vendor-monocypher.sh); ais_crypto.h declares the API either way. */
+#if defined(__has_include) && __has_include("crypto/monocypher.h")
+#  define AIS_UT_HAVE_CRYPTO 1
+#  include "crypto/ais_crypto.h"
+#endif
+
 #define FIXTURE_STORE "../tests/INDEX/store"   /* cwd is c/ under `make ut` */
 
 static int ut_pass = 0;
@@ -1300,6 +1307,37 @@ static void test_secret_marker(void)
     CHECK(secret_is_marked(NULL) == 0,         "marker: NULL is not a secret");
 }
 
+#ifdef AIS_UT_HAVE_CRYPTO
+/* ---- vendored Monocypher: AEAD round-trip + wrong-key + tamper rejection ---- */
+static void test_crypto(void)
+{
+    static const unsigned char pt[] = "the launch code is 0000";
+    static const unsigned char pw[] = "correct horse battery staple";
+    uint8_t *file = NULL, *out = NULL;
+    size_t flen = 0, olen = 0;
+    aisc_kdf k = aisc_default_kdf();
+    int rc;
+
+    k.mem_blocks = 8; k.passes = 1;            /* tiny KDF: keep the test fast */
+    rc = aisc_encrypt(pt, sizeof pt - 1, pw, sizeof pw - 1, NULL, 0, k, &file, &flen);
+    CHECK(rc == AISC_OK && file != NULL && flen > sizeof pt, "crypto: encrypt -> file image");
+
+    rc = aisc_decrypt(file, flen, pw, sizeof pw - 1, NULL, 0, &out, &olen);
+    CHECK(rc == AISC_OK && olen == sizeof pt - 1 && memcmp(out, pt, olen) == 0,
+          "crypto: right password decrypts and round-trips");
+    if (out) { aisc_wipe(out, olen); free(out); out = NULL; }
+
+    rc = aisc_decrypt(file, flen, (const unsigned char *)"nope", 4, NULL, 0, &out, &olen);
+    CHECK(rc == AISC_E_AUTH, "crypto: wrong password is rejected (AEAD auth)");
+
+    file[flen - 1] ^= 0x01;                    /* flip a bit of the Poly1305 tag */
+    rc = aisc_decrypt(file, flen, pw, sizeof pw - 1, NULL, 0, &out, &olen);
+    CHECK(rc == AISC_E_AUTH, "crypto: tampering is detected");
+
+    aisc_wipe(file, flen); free(file);
+}
+#endif
+
 int main(void)
 {
     printf("AIS regression tests (make ut)\n");
@@ -1355,6 +1393,10 @@ int main(void)
     test_b64();
     printf("secret marker:\n");
     test_secret_marker();
+#ifdef AIS_UT_HAVE_CRYPTO
+    printf("crypto (vendored monocypher):\n");
+    test_crypto();
+#endif
     printf("----\n%d passed, %d failed\n", ut_pass, ut_fail);
     return ut_fail == 0 ? 0 : 1;
 }

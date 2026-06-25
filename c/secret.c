@@ -40,8 +40,10 @@ int secret_reveal(long id, const char *marked_value)
     n = snprintf(msg, sizeof msg,
                  "ais: record %ld is an encrypted secret; reveal is not wired yet "
                  "(vendor crypto/ to enable decrypt).\n", id);
-    if (n > 0)
-        (void)write(fd, msg, (size_t)n);
+    if (n > 0) {
+        ssize_t w = write(fd, msg, (size_t)n);
+        (void)w;
+    }
     close(fd);
     return 0;
 }

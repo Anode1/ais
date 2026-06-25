@@ -207,6 +207,13 @@ static int read_line_tty(int fd, char *buf, size_t buf_sz) {
     return (int)n;
 }
 
+/* best-effort write to the terminal; the count is intentionally ignored (these
+ * are prompts, not data). Silences write()'s warn_unused_result under fortify. */
+static void tty_write(int fd, const void *p, size_t n) {
+    ssize_t r = write(fd, p, n);
+    (void)r;
+}
+
 int aisc_prompt_passphrase(const char *prompt, int confirm,
                            char *buf, size_t buf_sz) {
     if (!buf || buf_sz < 2) return -1;
@@ -220,17 +227,17 @@ int aisc_prompt_passphrase(const char *prompt, int confirm,
     tcsetattr(fd, TCSAFLUSH, &raw);
 
     int len = -1;
-    if (prompt) (void)write(fd, prompt, strlen(prompt));
+    if (prompt) tty_write(fd, prompt, strlen(prompt));
     len = read_line_tty(fd, buf, buf_sz);
-    (void)write(fd, "\n", 1);              /* echo was off, so emit the newline */
+    tty_write(fd, "\n", 1);              /* echo was off, so emit the newline */
 
     if (len >= 0 && confirm) {
         char again[1024];
-        (void)write(fd, "Confirm: ", 9);
+        tty_write(fd, "Confirm: ", 9);
         int len2 = read_line_tty(fd, again, sizeof again);
-        (void)write(fd, "\n", 1);
+        tty_write(fd, "\n", 1);
         if (len2 != len || memcmp(buf, again, (size_t)len) != 0) {
-            (void)write(fd, "passphrases did not match\n", 26);
+            tty_write(fd, "passphrases did not match\n", 26);
             len = -1;
         }
         aisc_wipe(again, sizeof again);
