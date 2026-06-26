@@ -35,9 +35,18 @@ contain "|". A multi-value record (from `add`) is several lines that share one
 
 A <value> is the literal resource, conventionally one of the following (these
 shapes are descriptive, not enforced: the store keeps any value verbatim):
-<value>        ::= <url> | <uri> | <abs_path> | <rel_path> | <free_text>
+<value>        ::= <url> | <uri> | <abs_path> | <rel_path> | <secret> | <free_text>
 <rel_path>     ::= <blob_ref> | ? any path relative to INDEX ?
-<blob_ref>     ::= "blobs/" <timestamp> ".txt"       ? written by `doc` ?
+<blob_ref>     ::= "blobs/" <timestamp> ( ".txt" | ".aisc" )  ? .txt: `doc`; .aisc: `doc -e` ?
+
+A <secret> is an encrypted value, self-identifying by the "aisc:" prefix (written
+by `-e`). INLINE carries the base64 AIS-CR1 image in the value; BLOB references an
+encrypted image file (the '@' after the prefix is the discriminator -- base64
+never starts with '@'). Treated as opaque <value> everywhere except an
+interactive recall at a terminal, which decrypts it:
+<secret>       ::= "aisc:" <base64>              ? INLINE: image is the value ?
+                 | "aisc:@" <blob_ref>          ? BLOB:   image is blobs/<ts>.aisc ?
+<base64>       ::= ? RFC 4648 base64 of the AIS-CR1 file image ?
 <timestamp>    ::= <year> "-" <mm> "-" <dd> "-" <hhmmss> ( "-" [:digit:]+ ){0,1}
 <year>         ::= [:digit:]{4}
 <mm>           ::= [:digit:]{2}

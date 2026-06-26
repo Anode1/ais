@@ -20,8 +20,8 @@
 #include "doc.h"
 #include "win.h"          /* mkdir shim on native Windows; empty on POSIX */
 
-int ais_doc_blobname(const ais *a, char *relval, size_t rvsz,
-                     char *blobpath, size_t bpsz)
+int ais_doc_blobname_ext(const ais *a, const char *ext, char *relval, size_t rvsz,
+                         char *blobpath, size_t bpsz)
 {
     char dirpath[AIS_PATH_MAX];
     char ts[32];
@@ -29,7 +29,7 @@ int ais_doc_blobname(const ais *a, char *relval, size_t rvsz,
     struct tm *lt;
     int seq;
 
-    if (a == NULL)
+    if (a == NULL || ext == NULL)
         return -1;
     if (snprintf(dirpath, sizeof(dirpath), "%s/blobs", a->dir) >= (int)sizeof(dirpath))
         return -1;
@@ -39,22 +39,28 @@ int ais_doc_blobname(const ais *a, char *relval, size_t rvsz,
     /* Name the blob by local timestamp: blobs/ then sorts chronologically and
      * is readable -- `ls blobs/` lists your documents in time order. A second
      * document within the same second gets a -N suffix, so names stay unique
-     * with no hashing. */
+     * with no hashing. The extension marks the kind (.txt plain, .aisc encrypted). */
     now = time(NULL);
     lt = localtime(&now);
     if (lt == NULL || strftime(ts, sizeof(ts), "%Y-%m-%d-%H%M%S", lt) == 0)
         return -1;
     for (seq = 1; seq < 10000; seq++) {
         if (seq == 1)
-            snprintf(relval, rvsz, "blobs/%s.txt", ts);
+            snprintf(relval, rvsz, "blobs/%s.%s", ts, ext);
         else
-            snprintf(relval, rvsz, "blobs/%s-%d.txt", ts, seq);
+            snprintf(relval, rvsz, "blobs/%s-%d.%s", ts, seq, ext);
         if (snprintf(blobpath, bpsz, "%s/%s", a->dir, relval) >= (int)bpsz)
             return -1;
         if (access(blobpath, F_OK) != 0)
             return 0;                      /* a free name */
     }
     return -1;                             /* 10000 blobs in one second: give up */
+}
+
+int ais_doc_blobname(const ais *a, char *relval, size_t rvsz,
+                     char *blobpath, size_t bpsz)
+{
+    return ais_doc_blobname_ext(a, "txt", relval, rvsz, blobpath, bpsz);
 }
 
 long ais_doc_put(ais *a, const char *keys, const char *content, size_t len)

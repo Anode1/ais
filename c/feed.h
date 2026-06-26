@@ -30,6 +30,12 @@ void feed_import_interactive(ais *a);
  * passphrase, encrypts (secret_encrypt), puts the value, prints the new id. */
 void feed_encrypt(ais *a, const char *keys, int from_stdin);
 
+/* Mode 2 of -e: store a (possibly large, multi-line) DOCUMENT encrypted. Reads
+ * the whole document from stdin, prompts for a passphrase, encrypts it to a blob
+ * (blobs/<ts>.aisc), and stores an "aisc:@<relpath>" reference under KEYS -- for
+ * a secret too big to inline (a recovery-code sheet, a config, a password list). */
+void feed_encrypt_doc(ais *a, const char *keys);
+
 /* doc: read a (possibly large, multi-line) document from stdin, save it as a
  * blob file <index>/blobs/<timestamp>.txt, and put that relative path as a value under
  * KEYS. The engine stores only the path; the bytes live in the file. */

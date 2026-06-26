@@ -170,6 +170,7 @@ flag selects a command; else `-v`/`-i` mean store; else recall the keys.
     ais [-f DIR] --find TEXT           search values by substring
     ais [-f DIR] --add ID -v VALUE
     ais [-f DIR] --doc KEY... < FILE   save a multi-line document as a blob file
+    ais [-f DIR] --doc KEY... -e < FILE  encrypt a whole document to an aisc: blob (--del/--del-key shreds it)
     ais [-f DIR] --del ID | --del-key KEY | --dump | --keys | --stats | --compact
     ais [-f DIR] --import < FILE | --where | --project [KEY] | --serve [PORT]
     ais [-f DIR] --import-interactively   like --import, but y/N per record (answers on the tty)

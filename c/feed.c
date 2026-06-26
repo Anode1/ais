@@ -269,3 +269,48 @@ void feed_encrypt(ais *a, const char *keys, int from_stdin)
         die("-e: store failed");
     printf("%ld\n", id);
 }
+
+void feed_encrypt_doc(ais *a, const char *keys)
+{
+    enum { DOC_MAX = 4 * 1024 * 1024 };       /* a secret note, not a media file */
+    unsigned char *plain;
+    char pw[1024];
+    char relval[AIS_PATH_MAX], blobpath[AIS_PATH_MAX], marked[AIS_PATH_MAX + 8];
+    size_t got;
+    long id;
+
+    plain = malloc(DOC_MAX);
+    if (plain == NULL)
+        die("--doc -e: out of memory");
+    got = fread(plain, 1, DOC_MAX, stdin);
+    if (got == DOC_MAX && fgetc(stdin) != EOF) {  /* overflowed the cap */
+        secret_wipe(plain, DOC_MAX); free(plain);
+        die("--doc -e: document exceeds %d bytes; split it", DOC_MAX);
+    }
+    if (got == 0) {
+        free(plain);
+        die("--doc -e: empty document on stdin");
+    }
+
+    if (secret_prompt("passphrase: ", 1, pw, sizeof pw) < 0) {
+        secret_wipe(plain, DOC_MAX); free(plain);
+        die("--doc -e: passphrase entry failed (or crypto not built)");
+    }
+    if (ais_doc_blobname_ext(a, "aisc", relval, sizeof relval, blobpath, sizeof blobpath) != 0) {
+        secret_wipe(plain, DOC_MAX); free(plain); secret_wipe(pw, sizeof pw);
+        die("--doc -e: cannot prepare blob path under '%s'", a->dir);
+    }
+    if (secret_encrypt_to_file(plain, got, (const unsigned char *)pw, strlen(pw), blobpath) != 0) {
+        secret_wipe(plain, DOC_MAX); free(plain); secret_wipe(pw, sizeof pw);
+        die("--doc -e: encryption failed");
+    }
+    secret_wipe(plain, got); free(plain); secret_wipe(pw, sizeof pw);
+
+    snprintf(marked, sizeof marked, "%s@%s", AIS_SECRET_PREFIX, relval);  /* aisc:@blobs/<ts>.aisc */
+    id = ais_put(a, keys, marked);
+    if (id < 0) {
+        secret_shred_blob(a->dir, marked);    /* don't leave an orphan ciphertext file */
+        die("--doc -e: store failed");
+    }
+    printf("%ld\n", id);
+}

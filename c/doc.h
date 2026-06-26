@@ -12,9 +12,13 @@
 #include <stddef.h>
 #include "ais.h"
 
-/* Ensure <index>/blobs/ exists and pick a free, timestamp-named blob path.
- * Fills RELVAL ("blobs/<ts>.txt", the stored value) and the absolute BLOBPATH.
- * Returns 0 on success, -1 on error. */
+/* Ensure <index>/blobs/ exists and pick a free, timestamp-named blob path with
+ * the given extension (no dot). Fills RELVAL ("blobs/<ts>.<ext>", the stored
+ * value) and the absolute BLOBPATH. Returns 0 on success, -1 on error. */
+int  ais_doc_blobname_ext(const ais *a, const char *ext, char *relval, size_t rvsz,
+                          char *blobpath, size_t bpsz);
+
+/* As above with the default "txt" extension (a plain-text document blob). */
 int  ais_doc_blobname(const ais *a, char *relval, size_t rvsz,
                       char *blobpath, size_t bpsz);
 

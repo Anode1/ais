@@ -56,7 +56,7 @@ static int print_value(long id, const char *value, void *vp)
 {
     struct get_ctx *g = vp;
     if (g->reveal && secret_is_marked(value))
-        secret_reveal(id, value);          /* decrypt-dialog to /dev/tty, not stdout */
+        secret_reveal(id, value, g->a->dir);   /* decrypt-dialog to /dev/tty, not stdout */
     else
         printf("%ld|%s\n", id, value);     /* opaque: a normal value, or an "aisc:" blob */
     g->printed_any = 1;
@@ -70,6 +70,24 @@ static int on_id(long id, void *vp)
     ais_record(g->a, id, print_value, g);
     if (!g->printed_any)
         printf("%ld|\n", id);   /* keyed but value-less */
+    return 0;
+}
+
+/* Before a record is tombstoned, shred any encrypted-blob payload it holds so
+ * the ciphertext file does not outlive the record. VP is the index dir. */
+static int shred_value_cb(long id, const char *value, void *vp)
+{
+    (void)id;
+    secret_shred_blob((const char *)vp, value);
+    return 0;
+}
+
+/* del-key pre-pass: for each matched id, shred its encrypted blobs. VP is the
+ * ais handle (its ->dir is where blobs live). */
+static int shred_id_cb(long id, void *vp)
+{
+    ais *a = vp;
+    ais_record(a, id, shred_value_cb, a->dir);
     return 0;
 }
 
@@ -409,6 +427,7 @@ int main(int argc, char **argv)
                 snprintf(p, sizeof(p), "Delete record %ld?", id);
                 if (!confirm(p)) { fprintf(stderr, "aborted\n"); break; }
             }
+            ais_record(&a, id, shred_value_cb, a.dir);   /* shred encrypted blobs first */
             if (ais_del(&a, id) != 0) die("del failed");
             break;
         }
@@ -419,7 +438,11 @@ int main(int argc, char **argv)
             if (key == NULL) die("--del-key needs a KEY");
             snprintf(p, sizeof(p), "Delete every record filed under '%s'?", key);
             if (assume_yes || confirm(p)) {
-                long n = ais_del_key(&a, key);
+                char *k1[1];
+                long n;
+                k1[0] = (char *)key;
+                ais_get(&a, k1, 1, AIS_AND, shred_id_cb, &a);   /* shred encrypted blobs first */
+                n = ais_del_key(&a, key);
                 if (n < 0) die("del-key failed");
                 printf("deleted %ld\n", n);
             } else fprintf(stderr, "aborted\n");
@@ -529,7 +552,10 @@ int main(int argc, char **argv)
             if (collect_keys(argv, optind, argc, exkeys, nexk, keys, sizeof(keys)) != 0)
                 die("key list too long");
             build_keys(project, keys, full, sizeof(full));
-            feed_doc(&a, full);
+            if (encrypt)
+                feed_encrypt_doc(&a, full);       /* mode 2: big encrypted note -> blob */
+            else
+                feed_doc(&a, full);
             break;
         }
         ais_close(&a);

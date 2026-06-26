@@ -1307,6 +1307,36 @@ static void test_secret_marker(void)
     CHECK(secret_is_marked(NULL) == 0,         "marker: NULL is not a secret");
 }
 
+static void test_secret_blob_relpath(void)
+{
+    const char *r = secret_blob_relpath("aisc:@blobs/2026.aisc");
+    CHECK(r != NULL && strcmp(r, "blobs/2026.aisc") == 0,
+          "blob: 'aisc:@<rel>' yields the relpath after the '@'");
+    CHECK(secret_blob_relpath("aisc:QWxhZGRpbg==") == NULL,
+          "blob: an inline 'aisc:<base64>' is NOT a blob ref");
+    r = secret_blob_relpath("aisc:@");
+    CHECK(r != NULL && r[0] == '\0', "blob: bare 'aisc:@' is an (empty) blob ref");
+    CHECK(secret_blob_relpath("http://x") == NULL, "blob: a URL is not a blob ref");
+    CHECK(secret_blob_relpath("aisc") == NULL,     "blob: 'aisc' (no colon) is not a blob ref");
+    CHECK(secret_blob_relpath(NULL) == NULL,       "blob: NULL is not a blob ref");
+}
+
+static void test_secret_shred(void)
+{
+    FILE *f = fopen("/tmp/ais_ut_blob.aisc", "wb");
+    CHECK(f != NULL, "shred: created a fake encrypted blob");
+    if (f) { fwrite("ciphertext-bytes", 1, 16, f); fclose(f); }
+    secret_shred_blob("/tmp", "aisc:@ais_ut_blob.aisc");      /* the matching marked value */
+    CHECK(access("/tmp/ais_ut_blob.aisc", F_OK) != 0, "shred: the encrypted blob is removed");
+
+    f = fopen("/tmp/ais_ut_keep.txt", "wb");
+    if (f) { fwrite("keep", 1, 4, f); fclose(f); }
+    secret_shred_blob("/tmp", "http://example.org");          /* not a secret */
+    secret_shred_blob("/tmp", "aisc:QWxh");                   /* inline, not a blob */
+    CHECK(access("/tmp/ais_ut_keep.txt", F_OK) == 0, "shred: a no-op on non-blob values");
+    remove("/tmp/ais_ut_keep.txt");
+}
+
 #ifdef AIS_UT_HAVE_CRYPTO
 /* ---- vendored Monocypher: AEAD round-trip + wrong-key + tamper rejection ---- */
 static void test_crypto(void)
@@ -1374,6 +1404,39 @@ static void test_secret_value(void)
     CHECK(secret_decrypt("aisc:!!notbase64", pw, sizeof pw - 1, back, sizeof back) == -1,
           "secret_decrypt: a bad base64 payload is rejected");
 }
+
+/* The mode-2 blob path: an AIS-CR1 image survives a write-to-file / read-back
+ * and still decrypts. Built with a cheap kdf (mechanics test); secret_encrypt_to_file
+ * is the same aisc_encrypt-then-fwrite with the real default cost. */
+static void test_secret_blob_crypto(void)
+{
+    static const unsigned char plain[] = "line1\nline2\nrecovery: abc-def-ghi\n";
+    static const unsigned char pw[] = "doc passphrase";
+    const char *path = "/tmp/ais_ut_doc.aisc";
+    aisc_kdf k = aisc_default_kdf();
+    uint8_t *image = NULL;
+    size_t ilen = 0;
+    unsigned char buf[1024], *pt = NULL;
+    size_t blen = 0, ptlen = 0;
+    FILE *f;
+
+    k.mem_blocks = 8; k.passes = 1;
+    CHECK(aisc_encrypt(plain, sizeof plain - 1, pw, sizeof pw - 1, NULL, 0, k, &image, &ilen) == AISC_OK,
+          "blob: build a cheap-kdf image");
+    f = fopen(path, "wb");
+    if (f) { fwrite(image, 1, ilen, f); fclose(f); }
+
+    f = fopen(path, "rb");
+    if (f) { blen = fread(buf, 1, sizeof buf, f); fclose(f); }
+    CHECK(blen == ilen, "blob: the image survives a file write/read round-trip");
+    aisc_wipe(image, ilen); free(image);
+
+    CHECK(aisc_decrypt(buf, blen, pw, sizeof pw - 1, NULL, 0, &pt, &ptlen) == AISC_OK
+          && ptlen == sizeof plain - 1 && memcmp(pt, plain, ptlen) == 0,
+          "blob: the file image decrypts back to the document");
+    if (pt) { aisc_wipe(pt, ptlen); free(pt); }
+    remove(path);
+}
 #endif
 
 int main(void)
@@ -1431,11 +1494,16 @@ int main(void)
     test_b64();
     printf("secret marker:\n");
     test_secret_marker();
+    printf("secret blob ref + shred:\n");
+    test_secret_blob_relpath();
+    test_secret_shred();
 #ifdef AIS_UT_HAVE_CRYPTO
     printf("crypto (vendored monocypher):\n");
     test_crypto();
     printf("secret value (encrypt/decrypt glue):\n");
     test_secret_value();
+    printf("secret blob (file image round-trip):\n");
+    test_secret_blob_crypto();
 #endif
     printf("----\n%d passed, %d failed\n", ut_pass, ut_fail);
     return ut_fail == 0 ? 0 : 1;

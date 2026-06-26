@@ -58,6 +58,7 @@ void usage_long(FILE *out)
 "COMMANDS (--word; operands are bare args, values via -v)\n"
 "  ais --find TEXT                records whose value contains TEXT\n"
 "  ais --doc KEY... < FILE        save a multi-line document as a blob file\n"
+"  ais --doc KEY... -e < FILE     same, ENCRYPTED to an aisc: blob (--del shreds it)\n"
 "  ais --add ID -v VALUE          attach another link to record ID\n"
 "  ais --update ID KEY...         edit record ID's keys: KEY attaches, -KEY detaches\n"
 "                                 (the id is the 'id|value' from get; -KEY needs --)\n"

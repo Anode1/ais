@@ -128,7 +128,16 @@ detects the marker, prompts for the passphrase, and writes the cleartext to
 .IR /dev/tty ;
 when output is piped or redirected the marker is passed through opaque, so
 .BR \-\-dump ", " \-\-find ", and sync carry it unchanged. No " \-d " flag is needed \(em"
-decryption is automatic and interactive-only. Requires the crypto module
+decryption is automatic and interactive-only. With
+.B \-\-doc
+the whole document is encrypted to a blob file
+.RI ( blobs/<ts>.aisc )
+and the record stores an
+.B aisc:@<path>
+reference; deleting such a record
+.RB ( \-\-del " / " \-\-del-key )
+best-effort shreds the blob (overwrite-then-unlink \(em the encryption, not the
+overwrite, is the real protection). Requires the crypto module
 (see
 .IR crypto/vendor-monocypher.sh ).
 .TP
@@ -310,6 +319,7 @@ ais --find gelato
 ais -v "call Marina back"
 ais gmail work -e
 printf '%s' "$TOKEN" | ais api token -v - -e
+ais recovery-codes github --doc -e < codes.txt
 .fi
 .SH FILES
 These live inside the index directory (e.g.

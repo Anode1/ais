@@ -1,0 +1,11 @@
+# Release signing for the Android app. Copy to android/key.properties (which is
+# git-ignored) and fill in. Used by android/app/build.gradle.kts. NEVER commit
+# the real key.properties or the keystore (.jks).
+#
+# Create the keystore once:
+#   keytool -genkey -v -keystore ~/ais-release.jks -keyalg RSA -keysize 2048 \
+#           -validity 10000 -alias ais
+storeFile=/home/you/ais-release.jks
+storePassword=CHANGE_ME
+keyAlias=ais
+keyPassword=CHANGE_ME
