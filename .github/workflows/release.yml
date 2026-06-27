@@ -194,9 +194,71 @@ jobs:
           name: ais-windows-signed
           path: signed/*
 
+  # Android: the Flutter app (FFI to the C engine) as an installable .apk, so a
+  # phone user can sideload it straight from the release. Release-signed when the
+  # keystore secrets are set; otherwise debug-signed (gradle fallback) so the job
+  # still produces an installable apk before signing is configured.
+  android:
+    name: build android apk (flutter)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+      - name: optional release signing (only if the keystore secret is set)
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          STORE_PASSWORD: ${{ secrets.ANDROID_STORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          if [ -n "$KEYSTORE_B64" ]; then
+            echo "$KEYSTORE_B64" | base64 -d > "$GITHUB_WORKSPACE/app/flutter/android/release.jks"
+            cat > app/flutter/android/key.properties <<EOF
+          storeFile=$GITHUB_WORKSPACE/app/flutter/android/release.jks
+          storePassword=$STORE_PASSWORD
+          keyAlias=$KEY_ALIAS
+          keyPassword=$KEY_PASSWORD
+          EOF
+            echo "release signing configured"
+          else
+            echo "no ANDROID_KEYSTORE_BASE64 secret; building debug-signed (gradle fallback)"
+          fi
+      - name: build apk
+        working-directory: app/flutter
+        run: |
+          flutter pub get
+          flutter build apk --release
+      - name: verify the C engine (libais.so) is bundled per ABI
+        run: |
+          # FFI loads lib/<device-abi>/libais.so; a missing ABI = runtime crash on
+          # recall/store. Fail loudly here rather than ship a half-working apk.
+          apk=app/flutter/build/app/outputs/flutter-apk/app-release.apk
+          echo "native engine libs in the apk:"
+          unzip -l "$apk" | grep -E 'lib/.*/libais\.so' || true
+          unzip -l "$apk" | grep -q 'lib/arm64-v8a/libais.so' \
+            || { echo "ERROR: lib/arm64-v8a/libais.so missing from the apk"; exit 1; }
+      - name: stage apk + checksum
+        run: |
+          name="ais-${{ github.ref_name }}-android.apk"
+          mkdir -p dist
+          cp app/flutter/build/app/outputs/flutter-apk/app-release.apk "dist/$name"
+          ( cd dist && sha256sum "$name" > "$name.sha256" )
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ais-android
+          path: dist/*
+
   publish:
     name: publish release
-    needs: [build, build-windows, sign-windows]
+    needs: [build, build-windows, sign-windows, android]
     runs-on: ubuntu-latest
     # always() so a SKIPPED sign-windows (SignPath not configured) doesn't skip
     # publish; still require the builds to have succeeded.
@@ -204,6 +266,7 @@ jobs:
       ${{ always() && startsWith(github.ref, 'refs/tags/')
           && needs.build.result == 'success'
           && needs.build-windows.result == 'success'
+          && needs.android.result == 'success'
           && (needs.sign-windows.result == 'success' || needs.sign-windows.result == 'skipped') }}
     permissions:
       contents: write
