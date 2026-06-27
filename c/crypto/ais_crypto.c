@@ -59,7 +59,9 @@ void aisc_wipe(void *p, size_t n) { crypto_wipe(p, n); }
 
 aisc_kdf aisc_default_kdf(void) {
     aisc_kdf k;
-    k.mem_blocks = 262144u;  /* 256 MiB */
+    /* 64 MiB: the cost is stored per file and re-allocated to decrypt, so keep it
+       openable on low-end phones (still well above the OWASP Argon2id floor). */
+    k.mem_blocks = 65536u;   /* 64 MiB */
     k.passes     = 3u;
     return k;
 }

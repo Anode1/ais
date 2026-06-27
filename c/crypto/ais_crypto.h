@@ -34,7 +34,7 @@ enum {
 
 /* Argon2id cost. Higher = slower to brute force AND slower for you. */
 typedef struct {
-    uint32_t mem_blocks;  /* memory, in 1 KiB blocks (262144 = 256 MiB)       */
+    uint32_t mem_blocks;  /* memory, in 1 KiB blocks (65536 = 64 MiB default)  */
     uint32_t passes;      /* iterations, >= 1                                 */
 } aisc_kdf;
 

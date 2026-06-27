@@ -22,7 +22,8 @@ cipher = XChaCha20-Poly1305                                 # AEAD
 
 - **Argon2id** turns your passphrase into the key. This is the actual barrier
   against guessing: a strong cipher with a weak KDF is weak. Default cost is
-  256 MiB / 3 passes (tune in `aisc_default_kdf`).
+  64 MiB / 3 passes (tune in `aisc_default_kdf`); kept openable on low-end phones,
+  since the cost is stored per file and re-allocated to decrypt.
 - **XChaCha20-Poly1305** (AEAD) gives confidentiality and integrity together, so
   any tampering fails loudly instead of decrypting to garbage. Constant-time in
   pure software (no AES-NI dependency, no cache-timing side channel). It is
