@@ -1,0 +1,45 @@
+AIS Android release runbook (memo, not a script: it has manual store steps).
+
+Order: build -> TEST on a device -> Play closed test (14 days) -> production.
+Do not skip the test stage. Prereq once: release signing is set up
+(app/flutter/android/key.properties, copied from key.properties.example).
+
+0. Bump the version
+   # app/flutter/pubspec.yaml :  version: X.Y.Z+BUILD
+   # BUILD is the Android versionCode; it MUST increase on every Play upload.
+
+1. Build the signed artifacts (from app/flutter)
+   flutter pub get
+   flutter analyze
+   flutter build apk --release        # build/app/outputs/flutter-apk/app-release.apk  (sideload / F-Droid / GitHub)
+   flutter build appbundle --release  # build/app/outputs/bundle/release/app-release.aab (Google Play)
+
+2. Checksums (attach to the GitHub release notes)
+   sha256sum build/app/outputs/flutter-apk/app-release.apk
+   sha256sum build/app/outputs/bundle/release/app-release.aab
+
+3. TEST first (before any production push)
+   # install the release APK on a real device and exercise: recall, add, change
+   # store, and the mic (allow on first tap, speak, confirm text fills + recall runs).
+   adb install -r build/app/outputs/flutter-apk/app-release.apk
+   # wider testers (optional): Firebase App Distribution, or Play internal testing.
+
+4. Google Play (manual)
+   - Create the app once; enable Play App Signing (Google holds the signing key).
+   - Internal testing: upload the .aab, add testers by email, they install.
+   - Closed testing: >= 12 testers for 14 days (required for new personal accounts
+     before production unlocks). Keep the track running the full 14 days.
+   - Fill: Privacy policy URL, Data safety form, Content rating, target-API statement.
+   - Promote the tested build to Production.
+
+5. F-Droid (manual, parallel to Play: the FOSS front door)
+   - Submit metadata to fdroiddata; F-Droid builds FROM SOURCE on their infra (no
+     keys of ours). Needs app + deps FOSS (GPLv2 + Monocypher CC0/BSD: OK).
+   - Or self-host an fdroid repo and publish app-release.apk there.
+
+6. GitHub release (manual)
+   - Tag the repo, create a Release, attach app-release.apk + the sha256 (step 2).
+   - Pairs with Obtainium for user auto-updates.
+
+When wrapping up: fill key.properties once, bump the version (step 0), run the
+builds (step 1), test (step 3), then the manual store steps.
