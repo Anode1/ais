@@ -53,3 +53,39 @@ Variables (Settings -> Secrets and variables -> Actions -> Variables):
   configuration.
 - Independent of Cygwin vs the native Windows build -- both produce an unsigned
   `.exe` that this same job can sign.
+
+---
+
+# Android APK signing (release keystore)
+
+The `android` job in `release.yml` builds the Flutter app and attaches
+`ais-<tag>-android.apk` (+ `.sha256`). By default it is **debug-signed** (the
+gradle fallback): installable, but **not upgradeable** -- a fresh CI runner makes
+a new debug key each run, so Android refuses to install one release over another.
+For a real, updatable download, sign with your own keystore and use the same key
+forever.
+
+## Keystore (make once, back up forever)
+
+    keytool -genkey -v -keystore ~/ais-release.jks -keyalg RSA -keysize 2048 \
+            -validity 10000 -alias ais
+
+Lose this keystore and you can never update the app. Back it up off the machine.
+Never commit it (`key.properties` and `*.jks` are git-ignored). Local release
+builds read `app/flutter/android/key.properties` (copy from
+`key.properties.example`); the full release runbook is `doc/android-release.txt`.
+
+## CI release signing (GitHub -> Settings -> Secrets and variables -> Actions)
+
+Four **secrets**; the `android` job writes `key.properties` from them at build
+time (absent -> debug-signed):
+
+- `ANDROID_KEYSTORE_BASE64` -- the keystore base64-encoded: `base64 -w0 ~/ais-release.jks` (macOS: `base64 -i ~/ais-release.jks`)
+- `ANDROID_STORE_PASSWORD`
+- `ANDROID_KEY_ALIAS`  (e.g. `ais`)
+- `ANDROID_KEY_PASSWORD`
+
+Setting `ANDROID_KEYSTORE_BASE64` is what flips the job from debug to release
+signing; the keystore never enters git, only the CI secret store. (The job also
+fails if `arm64-v8a/libais.so` is missing from the apk.) Distribution channels
+are in `DISTRIBUTION.md`; this file is only about the signing keys.
