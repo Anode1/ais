@@ -53,16 +53,20 @@ the OS keystore or tied to your login session:
 
 - **Encrypted even while you are logged in.** The vault key comes from your
   passphrase via a memory-hard KDF (Argon2id), not from your login. A broad
-  infostealer that scrapes DPAPI or the Secret Service gets nothing usable.
+  infostealer that scrapes DPAPI or the Secret Service gets nothing from the vault
+  at rest.
 - **Raises the cost of offline guessing.** Argon2id makes each guess expensive
-  even with the file in hand, so a stolen vault is not a stolen password list.
-  This buys cost, not certainty: a weak passphrase still falls. The real strength
-  is your passphrase entropy times the Argon2id cost.
+  even with the file in hand (default cost: 64 MiB and 3 passes per guess), so a
+  stolen vault is not a stolen password list. This buys cost, not certainty: a
+  weak passphrase still falls. The real strength is your passphrase entropy times
+  the Argon2id cost.
 - **Minimal plaintext window.** Decrypt one entry on demand, wipe immediately,
   never write plaintext to a temp file. Exposure shrinks to the instant of use.
-- **Auditable algorithm, not opaque OS trust.** Open source, one small reviewable
-  module: security by the algorithm (Kerckhoffs), so you verify it instead of
-  trusting a closed service keyed to your login.
+- **Auditable, not opaque OS trust.** The algorithm is public (Kerckhoffs) and the
+  implementation is one small module you can read, so you verify *this code*
+  instead of trusting a closed service keyed to your login. A public algorithm is
+  only the floor; what earns trust is that the implementation is small enough to
+  review.
 - **Strength on par with AES-256.** The default cipher, XChaCha20-Poly1305, is a
   modern AEAD of strength comparable to AES-256 and is constant-time in software
   (no cache-timing side channel). AES-256-GCM is a one-line swap for a project
