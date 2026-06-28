@@ -17,6 +17,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <sys/stat.h>      /* mkdir (canonicalize a scratch dir via realpath) */
 
 #include "ais.h"
 #include "key.h"
@@ -1217,12 +1218,19 @@ static int count_index(const char *name, const char *path, void *vp)
 /* ---- multi-index: registry round-trip + switch + locate precedence ---- */
 static void test_index_switch(void)
 {
-    const char *home = "/tmp/ais_ut_home";
+    char home[AIS_PATH_MAX];
     char path[AIS_PATH_MAX], cur[AIS_KEY_MAX], saved[AIS_PATH_MAX];
     int n;
 
-    scratch_rm(home);
-    ais_home_override(home);              /* config + registry now live under /tmp */
+    /* Canonicalize the home dir up front: macOS /tmp is a symlink (-> /private/tmp)
+     * and getcwd() returns the resolved form, so the home override must match it --
+     * else find_local does not recognize cwd==home and ais_locate resolves to
+     * home/.ais instead of the current named index. */
+    scratch_rm("/tmp/ais_ut_home");
+    mkdir("/tmp/ais_ut_home", 0700);
+    if (realpath("/tmp/ais_ut_home", home) == NULL)
+        snprintf(home, sizeof home, "/tmp/ais_ut_home");
+    ais_home_override(home);              /* config + registry now live under home */
 
     /* by default the current is the built-in home (no `current` line) */
     CHECK(ais_current_get(cur, sizeof cur) == 0, "switch: no current -> home by default");
@@ -1254,7 +1262,6 @@ static void test_index_switch(void)
          * resolved prefix may differ; locate is correct as long as it lands on
          * <dir>/ais_ut_work. */
         ok = located && ln >= sl && strcmp(loc + ln - sl, suf) == 0;
-        if (!ok && located) fprintf(stderr, "  [locate] got '%s'\n", loc);
         CHECK(ok, "locate -> the current named index");
         if (chdir(saved) != 0) CHECK(0, "restore cwd after chdir");
     }
