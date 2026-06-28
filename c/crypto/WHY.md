@@ -54,21 +54,20 @@ the OS keystore or tied to your login session:
 - **Encrypted even while you are logged in.** The vault key comes from your
   passphrase via a memory-hard KDF (Argon2id), not from your login. A broad
   infostealer that scrapes DPAPI or the Secret Service gets nothing usable.
-- **Resists offline brute force.** Argon2id makes guessing the passphrase
-  expensive even with the file in hand. A stolen vault is not a stolen password
-  list.
+- **Raises the cost of offline guessing.** Argon2id makes each guess expensive
+  even with the file in hand, so a stolen vault is not a stolen password list.
+  This buys cost, not certainty: a weak passphrase still falls. The real strength
+  is your passphrase entropy times the Argon2id cost.
 - **Minimal plaintext window.** Decrypt one entry on demand, wipe immediately,
   never write plaintext to a temp file. Exposure shrinks to the instant of use.
 - **Auditable algorithm, not opaque OS trust.** Open source, one small reviewable
   module: security by the algorithm (Kerckhoffs), so you verify it instead of
   trusting a closed service keyed to your login.
-- **No weaker than government-approved AES-256.** The default cipher,
-  XChaCha20-Poly1305, is a modern AEAD of equivalent or better strength than
-  AES-256 and is constant-time in software (no cache-timing side channel). If you
-  want the literal certification, AES-256-GCM, the FIPS-197 cipher the NSA
-  approves under CNSA for TOP SECRET, is a one-line swap. Either way the cipher is
-  at least as strong as what governments approve; the strength of the whole vault
-  rests on the passphrase and the Argon2id cost, which is where it should rest.
+- **Strength on par with AES-256.** The default cipher, XChaCha20-Poly1305, is a
+  modern AEAD of strength comparable to AES-256 and is constant-time in software
+  (no cache-timing side channel). AES-256-GCM is a one-line swap for a project
+  that needs that specific cipher. The vault's strength rests on the passphrase
+  and the Argon2id cost, which is where it should rest.
 - **Portable and uniform.** The same guarantees on Linux, Windows, and macOS,
   instead of whatever the local OS keystore happens to enforce.
 
@@ -86,12 +85,23 @@ any credential it can reach.
 This does not make password managers pointless; it makes the distinction decisive.
 A store that *auto-unlocks at login* (the OS keystore, browser-saved passwords) is
 now routinely exposed, because the agent is logged in as you. A vault gated by a
-*passphrase the agent does not hold* is not: it cannot be decrypted without the
-passphrase you enter out of band, so even a compromised or manipulated agent gets
-nothing. The rule for the agent era: keep anything an agent must never touch
+*passphrase the agent does not hold* removes that free win: with no auto-unlock,
+the agent can no longer simply *read* your secrets at rest. It does not make you
+invulnerable, on one machine there is no true out-of-band channel, so an agent that
+is actively present can still keylog the passphrase as you type it and read the one
+entry you decrypt for use (see "Honest limits"). The shift is real but bounded:
+from "passively scraped in bulk, any time" to "must actively capture you at the
+moment of use." The rule for the agent era: keep anything an agent must never touch
 (banking, personal logins) in a passphrase-gated store, never in the OS keystore,
-and never auto-unlocked in the agent's environment. That is exactly what ais_crypto
-is for.
+and never auto-unlocked in the agent's environment.
+
+The same logic favors *any* passphrase-gated manager, not this one: a locked
+1Password or KeePass clears the bar too. ais_crypto's niche is not a security edge
+over them, it is *integration and ownership*. The encrypted secret lives inline in
+your own plain-text context index, not in a separate cloud vault, so you carry your
+whole memory store as files you own and sync however you already do (a file-sync
+tool, a USB stick, your own drive, no proprietary cloud), with the same small
+auditable engine on PC, Mac, Linux, and phone.
 
 ## Honest limits (so this is reasoning, not marketing)
 
