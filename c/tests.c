@@ -1218,18 +1218,11 @@ static int count_index(const char *name, const char *path, void *vp)
 /* ---- multi-index: registry round-trip + switch + locate precedence ---- */
 static void test_index_switch(void)
 {
-    char home[AIS_PATH_MAX];
+    const char *home = "/tmp/ais_ut_home";
     char path[AIS_PATH_MAX], cur[AIS_KEY_MAX], saved[AIS_PATH_MAX];
     int n;
 
-    /* Canonicalize the home dir up front: macOS /tmp is a symlink (-> /private/tmp)
-     * and getcwd() returns the resolved form, so the home override must match it --
-     * else find_local does not recognize cwd==home and ais_locate resolves to
-     * home/.ais instead of the current named index. */
-    scratch_rm("/tmp/ais_ut_home");
-    mkdir("/tmp/ais_ut_home", 0700);
-    if (realpath("/tmp/ais_ut_home", home) == NULL)
-        snprintf(home, sizeof home, "/tmp/ais_ut_home");
+    scratch_rm(home);
     ais_home_override(home);              /* config + registry now live under home */
 
     /* by default the current is the built-in home (no `current` line) */
@@ -1251,20 +1244,26 @@ static void test_index_switch(void)
 
     /* ais_locate honors the current named index (no -f, no local .ais): run from
      * the override home, where find_local stops immediately (step 2 finds none). */
-    if (getcwd(saved, sizeof saved) != NULL && chdir(home) == 0) {
+    /* From a fresh neutral dir (no .ais at or above it, and NOT home), ais_locate
+     * must fall through find_local to the current named index. Running from home
+     * itself is fragile on macOS, where /tmp is a symlink and find_local's
+     * "stop at home" check is a string compare (cwd canonicalizes, home may not). */
+    scratch_rm("/tmp/ais_ut_cwd");
+    mkdir("/tmp/ais_ut_cwd", 0700);
+    if (getcwd(saved, sizeof saved) != NULL && chdir("/tmp/ais_ut_cwd") == 0) {
         char loc[AIS_PATH_MAX];
         const char *suf = "/ais_ut_work";
         size_t sl = strlen(suf), ln;
         int located = (ais_locate(NULL, loc, sizeof loc) == 0);
         int ok;
         ln = located ? strlen(loc) : 0;
-        /* match the path TAIL: /tmp is a symlink on macOS (-> /private/tmp), so the
-         * resolved prefix may differ; locate is correct as long as it lands on
-         * <dir>/ais_ut_work. */
+        /* match the path TAIL: a resolved prefix may differ from the registry's. */
         ok = located && ln >= sl && strcmp(loc + ln - sl, suf) == 0;
+        if (!ok && located) fprintf(stderr, "  [locate] got '%s'\n", loc);
         CHECK(ok, "locate -> the current named index");
         if (chdir(saved) != 0) CHECK(0, "restore cwd after chdir");
     }
+    scratch_rm("/tmp/ais_ut_cwd");
 
     /* switch back to home clears the current pointer */
     CHECK(ais_current_set("home") == 0, "switch back to home");
