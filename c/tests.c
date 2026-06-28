@@ -17,6 +17,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <sys/stat.h>      /* mkdir (so realpath can resolve a scratch dir) */
 
 #include "ais.h"
 #include "key.h"
@@ -1244,13 +1245,17 @@ static void test_index_switch(void)
     /* ais_locate honors the current named index (no -f, no local .ais): run from
      * the override home, where find_local stops immediately (step 2 finds none). */
     if (getcwd(saved, sizeof saved) != NULL && chdir(home) == 0) {
-        char loc[AIS_PATH_MAX], want[AIS_PATH_MAX], tmpdir[AIS_PATH_MAX];
-        /* /tmp is a symlink on macOS (-> /private/tmp) and ais_locate returns a
-         * canonical path, so compare against the canonicalized expected. */
-        if (realpath("/tmp", tmpdir) == NULL) snprintf(tmpdir, sizeof tmpdir, "/tmp");
-        snprintf(want, sizeof want, "%s/ais_ut_work", tmpdir);
-        CHECK(ais_locate(NULL, loc, sizeof loc) == 0
-              && strcmp(loc, want) == 0, "locate -> the current named index");
+        char loc[AIS_PATH_MAX], lr[AIS_PATH_MAX], wr[AIS_PATH_MAX];
+        const char *a, *b;
+        int located;
+        /* /tmp is a symlink on macOS (-> /private/tmp); canonicalize BOTH sides
+         * with realpath (the dir must exist) so the compare is symlink-agnostic,
+         * whether or not ais_locate itself canonicalizes the path it returns. */
+        mkdir("/tmp/ais_ut_work", 0700);
+        located = (ais_locate(NULL, loc, sizeof loc) == 0);
+        a = (located && realpath(loc, lr) != NULL) ? lr : loc;
+        b = (realpath("/tmp/ais_ut_work", wr) != NULL) ? wr : "/tmp/ais_ut_work";
+        CHECK(located && strcmp(a, b) == 0, "locate -> the current named index");
         if (chdir(saved) != 0) CHECK(0, "restore cwd after chdir");
     }
 

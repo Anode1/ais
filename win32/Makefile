@@ -14,10 +14,11 @@ WINDRES ?= x86_64-w64-mingw32-windres
 CFLAGS  ?= -O2 -std=gnu99 -W -Wall
 CORE     = ../c
 
-# engine core + FFI seam (embed) + index policy (locate) + Windows shims (win);
-# deliberately NOT main/serve/feed/help/tests -- the GUI needs none of them.
+# engine core + FFI seam (embed) + index policy (locate) + secret/crypto (embed's
+# encrypt+reveal) + Windows shims (win); deliberately NOT main/serve/feed/help/tests.
 ENGINE = $(addprefix $(CORE)/, embed.c ais.c store.c post.c key.c merge.c \
-           compact.c stats.c find.c doc.c locate.c log.c win.c)
+           compact.c stats.c find.c doc.c locate.c log.c win.c \
+           secret.c b64.c crypto/ais_crypto.c crypto/monocypher.c)
 
 # only ever-present system DLLs -- no .NET, no Cygwin, no extra runtime.
 # shell32: ShellExecute (open URLs) + SHGetFolderPath (the local app-data dir).
