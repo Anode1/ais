@@ -113,7 +113,10 @@ macOS is not magic either: malware can inject into the authorized app, root can
 bypass, and users get trained to click "Always Allow." And no software manager
 removes the in-memory exposure: while a secret is decrypted for use, code running
 as you can read it, and a live keylogger can capture your passphrase as you type
-it. ais_crypto does not beat an active rootkit.
+it. ais_crypto does not beat an active rootkit. There is also a usability cost,
+not a security one: you type a passphrase to unlock and you run one more tool.
+That friction is the price of not handing your secrets to the OS at login; it is
+worth paying for the few secrets that matter, and not for the many that do not.
 
 ## The claim, stated honestly
 
