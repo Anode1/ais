@@ -72,6 +72,27 @@ the OS keystore or tied to your login session:
 - **Portable and uniform.** The same guarantees on Linux, Windows, and macOS,
   instead of whatever the local OS keystore happens to enforce.
 
+## Agents make this urgent, not obsolete
+
+An AI agent runs *as you*, with your shell privileges, so it is a new and now
+*everyday* instance of "a process running as you", the exact thing the OS and
+browser keystores cannot gate against. The threat shifts from "malware could read
+my keystore" (rare; you had to be infected) to "the tool I run all day inherits my
+login and can read my keystore, browser passwords, SSH keys, and cloud tokens." It
+does not even take a malicious agent: one that reads untrusted input (a web page, a
+file, an email) can be steered by prompt injection into reading and exfiltrating
+any credential it can reach.
+
+This does not make password managers pointless; it makes the distinction decisive.
+A store that *auto-unlocks at login* (the OS keystore, browser-saved passwords) is
+now routinely exposed, because the agent is logged in as you. A vault gated by a
+*passphrase the agent does not hold* is not: it cannot be decrypted without the
+passphrase you enter out of band, so even a compromised or manipulated agent gets
+nothing. The rule for the agent era: keep anything an agent must never touch
+(banking, personal logins) in a passphrase-gated store, never in the OS keystore,
+and never auto-unlocked in the agent's environment. That is exactly what ais_crypto
+is for.
+
 ## Honest limits (so this is reasoning, not marketing)
 
 macOS is not magic either: malware can inject into the authorized app, root can
