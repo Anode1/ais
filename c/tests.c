@@ -1259,7 +1259,6 @@ static void test_index_switch(void)
         ln = located ? strlen(loc) : 0;
         /* match the path TAIL: a resolved prefix may differ from the registry's. */
         ok = located && ln >= sl && strcmp(loc + ln - sl, suf) == 0;
-        if (!ok && located) fprintf(stderr, "  [locate] got '%s'\n", loc);
         CHECK(ok, "locate -> the current named index");
         if (chdir(saved) != 0) CHECK(0, "restore cwd after chdir");
     }
