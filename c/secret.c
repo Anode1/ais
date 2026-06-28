@@ -12,6 +12,10 @@
 #include "secret.h"
 #include "b64.h"
 
+#ifndef O_NOCTTY             /* Windows/MinGW has no controlling-terminal flag */
+#define O_NOCTTY 0
+#endif
+
 #if defined(__has_include) && __has_include("crypto/monocypher.h")
 #  define SECRET_HAVE_CRYPTO 1
 #  include "crypto/ais_crypto.h"

@@ -1244,9 +1244,13 @@ static void test_index_switch(void)
     /* ais_locate honors the current named index (no -f, no local .ais): run from
      * the override home, where find_local stops immediately (step 2 finds none). */
     if (getcwd(saved, sizeof saved) != NULL && chdir(home) == 0) {
-        char loc[AIS_PATH_MAX];
+        char loc[AIS_PATH_MAX], want[AIS_PATH_MAX], tmpdir[AIS_PATH_MAX];
+        /* /tmp is a symlink on macOS (-> /private/tmp) and ais_locate returns a
+         * canonical path, so compare against the canonicalized expected. */
+        if (realpath("/tmp", tmpdir) == NULL) snprintf(tmpdir, sizeof tmpdir, "/tmp");
+        snprintf(want, sizeof want, "%s/ais_ut_work", tmpdir);
         CHECK(ais_locate(NULL, loc, sizeof loc) == 0
-              && strcmp(loc, "/tmp/ais_ut_work") == 0, "locate -> the current named index");
+              && strcmp(loc, want) == 0, "locate -> the current named index");
         if (chdir(saved) != 0) CHECK(0, "restore cwd after chdir");
     }
 

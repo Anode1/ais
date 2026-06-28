@@ -20,6 +20,9 @@
  * The 57-byte header is authenticated as associated data, so the KDF params,
  * salt and nonce cannot be altered without failing decryption.
  */
+#if defined(_WIN32)
+#define _CRT_RAND_S          /* enable rand_s() before any <stdlib.h> is pulled in */
+#endif
 #include "ais_crypto.h"
 
 /* Self-guard: compile to an inert object until Monocypher is vendored (run
@@ -41,8 +44,10 @@
 #include <stdio.h>
 #include <unistd.h>
 #include <fcntl.h>
-#include <termios.h>
-#include <sys/mman.h>
+#if !defined(_WIN32)
+#include <termios.h>    /* echo-off prompt: Unix only (absent on MinGW) */
+#include <sys/mman.h>   /* mlock: Unix only */
+#endif
 
 #define AISC_MAGIC      "AIS-CR1\0"
 #define AISC_MAGIC_LEN  8
@@ -76,8 +81,18 @@ static uint32_t get_le32(const uint8_t *p) {
          | ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 24);
 }
 
-/* ----- OS randomness (portable: /dev/urandom on Linux/BSD/macOS) -------- */
+/* ----- OS randomness: /dev/urandom on Unix, rand_s (RtlGenRandom) on Windows -- */
 static int rand_bytes(uint8_t *p, size_t n) {
+#if defined(_WIN32)
+    while (n) {
+        unsigned int r;
+        size_t k = n < sizeof r ? n : sizeof r;
+        if (rand_s(&r) != 0) return AISC_E_RANDOM;
+        memcpy(p, &r, k);
+        p += k; n -= k;
+    }
+    return AISC_OK;
+#else
     int fd = open("/dev/urandom", O_RDONLY);
     if (fd < 0) return AISC_E_RANDOM;
     while (n) {
@@ -87,6 +102,7 @@ static int rand_bytes(uint8_t *p, size_t n) {
     }
     close(fd);
     return AISC_OK;
+#endif
 }
 
 /* ----- key derivation -------------------------------------------------- */
@@ -195,7 +211,8 @@ int aisc_decrypt(const uint8_t *file, size_t file_len,
     return AISC_OK;
 }
 
-/* ----- passphrase prompt (echo off, /dev/tty only) --------------------- */
+/* ----- passphrase prompt (echo off, /dev/tty only; Unix only) ---------- */
+#if !defined(_WIN32)
 static int read_line_tty(int fd, char *buf, size_t buf_sz) {
     size_t n = 0;
     for (;;) {
@@ -249,6 +266,15 @@ int aisc_prompt_passphrase(const char *prompt, int confirm,
     close(fd);
     return len;
 }
+#else
+/* Windows: no /dev/tty + termios. The GUI/embed path passes the passphrase as a
+ * parameter, so the engine never needs this; the native CLI prompt is unsupported
+ * (returns -1, so `ais -e` reports it cleanly rather than failing to build). */
+int aisc_prompt_passphrase(const char *prompt, int confirm, char *buf, size_t buf_sz) {
+    (void)prompt; (void)confirm; (void)buf; (void)buf_sz;
+    return -1;
+}
+#endif
 
 /* ----- optional standalone CLI ----------------------------------------- *
  * Build a self-test tool without touching the engine:
