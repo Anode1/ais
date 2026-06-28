@@ -308,7 +308,12 @@ honoured only when no
 named index is set.
 .TP
 .B \-\-serve \fR[\fIPORT\fR]
-Start the local web GUI on 127.0.0.1 (default port 8765).
+Start the local web GUI on 127.0.0.1 (default port 8765) and open it in the
+browser. Set the environment variable
+.B AIS_NO_OPEN
+to skip opening the browser and run headless: for an agent, a screenshot script
+.RB ( tests/shot/ ),
+or CI that drives the server and must not pop up a browser window.
 .SH EXAMPLES
 .nf
 ais -v ~/photos/IMG_3920.jpg italy venice 2023

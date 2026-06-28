@@ -415,6 +415,48 @@ class _RecallPageState extends State<RecallPage> {
     _recall();
   }
 
+  // Reveal an encrypted ("aisc:") hit: ask for the passphrase, decrypt
+  // in-process, and show the cleartext in a dialog (encrypted documents are
+  // revealed via the CLI).
+  Future<void> _revealHit(Hit hit) async {
+    final ctrl = TextEditingController();
+    final pass = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Reveal'),
+        content: TextField(
+          controller: ctrl,
+          obscureText: true,
+          autofocus: true,
+          onSubmitted: (v) => Navigator.pop(ctx, v),
+          decoration: const InputDecoration(labelText: 'Passphrase'),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, ctrl.text), child: const Text('Reveal')),
+        ],
+      ),
+    );
+    if (pass == null || pass.isEmpty || _ais == null) return;
+    final clear = await _ais!.revealAsync(hit.value, pass);   // off the UI isolate
+    if (!mounted) return;
+    if (clear == null) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('Could not decrypt')));
+      return;
+    }
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Decrypted'),
+        content: SelectableText(clear),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Close')),
+        ],
+      ),
+    );
+  }
+
   Widget _recallBody(ColorScheme cs) {
     if (_results.isEmpty) {
       return _centerMsg(_searched ? 'No results for "$_query"' : _status, cs);
@@ -426,11 +468,25 @@ class _RecallPageState extends State<RecallPage> {
       itemBuilder: (_, i) {
         final hit = _results[i];
         final v = hit.value;
+        final isSecret = v.startsWith('aisc:');
         return ListTile(
-          title: SelectableText(v, style: TextStyle(color: _isUrl(v) ? cs.primary : null)),
+          title: isSecret
+              ? Row(mainAxisSize: MainAxisSize.min, children: [
+                  Icon(Icons.lock_outline, size: 16, color: cs.outline),
+                  const SizedBox(width: 6),
+                  Text('encrypted', style: TextStyle(color: cs.outline)),
+                ])
+              : SelectableText(v,
+                  style: TextStyle(color: _isUrl(v) ? cs.primary : null)),
           trailing: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
+              if (isSecret)
+                IconButton(
+                  icon: const Icon(Icons.lock_open, size: 18),
+                  tooltip: 'Reveal',
+                  onPressed: () => _revealHit(hit),
+                ),
               IconButton(
                 icon: const Icon(Icons.copy, size: 18),
                 tooltip: 'Copy',
@@ -573,11 +629,15 @@ class _RecallPageState extends State<RecallPage> {
   void _showAdd() {
     final valCtrl = TextEditingController();
     final keysCtrl = TextEditingController(text: _q.text.trim());
+    final ppCtrl = TextEditingController();
+    bool encrypt = false;                 // off by default
+    bool saving = false;                  // true while the off-isolate encrypt runs
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       showDragHandle: true,
-      builder: (ctx) => Padding(
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setSheet) => Padding(
         padding: EdgeInsets.only(
             bottom: MediaQuery.of(ctx).viewInsets.bottom + 16,
             left: 16, right: 16, top: 4),
@@ -608,24 +668,64 @@ class _RecallPageState extends State<RecallPage> {
                 border: OutlineInputBorder(),
               ),
             ),
+            const SizedBox(height: 4),
+            Row(children: [
+              Checkbox(
+                value: encrypt,
+                onChanged: (b) => setSheet(() => encrypt = b ?? false),
+              ),
+              const Text('Encrypt'),
+            ]),
+            if (encrypt)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 4),
+                child: TextField(
+                  controller: ppCtrl,
+                  obscureText: true,
+                  decoration: const InputDecoration(
+                    labelText: 'Passphrase',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+              ),
             const SizedBox(height: 16),
             FilledButton.icon(
-              icon: const Icon(Icons.check),
-              label: const Text('Save'),
-              onPressed: () {
-                final value = valCtrl.text.trim();
-                if (value.isEmpty || _ais == null) return;
-                final keys = keysCtrl.text.trim();
-                _ais!.store(keys, value);
-                Navigator.pop(ctx);
-                _q.text = keys;
-                _recall(); // show what was just saved
-                ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-                    content: Text(keys.isEmpty ? 'Saved (no keys)' : 'Saved under: $keys')));
-              },
+              icon: saving
+                  ? const SizedBox(
+                      width: 16, height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2))
+                  : const Icon(Icons.check),
+              label: Text(saving ? 'Encrypting…' : 'Save'),
+              onPressed: saving
+                  ? null
+                  : () async {
+                      final value = valCtrl.text.trim();
+                      if (value.isEmpty || _ais == null) return;
+                      final keys = keysCtrl.text.trim();
+                      final messenger = ScaffoldMessenger.of(context);
+                      final nav = Navigator.of(ctx);
+                      if (encrypt) {
+                        if (ppCtrl.text.isEmpty) {
+                          messenger.showSnackBar(const SnackBar(
+                              content: Text('Enter a passphrase to encrypt')));
+                          return;
+                        }
+                        setSheet(() => saving = true);
+                        await _ais!.storeEncryptedAsync(keys, value, ppCtrl.text);
+                      } else {
+                        _ais!.store(keys, value);
+                      }
+                      if (!mounted) return;
+                      nav.pop();
+                      _q.text = keys;
+                      _recall(); // show what was just saved
+                      messenger.showSnackBar(SnackBar(
+                          content: Text(keys.isEmpty ? 'Saved (no keys)' : 'Saved under: $keys')));
+                    },
             ),
           ],
         ),
+      ),
       ),
     );
   }

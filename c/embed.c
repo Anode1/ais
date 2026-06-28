@@ -13,6 +13,7 @@
 #include "doc.h"
 #include "embed.h"
 #include "locate.h"
+#include "secret.h"
 
 void *ais_embed_open(const char *dir)
 {
@@ -47,6 +48,44 @@ long ais_embed_store(void *handle, const char *keys, const char *value)
     /* One value -> one record. A multi-line value becomes a blob-backed
      * document (see doc.c), exactly as the web and CLI front-ends do. */
     return ais_put_value((ais *)handle, keys, value);
+}
+
+long ais_embed_store_encrypted(void *handle, const char *keys,
+                               const char *value, const char *passphrase)
+{
+    char marked[8192];
+    long id;
+
+    if (handle == NULL || value == NULL || passphrase == NULL)
+        return -1;
+    if (secret_encrypt((const unsigned char *)value, strlen(value),
+                       (const unsigned char *)passphrase, strlen(passphrase),
+                       marked, sizeof marked) < 0)
+        return -1;                          /* crypto not built, or value too large */
+    id = ais_put((ais *)handle, (keys != NULL) ? keys : "", marked);
+    secret_wipe(marked, sizeof marked);
+    return id;
+}
+
+char *ais_embed_reveal(const char *marked_value, const char *passphrase)
+{
+    unsigned char buf[AIS_LINE_MAX];
+    long n;
+    char *out = NULL;
+
+    if (marked_value == NULL || passphrase == NULL)
+        return NULL;
+    n = secret_decrypt(marked_value, (const unsigned char *)passphrase,
+                       strlen(passphrase), buf, sizeof buf);
+    if (n >= 0) {
+        out = malloc((size_t)n + 1);
+        if (out != NULL) {
+            memcpy(out, buf, (size_t)n);
+            out[n] = '\0';
+        }
+    }
+    secret_wipe(buf, sizeof buf);          /* don't leave the cleartext on the stack */
+    return out;
 }
 
 int ais_embed_del(void *handle, long id)

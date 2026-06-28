@@ -3,6 +3,7 @@
 // engine, same `id|value` contract as the CLI and `ais serve`.
 import 'dart:ffi';
 import 'dart:io' show Platform;
+import 'dart:isolate';
 import 'package:ffi/ffi.dart';
 
 // --- C signatures (native) and their Dart shapes -------------------------
@@ -12,6 +13,10 @@ typedef _RecallC = Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>, Int32);
 typedef _RecallD = Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>, int);
 typedef _StoreC = Int64 Function(Pointer<Void>, Pointer<Utf8>, Pointer<Utf8>);
 typedef _StoreD = int Function(Pointer<Void>, Pointer<Utf8>, Pointer<Utf8>);
+typedef _StoreEncC = Int64 Function(Pointer<Void>, Pointer<Utf8>, Pointer<Utf8>, Pointer<Utf8>);
+typedef _StoreEncD = int Function(Pointer<Void>, Pointer<Utf8>, Pointer<Utf8>, Pointer<Utf8>);
+typedef _RevealC = Pointer<Utf8> Function(Pointer<Utf8>, Pointer<Utf8>);
+typedef _RevealD = Pointer<Utf8> Function(Pointer<Utf8>, Pointer<Utf8>);
 typedef _DelC = Int32 Function(Pointer<Void>, Int64);
 typedef _DelD = int Function(Pointer<Void>, int);
 typedef _UpdateC = Int32 Function(Pointer<Void>, Int64, Pointer<Utf8>);
@@ -99,6 +104,10 @@ class AisEngine {
   late final _OpenD _open = _lib.lookupFunction<_OpenC, _OpenD>('ais_embed_open');
   late final _RecallD _recall = _lib.lookupFunction<_RecallC, _RecallD>('ais_embed_recall');
   late final _StoreD _store = _lib.lookupFunction<_StoreC, _StoreD>('ais_embed_store');
+  late final _StoreEncD _storeEnc =
+      _lib.lookupFunction<_StoreEncC, _StoreEncD>('ais_embed_store_encrypted');
+  late final _RevealD _reveal =
+      _lib.lookupFunction<_RevealC, _RevealD>('ais_embed_reveal');
   late final _FreeD _free = _lib.lookupFunction<_FreeC, _FreeD>('ais_embed_free');
   late final _CloseD _close = _lib.lookupFunction<_CloseC, _CloseD>('ais_embed_close');
   late final _TimelineD _timelineFn =
@@ -177,6 +186,71 @@ class AisEngine {
     calloc.free(k);
     calloc.free(v);
     return id;
+  }
+
+  /// Store [value] under [keys], ENCRYPTED under [passphrase] (the "aisc:"
+  /// marker). Returns the record id, or -1 (error, or crypto not built).
+  int storeEncrypted(String keys, String value, String passphrase) {
+    final k = keys.toNativeUtf8();
+    final v = value.toNativeUtf8();
+    final p = passphrase.toNativeUtf8();
+    final id = _storeEnc(_h, k, v, p);
+    calloc.free(k);
+    calloc.free(v);
+    calloc.free(p);
+    return id;
+  }
+
+  /// Decrypt a marked ("aisc:") [value] under [passphrase]; returns the
+  /// cleartext, or null (wrong passphrase, or not an inline secret).
+  String? reveal(String value, String passphrase) {
+    final v = value.toNativeUtf8();
+    final p = passphrase.toNativeUtf8();
+    final r = _reveal(v, p);
+    calloc.free(v);
+    calloc.free(p);
+    if (r == nullptr) return null;
+    final s = r.toDartString();
+    _free(r);
+    return s;
+  }
+
+  /// [storeEncrypted] off the UI isolate: the Argon2 KDF is ~1s, so run it in a
+  /// background isolate to keep the UI responsive. The engine handle is shared
+  /// across isolates (same process), so it is passed by address.
+  Future<int> storeEncryptedAsync(String keys, String value, String passphrase) {
+    final addr = _h.address;
+    return Isolate.run(() {
+      final lib = _load();
+      final fn =
+          lib.lookupFunction<_StoreEncC, _StoreEncD>('ais_embed_store_encrypted');
+      final k = keys.toNativeUtf8();
+      final v = value.toNativeUtf8();
+      final p = passphrase.toNativeUtf8();
+      final id = fn(Pointer<Void>.fromAddress(addr), k, v, p);
+      calloc.free(k);
+      calloc.free(v);
+      calloc.free(p);
+      return id;
+    });
+  }
+
+  /// [reveal] off the UI isolate (the decrypt KDF is ~1s). No handle needed.
+  Future<String?> revealAsync(String value, String passphrase) {
+    return Isolate.run(() {
+      final lib = _load();
+      final fn = lib.lookupFunction<_RevealC, _RevealD>('ais_embed_reveal');
+      final freeFn = lib.lookupFunction<_FreeC, _FreeD>('ais_embed_free');
+      final v = value.toNativeUtf8();
+      final p = passphrase.toNativeUtf8();
+      final r = fn(v, p);
+      calloc.free(v);
+      calloc.free(p);
+      if (r == nullptr) return null;
+      final s = r.toDartString();
+      freeFn(r);
+      return s;
+    });
   }
 
   /// Delete record [id]. True on success.

@@ -33,6 +33,7 @@
 #include "ais.h"
 #include "common.h"
 #include "doc.h"
+#include "secret.h"       /* GUI encrypt: secret_encrypt for the "aisc:" marker */
 #include "locate.h"       /* ais_default_set: persist the chosen store */
 #include "win.h"          /* Winsock + socket shims on native Windows; empty on POSIX */
 #include "serve.h"
@@ -123,6 +124,10 @@ static const char PAGE[] =
 "<div id=sheet hidden><div class=card><h2>Add to your memory</h2>"
 "<input id=vk placeholder='Keys (space-separated, optional)'>"
 "<textarea id=v rows=3 placeholder='What to remember: a link, a note, a number...'></textarea>"
+"<div class=encrow style='display:flex;align-items:center;gap:.5rem;margin:.1rem 0'>"
+"<label style='display:flex;align-items:center;gap:.35rem;font-size:.85rem;color:var(--muted);white-space:nowrap'>"
+"<input id=enc type=checkbox style='width:auto'> Encrypt</label>"
+"<input id=pp type=password placeholder='Passphrase' hidden style='flex:1'></div>"
 "<div class=actions><button id=cancel class=ghost>Cancel</button><button id=save class=primary>Save</button></div>"
 "</div></div>"
 "<script>"
@@ -138,13 +143,22 @@ static const char PAGE[] =
 "var a=document.createElement('a');a.href=m[0];a.textContent=m[0];"
 "a.target='_blank';a.rel='noopener';node.appendChild(a);last=m.index+m[0].length}"
 "if(last<v.length)node.appendChild(document.createTextNode(v.slice(last)))}"
+/* An "aisc:" value is shown as an opaque lock + a Reveal button; revealing
+ * prompts for the passphrase and decrypts via /api/reveal (passphrase in the
+ * POST body, never the URL). The cleartext is shown until the next render. */
+"function fillSecret(node,v){var s=document.createElement('span');s.textContent='\\uD83D\\uDD12 encrypted ';s.style.color='var(--muted)';"
+"var b=document.createElement('button');b.className='actbtn';b.textContent='Reveal';"
+"b.onclick=function(){revealSecret(node,v)};node.appendChild(s);node.appendChild(b)}"
+"async function revealSecret(node,v){var pp=prompt('Passphrase:');if(!pp)return;"
+"var r=await fetch('/api/reveal',{method:'POST',body:pp+'\\n'+v});var t=await r.text();"
+"node.innerHTML='';if(t){fillVal(node,t)}else{node.textContent='(cannot decrypt)'}}"
 "function render(t,q,ms){var L=t.split('\\n').filter(function(s){return s.length});"
 "$('count').textContent=L.length+' result'+(L.length==1?'':'s')+' - '+ms.toFixed(0)+' ms';"
 "var o=$('out');o.innerHTML='';"
 "if(!L.length){o.textContent='No results for '+q;o.className='empty';return}o.className='';"
 "L.forEach(function(ln){var p=ln.indexOf('|'),id=p>=0?ln.slice(0,p):'',v=p>=0?ln.slice(p+1):ln,"
 "r=document.createElement('div');r.className='hit';"
-"fillVal(r,v);if(id)r.appendChild(rowActions(id));o.appendChild(r)})}"
+"(v.indexOf('aisc:')==0?fillSecret(r,v):fillVal(r,v));if(id)r.appendChild(rowActions(id));o.appendChild(r)})}"
 /* per-row edit (attach/detach keys by id) and delete; both refresh the view */
 "function rowActions(id){var d=document.createElement('div');d.className='act';"
 "var e=document.createElement('button');e.className='actbtn';e.textContent='edit keys';"
@@ -206,10 +220,13 @@ static const char PAGE[] =
 "if(v=='recall'){var q=$('q').value.trim();if(q)recall();"
 "else{$('out').innerHTML='<p class=empty>Type keys, then Enter.</p>';$('out').className='';$('count').textContent=''}}"
 "else if(v=='timeline')loadTimeline();else loadTags()}"
-"function openSheet(){$('vk').value=$('q').value.trim();$('sheet').hidden=false;$('v').focus()}"
-"function closeSheet(){$('sheet').hidden=true;$('v').value=''}"
+"function openSheet(){$('vk').value=$('q').value.trim();$('enc').checked=false;$('pp').value='';$('pp').hidden=true;$('sheet').hidden=false;$('v').focus()}"
+"function closeSheet(){$('sheet').hidden=true;$('v').value='';$('pp').value=''}"
 "async function save(){var v=$('v').value.trim();if(!v)return;var k=$('vk').value.trim();"
-"await fetch('/api/put?keys='+encodeURIComponent(k),{method:'POST',body:v});closeSheet();$('q').value=k;recall()}"
+"var enc=$('enc').checked,pp=$('pp').value;"
+"if(enc&&!pp){alert('Enter a passphrase to encrypt');return}"
+"await fetch('/api/put?keys='+encodeURIComponent(k)+(enc?'&enc=1':''),{method:'POST',body:enc?(pp+'\\n'+v):v});"
+"closeSheet();$('q').value=k;recall()}"
 "$('q').addEventListener('keydown',function(e){if(e.key=='Enter')setView('recall')});"
 "$('seg-recall').onclick=function(){setView('recall')};"
 "$('seg-timeline').onclick=function(){setView('timeline')};"
@@ -217,6 +234,7 @@ static const char PAGE[] =
 "$('tlfrom').onchange=function(){loadTimeline()};$('tlto').onchange=function(){loadTimeline()};"
 "$('tlclear').onclick=function(){$('tlfrom').value='';$('tlto').value='';loadTimeline()};"
 "$('addbtn').onclick=openSheet;$('cancel').onclick=closeSheet;$('save').onclick=save;"
+"$('enc').onchange=function(){$('pp').hidden=!$('enc').checked;if($('enc').checked)$('pp').focus()};"
 "$('sheet').addEventListener('click',function(e){if(e.target==$('sheet'))closeSheet()});"
 "async function loadStore(){$('store').textContent='store: '+await(await fetch('/api/where')).text()}"
 "async function changeStore(){var cur=await(await fetch('/api/where')).text();"
@@ -322,6 +340,29 @@ static long do_put(ais *a, const char *keys, char *body)
     return ais_put_value(a, keys, body) >= 0 ? 1 : 0;
 }
 
+/* Encrypt save (?enc=1): BODY is "passphrase\nvalue..." -- the passphrase rides
+ * the POST body (never the URL, so it stays out of the browser history) on this
+ * localhost-only server. Encrypts VALUE under the passphrase and puts the
+ * "aisc:" marker. 1 if stored, 0 on malformed/failure/crypto-not-built. */
+static long do_put_enc(ais *a, const char *keys, char *body)
+{
+    char marked[8192];
+    char *value;
+    long mn, rc = 0;
+
+    value = strchr(body, '\n');
+    if (value == NULL)
+        return 0;                          /* expected "passphrase\nvalue" */
+    *value++ = '\0';                        /* body -> passphrase, value -> the rest */
+    mn = secret_encrypt((const unsigned char *)value, strlen(value),
+                        (const unsigned char *)body, strlen(body), marked, sizeof marked);
+    secret_wipe(body, strlen(body));        /* wipe the passphrase from the request buffer */
+    if (mn >= 0)
+        rc = (ais_put(a, keys, marked) >= 0) ? 1 : 0;
+    secret_wipe(marked, sizeof marked);
+    return rc;
+}
+
 /* ---- timeline: "id|ts|keys|value" newest-first (dateless first) ---------- */
 static int tl_sink(long id, const char *ts, const char *keys,
                    const char *value, void *vp)
@@ -404,6 +445,7 @@ static void handle(ais *a, int fd)
     ssize_t n;
     char *method, *path, *query, *body, *keys = nokeys, *sp;
     int want_or = 0;                      /* "Match any key" -> AIS_OR; default AND+relax */
+    int enc = 0;                          /* ?enc=1 -> encrypt the value before storing */
     long reqid = 0;                       /* ?id= for /api/del and /api/update      */
     long before = 0;                      /* ?before= cursor for /api/timeline paging */
     int  count = 0;                       /* ?count= page size (0 => engine default)  */
@@ -436,6 +478,8 @@ static void handle(ais *a, int fd)
             url_decode(keys);
         } else if (strncmp(query, "or=", 3) == 0) {
             want_or = (query[3] == '1');
+        } else if (strncmp(query, "enc=", 4) == 0) {
+            enc = (query[4] == '1');
         } else if (strncmp(query, "id=", 3) == 0) {
             reqid = atol(query + 3);
         } else if (strncmp(query, "before=", 7) == 0) {
@@ -457,11 +501,28 @@ static void handle(ais *a, int fd)
         do_get(a, keys, want_or, fd);
     } else if (strcmp(method, "POST") == 0 && strcmp(path, "/api/put") == 0) {
         char msg[64];
-        long c = do_put(a, keys, body);
+        long c = enc ? do_put_enc(a, keys, body) : do_put(a, keys, body);
         int m = snprintf(msg, sizeof(msg), "saved %ld record(s)\n", c);
         send_head(fd, "text/plain");
         if (m > 0)
             write_all(fd, msg, (size_t)m);
+    } else if (strcmp(method, "POST") == 0 && strcmp(path, "/api/reveal") == 0) {
+        /* body = "passphrase\nmarked-value"; decrypt and return the cleartext
+         * (empty body = could not decrypt). The passphrase rides the body, not
+         * the URL, so it stays out of the browser history. */
+        char *value = strchr(body, '\n');
+        send_head(fd, "text/plain");
+        if (value != NULL) {
+            unsigned char out[AIS_LINE_MAX];
+            long n;
+            *value++ = '\0';                  /* body -> passphrase */
+            n = secret_decrypt(value, (const unsigned char *)body, strlen(body),
+                               out, sizeof out);
+            secret_wipe(body, strlen(body));
+            if (n > 0)
+                write_all(fd, (char *)out, (size_t)n);
+            secret_wipe(out, sizeof out);
+        }
     } else if (strcmp(method, "POST") == 0 && strcmp(path, "/api/del") == 0) {
         /* delete record ?id=N (the handle from the id|value lines) */
         if (reqid > 0 && ais_del(a, reqid) == 0) {
@@ -569,8 +630,10 @@ int ais_serve(ais *a, int port)
     fprintf(stderr, "ais serve: http://127.0.0.1:%d/  (Ctrl-C to stop)\n", port);
 
     /* best-effort: open the page in the user's browser (this is GUI-wrapper
-     * behaviour). macOS `open`, Linux `xdg-open`; ignored if neither exists. */
-    {
+     * behaviour). macOS `open`, Linux `xdg-open`; ignored if neither exists.
+     * Suppressed when AIS_NO_OPEN is set -- for agents, screenshots, scripts and
+     * CI that drive the server headlessly and must not spawn a browser window. */
+    if (getenv("AIS_NO_OPEN") == NULL) {
         char cmd[224];
         int rc;
 #ifdef _WIN32

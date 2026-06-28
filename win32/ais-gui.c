@@ -21,13 +21,13 @@
 #include "embed.h"
 #include "locate.h"
 
-enum { ID_KEYS = 1001, ID_GET, ID_OR, ID_LIST, ID_VALUE, ID_VKEYS, ID_ADD, ID_STORE };
+enum { ID_KEYS = 1001, ID_GET, ID_OR, ID_LIST, ID_VALUE, ID_VKEYS, ID_ADD, ID_STORE, ID_ENC, ID_PP };
 /* context-menu command ids for a result row (kept clear of the control ids) */
-enum { ID_EDIT = 1101, ID_DELETE };
+enum { ID_EDIT = 1101, ID_DELETE, ID_REVEAL };
 
 static void *g_ais;                 /* engine handle (ais_embed_open) */
 static char  g_dir[4096];           /* current index dir: shown, and restored on a failed switch */
-static HWND  g_keys, g_or, g_list, g_value, g_vkeys;
+static HWND  g_keys, g_or, g_list, g_value, g_vkeys, g_enc, g_pp;
 static HWND  g_lkeys, g_lval, g_lvk;   /* inline field labels: Keys:/Value:/Keys: */
 static HWND  g_store;                  /* "store: <dir>" status label (Store button is by id) */
 static HFONT g_font;
@@ -147,14 +147,33 @@ static void do_add(void)
 {
     char *val = get_text(g_value);
     char *vk  = get_text(g_vkeys);
+    int   enc = (SendMessage(g_enc, BM_GETCHECK, 0, 0) == BST_CHECKED);
 
     if (g_ais != NULL && val != NULL && val[0] != '\0') {
-        if (ais_embed_store(g_ais, (vk != NULL) ? vk : "", val) < 0)
+        long rc;
+        if (enc) {
+            char *pp = get_text(g_pp);
+            if (pp == NULL || pp[0] == '\0') {
+                log_error("encrypt: enter a passphrase");
+                free(pp);
+                SetFocus(g_pp);
+                free(val); free(vk);
+                return;                                  /* keep the form so it can be fixed */
+            }
+            rc = ais_embed_store_encrypted(g_ais, (vk != NULL) ? vk : "", val, pp);
+            SecureZeroMemory(pp, strlen(pp));            /* don't leave the passphrase in the heap */
+            free(pp);
+        } else {
+            rc = ais_embed_store(g_ais, (vk != NULL) ? vk : "", val);
+        }
+        if (rc < 0)
             log_error("save failed (keys='%s')", (vk != NULL) ? vk : "");
         if (vk != NULL && vk[0] != '\0')                 /* echo the save into the Get box */
             SetWindowTextA(g_keys, vk);
         SetWindowTextA(g_value, "");                     /* reset the Add form for the next entry */
         SetWindowTextA(g_vkeys, "");
+        SetWindowTextA(g_pp, "");                         /* clear the passphrase field */
+        SendMessage(g_enc, BM_SETCHECK, BST_UNCHECKED, 0); /* back to off (not the default) */
         do_get();                                        /* the saved item shows in the results */
         SetFocus(g_vkeys);
     }
@@ -370,6 +389,45 @@ static void edit_selected(HWND hwnd)
     do_get();
 }
 
+/* Reveal the selected encrypted ("aisc:") record: prompt for the passphrase,
+ * decrypt in-process, and show the cleartext in a message box. */
+static void reveal_selected(HWND hwnd)
+{
+    LRESULT i = SendMessage(g_list, LB_GETCURSEL, 0, 0);
+    int n;
+    char *val, *clear;
+    char pp[1024];
+
+    if (i == LB_ERR || g_ais == NULL)
+        return;
+    n = (int)SendMessage(g_list, LB_GETTEXTLEN, (WPARAM)i, 0);
+    val = (char *)malloc((size_t)n + 1);
+    if (val == NULL)
+        return;
+    SendMessageA(g_list, LB_GETTEXT, (WPARAM)i, (LPARAM)val);
+    if (strncmp(val, "aisc:", 5) != 0) {       /* not an encrypted value */
+        free(val);
+        return;
+    }
+    pp[0] = '\0';
+    if (!input_box(hwnd, "Reveal", "Passphrase:", pp, (int)sizeof pp)) {
+        free(val);
+        return;
+    }
+    clear = ais_embed_reveal(val, pp);
+    SecureZeroMemory(pp, sizeof pp);
+    free(val);
+    if (clear != NULL) {
+        MessageBoxA(hwnd, clear, "Decrypted (close to hide)", MB_OK);
+        SecureZeroMemory(clear, strlen(clear));
+        ais_embed_free(clear);
+    } else {
+        MessageBoxA(hwnd, "Could not decrypt (wrong passphrase, or an encrypted "
+                    "document -- reveal those with the CLI).", "AIS",
+                    MB_OK | MB_ICONWARNING);
+    }
+}
+
 /* Show the current index path in the status label. */
 static void set_store_label(void)
 {
@@ -471,9 +529,16 @@ static void layout(HWND hwnd)
     MoveWindow(g_value, x, by, valw, bh, TRUE);
     MoveWindow(GetDlgItem(hwnd, ID_ADD), w - pad - btn, by, btn, bh, TRUE);
 
-    /* MIDDLE: results list fills the gap between the two rows */
-    MoveWindow(g_list, pad, y + bh + pad, w - pad * 2,
-               by - pad - (y + bh + pad), TRUE);
+    /* ENCRYPT row: [x Encrypt] [passphrase ...............] just above the add row */
+    {
+        int ey = by - (bh + gap);
+        MoveWindow(g_enc, pad, ey, cbw, bh, TRUE);
+        MoveWindow(g_pp,  pad + cbw + gap, ey, w - pad * 2 - cbw - gap, bh, TRUE);
+
+        /* MIDDLE: results list fills the gap between the top row and the encrypt row */
+        MoveWindow(g_list, pad, y + bh + pad, w - pad * 2,
+                   ey - pad - (y + bh + pad), TRUE);
+    }
 }
 
 static LRESULT CALLBACK wndproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
@@ -507,6 +572,9 @@ static LRESULT CALLBACK wndproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
         g_lval  = mk(hwnd, "STATIC", "Value:", SS_LEFT, 0);
         g_value = mk(hwnd, "EDIT",   "", WS_BORDER | WS_TABSTOP | ES_AUTOHSCROLL, ID_VALUE);
         mk(hwnd, "BUTTON", "Add", WS_TABSTOP | BS_PUSHBUTTON, ID_ADD);
+        /* Encrypt row (off by default): a checkbox + a masked passphrase field. */
+        g_enc   = mk(hwnd, "BUTTON", "Encrypt", WS_TABSTOP | BS_AUTOCHECKBOX, ID_ENC);
+        g_pp    = mk(hwnd, "EDIT",   "", WS_BORDER | WS_TABSTOP | ES_PASSWORD | ES_AUTOHSCROLL, ID_PP);
         g_store = mk(hwnd, "STATIC", "", SS_LEFT | SS_PATHELLIPSIS, 0);
         mk(hwnd, "BUTTON", "Store...", WS_TABSTOP | BS_PUSHBUTTON, ID_STORE);
         if (ais_locate(NULL, dir, sizeof dir) == 0) {
@@ -533,6 +601,7 @@ static LRESULT CALLBACK wndproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
         case ID_STORE:  change_store(hwnd);    return 0;
         case ID_EDIT:   edit_selected(hwnd);   return 0;
         case ID_DELETE: delete_selected(hwnd); return 0;
+        case ID_REVEAL: reveal_selected(hwnd); return 0;
         case ID_LIST:
             if (HIWORD(wp) == LBN_DBLCLK)
                 open_selected();
@@ -564,6 +633,15 @@ static LRESULT CALLBACK wndproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
             if (SendMessage(g_list, LB_GETCURSEL, 0, 0) != LB_ERR) {
                 HMENU m = CreatePopupMenu();
                 if (m != NULL) {
+                    LRESULT sel = SendMessage(g_list, LB_GETCURSEL, 0, 0);
+                    int tn = (int)SendMessage(g_list, LB_GETTEXTLEN, (WPARAM)sel, 0);
+                    char *tv = (char *)malloc((size_t)tn + 1);
+                    if (tv != NULL) {                       /* offer Reveal for a secret */
+                        SendMessageA(g_list, LB_GETTEXT, (WPARAM)sel, (LPARAM)tv);
+                        if (strncmp(tv, "aisc:", 5) == 0)
+                            AppendMenuA(m, MF_STRING, ID_REVEAL, "Reveal");
+                        free(tv);
+                    }
                     AppendMenuA(m, MF_STRING, ID_EDIT, "Edit keys");
                     AppendMenuA(m, MF_STRING, ID_DELETE, "Delete");
                     TrackPopupMenu(m, TPM_LEFTALIGN | TPM_TOPALIGN, x, y, 0, hwnd, NULL);

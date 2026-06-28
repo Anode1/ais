@@ -31,6 +31,18 @@ char *ais_embed_recall(void *handle, const char *keys, int or_mode);
 /* Store VALUE under KEYS. Returns the record id (> 0), or -1 on error. */
 long  ais_embed_store(void *handle, const char *keys, const char *value);
 
+/* Store VALUE under KEYS, ENCRYPTED under PASSPHRASE (the "aisc:" marker), for a
+ * GUI's "encrypt" toggle. Returns the record id (> 0), or -1 (error, or the
+ * crypto module is not built). PASSPHRASE is used, not retained. */
+long  ais_embed_store_encrypted(void *handle, const char *keys,
+                                const char *value, const char *passphrase);
+
+/* Decrypt a marked ("aisc:") inline VALUE under PASSPHRASE, returning the
+ * cleartext as a freshly-allocated string (free with ais_embed_free), or NULL
+ * (wrong passphrase, not an inline secret, or crypto not built). For a GUI's
+ * reveal; encrypted DOCUMENTS (aisc:@blob) are revealed via the CLI. */
+char *ais_embed_reveal(const char *marked_value, const char *passphrase);
+
 /* Delete record ID (the id is the "id|value" handle from recall/timeline).
  * Returns 0 on success, -1 on error. */
 int   ais_embed_del(void *handle, long id);

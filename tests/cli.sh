@@ -275,7 +275,8 @@ CFG="$HOME/.ais/config"
 CFGBAK="$DIR/config.orig"; HADCFG=no
 [ -f "$CFG" ] && { cp "$CFG" "$CFGBAK"; HADCFG=yes; }
 restore_cfg() { if [ "$HADCFG" = yes ]; then cp "$CFGBAK" "$CFG"; else rm -f "$CFG"; fi; }
-trap 'rm -rf "$DIR"; restore_cfg' EXIT
+# restore BEFORE removing $DIR -- the backup (CFGBAK) lives inside it.
+trap 'restore_cfg; rm -rf "$DIR"' EXIT
 
 TGT="$DIR/saved-default"
 "$AIS" --default "$TGT" >/dev/null                              # save (process A)

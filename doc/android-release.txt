@@ -13,6 +13,9 @@ Do not skip the test stage. Prereq once: release signing is set up
    flutter analyze
    flutter build apk --release        # build/app/outputs/flutter-apk/app-release.apk  (sideload / F-Droid / GitHub)
    flutter build appbundle --release  # build/app/outputs/bundle/release/app-release.aab (Google Play)
+   # NOTE: the native build (app/flutter/src/CMakeLists.txt) must compile c/ AND
+   # c/crypto/*.c into libais.so; otherwise encryption links an unresolved
+   # aisc_encrypt and the app crashes on load. Re-check after any engine change.
 
 2. Checksums (attach to the GitHub release notes)
    sha256sum build/app/outputs/flutter-apk/app-release.apk
@@ -27,7 +30,7 @@ Do not skip the test stage. Prereq once: release signing is set up
 4. Google Play (manual)
    - Create the app once; enable Play App Signing (Google holds the signing key).
    - Internal testing: upload the .aab, add testers by email, they install.
-   - Closed testing: >= 12 testers for 14 days (required for new personal accounts
+   - Closed testing: >= 20 testers for 14 days (required for new personal accounts
      before production unlocks). Keep the track running the full 14 days.
    - Fill: Privacy policy URL, Data safety form, Content rating, target-API statement.
    - Promote the tested build to Production.

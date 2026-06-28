@@ -29,7 +29,7 @@ ifeq ($(strip $(AIS_VERSION)),)
 AIS_VERSION := 0.0.0-dev
 endif
 
-.PHONY: all ut clean static install install-strip install-desktop uninstall distclean check checkcli dist
+.PHONY: all ut clean static install install-strip install-desktop uninstall distclean check checkcli suite dist
 
 # Build the engine in c/, then copy the binary up to the repo root as ./ais, so
 # from a source checkout you can run ./ais instead of ./c/ais.
@@ -56,6 +56,12 @@ check: all
 # checkcli = just the end-to-end binary tests (assumes ais is built).
 checkcli: all
 	@sh tests/cli.sh "$(CURDIR)/c/ais"
+
+# suite = the whole test suite in two groups: CORE (engine + CLI, the commit
+# gate that `check` also runs) and GUI (--serve HTTP, native Windows, Flutter),
+# each layer PASS/FAIL/SKIP. A green CORE with a red/skipped GUI is committable.
+suite: all
+	@sh tests/run.sh
 
 # dist = a release bundle for THIS platform into releases/ (kept across runs;
 # md5 sidecar included). Run it on each platform; see scripts/dist.sh.
