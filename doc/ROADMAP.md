@@ -43,6 +43,17 @@ append-only plain text, merges compose cleanly (the same property that makes
 rsync-style replication safe). This is the backbone of multi-device use: your
 phone and laptop holding the same memory, with no central server.
 
+**Transport — end-to-end encrypted, cloudless, in two layers:**
+
+- **Today:** point Syncthing at the index folder, peer-to-peer, TLS + device keys,
+  no cloud account. Documented in `doc/SYNC.md`.
+- **Planned (built-in):** `ais --offer` / `ais --pull`, a one-shot LAN transfer with
+  nothing to install. An ephemeral, single-client HTTP server whose body is sealed
+  with XChaCha20-Poly1305 under a key derived from a one-time QR token (high entropy,
+  so no Argon2, no PAKE, no TLS certs). The puller fetches the peer's
+  store/tomb/blobs into a temp index, then runs the merge above. Same-LAN only by
+  design; cross-network stays Syncthing's job. Spec: `doc/dev/SYNC_PROTOCOL.md`.
+
 ### Encrypted secrets — passwords under keys
 
 The second engine-level item. Store secret values (passwords, tokens) encrypted
