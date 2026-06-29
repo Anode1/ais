@@ -287,5 +287,24 @@ okeq "default: saving the same path twice is idempotent" "$TGT" "$("$AIS" --defa
 "$AIS" --default '' >/dev/null                                  # clear
 ok   "default: clearing falls back to the built-in default" "no saved default" "$("$AIS" --default)"
 
+# 18. --export streams the merge format that --import consumes, so a pipe between
+#     two indexes merges A into B locally (no network). The two live records must
+#     cross over; the deleted one must NOT. The -v save returns the new record id.
+EA=$(mktemp -d "${TMPDIR:-/tmp}/ais_exp_a.XXXXXX") || exit 2
+EB=$(mktemp -d "${TMPDIR:-/tmp}/ais_exp_b.XXXXXX") || exit 2
+"$AIS" -f "$EA" -v alpha one  >/dev/null
+"$AIS" -f "$EA" -v beta  two  >/dev/null
+gid=$("$AIS" -f "$EA" -v gamma three)                          # save returns the id
+"$AIS" -f "$EA" -y --del "$gid" >/dev/null
+"$AIS" -f "$EA" --export | "$AIS" -f "$EB" --import >/dev/null
+bdump=$("$AIS" -f "$EB" --dump)
+ok      "export/import: live value 'alpha' merged into B" "alpha" "$bdump"
+ok      "export/import: live value 'beta' merged into B"  "beta"  "$bdump"
+case "$bdump" in
+    *gamma*) fail=$((fail + 1)); echo "  FAIL export/import: deleted record leaked into B" ;;
+    *)       pass=$((pass + 1)); echo "  ok   export/import: deleted record absent from B" ;;
+esac
+rm -rf "$EA" "$EB"
+
 echo "---- $pass passed, $fail failed"
 [ "$fail" -eq 0 ]

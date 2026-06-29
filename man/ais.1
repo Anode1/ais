@@ -51,7 +51,7 @@ ais \- associative index: save values under keys, get them back by keys
 .B ais
 .RB [ \-f
 .IR DIR ]
-.BR \-\-del | \-\-del-key | \-\-dump | \-\-keys | \-\-stats | \-\-compact | \-\-import | \-\-import-interactively | \-\-where | \-\-project | \-\-switch | \-\-indexes | \-\-forget | \-\-default | \-\-serve | \-\-init
+.BR \-\-del | \-\-del-key | \-\-dump | \-\-keys | \-\-stats | \-\-compact | \-\-export | \-\-import | \-\-import-interactively | \-\-where | \-\-project | \-\-switch | \-\-indexes | \-\-forget | \-\-default | \-\-serve | \-\-init
 .RI [ ARG ]
 .SH DESCRIPTION
 .B ais
@@ -211,6 +211,15 @@ lists your documents in chronological order.
 .TP
 .B \-\-dump
 Print every record.
+.TP
+.B \-\-export
+Write the merge stream (the
+.BR A| / D|
+lines) that
+.B \-\-import
+reads, so
+.B "ais \-f A \-\-export | ais \-f B \-\-import"
+merges A into B locally, with no network.
 .TP
 .B \-\-keys
 List all keys, sorted and distinct.
