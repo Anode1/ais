@@ -1546,7 +1546,6 @@ static void test_merge_roundtrip(void)
 {
     ais A, B;
     FILE *tmp;
-    int saved;
     const char *da = "/tmp/ais_ut_mergeA", *db = "/tmp/ais_ut_mergeB";
 
     scratch_rm(da);
@@ -1565,11 +1564,7 @@ static void test_merge_roundtrip(void)
     CHECK(tmp != NULL, "merge: tmpfile opened");
     feed_export(&A, tmp);                      /* A -> merge stream */
     rewind(tmp);
-    saved = dup(0);                            /* feed_import reads stdin */
-    dup2(fileno(tmp), 0);
-    feed_import(&B);                           /* stream -> B (the merge) */
-    dup2(saved, 0);
-    close(saved);
+    feed_import_from(&B, tmp);                  /* stream -> B (the merge) */
     fclose(tmp);
 
     CHECK(value_present(&B, "Hotel Danieli") == 1, "merge: a live record arrived in B");

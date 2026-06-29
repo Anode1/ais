@@ -17,6 +17,10 @@ void feed_interactive(ais *a, const char *base);
  * Blank lines and lines starting with '#' are skipped; idempotent via ais_put. */
 void feed_import(ais *a);
 
+/* Like feed_import, but read from IN (any FILE* -- a socket stream or an in-memory
+ * buffer for the sync transport), not just stdin. */
+void feed_import_from(ais *a, FILE *in);
+
 /* Write the merge/export stream to OUT: A|ts|keys|value for live records, then
  * D|ts|hash for tombstones. The inverse of merge-aware import; what --export serves. */
 void feed_export(ais *a, FILE *out);

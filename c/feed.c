@@ -98,7 +98,7 @@ void feed_interactive(ais *a, const char *base)
     fclose(tty);
 }
 
-void feed_import(ais *a)
+void feed_import_from(ais *a, FILE *in)
 {
     char line[AIS_LINE_MAX];
     long n = 0;
@@ -107,7 +107,7 @@ void feed_import(ais *a)
      * or a plain "keys|value" (legacy dump / hand-edit -> an add with no ts). Keys never
      * contain '|' (key_encode maps it to '_'). Blank/#-comment lines are skipped, so the
      * plain form stays hand-editable; a malformed A|/D| line falls through to plain. */
-    while (fgets(line, sizeof(line), stdin) != NULL) {
+    while (fgets(line, sizeof(line), in) != NULL) {
         char *bar, *keys, *val, *e;
 
         chomp(line);
@@ -162,6 +162,8 @@ void feed_import(ais *a)
     }
     fprintf(stderr, "imported %ld\n", n);
 }
+
+void feed_import(ais *a) { feed_import_from(a, stdin); }
 
 /* feed_export: write the merge/export stream to OUT -- A|ts|keys|value for every live
  * record, then D|ts|hash for every content-addressed tombstone. Adds precede deletes so
