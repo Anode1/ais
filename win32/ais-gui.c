@@ -29,7 +29,7 @@ enum { ID_EDIT = 1101, ID_DELETE, ID_REVEAL };
 static void *g_ais;                 /* engine handle (ais_embed_open) */
 static char  g_dir[4096];           /* current index dir: shown, and restored on a failed switch */
 static HWND  g_keys, g_or, g_list, g_value, g_vkeys, g_enc, g_pp;
-static HWND  g_trec, g_ttl, g_ttags;   /* view tabs: Recall / Timeline / Tags */
+static HWND  g_trec, g_ttl, g_ttags;   /* view tabs: Search / Timeline / Tags */
 static int   g_view;                   /* 0 = recall, 1 = timeline, 2 = tags */
 static HWND  g_lkeys, g_lval, g_lvk;   /* inline field labels: Keys:/Value:/Keys: */
 static HWND  g_store;                  /* "store: <dir>" status label (Store button is by id) */
@@ -651,9 +651,9 @@ static LRESULT CALLBACK wndproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
          * (handled by IsDialogMessage in the loop); statics are labels, no stop. */
         g_lkeys = mk(hwnd, "STATIC", "Keys:",  SS_LEFT, 0);
         g_keys  = mk(hwnd, "EDIT",   "", WS_BORDER | WS_TABSTOP | ES_AUTOHSCROLL, ID_KEYS);
-        mk(hwnd, "BUTTON", "Get", WS_TABSTOP | BS_DEFPUSHBUTTON, ID_GET);
+        mk(hwnd, "BUTTON", "Search", WS_TABSTOP | BS_DEFPUSHBUTTON, ID_GET);
         g_or    = mk(hwnd, "BUTTON", "Match any key", WS_TABSTOP | BS_AUTOCHECKBOX, ID_OR);
-        g_trec  = mk(hwnd, "BUTTON", "Recall",   WS_TABSTOP | BS_PUSHBUTTON, ID_VRECALL);
+        g_trec  = mk(hwnd, "BUTTON", "Search",   WS_TABSTOP | BS_PUSHBUTTON, ID_VRECALL);
         g_ttl   = mk(hwnd, "BUTTON", "Timeline", WS_TABSTOP | BS_PUSHBUTTON, ID_VTIMELINE);
         g_ttags = mk(hwnd, "BUTTON", "Tags",     WS_TABSTOP | BS_PUSHBUTTON, ID_VTAGS);
         g_list  = mk(hwnd, "LISTBOX", "", WS_BORDER | WS_TABSTOP | WS_VSCROLL | LBS_NOTIFY, ID_LIST);

@@ -82,7 +82,7 @@ class _RecallPageState extends State<RecallPage> {
       Directory(dir).createSync(recursive: true);
       _ais = AisEngine(dir);
       _dir = dir;
-      _status = 'Type keys, then Get. Tap Add to save.';
+      _status = 'Type keys, then Search. Tap Add to save.';
     } catch (e) {
       _status = 'cannot open index: $e';
     }
@@ -114,7 +114,7 @@ class _RecallPageState extends State<RecallPage> {
         setState(() {
           _results = const [];
           _searched = false;
-          _status = 'Type keys, then Get.';
+          _status = 'Type keys, then Search.';
         });
       }
     } else if (v == 'timeline') {
@@ -275,7 +275,7 @@ class _RecallPageState extends State<RecallPage> {
                             textInputAction: TextInputAction.search,
                             onSubmitted: (_) => _recall(),
                             decoration: InputDecoration(
-                              hintText: 'type keys, then Get',
+                              hintText: 'type keys, then Search',
                               prefixIcon: const Icon(Icons.search),
                               filled: true,
                               fillColor: Colors.white.withValues(alpha: 0.85),
@@ -304,7 +304,7 @@ class _RecallPageState extends State<RecallPage> {
                             shape: RoundedRectangleBorder(
                                 borderRadius: BorderRadius.circular(24)),
                           ),
-                          child: const Text('Get'),
+                          child: const Text('Search'),
                         ),
                       ],
                     ),
