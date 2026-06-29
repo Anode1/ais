@@ -82,7 +82,7 @@ class _RecallPageState extends State<RecallPage> {
       Directory(dir).createSync(recursive: true);
       _ais = AisEngine(dir);
       _dir = dir;
-      _status = 'Type keys, then search. Tap Add to save.';
+      _status = 'Type keys, then Get. Tap Add to save.';
     } catch (e) {
       _status = 'cannot open index: $e';
     }
@@ -114,7 +114,7 @@ class _RecallPageState extends State<RecallPage> {
         setState(() {
           _results = const [];
           _searched = false;
-          _status = 'Type keys, then Enter.';
+          _status = 'Type keys, then Get.';
         });
       }
     } else if (v == 'timeline') {
@@ -240,6 +240,8 @@ class _RecallPageState extends State<RecallPage> {
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
+    // Views (Search/Timeline/Tags) live in the bottom NavigationBar below; the
+    // header is just search + Get + the store row.
     return Scaffold(
       body: SafeArea(
         child: Column(children: [
@@ -264,26 +266,47 @@ class _RecallPageState extends State<RecallPage> {
                         ),
                     ]),
                     const SizedBox(height: 8),
-                    TextField(
-                      controller: _q,
-                      autofocus: true,
-                      textInputAction: TextInputAction.search,
-                      onSubmitted: (_) => _recall(),
-                      decoration: InputDecoration(
-                        hintText: 'type keys to get…',
-                        prefixIcon: const Icon(Icons.search),
-                        filled: true,
-                        fillColor: Colors.white.withValues(alpha: 0.85),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(28),
-                          borderSide: BorderSide.none,
+                    Row(
+                      children: [
+                        Expanded(
+                          child: TextField(
+                            controller: _q,
+                            autofocus: true,
+                            textInputAction: TextInputAction.search,
+                            onSubmitted: (_) => _recall(),
+                            decoration: InputDecoration(
+                              hintText: 'type keys, then Get',
+                              prefixIcon: const Icon(Icons.search),
+                              filled: true,
+                              fillColor: Colors.white.withValues(alpha: 0.85),
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(28),
+                                borderSide: BorderSide.none,
+                              ),
+                              // mic on mobile so the first tap can request permission
+                              suffixIcon:
+                                  (_voice || Platform.isAndroid || Platform.isIOS)
+                                      ? IconButton(
+                                          icon: const Icon(Icons.mic),
+                                          onPressed: _listen)
+                                      : null,
+                            ),
+                          ),
                         ),
-                        // Show the mic on mobile so the first tap can request the
-                        // permission; desktop has no speech recognizer.
-                        suffixIcon: (_voice || Platform.isAndroid || Platform.isIOS)
-                            ? IconButton(icon: const Icon(Icons.mic), onPressed: _listen)
-                            : null,
-                      ),
+                        const SizedBox(width: 8),
+                        ElevatedButton(
+                          onPressed: () => _setView('recall'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: cs.primary,
+                            foregroundColor: cs.onPrimary,
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 22, vertical: 18),
+                            shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(24)),
+                          ),
+                          child: const Text('Get'),
+                        ),
+                      ],
                     ),
                     Row(
                       children: [
@@ -300,27 +323,8 @@ class _RecallPageState extends State<RecallPage> {
                       ],
                     ),
                     const SizedBox(height: 4),
-                    SizedBox(
-                      width: double.infinity,
-                      child: SegmentedButton<String>(
-                        showSelectedIcon: false,
-                        style: ButtonStyle(
-                          visualDensity: VisualDensity.compact,
-                          textStyle: WidgetStatePropertyAll(
-                              TextStyle(fontSize: 13, color: cs.onSurface)),
-                        ),
-                        segments: const [
-                          ButtonSegment(value: 'recall', label: Text('Get')),
-                          ButtonSegment(value: 'timeline', label: Text('Timeline')),
-                          ButtonSegment(value: 'tags', label: Text('Tags')),
-                        ],
-                        selected: {_view},
-                        onSelectionChanged: (s) => _setView(s.first),
-                      ),
-                    ),
-                    const SizedBox(height: 4),
                     Row(children: [
-                      Expanded(
+                      Flexible(
                         child: Text(
                           _dir.isEmpty ? 'store: (default)' : 'store: $_dir',
                           style: TextStyle(color: cs.outline, fontSize: 12),
@@ -351,6 +355,29 @@ class _RecallPageState extends State<RecallPage> {
         onPressed: _ais == null ? null : _showAdd,
         icon: const Icon(Icons.add),
         label: const Text('Add'),
+      ),
+      // Three peer destinations, thumb-reachable. The label is "Search"; the
+      // internal view key stays 'recall' (RecallPage / _view). The header's
+      // "Get" is the ACTION button -- one word per concept, no two "Get"s.
+      bottomNavigationBar: NavigationBar(
+        selectedIndex:
+            ['recall', 'timeline', 'tags'].indexOf(_view).clamp(0, 2),
+        onDestinationSelected: (i) =>
+            _setView(const ['recall', 'timeline', 'tags'][i]),
+        destinations: const [
+          NavigationDestination(
+              icon: Icon(Icons.search_outlined),
+              selectedIcon: Icon(Icons.search),
+              label: 'Search'),
+          NavigationDestination(
+              icon: Icon(Icons.schedule_outlined),
+              selectedIcon: Icon(Icons.schedule),
+              label: 'Timeline'),
+          NavigationDestination(
+              icon: Icon(Icons.label_outline),
+              selectedIcon: Icon(Icons.label),
+              label: 'Tags'),
+        ],
       ),
     );
   }
@@ -573,7 +600,7 @@ class _RecallPageState extends State<RecallPage> {
         items.add(Padding(
           padding: const EdgeInsets.fromLTRB(16, 18, 16, 4),
           child: Text(d.isEmpty ? '(undated)' : _fmtDay(d),
-              style: TextStyle(fontSize: 12, color: cs.outline, fontWeight: FontWeight.w600)),
+              style: TextStyle(fontSize: 14, color: cs.onSurface, fontWeight: FontWeight.w700)),
         ));
       }
       final time = (dt != null && r.ts.contains('T')) ? '${p2(dt.hour)}:${p2(dt.minute)} · ' : '';
@@ -581,7 +608,7 @@ class _RecallPageState extends State<RecallPage> {
         title: SelectableText(r.value,
             style: TextStyle(color: _isUrl(r.value) ? cs.primary : null)),
         subtitle: Text('$time${r.keys.isEmpty ? '(no keys)' : r.keys}',
-            style: TextStyle(color: cs.outline, fontSize: 12)),
+            style: TextStyle(color: cs.onSurfaceVariant, fontSize: 13)),
       ));
     }
     if (_tlMore) {
