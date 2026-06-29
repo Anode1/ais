@@ -29,6 +29,7 @@
 #include "doc.h"
 #include "embed.h"
 #include "feed.h"
+#include "sync.h"
 #include "locate.h"
 #include "secret.h"
 #include "b64.h"
@@ -1577,6 +1578,44 @@ static void test_merge_roundtrip(void)
     scratch_rm(db);
 }
 
+/* The sync transport's crypto+merge endpoints: export A's stream sealed under a token; a
+ * wrong token is rejected before any merge; the right token unseals and converges B. */
+static void test_sync_sealed(void)
+{
+    ais A, B;
+    uint8_t *blob = NULL;
+    size_t blen = 0;
+    const char *da = "/tmp/ais_ut_sealA", *db = "/tmp/ais_ut_sealB";
+    const char *tok = "0123456789abcdef0123456789abcdef";
+
+    scratch_rm(da);
+    scratch_rm(db);
+    ais_open(&A, da);
+    ais_open(&B, db);
+    ais_put(&A, "venice", "Hotel Danieli");
+    ais_put(&A, "paris", "Cafe de Flore");   /* id 2 */
+    ais_del(&A, 2);
+
+    CHECK(sync_export_sealed(&A, tok, &blob, &blen) == 0 && blob != NULL && blen > 0,
+          "sync: export -> sealed blob");
+    CHECK(sync_import_sealed(&B, "ffffffffffffffffffffffffffffffff", blob, blen) == -1,
+          "sync: a wrong token is rejected");
+    CHECK(value_present(&B, "Hotel Danieli") == 0,
+          "sync: nothing merged on a bad token");
+    CHECK(sync_import_sealed(&B, tok, blob, blen) == 0,
+          "sync: the right token unseals and merges");
+    CHECK(value_present(&B, "Hotel Danieli") == 1,
+          "sync: a live record arrived via the sealed blob");
+    CHECK(value_present(&B, "Cafe de Flore") == 0,
+          "sync: the deletion propagated via the sealed blob");
+
+    free(blob);
+    ais_close(&A);
+    ais_close(&B);
+    scratch_rm(da);
+    scratch_rm(db);
+}
+
 int main(void)
 {
     printf("AIS regression tests (make ut)\n");
@@ -1647,6 +1686,8 @@ int main(void)
     test_secret_value();
     printf("secret blob (file image round-trip):\n");
     test_secret_blob_crypto();
+    printf("sync transport (sealed stream):\n");
+    test_sync_sealed();
 #endif
     printf("----\n%d passed, %d failed\n", ut_pass, ut_fail);
     return ut_fail == 0 ? 0 : 1;
