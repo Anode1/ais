@@ -33,6 +33,16 @@ void ais_close(ais *a);
  * Returns the record id (> 0), or -1 on error. */
 long ais_put(ais *a, const char *keys, const char *value);
 
+/* Like ais_put, but stamp a NEW record with TS (NULL = now), and if the value exists
+ * but is tombstoned, resurrect it only when TS is newer than the deletion (last-write-
+ * wins; NULL/now always wins). The merge primitive shared by put and --import. */
+long ais_put_at(ais *a, const char *keys, const char *value, const char *ts);
+
+/* Apply an incoming deletion (content HASH, delete-time TS) under last-write-wins:
+ * tombstone the local record whose value hashes to HASH iff the delete is at least as
+ * new as that record's add-ts and it is not already deleted. No-op if absent. 0/-1. */
+int  ais_merge_del(ais *a, const char *hash, const char *ts);
+
 /* Attach another value/link to an existing record (the multi-link case).
  * Returns 0 on success, -1 if `id` is unknown. */
 int  ais_add(ais *a, long id, const char *value);

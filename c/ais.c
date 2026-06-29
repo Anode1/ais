@@ -93,14 +93,18 @@ static int keys_attach_only(const char *keys, char *out, size_t outsz)
     return 0;
 }
 
-long ais_put(ais *a, const char *keys, const char *value)
+/* Put VALUE under KEYS, stamping a NEW record with TS (NULL = now). If the value
+ * already exists, attach the keys (idempotent + key-union). If it exists but is
+ * tombstoned, resurrect it only when TS is newer than the deletion (last-write-wins;
+ * TS == NULL / now always wins, so a local re-add brings it back). The merge primitive
+ * shared by local put and --import. Returns the id, or -1. */
+long ais_put_at(ais *a, const char *keys, const char *value, const char *ts)
 {
     long id = 0, rc;
     int found;
     char clean[AIS_LINE_MAX];
 
-    /* A save only ATTACHES keys; detaching a key is ais_update's job (it needs
-     * the id as the handle). So drop any "-key" tokens here. */
+    /* A save only ATTACHES keys; detaching a key is ais_update's job. Drop "-key". */
     if (keys_attach_only(keys, clean, sizeof clean) != 0)
         return -1;
 
@@ -115,21 +119,32 @@ long ais_put(ais *a, const char *keys, const char *value)
     if (found < 0) { rc = -1; goto out; }
 
     if (found) {
-        /* value already stored: reuse its id, just (re)post the keys (the merge
-         * dedups, so re-posting an existing id is harmless). */
-        debug("put: value exists as id=%ld (idempotent)", id);
+        if (tomb_contains(a, id) == 1) {     /* exists but deleted: last-write-wins */
+            int win = 1;                     /* NULL ts = local now, always newest */
+            if (ts != NULL) {
+                char del_ts[AIS_TS_MAX];
+                tomb_lookup(a, id, del_ts, sizeof del_ts);
+                win = (strcmp(ts, del_ts) > 0);
+            }
+            if (!win) { rc = id; goto out; }            /* the delete is newer: stay deleted */
+            if (tomb_remove(a, id) != 0) { rc = -1; goto out; }   /* resurrect */
+        }
         rc = (ais_post_keys(a, clean, id) != 0) ? -1 : id;
         goto out;
     }
 
     id = a->next_id;
     {
-        char ts[AIS_TS_MAX];
+        char now[AIS_TS_MAX];
+        const char *use_ts = ts;
         long off = store_bytes(a);          /* offset the new line gets */
         int  ok  = (off >= 0) && off_consistent(a);
-        store_now(ts, sizeof(ts));          /* "" if the clock is unreadable */
-        if (store_append(a, id, ts, clean, value) != 0) { rc = -1; goto out; }
-        if (ok && off_append(a, off) != 0)             { rc = -1; goto out; }  /* keep "off" in lockstep */
+        if (use_ts == NULL) {
+            store_now(now, sizeof now);     /* "" if the clock is unreadable */
+            use_ts = now;
+        }
+        if (store_append(a, id, use_ts, clean, value) != 0) { rc = -1; goto out; }
+        if (ok && off_append(a, off) != 0)                  { rc = -1; goto out; }  /* keep "off" in lockstep */
     }
     if (ais_post_keys(a, clean, id) != 0) { rc = -1; goto out; }
     a->next_id = id + 1;
@@ -140,6 +155,11 @@ long ais_put(ais *a, const char *keys, const char *value)
 out:
     store_wunlock(a);
     return rc;
+}
+
+long ais_put(ais *a, const char *keys, const char *value)
+{
+    return ais_put_at(a, keys, value, NULL);
 }
 
 /* Context for ais_add: find whether the id exists and capture its keys. */
@@ -301,6 +321,43 @@ cleanup:
     post_close(&s);
     store_wunlock(a);
     debug("del_key: '%s' tombstoned %d records", key, n);
+    return rc;
+}
+
+/* Find a local record whose value hashes to the target (record identity = value). */
+struct mdel_ctx { const char *hash; long id; char add_ts[AIS_TS_MAX]; int found; };
+static int mdel_seek(long id, const char *ts, const char *keys, const char *value, void *vp)
+{
+    struct mdel_ctx *M = vp;
+    char h[17];
+    (void)keys;
+    content_hash(value, h);
+    if (strcmp(h, M->hash) == 0) {
+        M->id = id;
+        snprintf(M->add_ts, sizeof M->add_ts, "%s", ts);
+        M->found = 1;
+        return -1;   /* stop */
+    }
+    return 0;
+}
+
+int ais_merge_del(ais *a, const char *hash, const char *ts)
+{
+    struct mdel_ctx M;
+    int rc = 0;
+
+    M.hash = hash;
+    M.id = 0;
+    M.add_ts[0] = '\0';
+    M.found = 0;
+    if (store_wlock(a) != 0)
+        return -1;
+    store_each_record(a, mdel_seek, &M);
+    /* last-write-wins: delete iff the incoming delete is at least as new as the local
+     * add and the value is not already deleted; an absent value has nothing to delete. */
+    if (M.found && tomb_contains(a, M.id) == 0 && strcmp(ts, M.add_ts) >= 0)
+        rc = tomb_append(a, M.id, ts, hash);
+    store_wunlock(a);
     return rc;
 }
 

@@ -1497,6 +1497,57 @@ static void test_export_stream(void)
     scratch_rm(dir);
 }
 
+/* A value is "present" if its record exists and is not tombstoned. */
+static int value_present(ais *a, const char *value)
+{
+    long id;
+    if (store_find_value(a, value, &id) != 1)
+        return 0;
+    return tomb_contains(a, id) == 0;
+}
+
+/* Round-trip: export index A's merge stream and import it into B; B must converge to
+ * A's live records AND apply A's deletion (last-write-wins) over B's own copy. */
+static void test_merge_roundtrip(void)
+{
+    ais A, B;
+    FILE *tmp;
+    int saved;
+    const char *da = "/tmp/ais_ut_mergeA", *db = "/tmp/ais_ut_mergeB";
+
+    scratch_rm(da);
+    scratch_rm(db);
+    ais_open(&A, da);
+    ais_open(&B, db);
+
+    ais_put(&A, "venice", "Hotel Danieli");
+    ais_put(&A, "paris", "Cafe de Flore");   /* A id 2, deleted below */
+    ais_put(&A, "rome", "Trattoria");
+    ais_del(&A, 2);                            /* A deletes 'paris' */
+
+    ais_put(&B, "paris", "Cafe de Flore");    /* B independently still has 'paris' */
+
+    tmp = tmpfile();
+    CHECK(tmp != NULL, "merge: tmpfile opened");
+    feed_export(&A, tmp);                      /* A -> merge stream */
+    rewind(tmp);
+    saved = dup(0);                            /* feed_import reads stdin */
+    dup2(fileno(tmp), 0);
+    feed_import(&B);                           /* stream -> B (the merge) */
+    dup2(saved, 0);
+    close(saved);
+    fclose(tmp);
+
+    CHECK(value_present(&B, "Hotel Danieli") == 1, "merge: a live record arrived in B");
+    CHECK(value_present(&B, "Trattoria") == 1,     "merge: the second live record arrived");
+    CHECK(value_present(&B, "Cafe de Flore") == 0, "merge: A's deletion propagated to B");
+
+    ais_close(&A);
+    ais_close(&B);
+    scratch_rm(da);
+    scratch_rm(db);
+}
+
 int main(void)
 {
     printf("AIS regression tests (make ut)\n");
@@ -1504,6 +1555,7 @@ int main(void)
     test_content_hash();
     printf("merge:\n");
     test_export_stream();
+    test_merge_roundtrip();
     printf("key:\n");
     test_key_encode();
     test_key_prefix();

@@ -105,6 +105,79 @@ int tomb_each(const ais *a, tomb_cb cb, void *ctx)
     return rc;
 }
 
+/* Copy id's delete-ts into TS (the LAST matching entry = latest append; "" for a
+ * legacy v1 entry or none). Returns 1 if id is tombstoned, 0 if not, -1 on error. */
+int tomb_lookup(const ais *a, long id, char *ts, size_t tsz)
+{
+    char path[AIS_PATH_MAX], line[AIS_LINE_MAX];
+    FILE *fp;
+    int found = 0;
+
+    if (ts != NULL && tsz > 0)
+        ts[0] = '\0';
+    if (compact_path(a, "tomb", path, sizeof(path)) != 0)
+        return -1;
+    fp = fopen(path, "r");
+    if (fp == NULL)
+        return (errno == ENOENT) ? 0 : -1;
+    while (fgets(line, sizeof(line), fp) != NULL) {
+        char *t, *h, *nl;
+        if (atol(line) != id)
+            continue;
+        found = 1;
+        nl = strchr(line, '\n');
+        if (nl != NULL) *nl = '\0';
+        t = strchr(line, '|');
+        if (t != NULL) {
+            t++;
+            h = strchr(t, '|');
+            if (h != NULL) *h = '\0';            /* drop the hash field */
+            if (ts != NULL && tsz > 0) {
+                strncpy(ts, t, tsz - 1);
+                ts[tsz - 1] = '\0';
+            }
+        }
+    }
+    fclose(fp);
+    return found;
+}
+
+/* Remove every tomb entry for ID (rewrite the file) -- resurrect the record. Returns 0
+ * (including when ID was not present), or -1 on error. Mirrors ktomb_remove. */
+int tomb_remove(const ais *a, long id)
+{
+    char path[AIS_PATH_MAX], tmp[AIS_PATH_MAX], orig[AIS_LINE_MAX];
+    FILE *in, *out;
+    long kept = 0;
+    int removed = 0;
+
+    if (compact_path(a, "tomb", path, sizeof(path)) != 0)
+        return -1;
+    in = fopen(path, "r");
+    if (in == NULL)
+        return (errno == ENOENT) ? 0 : -1;
+    if (snprintf(tmp, sizeof(tmp), "%s.tmp", path) >= (int)sizeof(tmp)) {
+        fclose(in);
+        return -1;
+    }
+    out = fopen(tmp, "w");
+    if (out == NULL) {
+        fclose(in);
+        return -1;
+    }
+    while (fgets(orig, sizeof(orig), in) != NULL) {
+        if (atol(orig) == id) { removed = 1; continue; }
+        fputs(orig, out);
+        kept++;
+    }
+    fclose(in);
+    if (fclose(out) != 0) { unlink(tmp); return -1; }
+    if (!removed)   { unlink(tmp); return 0; }
+    if (kept == 0)  { unlink(tmp); unlink(path); return 0; }
+    if (rename(tmp, path) != 0) { unlink(tmp); return -1; }
+    return 0;
+}
+
 /* Parse one "id|key" ktomb line IN PLACE: returns the id (>= 0), sets *KP to the
  * key (text after the first '|', newline trimmed), or -1 if the line has no '|'. */
 static long ktomb_parse(char *line, const char **kp)

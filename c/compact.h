@@ -23,6 +23,12 @@ int tomb_contains(const ais *a, long id);
 typedef int (*tomb_cb)(long id, const char *ts, const char *hash, void *ctx);
 int tomb_each(const ais *a, tomb_cb cb, void *ctx);
 
+/* Copy id's delete-ts into TS ("" for a legacy entry). 1 tombstoned / 0 / -1. */
+int tomb_lookup(const ais *a, long id, char *ts, size_t tsz);
+
+/* Remove every tomb entry for ID (rewrite) -- resurrect the record. 0/-1. */
+int tomb_remove(const ais *a, long id);
+
 /* Key-level tombstones (INDEX/ktomb): "record ID no longer carries KEY", the
  * append-only counterpart of the record tomb. Detach records the pair here and
  * drops the posting; dump/timeline hide the key; compaction strips it from the

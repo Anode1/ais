@@ -103,16 +103,39 @@ void feed_import(ais *a)
     char line[AIS_LINE_MAX];
     long n = 0;
 
-    /* Each line is "keys|value" (the inverse of dump's id|keys|value). Keys
-     * never contain '|' (key_encode maps it to '_'), so the FIRST '|' is the
-     * keys/value split; the value may itself contain '|' and is taken verbatim.
-     * Blank lines and #-comments are skipped, so the file stays hand-editable. */
+    /* A line is one of: a merge-stream "A|ts|keys|value" (add) or "D|ts|hash" (delete),
+     * or a plain "keys|value" (legacy dump / hand-edit -> an add with no ts). Keys never
+     * contain '|' (key_encode maps it to '_'). Blank/#-comment lines are skipped, so the
+     * plain form stays hand-editable; a malformed A|/D| line falls through to plain. */
     while (fgets(line, sizeof(line), stdin) != NULL) {
         char *bar, *keys, *val, *e;
 
         chomp(line);
         if (line[0] == '\0' || line[0] == '#')
             continue;
+
+        if (line[0] == 'A' && line[1] == '|') {        /* A|ts|keys|value */
+            char *ts = line + 2, *k, *v;
+            k = strchr(ts, '|');
+            v = (k != NULL) ? strchr(k + 1, '|') : NULL;
+            if (k != NULL && v != NULL) {
+                *k++ = '\0';
+                *v++ = '\0';
+                if (ais_put_at(a, k, v, ts[0] ? ts : NULL) >= 0)
+                    n++;
+                continue;
+            }                                          /* else: legacy keys "A" -> below */
+        }
+        if (line[0] == 'D' && line[1] == '|') {        /* D|ts|hash */
+            char *ts = line + 2, *h;
+            h = strchr(ts, '|');
+            if (h != NULL) {
+                *h++ = '\0';
+                ais_merge_del(a, h, ts);
+                continue;
+            }
+        }
+
         bar = strchr(line, '|');
         if (bar == NULL) {
             fprintf(stderr, "import: no '|', skipped: %s\n", line);
