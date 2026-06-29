@@ -2,9 +2,27 @@
 
 ## Goal
 One-shot, no-cloud, no-dependency transfer of an index between two devices on the same
-network, then reconcile with the existing `ais --merge`. Reuses the `--serve` socket
-pattern. This is the "push my phone to my laptop right now, nothing installed, same
-Wi-Fi" path; for set-and-forget or cross-network sync, use Syncthing (see doc/SYNC.md).
+network, then reconcile via the merge-aware `--import` (see `doc/dev/MERGE.md`). Reuses the
+`--serve` socket pattern. This is the "push my phone to my laptop right now, nothing
+installed, same Wi-Fi" path; for set-and-forget or cross-network sync, use Syncthing
+(see `doc/SYNC.md`).
+
+## Status & build order (where a new contributor starts)
+Design approved; decisions LOCKED: full tombstone-union merge (decision B), end-to-end
+encrypted from the start, CLI = `--export` / `--import <url>` (no `--remote`), `--import`
+merge-aware for all sources, plain `--dump` unchanged. Build in this order, each reviewed
+before the next:
+
+1. **Engine: tombstone-union merge** (`doc/dev/MERGE.md`) — make `--import` merge-aware
+   (last-write-wins by `ts`; timestamped content-addressed tombstones). Record-level first;
+   `ktomb` (key-level) is the one open call (lean: follow-up). This gates everything.
+2. **Transport: `sync.c`** — `--export` (ephemeral LAN server, token + QR, E2E AEAD) and
+   `--import <url>` (fetch, decrypt, merge). New file; reuse `serve.c` socket helpers, do
+   not restructure `serve.c`.
+3. **GUI: a "Sync" surface** — phone (scan QR -> import) and the desktop GUIs.
+
+Owner: the sync/engine track (separate from the GUI track). Only open decision: `ktomb` in
+v1 vs follow-up.
 
 ## Non-goals (this is where the weight lives, kept out on purpose)
 - No auto-discovery (no mDNS/multicast). Pairing is manual: IP:port + token, shown as text and a QR.

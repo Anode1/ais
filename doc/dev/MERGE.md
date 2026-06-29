@@ -61,16 +61,17 @@ Given local index A and incoming index B:
 Symmetric: run both directions (A pulls B, then B pulls A) and both converge to the same
 live set. `--import` grows to understand DEL events (today it only adds).
 
-## Wire / dump format (so deletions travel)
-`--dump` today emits only live records and omits deletions. Add a delete line so a dump
-(and the sync stream) carries both, with an explicit line type:
+## Export-wire format (so deletions travel)
+DECISION: plain `--dump` stays **unchanged** — human-readable and greppable, live records
+only. The prefixed line types below are the **export-wire** format (what `--export` serves
+and `--import <url>` consumes), NOT `--dump` output:
 
-    A|<ts>|<keys>|<value>      # add  (today's dump line, now prefixed)
-    D|<ts>|<hash>              # delete
+    A|<ts>|<keys>|<value>      # add  (a live record)
+    D|<ts>|<hash>              # delete (a content-addressed tombstone)
 
 `--import` applies `A` lines via `put` and `D` lines via the tomb/suppress path, both under
-last-write-wins. Back-compat: an unprefixed legacy dump line = an `A` line with ts unknown
-(treated as oldest, loses to any real-ts event).
+last-write-wins. A plain (unprefixed) line fed to `--import` from a file/stdin is treated as
+an `A` line with ts unknown (oldest), so a hand-edited or legacy dump still imports as adds.
 
 ## Migration
 - `version` bump. `tomb` v1 (`id`) -> v2 (`ts|hash`): on open, resolve each tombstoned id to
@@ -91,7 +92,7 @@ last-write-wins. Back-compat: an unprefixed legacy dump line = an `A` line with 
 ## Open questions
 1. `ktomb` (key-level) in v1, or follow-up? (leaning: follow-up)
 2. Tomb hash width: 128-bit truncated vs full 256-bit.
-3. `--dump` default: always emit the new prefixed format, or only under `--dump --sync`, to
-   keep the human-readable/greppable dump unchanged?
+3. RESOLVED: plain `--dump` stays unchanged (readable); the prefixed `A|`/`D|` lines are the
+   export-wire format only (see "Export-wire format" above).
 4. Any existing consumer that parses `tomb` or `--dump` output? (grep before changing format.)
 5. Store `keys` alongside the hash in `tomb` for a human-readable tombstone, or hash-only?
