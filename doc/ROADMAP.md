@@ -47,12 +47,14 @@ phone and laptop holding the same memory, with no central server.
 
 - **Today:** point Syncthing at the index folder, peer-to-peer, TLS + device keys,
   no cloud account. Documented in `doc/SYNC.md`.
-- **Planned (built-in):** `ais --offer` / `ais --pull`, a one-shot LAN transfer with
-  nothing to install. An ephemeral, single-client HTTP server whose body is sealed
-  with XChaCha20-Poly1305 under a key derived from a one-time QR token (high entropy,
-  so no Argon2, no PAKE, no TLS certs). The puller fetches the peer's
-  store/tomb/blobs into a temp index, then runs the merge above. Same-LAN only by
-  design; cross-network stays Syncthing's job. Spec: `doc/dev/SYNC_PROTOCOL.md`.
+- **Planned (built-in):** `ais --export` / `ais --import <url>`, a one-shot LAN transfer
+  with nothing to install. An ephemeral, single-client HTTP server whose body is sealed
+  with XChaCha20-Poly1305 under a key derived from a one-time QR token (high entropy, so
+  no Argon2, no PAKE, no TLS certs). `--import` fetches the peer's records and runs the
+  merge. The **merge engine is built** (last-write-wins, deletions propagate; see
+  `doc/dev/MERGE.md`), and `--import` is already merge-aware for stdin/file/URL; the
+  remaining piece is the network transport. Same-LAN only by design; cross-network stays
+  Syncthing's job. Spec: `doc/dev/SYNC_PROTOCOL.md`.
 
 ### Encrypted secrets: passwords under keys
 
