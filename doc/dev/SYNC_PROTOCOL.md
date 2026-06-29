@@ -53,12 +53,23 @@ wrong token returns 403; the server keeps waiting and does not reveal whether da
 Client order: meta (version gate) -> store -> tomb -> list blobs -> fetch missing blobs.
 
 ## Merge / convergence
-- Pull writes the fetched files into a fresh temp index dir, then merges into the live
-  index via the existing merge path (content dedup; tombstones unioned).
-- One-way by nature: after A pulls B, A holds A+B and B is unchanged. Full convergence =
-  both sides pull (or a later `ais --sync` convenience that pulls both directions).
-- PREREQUISITE to verify: `--merge` must union tombstones so a deletion on the other
-  device propagates. If today's merge ignores `tomb`, that fix lands first.
+There is NO index-to-index merge command today; `c/merge.c` is the query-time
+posting-list merge. Reconcile is built from existing pieces:
+- Pull fetches the peer's records (the `--dump` format) and feeds them through the
+  `--import` path (`feed_import`). `put` is idempotent (dedup by store scan), so new
+  records land and duplicates are suppressed. **Additions converge.**
+- **Deletions do NOT propagate yet**: `--import` only adds, `--dump` skips tombstoned
+  ids, and nothing unions the two `tomb` files. Propagating deletions needs a
+  tombstone-union reconcile, which is the planned "seamless index merging" engine item
+  (see ROADMAP).
+- One-way by nature: after A pulls B, A holds A+B and B is unchanged; full convergence =
+  both sides pull.
+
+DECISION (chosen: **full merge**). Build the tombstone-union reconcile first (the
+seamless-merge engine item), then sync gets true convergence including deletions.
+Additions-only was rejected as a temp solution. Conflict rule: **last-write-wins by the
+store's `ts` column** (delete-after-add wins; re-add-after-delete wins), deterministic
+for a single user across their own devices.
 
 ## Security model (end-to-end encrypted, from the start)
 `--serve` binds 127.0.0.1 deliberately. `--offer` MUST bind the LAN interface, so the
