@@ -1,5 +1,5 @@
 # WASM PWA -- milestone 1: compile the engine + FFI seam to WebAssembly with
-# emscripten (see ../../doc/dev/WASM-PWA.md). Dispatch-only test harness; NOT on
+# emscripten (see ../../doc/dev/DISTRIBUTION.md, "Phones / PWA"). Dispatch-only test harness; NOT on
 # the release path. Later milestones add IDBFS persistence, the JS data layer,
 # and a GitHub Pages deploy.
 name: wasm-pwa

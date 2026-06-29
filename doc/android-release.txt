@@ -22,8 +22,8 @@ Do not skip the test stage. Prereq once: release signing is set up
    sha256sum build/app/outputs/bundle/release/app-release.aab
 
 3. TEST first (before any production push)
-   # install the release APK on a real device and exercise: recall, add, change
-   # store, and the mic (allow on first tap, speak, confirm text fills + recall runs).
+   # install the release APK on a real device and exercise recall, add, change
+   # store, and the mic. Device/SDK setup and the mic flow: see doc/android-install.md.
    adb install -r build/app/outputs/flutter-apk/app-release.apk
    # wider testers (optional): Firebase App Distribution, or Play internal testing.
 

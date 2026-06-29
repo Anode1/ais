@@ -1,9 +1,10 @@
-# app/ — AIS phone web app (PWA)
+# app/: AIS phone web app (PWA)
 
-A thin, installable web client for phones. It is plain files (no framework, no
-build step) and talks to the **same `ais --serve` API** the desktop page uses
-(`/api/get`, `/api/put`) — the C engine is the backend. Voice recall uses the
-browser's own speech-to-text; typing always works where voice doesn't.
+An installable web client for phones. See gui/README.md for why front-ends stay
+thin; here it is plain files (no framework, no build step) talking to the **same
+`ais --serve` API** the desktop page uses (`/api/get`, `/api/put`), with the C
+engine as the backend. Voice recall uses the browser's own speech-to-text;
+typing always works where voice doesn't.
 
     index.html           the page (markup + the small client script)
     app.css              mobile-first styling (edit and reload)
@@ -18,19 +19,12 @@ browser's own speech-to-text; typing always works where voice doesn't.
 Open http://127.0.0.1:8765/ in Chrome. `localhost` is a *secure context*, so
 voice, install, and the service worker all work here for development.
 
-## On a real phone — the secure-context rule
+## On a real phone
 
-Browser **voice and install require HTTPS or localhost**. Plain
-`http://<desktop-ip>:8765` from a phone shows the page but disables voice,
-install, and the service worker. Two real paths:
+Browser voice/install need a secure context (HTTPS or localhost); on Android use
+Termux + `http://localhost:8765`. Full rule and the route choices:
+see doc/android-install.md.
 
-- **Android (recommended):** run `ais --serve` inside *Termux* on the phone, then
-  open `http://localhost:8765` in Chrome — it's localhost *on the phone*, so the
-  full PWA (voice, install, offline shell) works, and the data lives on the
-  phone.
-- **Any phone, hosted:** serve it behind an HTTPS reverse proxy. Heavier; needs
-  a cert and binding beyond loopback (`ais --serve` binds 127.0.0.1 only by
-  design).
 - **iOS:** Safari has no Web Speech recognition, so *voice* needs a future
   native app / Siri Shortcuts. Text recall works over HTTPS.
 

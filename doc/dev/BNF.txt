@@ -16,14 +16,28 @@ verbal explanation of a character class. "\n" is LF.
 
 
 ---- store : the source of truth (append-only) -------------------------------
-INDEX/store. One record per line. store.c:store_parse splits a line on its
-FIRST TWO "|" only, so <value> is the remainder of the line and may itself
-contain "|". A multi-value record (from `add`) is several lines that share one
-<id>; it is NOT encoded with extra "|" on one line.
+INDEX/store. One record per line. A v3 line is <id>|<ts>|<keys>|<value>; a
+legacy v1 line (no <ts>) is <id>|<keys>|<value>. store.c:store_parse reads BOTH:
+field 2 is taken as <ts> only if looks_like_ts accepts it (see <ts>), else it is
+<keys>. After at most the first three "|", <value> is the line remainder and may
+itself contain "|". A multi-value record (from `add`) is several lines that
+share one <id>; it is NOT encoded with extra "|" on one line.
 
 <store>        ::= ( <record> "\n" )*
-<record>       ::= <id> "|" <keys> "|" <value>
+<record>       ::= <id> "|" ( <ts> "|" )? <keys> "|" <value>
 <id>           ::= [:digit:]+            ? positive (> 0), assigned monotonically ?
+<ts>           ::= <year> "-" <mm> "-" <dd>
+                   ( "T" <hh> ":" <min> ( ":" <ss> "Z"? )? )?
+                   ? save time, present in v2/v3 records, absent in v1. looks_like_ts
+                     requires at least a full date (YYYY-MM-DD), so a bare year or
+                     YYYY-MM stays a KEY. The engine writes UTC to the second with a
+                     trailing "Z" (v3); it also accepts the v2 local "...Thh:mm:ss"
+                     and the hand-written "YYYY-MM-DD" / "...Thh:mm". A malformed
+                     date is read as <keys>, so the line is a dateless v1 record and
+                     id/keys/value survive. ?
+<hh>           ::= [:digit:]{2}
+<min>          ::= [:digit:]{2}
+<ss>           ::= [:digit:]{2}
 <keys>         ::= <key> ( " " <key> )*  ? one or more space-separated encoded keys ?
 <key>          ::= <key_char>+
 <key_char>     ::= ? [:graph:] except "|" "/" "\" -- a key is one store line-field
@@ -101,18 +115,12 @@ itself contains "|" therefore round-trips dump -> import unchanged.
 ============================
 NOTES -- verify against the code (the purpose of this document)
 ============================
-1. "|" in <value>: ALLOWED (decided 2026-06-10). store_parse takes <value> as the
-   line remainder, so a value keeps "|" verbatim (URLs, "a|b" notes); AIS's
-   promise is faithful storage and there is no parsing benefit to rejecting it.
-   The former stale comment in feed.c ("store already forbids '|' in a value")
-   has been corrected.
+1. "|" in <value>: ALLOWED. store_parse takes <value> as the line remainder, so a
+   value keeps "|" verbatim (URLs, "a|b" notes).
 
-2. <key> safety: RESOLVED (decided 2026-06-10) by ENCODING, not rejecting.
-   key.c:key_encode maps to "_" every character unsafe for a key, which must be
-   both one store line-field and one path component idx/<p>/<key>: space,
-   [:cntrl:] (tab/newline/CR), "|" (the field delimiter), and "/" "\" (path
-   separators). So a|b -> a_b and a/b -> a_b. Rejecting a put over a stray
-   character would be worse UX and inconsistent with the existing lossy encoding.
+2. <key> safety is by ENCODING, not rejecting: key.c:key_encode maps to "_" every
+   character unsafe for a key (it must be one store line-field AND one path
+   component idx/<p>/<key>): see <key_char> above.
 
 3. The conventional <value> forms (url/uri/path/blob_ref) are informative only;
    the engine constrains nothing but "no newline". Only <blob_ref> has a producer

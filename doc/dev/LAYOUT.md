@@ -1,6 +1,6 @@
 # AIS -- On-disk layout and module map
 
-The contract the implementation honours. See `doc/STYLE.md` for the coding
+The contract the implementation honours. See `doc/dev/STYLE.md` for the coding
 ideology (C99/Robbins, stack/streaming, append-only, modular). Nothing in AIS
 is hashed: every file is plain text, readable, greppable, repairable by hand.
 
@@ -9,7 +9,7 @@ is hashed: every file is plain text, readable, greppable, repairable by hand.
     INDEX/
       store           append-only records:  id|ts|keys|value  (one per line)
       next_id         a single line: the next id to assign
-      version         on-disk format version (2 = the ts column; see below)
+      version         on-disk format version (>= 2 carries the ts column; see below)
       idx/<p>/<key>   posting list for a key: ids, one per line, ascending
       off             id->offset accelerator: line k = byte offset of id k
       multi           ids carrying >1 value line (from add)
@@ -19,27 +19,29 @@ is hashed: every file is plain text, readable, greppable, repairable by hand.
 
 ### store -- the source of truth (append-only)
 `id|ts|keys|value`. `id` is a positive integer, assigned monotonically. `ts` is
-the save time, local, `YYYY-MM-DDThh:mm:ss` (written on every put). `keys` is
-one or more space-separated encoded keys. `value` is the literal resource: a
-URL, URI, absolute path, or a path relative to INDEX (relative keeps the whole
-INDEX portable). Records are only appended, never rewritten except by
-compaction. Because ids are monotonic, the store is physically in id order.
+the save time, written on every put as UTC to the second, `YYYY-MM-DDThh:mm:ssZ`
+(one canonical instant across devices). `keys` is one or more space-separated
+encoded keys. `value` is the literal resource: a URL, URI, absolute path, or a
+path relative to INDEX (relative keeps the whole INDEX portable). Records are
+only appended, never rewritten except by compaction. Because ids are monotonic,
+the store is physically in id order.
 
-**Format versions.** v1 was `id|keys|value` (no `ts`); v2 adds the `ts` column.
-`INDEX/version` records the format, and `store_open` upgrades v1->v2 in place
-the first time this build touches the index (a v1 `ais` then refuses it, rather
-than misread a `ts` as keys). The parser reads BOTH shapes per line: it treats
-field 2 as `ts` only if it looks like a date (`YYYY-MM-DD`, optionally
-`...Thh:mm[:ss]`); anything else -- including a *year used as a key* like
-`2026` -- stays the keys field. So a missing, empty, or malformed date never
-loses a record: the line reads as a dateless v1 record (id, keys, value intact),
-and the timeline surfaces such records FIRST rather than dropping them.
-Timestamps are NOT identity: `dump` stays `id|keys|value` and `import`
-re-stamps each line with the import time, exactly as it reassigns ids.
-The date is read only for the timeline/tags views -- the recall path never
-parses it beyond the trivial field-split. (Pre-v2 archives carry no `ts`; the
-filesystem mtime of `store`/`idx` files is the only date such records have, and
-it is reset by compaction or a copy that does not preserve times.)
+**Format versions.** v1 was `id|keys|value` (no `ts`); v2 added a local `ts`;
+v3 makes `ts` UTC with a trailing `Z`. `INDEX/version` records the format, and
+`store_open` stamps the current version into an older index in place the first
+time this build touches it (a too-old `ais` then refuses it, rather than misread
+a `ts` as keys; a *newer* format is refused too). The parser reads every shape:
+it treats field 2 as `ts` only if it looks like a date (a full `YYYY-MM-DD`,
+optionally `...Thh:mm[:ss]`, optionally `Z`); anything else -- including a *year
+used as a key* like `2026` -- stays the keys field. So a missing, empty, or
+malformed date never loses a record: the line reads as a dateless v1 record
+(id, keys, value intact) and the timeline surfaces it FIRST. Timestamps are NOT
+identity: `dump` stays `id|keys|value` and `import` re-stamps each line with the
+import time, exactly as it reassigns ids. The date is read only for the
+timeline/tags views -- the recall path never parses it beyond the field-split.
+(Pre-v2 archives carry no `ts`; the filesystem mtime of `store`/`idx` files is
+the only date such records have, and it is reset by compaction or a copy that
+does not preserve times.)
 
 A record may hold several values (multi-link): `add` appends another
 `id|keys|value` line with the same id. `ais_record(id)` resolves a single-value
@@ -57,8 +59,16 @@ so it is one store field and one safe path component). The file is that
 one key's list of record ids, one per line, ascending. `<p>` is a short
 NAVIGABLE prefix of the key (first one or two encoded chars): `idx/a/apple`.
 The prefix keeps the index human-walkable -- `ls idx/a/` shows keys beginning
-with `a`. No hashing: keys are human words, kept as themselves. (If a prefix
-bucket ever grows large, split it adaptively by the next character.)
+with `a`. No hashing: keys are human words, kept as themselves (git shards by a
+hash prefix because its keys are hashes; ours are words). (If a prefix bucket
+ever grows large, split it adaptively by the next character.) Each key being its
+own small file is also why sync is cheap: `rsync` transfers only the keys that
+changed and its log names them, where a single binary blob resends on any change.
+Per-key sharding is chosen for corruption-resilience too: a smashed shard costs
+only its keys while the rest of the index still answers, the same reason the
+store is plain text (damage stays local, never global). It is the
+log-structured-merge / git pattern: sharded loose files on write, packed on
+compaction.
 
 Sorted by construction (with one ordered-insert exception): for a brand-new
 value `put` appends the new largest id to each key file, ascending by pure
@@ -172,6 +182,7 @@ flag selects a command; else `-v`/`-i` mean store; else recall the keys.
     ais [-f DIR] --doc KEY... < FILE   save a multi-line document as a blob file
     ais [-f DIR] --doc KEY... -e < FILE  encrypt a whole document to an aisc: blob (--del/--del-key shreds it)
     ais [-f DIR] --del ID | --del-key KEY | --dump | --keys | --stats | --compact
+    ais [-f DIR] --tags | --timeline       browse keys, or records newest-first
     ais [-f DIR] --import < FILE | --where | --project [KEY] | --serve [PORT]
     ais [-f DIR] --import-interactively   like --import, but y/N per record (answers on the tty)
     ais --switch [NAME]               switch the current index (no arg shows it; -c NAME [DIR] creates)

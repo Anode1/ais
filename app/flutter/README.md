@@ -1,10 +1,10 @@
-# app/flutter — AIS native app (Flutter, FFI to the C engine)
+# app/flutter: AIS native app (Flutter, FFI to the C engine)
 
-The store app for App Store + Play Store. It is a thin client: all logic is the
-C engine (`../../c`) reached over the FFI seam (`../../c/embed.h`), so it gives
-the same results as the CLI and `ais --serve`. Voice recall uses the platform's
-native speech-to-text (Apple Speech / Android SpeechRecognizer) — which works on
-iPhone, unlike the browser PWA.
+The store app for App Store + Play Store. See gui/README.md for why front-ends
+stay thin; here that seam is the FFI to the C engine (`../../c`) via
+`../../c/embed.h`. Voice recall uses the platform's native speech-to-text (Apple
+Speech / Android SpeechRecognizer), which works on iPhone, unlike the browser
+PWA.
 
     lib/ais_ffi.dart   FFI bindings to ais_embed_open/recall/store/free/close
     lib/main.dart      the UI: search + mic + results + put (recall-first)
@@ -21,22 +21,22 @@ This scaffold holds only the Dart + the native CMake. Generate the
 
 ## Wire the native build to the C engine
 
-- **Android** — in `android/app/build.gradle`, point the NDK build at our CMake:
+- **Android**: in `android/app/build.gradle`, point the NDK build at our CMake:
 
       android {
         defaultConfig { externalNativeBuild { cmake { } } }
         externalNativeBuild { cmake { path "../../src/CMakeLists.txt" } }
       }
 
-  Needs the Android SDK + NDK (see below). Produces `libais.so` per ABI.
+  Needs the Android SDK + NDK (doc/android-install.md). Produces `libais.so` per ABI.
 
-- **Linux desktop** (for testing here) — in `linux/CMakeLists.txt` add:
+- **Linux desktop** (for testing here): in `linux/CMakeLists.txt` add:
 
       add_subdirectory(../src ais_build)
 
   and ensure `libais.so` is bundled next to the runner.
 
-- **iOS** (on a Mac) — add the `../../c/*.c` files (except `main.c`) to the
+- **iOS** (on a Mac): add the `../../c/*.c` files (except `main.c`) to the
   Runner target in Xcode (or a small podspec), with `../../c` on the header
   search path. The FFI uses `DynamicLibrary.process()`, so the symbols just need
   to be in the app binary.
@@ -49,28 +49,12 @@ This scaffold holds only the Dart + the native CMake. Generate the
 
 ## Android SDK (Linux)
 
-Easiest — Android Studio bundles the SDK, platform-tools, emulator, and the
-license flow:
-
-    sudo snap install android-studio --classic
-    # launch once, let it install the SDK, then:
-    flutter doctor --android-licenses
-    flutter doctor          # should show Android toolchain OK
-
-Minimal (no IDE) — "Command line tools only" from
-<https://developer.android.com/studio> → unzip to
-`$ANDROID_HOME/cmdline-tools/latest`, then:
-
-    sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0"
-    flutter doctor --android-licenses
-
-(`apt install android-sdk` exists but is outdated and laid out wrong for
-Flutter — prefer one of the above.) Target API 34/35 (Android 14/15) in 2026.
+Android SDK setup: see doc/android-install.md.
 
 ## Notes
 
-- The index lives in the app's documents dir (`getApplicationDocumentsDirectory()/ais`)
-  — plain-text files on the phone, the same format as everywhere else.
+- The index lives in the app's documents dir (`getApplicationDocumentsDirectory()/ais`):
+  plain-text files on the phone, the same format as everywhere else.
 - Next steps after first run: Siri Shortcuts (iOS) and Android App Actions so
-  "Hey Siri / Hey Google, ask AIS to recall …" hits `recall()` — the same seam a
+  "Hey Siri / Hey Google, ask AIS to recall …" hits `recall()`: the same seam a
   future glasses client rides.

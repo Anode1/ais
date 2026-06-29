@@ -12,8 +12,8 @@ Vasili Gavrilov. Markdown of the essay; the typeset PDF lives in
 ## The picture in one breath
 Something generates a huge number of candidate patterns. Almost all are junk. A few are kept. The
 ones kept are short to describe and fit a structure many people already share, so they catch on and
-spread. The making is cheap and can be mechanised. The keeping needs a *prior* — a sense of which few
-are worth it — and that sense is the scarce part. The frame throughout: intelligence is the discovery
+spread. The making is cheap and can be mechanised. The keeping needs a *prior*, a sense of which few
+are worth it, and that sense is the scarce part. The frame throughout: intelligence is the discovery
 of compressors, things that describe a lot with a little (Gavrilov, *Intelligence Is the Discovery of
 Compressors*).
 
@@ -33,7 +33,7 @@ often be *enumerated*:
   catastrophes) for up to four controlling factors (Thom 1975); Arnold extended the classification to
   caustics (Arnold 1984).
 - Wolfram ran the simplest programs by the thousands: they fall into **four classes**, and only a
-  couple are rich — Rule 110 (universal) and Rule 30 (a randomness source) (Wolfram 2002).
+  couple are rich: Rule 110 (universal) and Rule 30 (a randomness source) (Wolfram 2002).
 - In physics, very different materials near a critical point behave identically: a few **universality
   classes** (the renormalization-group fact already in the compressor account).
 
@@ -41,17 +41,17 @@ Chaos makes endlessly many; only a few canonical forms survive, and writing down
 itself compression.
 
 ## 3. What "kept" means: it compresses
-The kept ones are short to say and explain a lot — they capture a structure shared across many cases.
+The kept ones are short to say and explain a lot: they capture a structure shared across many cases.
 That is what a good compressor does. Schmidhuber makes this precise: a pattern is *interesting* when
-noticing it lets you describe the world more briefly than before — compression progress (Schmidhuber
+noticing it lets you describe the world more briefly than before: compression progress (Schmidhuber
 2010). "Resonates with many" and "compresses a shared structure" are the same statement from two
 sides.
 
 ## 4. Who keeps them: the crowd, in parallel
-The sifting is done by a whole population at once — in effect a machine with many processors side by
+The sifting is done by a whole population at once: in effect a machine with many processors side by
 side (MIMD). Candidates spread like a contagion; Sperber calls culture an *epidemiology of
 representations* settling on shared *attractors* (Sperber 1996), and Rogers mapped the S-curve of how
-an innovation diffuses (Rogers 2003). This is the engine of cultural evolution — useful patterns
+an innovation diffuses (Rogers 2003). This is the engine of cultural evolution: useful patterns
 inherited without each person rediscovering them (Boyd & Richerson 1985; Dawkins 1976). A candidate is
 "selected" when it resonates, i.e. when it compresses something many already half-hold.
 
@@ -59,25 +59,25 @@ inherited without each person rediscovering them (Boyd & Richerson 1985; Dawkins
 As machines get better, what stays scarce? Split the work into two terms, as statisticians split a
 model's error (Geman et al. 1992):
 
-- **Variance** — how widely you explore/search. Machines are very strong here, and an entire
+- **Variance**: how widely you explore/search. Machines are very strong here, and an entire
   programme (open-ended search, novelty search, quality-diversity) makes them generate endless novelty
   on their own (Stanley & Lehman 2015). Generation is becoming a machine commodity.
-- **Bias** — the prior, the assumptions you commit to before looking: which candidate is worth keeping
+- **Bias**: the prior, the assumptions you commit to before looking: which candidate is worth keeping
   *here*. This cannot come from the data alone: averaged over all problems no method beats another, so
   all advantage comes from a prior matched to the problem (No-Free-Lunch; Wolpert 1996). Supplying it
-  is the scarce contribution — cheap machine prediction makes human judgement more valuable (Agrawal,
+  is the scarce contribution: cheap machine prediction makes human judgement more valuable (Agrawal,
   Gans & Goldfarb 2018).
 
 A good prior is paid for slowly: over evolution, at birth, across history, and over a lifetime. A
 cat's nervous system is a prior tuned tightly to its niche; a human's is looser and still
-experimenting, which is why humans keep finding new things. The striking cases — Ramanujan *seeing*
-identities later checked true; Bach and Mozart hearing structure others did not — were not blind
+experimenting, which is why humans keep finding new things. The striking cases (Ramanujan *seeing*
+identities later checked true; Bach and Mozart hearing structure others did not) were not blind
 guesses. This is the disagreement worth stating: the standard story says creative variation is
 *blind* and the human only selects afterward (Campbell 1960); these cases suggest the rare prior makes
 the variation itself *non-blind*, aiming the search before any selection.
 
 So, plainly: **innovation is a high-conviction prior that resonates with many.** A strong, committed,
-often contrarian prior (Thiel's "secret" — a truth few yet share, 2014; or a Kuhnian paradigm shift,
+often contrarian prior (Thiel's "secret": a truth few yet share, 2014; or a Kuhnian paradigm shift,
 1962) is the generative bet; resonance (spread across the parallel crowd) verifies the bet caught a
 real shared structure. (Precision: "high-conviction prior" = a *strong, narrow assumption* / strong
 inductive bias, **not** the textbook "high bias" that means plain error.) Machines supply cheap,
@@ -85,7 +85,7 @@ abundant, increasingly open-ended *variation*; humans supply the rare, expensive
 that points it. Together they invent what neither does alone.
 
 ## 6. The tools that help
-A prior is worth having only if it can be kept and reused — stored in genes, in culture, and in
+A prior is worth having only if it can be kept and reused: stored in genes, in culture, and in
 external artifacts (notes, code, archives). External storage lets a prior *compose* across people and
 years, which is why human knowledge accumulates and a single animal's does not. Tools that pack
 accumulated knowledge into a compact, recallable form extend the prior. **AIS** is one such tool: a
@@ -96,7 +96,7 @@ proposes a second version built on AIS (github.com/Anode1/ais): a collection of
 plain-text files, each reached by a short key. The content can sit anywhere, even on the open web,
 held by reference (a URL), so one store indexes a person's files and the web alike, and serves both a
 person's notes and an AI's working knowledge. What is personal and scarce is not the content but the
-*index* over it — the person's own associations, a living map of concepts grown to fit present
+*index* over it: the person's own associations, a living map of concepts grown to fit present
 understanding, not adopted ready-made: the bias made concrete. Control is human, not the model's:
 what the ledger keeps or drops is a human decision (append-only like a lifetime archive, or curated
 by hand), unlike a running context a machine compacts by algorithm. The structure is not new
@@ -108,15 +108,15 @@ these manufacture the prior; they lower the cost of keeping the scarce thing.
 Every block above is established and named: combinatorial/recombinant growth (Weitzman; Kauffman);
 the collapse to a few canonical forms (Thom; Arnold; Wolfram); compression as the mark of interest
 (Schmidhuber); culture as parallel contagion with attractors (Sperber; Rogers); variation and
-selection (Campbell; Boyd & Richerson); the bias–variance split (Geman et al.); No-Free-Lunch
-(Wolpert); cheap prediction, scarce judgement (Agrawal et al.). Two things are claimed: the **assembly** —
-seeing all of these as one process under a single lens — and one concrete **proposal**, the
+selection (Campbell; Boyd & Richerson); the bias-variance split (Geman et al.); No-Free-Lunch
+(Wolpert); cheap prediction, scarce judgement (Agrawal et al.). Two things are claimed: the **assembly**:
+seeing all of these as one process under a single lens, and one concrete **proposal**, the
 human-controlled, plain-text, reference-indexed ledger of §6 (its structure is not new; the specific
 stable, human-curated form and the index-is-bias point are). No part is a new theorem.
 
 ## Closing
 To write this is to take many separate, named results and squeeze them into one short structure. That
-act — replacing a lot with a little that fits — is the very thing it says innovation is. The map is an
+act, replacing a lot with a little that fits, is the very thing it says innovation is. The map is an
 instance of the thing it maps.
 
 ---

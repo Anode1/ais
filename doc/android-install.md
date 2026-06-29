@@ -2,11 +2,11 @@
 
 There are two ways to run AIS on a phone. Pick by what you want today:
 
-- **Native app (Flutter)** — a real installed app with an icon. The C engine runs
+- **Native app (Flutter)**: a real installed app with an icon. The C engine runs
   on-device via FFI; the index is plain-text files in the app's storage. Best for
   a store-style app and offline use. Voice recall uses the native Android
   `SpeechRecognizer`.
-- **PWA (web app) via Termux** — no APK. Run `ais --serve` on the phone and open
+- **PWA (web app) via Termux**: no APK. Run `ais --serve` on the phone and open
   it in Chrome as an installable web app. Fastest path to working voice today,
   since it needs no signing.
 
@@ -74,6 +74,9 @@ sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0"
 flutter doctor --android-licenses
 ```
 
+(`apt install android-sdk` exists but is outdated and laid out wrong for Flutter;
+prefer one of the above.) Target API 34/35 (Android 14/15) in 2026.
+
 ### A5. Status: not store-published yet
 
 The release build is still signed with the debug key
@@ -123,10 +126,10 @@ disables voice, install, and the service worker.
 - **Mic does nothing / no prompt**: confirm `RECORD_AUDIO` is in the manifest and
   the device actually has Google's speech service. The prompt appears on the first
   mic tap; if previously denied, clear it in Settings -> Apps -> ais -> Permissions.
-- **Voice on the PWA is greyed out**: you opened it over `http://<ip>` instead of
-  `http://localhost` on the phone. Use Termux + localhost, or HTTPS.
+- **Voice on the PWA is greyed out**: opened over `http://<ip>`, not a secure
+  context. Use Termux + `http://localhost`, or HTTPS (Route B).
 
 ## See also
 
-- `app/flutter/README.md` — the native app internals (FFI seam, CMake wiring).
-- `app/README.md` — the PWA internals and the secure-context rule.
+- `app/flutter/README.md`: the native app internals (FFI seam, CMake wiring).
+- `app/README.md`: the PWA internals and the secure-context rule.

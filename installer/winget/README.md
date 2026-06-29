@@ -2,7 +2,7 @@
 
 Source for submitting AIS to the Windows Package Manager community repo
 ([microsoft/winget-pkgs](https://github.com/microsoft/winget-pkgs)), so users can
-`winget install Anode1.AIS`. These files are NOT used by the build — they are the
+`winget install Anode1.AIS`. These files are NOT used by the build, they are the
 submission payload, kept here per version.
 
 `PackageIdentifier` is `Anode1.AIS` (Publisher.Package). Change it if you want a
@@ -31,7 +31,7 @@ installer download, the SHA256, and silent-install, then merges.
 
 (Reputation note: winget's own install flow is a less alarming path than a raw
 browser download, but a SmartScreen prompt can still appear until the installer
-is code-signed — see the SignPath track on the roadmap.)
+is code-signed, see the SignPath track on the roadmap.)
 
 ## Regenerate for a new version
 

@@ -1,4 +1,4 @@
-# AIS — Coding Style and Ideology
+# AIS: Coding Style and Ideology
 
 How AIS is written, and why. Read this before contributing. The existing sources under `c/`
 are the reference; when a rule here is unclear, read the code.
@@ -58,34 +58,14 @@ source and precompiled binaries, with no compatibility trouble.
 ## Streaming
 
 - Read forward, emit immediately. Hold only a bounded **frontier**, sized by the operation.
-- Set operations (`AND` = intersection, `OR` = union) are **k-way merges of sorted posting lists**:
-  keep only the current head of each list and advance. Memory is O(number of query keys), never
-  O(corpus).
+- Set operations (`AND`/`OR`) are **k-way merges of sorted posting lists**: keep only the current head
+  of each list and advance. Memory is O(number of query keys), never O(corpus).
 - If an algorithm needs context (a window), allocate **only that window**, predeclared and bounded
   (like a fixed-size read buffer), never the whole input.
 
-## Storage: append-only, plain text, sharded
-
-- The store is **append-only plain text**, one record per line, pipe-delimited: `id|keys|v1|v2|...`,
-  with **monotonically increasing ids**. Monotonic ids mean each key's posting list is sorted by
-  construction, so the read path never sorts.
-- **Posting lists are per-key files, sharded by key** (`idx/<shard>/<key>`), not one index file.
-  Chosen for corruption-resilience: damage stays local; a lost or smashed shard costs only its keys
-  while the rest of the index still answers; the store can be cleaned or repaired by hand. A single
-  index file turns one bad block into a whole-store recovery problem. (Same principle as the plain-text
-  record format: corruption stays local, never global.) The shard `<shard>` is a short prefix of the
-  key itself (`idx/a/apple`), kept **navigable**: `ls idx/a/` shows the keys beginning with `a`, and a
-  key is walked to and repaired by name. Git shards by a *hash* prefix because git's keys are hashes;
-  AIS keys are human words, so we shard by the word. (If a prefix bucket grows large, split it
-  adaptively by the next character.) Nothing in AIS is hashed.
-- **Per-key files sync incrementally.** Each key being its own small file means `rsync` (or any
-  file-level tool) transfers only the keys that changed, and its log shows exactly which keys were
-  added or updated; a binary blob resends the whole index on any change. Fast even on modest hardware,
-  and it lets the index ride the same rsync archive backup as the data.
-- Deletes are **tombstones**: a sorted deletion log, merged out at read time. Space is reclaimed by
-  **compaction**, itself a streaming rewrite with fixed buffers. (Git has the same shape: sharded
-  loose objects on write, packed files on compaction. It is fast and robust at scale, good precedent.)
-- The text store is the source of truth; any index is rebuildable from it and is disposable.
+The on-disk format that makes this possible (append-only plain-text store, monotonic ids,
+per-key sharded posting lists, tombstones, compaction, "the store is the source of truth and the
+index is rebuildable") is the subject of `LAYOUT.md`; this file is only about how the *code* is written.
 
 ## Robustness and portability (non-negotiable)
 
@@ -122,5 +102,5 @@ None of this is invented here; the parts are canonical, only the assembly is our
 
 ---
 
-Reference: Arnold Robbins, *Linux Programming by Example: The Fundamentals* (Prentice Hall, 2004) —
+Reference: Arnold Robbins, *Linux Programming by Example: The Fundamentals* (Prentice Hall, 2004):
 POSIX `argv`/`getopt`, I/O idioms, and the C99 style this project follows.

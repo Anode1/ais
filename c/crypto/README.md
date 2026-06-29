@@ -3,14 +3,13 @@
 A small, auditable file-encryption module for the ais secret store. One
 translation unit (`ais_crypto.c`) around two vetted primitives, so the whole
 security-critical surface fits on a couple of screens and can be reviewed in
-isolation. Security rests on the algorithm and your passphrase, not on hiding
-the code (Kerckhoffs): the source and file format are public; only the
-passphrase and optional keyfile are secret.
+isolation. This file is the module reference: file format, build, and API.
 
 > **Why this exists** rather than the OS keystore (Windows DPAPI, Linux Secret
-> Service) or a browser's built-in manager: see [WHY.md](WHY.md). Short version:
-> those gate secrets on "are you the logged-in user", so any process running as
-> you can read them; this gates on a passphrase that never touches the OS.
+> Service) or a browser's built-in manager, the threat model, and the honest
+> limits: see [WHY.md](WHY.md). Short version: those gate secrets on "are you the
+> logged-in user", so any process running as you can read them; this gates on a
+> passphrase that never touches the OS.
 
 ## What it does
 
@@ -26,9 +25,8 @@ cipher = XChaCha20-Poly1305                                 # AEAD
   since the cost is stored per file and re-allocated to decrypt.
 - **XChaCha20-Poly1305** (AEAD) gives confidentiality and integrity together, so
   any tampering fails loudly instead of decrypting to garbage. Constant-time in
-  pure software (no AES-NI dependency, no cache-timing side channel). It is
-  "AES-256 or better" in strength; if you specifically need AES-256-GCM, swap the
-  two `crypto_aead_*` calls for libsodium's `crypto_aead_aes256gcm_*`.
+  pure software (no AES-NI dependency, no cache-timing side channel). On its
+  strength relative to AES-256, and the AES-256-GCM swap, see [WHY.md](WHY.md).
 
 ## File format
 
@@ -114,10 +112,9 @@ Note: for a bundled dependency you *want* a permissive license (CC0/BSD/MIT), no
 GPL. A GPL dependency is the awkward case (copyleft obligations); a permissive one
 drops into any project, GPL included.
 
-## The residual risk (read this)
+## The residual risk
 
-Encryption protects the file at rest. While ais has decrypted a secret to show or
-use it, the cleartext exists in process memory, and anything running as your user
-during that window can read it. We shrink the window (derive on demand, wipe key
-and plaintext immediately, never write plaintext to a temp file) but cannot remove
-it. The cipher is not the weak point; a decrypted live session is.
+The file is protected at rest, but while a secret is decrypted for use its
+cleartext is in process memory and code running as you can read it. The module
+shrinks that window (derive on demand, wipe immediately, no plaintext temp file)
+but cannot remove it; full discussion in [WHY.md](WHY.md)'s "Honest limits".

@@ -1,4 +1,4 @@
-# Distribution -- one standard download per platform
+# Distribution: one standard download per platform
 
 **Principle.** Keep the engine flexible (one ANSI C core + thin wrappers), but
 present **one obvious, traditional download per platform**. Capability lives in
@@ -14,7 +14,7 @@ the repo; the Releases page stays minimal so users never have to ask "which one?
 | Phones   | the PWA (hosted, later)                  | web |
 
 Each asset ships a `.sha256`. **Windows ships two:** the **portable zip**
-(primary — unzip, double-click `ais-gui.exe`, delete the folder to uninstall; no
+(primary: unzip, double-click `ais-gui.exe`, delete the folder to uninstall; no
 registry, the Java/xcopy model) and the **installer** (optional, for a Start-Menu
 entry). **Not shipped:** source bundles or duplicate engines. The CLI is present
 under every download.
@@ -22,40 +22,49 @@ under every download.
 Rule of thumb, matching how normal apps ship: **Windows gets a native Windows
 app; the unix desktops get the universal web GUI; the CLI is under everything.**
 
-## Plan A -- Windows: converge on the native build (DONE; one step left to verify)
+## Windows: the native MinGW build
 
-Windows now ships the **native (MinGW) build**, no `cygwin1.dll`. Status:
+Windows ships a **native MinGW-w64 build**, no Cygwin and no `cygwin1.dll`.
+`release.yml` cross-compiles `ais.exe` (CLI + `--serve`) and `ais-gui.exe`
+(native GUI) on Linux and assembles the installer on `windows-latest`; the
+installer bundles both, the Start-Menu shortcut launches `ais-gui.exe`, and
+`ais.exe` is on PATH (no console-flashing CLI shortcut). Result: one Windows
+download, a native app, no runtime, no third-party DLL.
 
-1. Native build proven on CI (`native-windows.yml`). **Remaining:** confirm
-   `ais-gui.exe` runs on real Windows (Marina) before relying on it.
-2. **Done** -- `release.yml` cross-compiles native `ais.exe` (CLI + `--serve`)
-   and `ais-gui.exe` (native GUI) with MinGW-w64 on Linux, then assembles the
-   installer on `windows-latest`.
-3. **Done** -- the installer bundles both; the Start-Menu shortcut launches
-   `ais-gui.exe`; `ais.exe` is on PATH only (no console-flashing CLI shortcut).
-   No `cygwin1.dll`, no `ais-start.bat`.
-4. **Done** -- removed the Cygwin shipping path entirely: `THIRD-PARTY-NOTICES.txt`,
-   `gui/ais-web.bat`, `gui/ais-start.bat`, and the `dist.sh` Cygwin branch. There
-   are effectively no Cygwin users to serve (WSL and native MinGW cover that
-   ground), so nothing Cygwin is shipped or built.
+## The GUI inventory
 
-Result: one Windows download, a native app, no runtime, no third-party DLL.
+One engine (the CLI is the contract) with thin front-ends over the embed FFI
+seam (`embed.c`), none needing a runtime:
 
-## GUIs -- one purpose each
+- **web** (`ais --serve`, `c/serve.c`) -- the universal GUI, on every platform.
+- **Flutter** (`app/flutter`) -- the mobile track.
+- **native Win32** (`win32/ais-gui.c`) -- niche/legacy, the Windows native window.
+- **browser PWA/WASM** -- a planned future track (below).
 
-**native Win32 (Windows) + web `--serve` (all) + Flutter (mobile and desktop)
-+ PWA (phones)** -- each with a clear, single purpose, and none needs a runtime.
+What we keep maintaining: `c/` (the one engine), those front-ends, and one
+installer + one archive per platform. Front-end label/layout conventions are in
+`GUI.md`.
 
-## What we keep maintaining
+## Phones / PWA (planned)
 
-- `c/` -- the one C engine.
-- Wrappers: `serve.c` (web), `win32/ais-gui.c` (native Windows), the WASM PWA,
-  and the Flutter app (mobile track).
-- One installer + one archive per platform.
+A self-contained AIS that installs from a URL on iPhone, Android, and any desktop
+browser: no app stores, no Apple Developer account, no GPL/App-Store conflict.
+The index lives in the browser's own storage on the device (*your memory, yours
+to keep, no server*).
 
-## Sequencing
+Today's `app/` PWA is only a thin client to a local `ais --serve` (`/api/...`),
+so it is a desktop convenience, not a standalone phone app. This track makes it
+stand alone by compiling the engine to **WebAssembly** (emcc over the same
+`embed.h` FFI seam the Flutter app uses) and keeping the store in browser
+storage (IDBFS now, OPFS later). The WASM build curates engine + FFI only,
+excluding the POSIX-bound `main.c`/`serve.c`/`feed.c`/`win.c`, so it dodges
+sockets, nftw, realpath and `/dev/tty`; the one likely shim is `flock` -> no-op
+(a browser origin is single-threaded).
 
-Do nothing that breaks current (Cygwin) releases until the native build is
-proven on real Windows. Order: prove native -> switch Windows to native +
-installer-bundles-GUI -> drop Cygwin/notice. Each step is a small,
-separate change; releases stay green throughout.
+Milestones, each verified on CI / a real phone: (1) `make wasm` emits
+`app/engine/ais.{js,wasm}` exporting `ais_embed_*`; (2) mount IDBFS at the index
+dir and `FS.syncfs` after each write; (3) in `app/`, call the WASM module when
+present, else fall back to `fetch('/api/...')` (same page both ways, UI
+unchanged); (4) GitHub Pages publishes `app/` and the Pages URL is the install
+point ("Add to Home Screen"). The native Flutter apps remain a parallel option
+(richer OS integration); the PWA is the broadest, lowest-friction reach.

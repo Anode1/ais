@@ -4,6 +4,10 @@ AIS is a command-line tool; the CLI is the portable, stable core. A GUI is a
 thin front end that drives `ais` and renders its plain-text output -- it never
 reimplements the engine, so it stays optional and replaceable.
 
+One engine (CLI = contract) with thin front-ends over the embed FFI seam: web
+(`ais --serve`), Flutter mobile, native Win32 (niche/legacy, see win32/README.md);
+browser PWA/WASM is a planned future track.
+
 ## The web GUI, recall-first
 
 Layout follows the v1 search look: a keys box on top, **Get** (or Enter) lists

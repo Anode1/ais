@@ -40,9 +40,10 @@ WHAT IT IS
   verify all of this (read the license, read the files, watch the network); you
   don't trust it.
 
-  One store, three front-ends. The same index is reached from the `ais` command
-  line, a desktop GUI, and a local web page (`ais --serve`) that any browser
-  opens. Not tied to one browser or one vendor.
+  One engine, thin front-ends. The CLI is the contract; over a small FFI seam
+  sit the web GUI (`ais --serve`, any browser), the Flutter mobile app, and a
+  native Win32 desktop wrapper (niche/legacy). A browser PWA/WASM build is a
+  planned future track, not shipped. Not tied to one browser or one vendor.
 
   Bounded and quick. It streams: memory stays flat whether the index holds ten
   records or ten million, and an offset index keeps recall fast.
@@ -72,22 +73,9 @@ WHAT IT IS NOT
 
 WHERE YOUR DATA LIVES
 
-  Plain files you can find, copy, back up, edit, or delete yourself. Run
-
-      ais --where
-
-  to print the exact directory. By default it is ~/.ais, under your home:
-
-      Linux    /home/<you>/.ais
-      macOS    /Users/<you>/.ais        (not ~/Library)
-      Windows  %USERPROFILE%\.ais  (e.g. C:\Users\<you>\.ais)
-
-  (`ais --where` always prints the exact path.) To use a different folder as
-  your everyday index, run `ais --default PATH`; the choice is saved in
-  ~/.ais/config and used whenever you are not inside a local .ais/ tree.
-
-  Or run `ais --init` to keep a local .ais/ next to a project, the way git does.
-  Either way the bytes are yours, on your disk - not a company's.
+  Plain files you can find, copy, back up, edit, or delete yourself, under
+  ~/.ais by default. See USING.txt for the per-OS paths, `ais --where`,
+  `ais --default`, and `ais --init`.
 
 
 PROVENANCE

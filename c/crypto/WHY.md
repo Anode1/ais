@@ -86,26 +86,22 @@ does not even take a malicious agent: one that reads untrusted input (a web page
 file, an email) can be steered by prompt injection into reading and exfiltrating
 any credential it can reach.
 
-This does not make password managers pointless; it makes the distinction decisive.
-A store that *auto-unlocks at login* (the OS keystore, browser-saved passwords) is
-now routinely exposed, because the agent is logged in as you. A vault gated by a
-*passphrase the agent does not hold* removes that free win: with no auto-unlock,
-the agent can no longer simply *read* your secrets at rest. It does not make you
-invulnerable, on one machine there is no true out-of-band channel, so an agent that
-is actively present can still keylog the passphrase as you type it and read the one
-entry you decrypt for use (see "Honest limits"). The shift is real but bounded:
-from "passively scraped in bulk, any time" to "must actively capture you at the
-moment of use." The rule for the agent era: keep anything an agent must never touch
-(banking, personal logins) in a passphrase-gated store, never in the OS keystore,
-and never auto-unlocked in the agent's environment.
+This makes the distinction decisive, not password managers pointless. A store that
+*auto-unlocks at login* (the OS keystore, browser-saved passwords) is now routinely
+exposed, because the agent is logged in as you; a vault gated by a *passphrase the
+agent does not hold* removes that free win. The shift is real but bounded: from
+"passively scraped in bulk, any time" to "must actively capture you at the moment
+of use" (an actively present agent can still keylog the passphrase or read the one
+entry you decrypt, see "Honest limits"). So the agent-era rule: keep anything an
+agent must never touch (banking, personal logins) in a passphrase-gated store,
+never in the OS keystore.
 
-The same logic favors *any* passphrase-gated manager, not this one: a locked
-1Password or KeePass clears the bar too. ais_crypto's niche is not a security edge
-over them, it is *integration and ownership*. The encrypted secret lives inline in
-your own plain-text context index, not in a separate cloud vault, so you carry your
-whole memory store as files you own and sync however you already do (a file-sync
-tool, a USB stick, your own drive, no proprietary cloud), with the same small
-auditable engine on PC, Mac, Linux, and phone.
+Any passphrase-gated manager clears that bar, a locked 1Password or KeePass too;
+ais_crypto's niche is not a security edge over them but *integration and ownership*.
+The encrypted secret lives inline in your own plain-text context index, not a
+separate cloud vault, so you carry your whole memory store as files you own and
+sync however you already do, with the same small auditable engine on PC, Mac,
+Linux, and phone.
 
 ## Honest limits (so this is reasoning, not marketing)
 
