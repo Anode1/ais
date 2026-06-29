@@ -211,6 +211,60 @@ int aisc_decrypt(const uint8_t *file, size_t file_len,
     return AISC_OK;
 }
 
+/* ----- token-keyed seal (fast; no Argon2 -- the token is high-entropy) -- */
+/* For the LAN sync transport. The shared one-time TOKEN (a high-entropy QR code, not a
+ * human passphrase) is hashed straight to the 32-byte AEAD key, so no memory-hard KDF is
+ * needed. Sealed = nonce(24) | ciphertext(N) | tag(16). */
+int aisc_seal(const uint8_t *token, size_t token_len,
+              const uint8_t *plain, size_t plain_len,
+              uint8_t **out, size_t *out_len) {
+    if (!token || !plain || !out || !out_len) return AISC_E_ARG;
+
+    size_t total = AISC_NONCE_LEN + plain_len + AISC_TAG_LEN;
+    uint8_t *buf = malloc(total ? total : 1);
+    if (!buf) return AISC_E_MEM;
+
+    if (rand_bytes(buf, AISC_NONCE_LEN)) { free(buf); return AISC_E_RANDOM; }
+
+    uint8_t key[32];
+    crypto_blake2b(key, sizeof key, token, token_len);
+
+    uint8_t *ct  = buf + AISC_NONCE_LEN;
+    uint8_t *tag = ct + plain_len;
+    crypto_aead_lock(ct, tag, key, buf /*nonce*/, NULL, 0, plain, plain_len);
+
+    aisc_wipe(key, sizeof key);
+    *out = buf;
+    *out_len = total;
+    return AISC_OK;
+}
+
+int aisc_unseal(const uint8_t *token, size_t token_len,
+                const uint8_t *sealed, size_t sealed_len,
+                uint8_t **out, size_t *out_len) {
+    if (!token || !sealed || !out || !out_len) return AISC_E_ARG;
+    if (sealed_len < AISC_NONCE_LEN + AISC_TAG_LEN) return AISC_E_FORMAT;
+
+    size_t ct_len = sealed_len - AISC_NONCE_LEN - AISC_TAG_LEN;
+    const uint8_t *nonce = sealed;
+    const uint8_t *ct    = sealed + AISC_NONCE_LEN;
+    const uint8_t *tag   = ct + ct_len;
+
+    uint8_t key[32];
+    crypto_blake2b(key, sizeof key, token, token_len);
+
+    uint8_t *pt = malloc(ct_len ? ct_len : 1);
+    if (!pt) { aisc_wipe(key, sizeof key); return AISC_E_MEM; }
+
+    int bad = crypto_aead_unlock(pt, tag, key, nonce, NULL, 0, ct, ct_len);
+    aisc_wipe(key, sizeof key);
+    if (bad) { aisc_wipe(pt, ct_len); free(pt); return AISC_E_AUTH; }
+
+    *out = pt;
+    *out_len = ct_len;
+    return AISC_OK;
+}
+
 /* ----- passphrase prompt (echo off, /dev/tty only; Unix only) ---------- */
 #if !defined(_WIN32)
 static int read_line_tty(int fd, char *buf, size_t buf_sz) {

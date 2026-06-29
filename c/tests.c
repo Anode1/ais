@@ -1378,6 +1378,30 @@ static void test_crypto(void)
     rc = aisc_decrypt(file, flen, pw, sizeof pw - 1, NULL, 0, &out, &olen);
     CHECK(rc == AISC_E_AUTH, "crypto: tampering is detected");
 
+    /* token-keyed seal (the LAN sync transport): round-trip, wrong token, tamper */
+    {
+        static const unsigned char tok[] = "Zk3pQ9-7Lm2xW8nR4tB6vY1";  /* high-entropy */
+        uint8_t *sealed = NULL, *plain = NULL;
+        size_t slen = 0, plen = 0;
+
+        rc = aisc_seal(tok, sizeof tok - 1, pt, sizeof pt - 1, &sealed, &slen);
+        CHECK(rc == AISC_OK && sealed != NULL && slen == 24 + (sizeof pt - 1) + 16,
+              "seal: token-keyed seal -> nonce|ct|tag");
+
+        rc = aisc_unseal(tok, sizeof tok - 1, sealed, slen, &plain, &plen);
+        CHECK(rc == AISC_OK && plen == sizeof pt - 1 && memcmp(plain, pt, plen) == 0,
+              "seal: right token unseals and round-trips");
+        if (plain) { aisc_wipe(plain, plen); free(plain); plain = NULL; }
+
+        rc = aisc_unseal((const unsigned char *)"wrong-token-entirely", 20, sealed, slen, &plain, &plen);
+        CHECK(rc == AISC_E_AUTH, "seal: wrong token is rejected (AEAD auth)");
+
+        sealed[slen - 1] ^= 0x01;              /* flip a tag bit */
+        rc = aisc_unseal(tok, sizeof tok - 1, sealed, slen, &plain, &plen);
+        CHECK(rc == AISC_E_AUTH, "seal: tampering is detected");
+        aisc_wipe(sealed, slen); free(sealed);
+    }
+
     aisc_wipe(file, flen); free(file);
 }
 

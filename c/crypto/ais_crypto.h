@@ -58,6 +58,20 @@ int aisc_decrypt(const uint8_t *file,     size_t file_len,
                  const uint8_t *keyfile,  size_t kf_len,
                  uint8_t **out, size_t *out_len);
 
+/* Token-keyed seal for the LAN sync transport: encrypt PLAIN under a HIGH-ENTROPY
+ * one-time TOKEN (hashed straight to the AEAD key -- no Argon2, since the token is a
+ * random QR code, not a human passphrase). Sealed layout: nonce(24) | ciphertext | tag(16).
+ * Allocates *OUT (caller frees). Returns AISC_OK or an AISC_E_* code. */
+int aisc_seal(const uint8_t *token, size_t token_len,
+              const uint8_t *plain, size_t plain_len,
+              uint8_t **out, size_t *out_len);
+
+/* Inverse of aisc_seal. A wrong token or any tampering returns AISC_E_AUTH and writes
+ * nothing. Allocates *OUT on success (caller frees, then wipes with aisc_wipe). */
+int aisc_unseal(const uint8_t *token, size_t token_len,
+                const uint8_t *sealed, size_t sealed_len,
+                uint8_t **out, size_t *out_len);
+
 /* Read a passphrase from /dev/tty with echo OFF (not stdin, so it cannot be
  * piped from shell history; not argv/env, so it never hits ps or /proc).
  * `confirm` != 0 asks twice and requires a match. Returns the length, or -1.
