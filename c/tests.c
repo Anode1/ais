@@ -18,6 +18,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <sys/stat.h>      /* mkdir (canonicalize a scratch dir via realpath) */
+#include <sys/wait.h>      /* waitpid -- the forked socket-transport test */
 
 #include "ais.h"
 #include "key.h"
@@ -1616,6 +1617,47 @@ static void test_sync_sealed(void)
     scratch_rm(db);
 }
 
+/* The full socket transport over loopback: a forked child serves A once; the parent
+ * pulls into B and converges (live records arrive, the deletion propagates). */
+static void test_sync_socket(void)
+{
+    ais B;
+    const char *da = "/tmp/ais_ut_sockA", *db = "/tmp/ais_ut_sockB";
+    const char *tok = "0123456789abcdef0123456789abcdef";
+    int port = 47137, rc;
+    pid_t pid;
+
+    scratch_rm(da);
+    scratch_rm(db);
+    {   /* set up A and close it, so the child opens it fresh */
+        ais A;
+        ais_open(&A, da);
+        ais_put(&A, "venice", "Hotel Danieli");
+        ais_put(&A, "paris", "Cafe de Flore");   /* id 2 */
+        ais_del(&A, 2);
+        ais_close(&A);
+    }
+
+    pid = fork();
+    if (pid == 0) {                              /* child: serve A once, then exit */
+        ais cA;
+        ais_open(&cA, da);
+        sync_serve(&cA, port, tok, 5);
+        ais_close(&cA);
+        _exit(0);
+    }
+
+    ais_open(&B, db);                            /* parent: pull into B */
+    rc = sync_pull(&B, "127.0.0.1", port, tok, 5);
+    CHECK(rc == 0, "sync(socket): pull over loopback succeeded");
+    CHECK(value_present(&B, "Hotel Danieli") == 1, "sync(socket): live record arrived over TCP");
+    CHECK(value_present(&B, "Cafe de Flore") == 0, "sync(socket): deletion propagated over TCP");
+    ais_close(&B);
+    waitpid(pid, NULL, 0);
+    scratch_rm(da);
+    scratch_rm(db);
+}
+
 int main(void)
 {
     printf("AIS regression tests (make ut)\n");
@@ -1688,6 +1730,8 @@ int main(void)
     test_secret_blob_crypto();
     printf("sync transport (sealed stream):\n");
     test_sync_sealed();
+    printf("sync transport (socket, forked loopback):\n");
+    test_sync_socket();
 #endif
     printf("----\n%d passed, %d failed\n", ut_pass, ut_fail);
     return ut_fail == 0 ? 0 : 1;

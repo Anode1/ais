@@ -17,6 +17,13 @@
 #if !defined(_WIN32) && defined(__has_include) && __has_include("crypto/monocypher.h")
 #  define SYNC_HAVE 1
 #  include "crypto/ais_crypto.h"
+#  include <sys/socket.h>
+#  include <netinet/in.h>
+#  include <arpa/inet.h>
+#  include <sys/time.h>
+#  include <time.h>
+#  include <unistd.h>
+#  include <errno.h>
 #endif
 
 #ifdef SYNC_HAVE
@@ -65,6 +72,127 @@ int sync_import_sealed(ais *a, const char *token, const uint8_t *sealed, size_t 
     return 0;
 }
 
+/* ----- the socket layer: move the sealed blob between two devices on the LAN ----- */
+
+static int write_all(int fd, const void *buf, size_t n) {
+    const char *p = (const char *)buf;
+    while (n > 0) {
+        ssize_t w = write(fd, p, n);
+        if (w < 0) { if (errno == EINTR) continue; return -1; }
+        if (w == 0) return -1;
+        p += w; n -= (size_t)w;
+    }
+    return 0;
+}
+
+static int read_all(int fd, void *buf, size_t n) {
+    char *p = (char *)buf;
+    while (n > 0) {
+        ssize_t r = read(fd, p, n);
+        if (r < 0) { if (errno == EINTR) continue; return -1; }
+        if (r == 0) return -1;                  /* EOF before n bytes */
+        p += r; n -= (size_t)r;
+    }
+    return 0;
+}
+
+/* Bound how long a stalled peer can hold us, so the transport never hangs. */
+static void set_timeout(int fd, int secs) {
+    struct timeval tv;
+    tv.tv_sec = secs;
+    tv.tv_usec = 0;
+    setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof tv);
+    setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof tv);
+}
+
+int sync_serve(ais *a, int port, const char *token, int timeout_s) {
+    int srv, cli = -1, rc = -1, one = 1;
+    struct sockaddr_in addr;
+    char tokbuf[256];
+    size_t tn = 0, tlen = strlen(token);
+    uint8_t *blob = NULL;
+    size_t blen = 0;
+    unsigned char lenbuf[4];
+
+    srv = socket(AF_INET, SOCK_STREAM, 0);
+    if (srv < 0) return -1;
+    setsockopt(srv, SOL_SOCKET, SO_REUSEADDR, &one, sizeof one);
+    memset(&addr, 0, sizeof addr);
+    addr.sin_family = AF_INET;
+    addr.sin_addr.s_addr = htonl(INADDR_ANY);   /* LAN, not 127.0.0.1 -- a peer must reach it */
+    addr.sin_port = htons((unsigned short)port);
+    if (bind(srv, (struct sockaddr *)&addr, sizeof addr) != 0) { close(srv); return -1; }
+    if (listen(srv, 1) != 0) { close(srv); return -1; }
+    set_timeout(srv, timeout_s);                /* accept() times out via SO_RCVTIMEO */
+
+    cli = accept(srv, NULL, NULL);
+    if (cli < 0) { close(srv); return -1; }
+    set_timeout(cli, timeout_s);
+
+    while (tn + 1 < sizeof tokbuf) {            /* read the client's token line */
+        char c;
+        ssize_t r = read(cli, &c, 1);
+        if (r < 0) { if (errno == EINTR) continue; goto done; }
+        if (r == 0 || c == '\n') break;
+        if (c != '\r') tokbuf[tn++] = c;
+    }
+    tokbuf[tn] = '\0';
+    if (tn != tlen || memcmp(token, tokbuf, tn) != 0)
+        goto done;                              /* wrong token: serve nothing */
+
+    if (sync_export_sealed(a, token, &blob, &blen) != 0) goto done;
+    lenbuf[0] = (unsigned char)(blen >> 24);
+    lenbuf[1] = (unsigned char)(blen >> 16);
+    lenbuf[2] = (unsigned char)(blen >> 8);
+    lenbuf[3] = (unsigned char)(blen);
+    if (write_all(cli, lenbuf, 4) == 0 && write_all(cli, blob, blen) == 0)
+        rc = 0;
+
+done:
+    if (blob) { aisc_wipe(blob, blen); free(blob); }
+    if (cli >= 0) close(cli);
+    close(srv);
+    return rc;
+}
+
+int sync_pull(ais *a, const char *host, int port, const char *token, int timeout_s) {
+    int fd, rc = -1, attempt;
+    struct sockaddr_in addr;
+    unsigned char lenbuf[4];
+    size_t blen;
+    uint8_t *blob = NULL;
+
+    memset(&addr, 0, sizeof addr);
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons((unsigned short)port);
+    if (inet_pton(AF_INET, host, &addr.sin_addr) != 1) return -1;
+
+    fd = socket(AF_INET, SOCK_STREAM, 0);
+    if (fd < 0) return -1;
+    set_timeout(fd, timeout_s);
+    for (attempt = 0; attempt < 50; attempt++) {        /* server may still be binding */
+        if (connect(fd, (struct sockaddr *)&addr, sizeof addr) == 0) break;
+        { struct timespec ts = { 0, 100000000L }; nanosleep(&ts, NULL); }   /* 100ms */
+    }
+    if (attempt == 50) { close(fd); return -1; }
+
+    if (write_all(fd, token, strlen(token)) != 0 || write_all(fd, "\n", 1) != 0) goto done;
+    if (read_all(fd, lenbuf, 4) != 0) goto done;
+    blen = ((size_t)lenbuf[0] << 24) | ((size_t)lenbuf[1] << 16)
+         | ((size_t)lenbuf[2] << 8) | (size_t)lenbuf[3];
+    if (blen == 0 || blen > 64u * 1024u * 1024u) goto done;   /* sanity cap */
+    blob = malloc(blen);
+    if (!blob) goto done;
+    if (read_all(fd, blob, blen) != 0) goto done;
+
+    rc = sync_import_sealed(a, token, blob, blen);
+
+done:
+    if (blob) free(blob);
+    close(fd);
+    return rc;
+}
+
 #else  /* no POSIX buffer streams or no crypto: transport unavailable */
 
 int sync_export_sealed(ais *a, const char *token, uint8_t **out, size_t *out_len)
@@ -75,6 +203,16 @@ int sync_export_sealed(ais *a, const char *token, uint8_t **out, size_t *out_len
 int sync_import_sealed(ais *a, const char *token, const uint8_t *sealed, size_t len)
 {
     (void)a; (void)token; (void)sealed; (void)len;
+    return -1;
+}
+int sync_serve(ais *a, int port, const char *token, int timeout_s)
+{
+    (void)a; (void)port; (void)token; (void)timeout_s;
+    return -1;
+}
+int sync_pull(ais *a, const char *host, int port, const char *token, int timeout_s)
+{
+    (void)a; (void)host; (void)port; (void)token; (void)timeout_s;
     return -1;
 }
 
