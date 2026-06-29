@@ -21,13 +21,16 @@
 #include "embed.h"
 #include "locate.h"
 
-enum { ID_KEYS = 1001, ID_GET, ID_OR, ID_LIST, ID_VALUE, ID_VKEYS, ID_ADD, ID_STORE, ID_ENC, ID_PP };
+enum { ID_KEYS = 1001, ID_GET, ID_OR, ID_LIST, ID_VALUE, ID_VKEYS, ID_ADD, ID_STORE, ID_ENC, ID_PP,
+       ID_VRECALL, ID_VTIMELINE, ID_VTAGS };
 /* context-menu command ids for a result row (kept clear of the control ids) */
 enum { ID_EDIT = 1101, ID_DELETE, ID_REVEAL };
 
 static void *g_ais;                 /* engine handle (ais_embed_open) */
 static char  g_dir[4096];           /* current index dir: shown, and restored on a failed switch */
 static HWND  g_keys, g_or, g_list, g_value, g_vkeys, g_enc, g_pp;
+static HWND  g_trec, g_ttl, g_ttags;   /* view tabs: Recall / Timeline / Tags */
+static int   g_view;                   /* 0 = recall, 1 = timeline, 2 = tags */
 static HWND  g_lkeys, g_lval, g_lvk;   /* inline field labels: Keys:/Value:/Keys: */
 static HWND  g_store;                  /* "store: <dir>" status label (Store button is by id) */
 static HFONT g_font;
@@ -143,6 +146,82 @@ static void do_get(void)
     free(keys);
 }
 
+/* Timeline view: all records newest-first (the engine's chronological order),
+ * values into the same list as recall; the id rides along for Edit/Delete. */
+static void do_timeline(void)
+{
+    char *res, *line;
+    SendMessage(g_list, LB_RESETCONTENT, 0, 0);
+    if (g_ais == NULL)
+        return;
+    res = ais_embed_timeline(g_ais, 0, 500, "", "");   /* "id|ts|keys|value\n"... */
+    if (res == NULL) {
+        log_error("timeline failed");
+        return;
+    }
+    for (line = res; line != NULL && *line != '\0'; ) {
+        char *nl = strchr(line, '\n');
+        char *b1, *b2, *b3;                            /* id | ts | keys | value */
+        if (nl != NULL)
+            *nl = '\0';
+        b1 = strchr(line, '|');
+        b2 = (b1 != NULL) ? strchr(b1 + 1, '|') : NULL;
+        b3 = (b2 != NULL) ? strchr(b2 + 1, '|') : NULL;
+        if (b3 != NULL && b3[1] != '\0') {
+            long id = strtol(line, NULL, 10);
+            LRESULT ix = SendMessageA(g_list, LB_ADDSTRING, 0, (LPARAM)(b3 + 1));
+            if (ix != LB_ERR && ix != LB_ERRSPACE)
+                SendMessage(g_list, LB_SETITEMDATA, (WPARAM)ix, (LPARAM)id);
+        }
+        if (nl == NULL)
+            break;
+        line = nl + 1;
+    }
+    ais_embed_free(res);
+}
+
+/* Tags view: every key with its record count, busiest first ("key  (N)"). */
+static void do_tags(void)
+{
+    char *res, *line;
+    SendMessage(g_list, LB_RESETCONTENT, 0, 0);
+    if (g_ais == NULL)
+        return;
+    res = ais_embed_tags(g_ais);                       /* "count|key\n"... */
+    if (res == NULL) {
+        log_error("tags failed");
+        return;
+    }
+    for (line = res; line != NULL && *line != '\0'; ) {
+        char *nl = strchr(line, '\n');
+        char *bar, disp[512];
+        if (nl != NULL)
+            *nl = '\0';
+        bar = strchr(line, '|');
+        if (bar != NULL) {
+            *bar = '\0';
+            snprintf(disp, sizeof disp, "%s  (%s)", bar + 1, line);   /* key (count) */
+            SendMessageA(g_list, LB_ADDSTRING, 0, (LPARAM)disp);
+        }
+        if (nl == NULL)
+            break;
+        line = nl + 1;
+    }
+    ais_embed_free(res);
+}
+
+/* Switch the active view and (re)populate the shared list. */
+static void do_view(int v)
+{
+    g_view = v;
+    if (v == 1)
+        do_timeline();
+    else if (v == 2)
+        do_tags();
+    else
+        do_get();
+}
+
 static void do_add(void)
 {
     char *val = get_text(g_value);
@@ -174,7 +253,7 @@ static void do_add(void)
         SetWindowTextA(g_vkeys, "");
         SetWindowTextA(g_pp, "");                         /* clear the passphrase field */
         SendMessage(g_enc, BM_SETCHECK, BST_UNCHECKED, 0); /* back to off (not the default) */
-        do_get();                                        /* the saved item shows in the results */
+        do_view(g_view);                                 /* refresh the current view */
         SetFocus(g_vkeys);
     }
     free(val);
@@ -367,7 +446,7 @@ static void delete_selected(HWND hwnd)
         return;
     if (ais_embed_del(g_ais, id) < 0)
         log_error("delete failed (id=%ld)", id);
-    do_get();
+    do_view(g_view);
 }
 
 /* Edit the selected record's keys (a KEY adds it, -KEY removes it), refresh. */
@@ -386,7 +465,7 @@ static void edit_selected(HWND hwnd)
         return;
     if (ais_embed_update(g_ais, id, buf) < 0)
         log_error("update failed (id=%ld, keys='%s')", id, buf);
-    do_get();
+    do_view(g_view);
 }
 
 /* Reveal the selected encrypted ("aisc:") record: prompt for the passphrase,
@@ -494,7 +573,7 @@ static void layout(HWND hwnd)
     RECT r;
     int w, pad = dp(8), gap = dp(6), bh = dp(26);
     int btn = dp(80), cbw = dp(130), lblk = dp(40), lblv = dp(48);
-    int y, by, getx, cbx, x, fields, valw, vkw;
+    int y, by, getx, cbx, x, fields, valw, vkw, ty;
     GetClientRect(hwnd, &r);
     w = r.right;
 
@@ -506,6 +585,15 @@ static void layout(HWND hwnd)
     MoveWindow(g_keys,  pad + lblk + gap, y, getx - gap - (pad + lblk + gap), bh, TRUE);
     MoveWindow(GetDlgItem(hwnd, ID_GET), getx, y, btn, bh, TRUE);
     MoveWindow(g_or,    cbx, y, cbw, bh, TRUE);
+
+    /* VIEW TABS row: [Recall] [Timeline] [Tags], just below the get row */
+    ty = y + bh + gap;
+    {
+        int tw = dp(90);
+        MoveWindow(g_trec,  pad,                  ty, tw, bh, TRUE);
+        MoveWindow(g_ttl,   pad + tw + gap,       ty, tw, bh, TRUE);
+        MoveWindow(g_ttags, pad + 2 * (tw + gap), ty, tw, bh, TRUE);
+    }
 
     /* STORE row (bottom-most): [store: <dir> ...........] [Store...] */
     {
@@ -536,8 +624,8 @@ static void layout(HWND hwnd)
         MoveWindow(g_pp,  pad + cbw + gap, ey, w - pad * 2 - cbw - gap, bh, TRUE);
 
         /* MIDDLE: results list fills the gap between the top row and the encrypt row */
-        MoveWindow(g_list, pad, y + bh + pad, w - pad * 2,
-                   ey - pad - (y + bh + pad), TRUE);
+        MoveWindow(g_list, pad, ty + bh + pad, w - pad * 2,
+                   ey - pad - (ty + bh + pad), TRUE);
     }
 }
 
@@ -565,6 +653,9 @@ static LRESULT CALLBACK wndproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
         g_keys  = mk(hwnd, "EDIT",   "", WS_BORDER | WS_TABSTOP | ES_AUTOHSCROLL, ID_KEYS);
         mk(hwnd, "BUTTON", "Get", WS_TABSTOP | BS_DEFPUSHBUTTON, ID_GET);
         g_or    = mk(hwnd, "BUTTON", "Match any key", WS_TABSTOP | BS_AUTOCHECKBOX, ID_OR);
+        g_trec  = mk(hwnd, "BUTTON", "Recall",   WS_TABSTOP | BS_PUSHBUTTON, ID_VRECALL);
+        g_ttl   = mk(hwnd, "BUTTON", "Timeline", WS_TABSTOP | BS_PUSHBUTTON, ID_VTIMELINE);
+        g_ttags = mk(hwnd, "BUTTON", "Tags",     WS_TABSTOP | BS_PUSHBUTTON, ID_VTAGS);
         g_list  = mk(hwnd, "LISTBOX", "", WS_BORDER | WS_TABSTOP | WS_VSCROLL | LBS_NOTIFY, ID_LIST);
         /* Add row, keys before value (consistent with the Get row above). */
         g_lvk   = mk(hwnd, "STATIC", "Keys:",  SS_LEFT, 0);
@@ -596,7 +687,10 @@ static LRESULT CALLBACK wndproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
         return 0;
     case WM_COMMAND:
         switch (LOWORD(wp)) {
-        case ID_GET: do_get(); return 0;
+        case ID_GET:       do_view(0); return 0;
+        case ID_VRECALL:   do_view(0); return 0;
+        case ID_VTIMELINE: do_view(1); return 0;
+        case ID_VTAGS:     do_view(2); return 0;
         case ID_ADD:    do_add();    return 0;
         case ID_STORE:  change_store(hwnd);    return 0;
         case ID_EDIT:   edit_selected(hwnd);   return 0;
