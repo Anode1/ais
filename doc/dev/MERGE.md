@@ -43,9 +43,9 @@ There are **two** delete mechanisms today, both id-keyed and untimestamped:
 - `tomb` — whole-record deletion (`del`, `del-key` cascade).
 - `ktomb` — per-key removal (`del_key` strips one key from a record that otherwise stays).
 Record-level (`tomb`) is the common case and covers v1. Key-level (`ktomb`) needs the same
-content-addressing + ts treatment: a portable fact `<ts>|<record-hash>|<key>`. DECISION
-for review: handle `ktomb` in v1, or ship record-level merge first and treat key-removals
-as a documented follow-up? (Leaning: v1 = record-level; `ktomb` next, same pattern.)
+content-addressing + ts treatment: a portable fact `<ts>|<record-hash>|<key>`. DECISION:
+`ktomb` is a **follow-up**; v1 ships record-level merge only, key-removals get the same
+content-addressed treatment next.
 
 ## Merge algorithm (content-keyed, ts-resolved)
 Given local index A and incoming index B:
@@ -90,7 +90,7 @@ an `A` line with ts unknown (oldest), so a hand-edited or legacy dump still impo
   boundary (content is already content-addressed). Confirm width in review.
 
 ## Open questions
-1. `ktomb` (key-level) in v1, or follow-up? (leaning: follow-up)
+1. RESOLVED: `ktomb` (key-level) is a follow-up; v1 = record-level only.
 2. Tomb hash width: 128-bit truncated vs full 256-bit.
 3. RESOLVED: plain `--dump` stays unchanged (readable); the prefixed `A|`/`D|` lines are the
    export-wire format only (see "Export-wire format" above).
