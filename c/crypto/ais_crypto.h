@@ -72,6 +72,11 @@ int aisc_unseal(const uint8_t *token, size_t token_len,
                 const uint8_t *sealed, size_t sealed_len,
                 uint8_t **out, size_t *out_len);
 
+/* Generate a high-entropy one-time token as hex into OUT (OUT_SZ incl. NUL; fills
+ * OUT_SZ-1 hex chars -- use 33 for a 128-bit token). The sync pairing secret that
+ * becomes the seal key. Returns AISC_OK or an AISC_E_* code. */
+int aisc_token(char *out, size_t out_sz);
+
 /* Read a passphrase from /dev/tty with echo OFF (not stdin, so it cannot be
  * piped from shell history; not argv/env, so it never hits ps or /proc).
  * `confirm` != 0 asks twice and requires a match. Returns the length, or -1.

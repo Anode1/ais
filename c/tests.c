@@ -1402,6 +1402,16 @@ static void test_crypto(void)
         aisc_wipe(sealed, slen); free(sealed);
     }
 
+    {   /* token: high-entropy, well-formed hex, non-repeating */
+        char t1[33], t2[33];
+        size_t i; int ok = 1;
+        CHECK(aisc_token(t1, sizeof t1) == AISC_OK && strlen(t1) == 32, "token: 32 hex chars");
+        for (i = 0; i < 32; i++) if (!strchr("0123456789abcdef", t1[i])) ok = 0;
+        CHECK(ok, "token: all hex digits");
+        aisc_token(t2, sizeof t2);
+        CHECK(strcmp(t1, t2) != 0, "token: two tokens differ");
+    }
+
     aisc_wipe(file, flen); free(file);
 }
 

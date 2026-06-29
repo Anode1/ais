@@ -265,6 +265,26 @@ int aisc_unseal(const uint8_t *token, size_t token_len,
     return AISC_OK;
 }
 
+/* Generate a high-entropy one-time token as hex for the sync transport's pairing (it
+ * becomes the AEAD key via aisc_seal). OUT gets (OUT_SZ-1) hex chars + NUL. */
+int aisc_token(char *out, size_t out_sz) {
+    static const char hex[] = "0123456789abcdef";
+    uint8_t buf[64];
+    size_t nbytes, i;
+
+    if (!out || out_sz < 3) return AISC_E_ARG;
+    nbytes = (out_sz - 1) / 2;
+    if (nbytes == 0 || nbytes > sizeof buf) return AISC_E_ARG;
+    if (rand_bytes(buf, nbytes)) return AISC_E_RANDOM;
+    for (i = 0; i < nbytes; i++) {
+        out[2 * i]     = hex[(buf[i] >> 4) & 0xf];
+        out[2 * i + 1] = hex[buf[i] & 0xf];
+    }
+    out[2 * nbytes] = '\0';
+    aisc_wipe(buf, sizeof buf);
+    return AISC_OK;
+}
+
 /* ----- passphrase prompt (echo off, /dev/tty only; Unix only) ---------- */
 #if !defined(_WIN32)
 static int read_line_tty(int fd, char *buf, size_t buf_sz) {
