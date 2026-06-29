@@ -22,21 +22,24 @@ across devices, and must carry timestamps to resolve add-vs-delete conflicts.
 
 ## What this needs on disk: timestamped, content-addressed tombstones
 Today `tomb` is `id` per line: local-only and untimestamped, so neither portable nor
-conflict-resolvable. Change it to carry a content hash + delete-timestamp:
+conflict-resolvable. Change it to:
 
-    tomb (v2):   <ts>|<hash>          # hash = blake2b("keys|value"), truncated
+    tomb (v2):   <id>|<ts>|<hash>     # hash = a stable content hash of "keys|value"
 
-- **Portable:** a deletion becomes a self-describing fact, not an index-local id, so it
-  merges across devices AND survives compaction (which physically drops the deleted store
-  line, today that loses the content needed to describe the deletion).
-- **Timestamped:** enables last-write-wins.
-- **Hash, not cleartext:** keeps `tomb` small and avoids writing a (possibly secret) value
-  a second time in clear. Monocypher `crypto_blake2b` is already vendored.
+- **id** keeps today's fast LOCAL suppression unchanged (`tomb_contains` still matches by id).
+- **ts** (the delete time) enables last-write-wins.
+- **hash** makes the deletion PORTABLE and compaction-proof: it is emitted as the
+  cross-device delete fact (`D|ts|hash`) and survives even after compaction physically
+  drops the deleted store line.
 
-Local `del(id)` becomes: resolve the record's content, append `<now>|<blake2b(content)>`.
-Read-time suppression: build a {hash -> max delete-ts} map from `tomb`; skip a store record
-whose content-hash is present with a delete-ts NEWER than the record's add-ts (so a re-add
-after a delete reappears).
+Hash: a fast NON-crypto hash (FNV-1a 64-bit, hex) of the canonical `keys|value`. It is
+content-addressing, not a security boundary, so the core engine needs no crypto dependency
+(the AEAD that protects the wire lives in `sync.c`, separately). Collision risk is
+negligible at personal scale.
+
+Local `del(id)`: resolve the record's content, compute the hash, append `id|<now>|<hash>`.
+Read-time suppression stays id-keyed (fast), comparing the stored delete-ts against the
+record's add-ts so a re-add after a delete reappears.
 
 ## Two tombstone types (both must merge)
 There are **two** delete mechanisms today, both id-keyed and untimestamped:

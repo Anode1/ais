@@ -133,6 +133,20 @@ int store_now(char *buf, size_t bufsz)
     return 0;
 }
 
+/* Stable content hash of a record's "keys|value" identity for cross-device merge:
+ * FNV-1a 64-bit as 16 hex chars + NUL. NOT a security hash. The explicit '|' between
+ * keys and value keeps "ab"+"c" distinct from "a"+"bc". Same content -> same hash on
+ * any device, independent of local ids. */
+void content_hash(const char *keys, const char *value, char out[17])
+{
+    unsigned long long h = 1469598103934665603ULL;   /* FNV-1a offset basis */
+    const char *p;
+    for (p = keys;  *p != '\0'; p++) { h ^= (unsigned char)*p; h *= 1099511628211ULL; }
+    h ^= (unsigned char)'|';                           h *= 1099511628211ULL;
+    for (p = value; *p != '\0'; p++) { h ^= (unsigned char)*p; h *= 1099511628211ULL; }
+    snprintf(out, 17, "%016llx", h);
+}
+
 /* The on-disk format version (INDEX/version). 0 if the file is absent (a legacy
  * index predating versioning). Returns the version, or -1 on error. */
 static long store_read_version(const ais *a)
