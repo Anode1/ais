@@ -1,9 +1,15 @@
-# Seamless index merging — design note (DRAFT, for review)
+# Seamless index merging — design note (IMPLEMENTED)
 
 Goal: merge two AIS indexes (two devices, or two copies of one) into the union of records,
 de-duplicated, with **deletions propagating**, deterministically. This is the engine
 foundation under built-in sync (`doc/dev/SYNC_PROTOCOL.md`) and the manual merge case.
-No code yet; this is for review.
+
+Status: built and tested in `c/` (`content_hash`, tomb v2 `id|ts|hash`, `feed_export`,
+merge-aware `feed_import`, `ais_put_at`, `ais_merge_del`; round-trip test in `tests.c`).
+As-built refinements vs the original draft: record identity is the **value** (not
+keys+value); the content hash is **FNV-1a** of the value (not blake2b); **no migration**
+(v1 `id`-only tomb lines coexist with v2). Deferred follow-ups: multi-value (`ais_add`)
+grouping across a merge, and key-level (`ktomb`) removals.
 
 ## The core problem: ids are device-local
 `store` ids are monotonic PER INDEX. Device A's id 5 and device B's id 5 are different
@@ -12,10 +18,10 @@ records. So the existing `tomb` (a list of deleted *ids*) is meaningless across 
 across devices, and must carry timestamps to resolve add-vs-delete conflicts.
 
 ## Identity = content; conflict = last-write-wins by ts
-- **Identity.** A record's cross-device identity is its **content** `(keys, value)`. That
-  is already the engine's implicit identity: `put` is idempotent by a content store-scan,
-  so two indexes both holding `(keys,value)=X` hold the *same* logical record. No new UUID
-  column (rejected: heavier, and it would change idempotent-put semantics).
+- **Identity.** A record's cross-device identity is its **value** (as-built: `put` dedups by
+  value via `store_find_value`, reusing the id and attaching keys, so the same value IS the
+  same record and keys are labels that union on merge). The content hash is of the value
+  alone. No UUID column (rejected: heavier, and it would change idempotent-put semantics).
 - **Conflict.** Resolve with **last-write-wins by the store's `ts` column**: compare the
   latest ADD ts against the latest DELETE ts for that content. Delete-after-add removes it;
   re-add-after-delete keeps it. Deterministic for a single user across their own devices.
@@ -32,7 +38,7 @@ conflict-resolvable. Change it to:
   cross-device delete fact (`D|ts|hash`) and survives even after compaction physically
   drops the deleted store line.
 
-Hash: a fast NON-crypto hash (FNV-1a 64-bit, hex) of the canonical `keys|value`. It is
+Hash: a fast NON-crypto hash (FNV-1a 64-bit, hex) of the record's **value** (its identity). It is
 content-addressing, not a security boundary, so the core engine needs no crypto dependency
 (the AEAD that protects the wire lives in `sync.c`, separately). Collision risk is
 negligible at personal scale.
@@ -53,7 +59,7 @@ content-addressed treatment next.
 ## Merge algorithm (content-keyed, ts-resolved)
 Given local index A and incoming index B:
 
-    1. Stream B.store  -> for each record, key = blake2b(keys|value), event = (ADD, ts).
+    1. Stream B.store  -> for each record, key = content_hash(value), event = (ADD, ts).
     2. Stream B.tomb   -> for each, event = (DEL, ts) under that hash.
     3. Per hash, take the MAX-ts event across A's own state and B's (A already knows its own).
     4. Apply to A:
