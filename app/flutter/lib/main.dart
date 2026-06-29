@@ -514,24 +514,26 @@ class _RecallPageState extends State<RecallPage> {
                   tooltip: 'Reveal',
                   onPressed: () => _revealHit(hit),
                 ),
-              IconButton(
-                icon: const Icon(Icons.copy, size: 18),
-                tooltip: 'Copy',
-                onPressed: () {
-                  Clipboard.setData(ClipboardData(text: v));
-                  ScaffoldMessenger.of(context)
-                      .showSnackBar(const SnackBar(content: Text('Copied')));
+              // copy / edit keys / delete behind one overflow -> clean rows
+              PopupMenuButton<String>(
+                icon: const Icon(Icons.more_vert, size: 18),
+                tooltip: 'More',
+                onSelected: (a) {
+                  if (a == 'copy') {
+                    Clipboard.setData(ClipboardData(text: v));
+                    ScaffoldMessenger.of(context)
+                        .showSnackBar(const SnackBar(content: Text('Copied')));
+                  } else if (a == 'edit') {
+                    _editKeys(hit);
+                  } else if (a == 'delete') {
+                    _deleteHit(hit);
+                  }
                 },
-              ),
-              IconButton(
-                icon: const Icon(Icons.edit_outlined, size: 18),
-                tooltip: 'Edit keys',
-                onPressed: () => _editKeys(hit),
-              ),
-              IconButton(
-                icon: const Icon(Icons.delete_outline, size: 18),
-                tooltip: 'Delete',
-                onPressed: () => _deleteHit(hit),
+                itemBuilder: (_) => const [
+                  PopupMenuItem(value: 'copy', child: Text('Copy')),
+                  PopupMenuItem(value: 'edit', child: Text('Edit keys')),
+                  PopupMenuItem(value: 'delete', child: Text('Delete')),
+                ],
               ),
             ],
           ),
