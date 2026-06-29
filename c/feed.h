@@ -17,6 +17,10 @@ void feed_interactive(ais *a, const char *base);
  * Blank lines and lines starting with '#' are skipped; idempotent via ais_put. */
 void feed_import(ais *a);
 
+/* Write the merge/export stream to OUT: A|ts|keys|value for live records, then
+ * D|ts|hash for tombstones. The inverse of merge-aware import; what --export serves. */
+void feed_export(ais *a, FILE *out);
+
 /* Like feed_import, but confirm each record first: show "keys | value" and read
  * a [y/N] answer from the terminal (/dev/tty, or $AIS_TTY for scripting/tests).
  * Only y/Y takes the record; N -- the default, including a bare Enter -- skips.

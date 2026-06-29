@@ -68,6 +68,43 @@ int tomb_contains(const ais *a, long id)
     return found;
 }
 
+/* Stream each tomb entry (id, ts, hash) through CB in file order. ts/hash come back
+ * "" for a legacy v1 entry. Returns 0, the callback's stop code, or -1 on error. */
+int tomb_each(const ais *a, tomb_cb cb, void *ctx)
+{
+    char path[AIS_PATH_MAX], line[AIS_LINE_MAX];
+    FILE *fp;
+    int rc = 0;
+
+    if (compact_path(a, "tomb", path, sizeof(path)) != 0)
+        return -1;
+    fp = fopen(path, "r");
+    if (fp == NULL)
+        return (errno == ENOENT) ? 0 : -1;
+    while (fgets(line, sizeof(line), fp) != NULL) {
+        char *t, *h, *nl;
+        long id = atol(line);
+        nl = strchr(line, '\n');
+        if (nl != NULL)
+            *nl = '\0';
+        t = strchr(line, '|');
+        if (t != NULL) {
+            *t++ = '\0';
+            h = strchr(t, '|');
+            if (h != NULL) *h++ = '\0';
+            else h = (char *)"";
+        } else {
+            t = (char *)"";
+            h = (char *)"";
+        }
+        rc = cb(id, t, h, ctx);
+        if (rc != 0)
+            break;
+    }
+    fclose(fp);
+    return rc;
+}
+
 /* Parse one "id|key" ktomb line IN PLACE: returns the id (>= 0), sets *KP to the
  * key (text after the first '|', newline trimmed), or -1 if the line has no '|'. */
 static long ktomb_parse(char *line, const char **kp)

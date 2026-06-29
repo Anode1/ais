@@ -18,6 +18,11 @@ int tomb_append(const ais *a, long id, const char *ts, const char *hash);
  * Bounded memory; O(tomb) per call. */
 int tomb_contains(const ais *a, long id);
 
+/* Stream each tomb entry (id, ts, hash) through CB (ts/hash "" for a legacy v1
+ * entry). Returns 0, the callback's stop code, or -1 on error. */
+typedef int (*tomb_cb)(long id, const char *ts, const char *hash, void *ctx);
+int tomb_each(const ais *a, tomb_cb cb, void *ctx);
+
 /* Key-level tombstones (INDEX/ktomb): "record ID no longer carries KEY", the
  * append-only counterpart of the record tomb. Detach records the pair here and
  * drops the posting; dump/timeline hide the key; compaction strips it from the

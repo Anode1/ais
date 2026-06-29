@@ -1464,11 +1464,46 @@ static void test_content_hash(void)
     CHECK(strlen(a) == 16, "content_hash: 16 hex chars");
 }
 
+static void test_export_stream(void)
+{
+    ais a;
+    FILE *tmp;
+    char buf[4096];
+    size_t n;
+    const char *dir = "/tmp/ais_ut_export";
+
+    scratch_rm(dir);
+    ais_open(&a, dir);
+    ais_put(&a, "venice", "Hotel Danieli");
+    ais_put(&a, "paris", "Cafe de Flore");   /* id 2 */
+    ais_put(&a, "rome", "Trattoria");
+    ais_del(&a, 2);                           /* delete 'paris' */
+
+    tmp = tmpfile();
+    CHECK(tmp != NULL, "export: tmpfile opened");
+    feed_export(&a, tmp);
+    rewind(tmp);
+    n = fread(buf, 1, sizeof buf - 1, tmp);
+    buf[n] = '\0';
+    fclose(tmp);
+
+    CHECK(strstr(buf, "A|") != NULL && strstr(buf, "Hotel Danieli") != NULL,
+          "export: live records appear as A| lines");
+    CHECK(strstr(buf, "Cafe de Flore") == NULL,
+          "export: a deleted record is absent from the A| lines");
+    CHECK(strstr(buf, "D|") != NULL, "export: a tombstone appears as a D| line");
+
+    ais_close(&a);
+    scratch_rm(dir);
+}
+
 int main(void)
 {
     printf("AIS regression tests (make ut)\n");
     printf("content:\n");
     test_content_hash();
+    printf("merge:\n");
+    test_export_stream();
     printf("key:\n");
     test_key_encode();
     test_key_prefix();

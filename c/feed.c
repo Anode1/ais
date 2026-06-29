@@ -9,10 +9,12 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "compact.h"      /* tomb_contains / tomb_each -- merge export */
 #include "doc.h"
 #include "feed.h"
 #include "log.h"
 #include "secret.h"
+#include "store.h"        /* store_each_record -- merge export */
 
 /* feed_stdin: file each non-empty stdin line, verbatim, as a value under KEYS. */
 void feed_stdin(ais *a, const char *keys)
@@ -136,6 +138,35 @@ void feed_import(ais *a)
         n++;
     }
     fprintf(stderr, "imported %ld\n", n);
+}
+
+/* feed_export: write the merge/export stream to OUT -- A|ts|keys|value for every live
+ * record, then D|ts|hash for every content-addressed tombstone. Adds precede deletes so
+ * a delete in the same stream applies after its add. The inverse of merge-aware import;
+ * this is what `ais --export` serves over the wire. */
+struct exp_ctx { ais *a; FILE *out; };
+static int exp_live(long id, const char *ts, const char *keys, const char *value, void *vp)
+{
+    struct exp_ctx *E = vp;
+    if (tomb_contains(E->a, id) == 0)
+        fprintf(E->out, "A|%s|%s|%s\n", ts, keys, value);
+    return 0;
+}
+static int exp_dead(long id, const char *ts, const char *hash, void *vp)
+{
+    struct exp_ctx *E = vp;
+    (void)id;
+    if (hash[0] != '\0')              /* skip legacy/compacted entries with no hash */
+        fprintf(E->out, "D|%s|%s\n", ts, hash);
+    return 0;
+}
+void feed_export(ais *a, FILE *out)
+{
+    struct exp_ctx E;
+    E.a = a;
+    E.out = out;
+    store_each_record(a, exp_live, &E);
+    tomb_each(a, exp_dead, &E);
 }
 
 /* CLI --doc: stream stdin (any size, bounded memory) into a blob, then put its
