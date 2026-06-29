@@ -1455,16 +1455,13 @@ static void test_secret_blob_crypto(void)
 
 static void test_content_hash(void)
 {
-    char a[17], b[17], c[17], x[17], y[17];
-    content_hash("venice italy", "Hotel Danieli", a);
-    content_hash("venice italy", "Hotel Danieli", b);
-    content_hash("venice italy", "Hotel Daniel", c);
-    CHECK(strcmp(a, b) == 0, "content_hash: same content -> same hash");
-    CHECK(strcmp(a, c) != 0, "content_hash: changed value changes the hash");
+    char a[17], b[17], c[17];
+    content_hash("Hotel Danieli, canal view", a);
+    content_hash("Hotel Danieli, canal view", b);
+    content_hash("Hotel Danieli", c);
+    CHECK(strcmp(a, b) == 0, "content_hash: same value -> same hash");
+    CHECK(strcmp(a, c) != 0, "content_hash: different value -> different hash");
     CHECK(strlen(a) == 16, "content_hash: 16 hex chars");
-    content_hash("ab", "c", x);
-    content_hash("a", "bc", y);
-    CHECK(strcmp(x, y) != 0, "content_hash: keys/value boundary respected");
 }
 
 int main(void)

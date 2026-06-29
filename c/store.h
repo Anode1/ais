@@ -110,9 +110,9 @@ int  store_record_at(const ais *a, long id, long offset, store_rec_cb cb, void *
 int  multi_append(const ais *a, long id);
 int  multi_contains(const ais *a, long id);   /* 1 yes, 0 no, -1 error */
 
-/* Stable content hash of a record's "keys|value" identity (FNV-1a 64-bit, hex,
- * 16 chars + NUL). A record's cross-device identity for merge; NOT a security
- * hash. Same content -> same hash on any device, independent of local ids. */
-void content_hash(const char *keys, const char *value, char out[17]);
+/* Stable content hash of a record's VALUE -- its cross-device identity for merge
+ * (put dedups by value; keys are labels). FNV-1a 64-bit, hex, 16 chars + NUL.
+ * NOT a security hash. Same value -> same hash on any device. */
+void content_hash(const char *value, char out[17]);
 
 #endif /* AIS_STORE_H */
