@@ -360,7 +360,27 @@ Plain-text config; an
 .I index = PATH
 line records the saved default index (see
 .BR "ais \-\-default" ).
+.SH SYNCING
+The index is plain files, so syncing it across devices needs no cloud account and no
+ais feature: point a folder-sync tool at the index directory.
+.B Syncthing
+is recommended: peer-to-peer over your own network, open source, on Android and the
+desktops. Pair the two devices once by exchanging Device IDs (scan a QR code), share
+the index folder, and it stays in sync automatically thereafter.
+.PP
+Sync the whole directory but ignore the per-device writer lock file
+.RI ( lock ).
+The rebuildable files
+.RI ( idx/ ", " off )
+stay consistent because the tool keeps the directory identical on both ends.
+.PP
+You are almost always on one device at a time, so conflicts are rare; if you edit
+offline on two devices, Syncthing keeps both copies and the append-only
+.I store
+merges. For a one-shot manual copy use LocalSend or a USB cable instead; avoid
+Bluetooth (slow). The full walkthrough with pairing steps is in
+.IR doc/SYNC.md .
 .SH AUTHOR
 Vasili Gavrilov.
 .SH SEE ALSO
-The project README, doc/dev/STYLE.md, doc/dev/LAYOUT.md.
+The project README, doc/SYNC.md, doc/dev/STYLE.md, doc/dev/LAYOUT.md.
