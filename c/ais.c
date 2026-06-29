@@ -232,13 +232,42 @@ out:
     return rc;
 }
 
+/* Grab a record's value by id (via ais_record) so del can content-hash it for a
+ * portable, compaction-proof tombstone. */
+struct del_value { char value[AIS_LINE_MAX]; int found; };
+static int del_grab_value(long id, const char *value, void *ctx)
+{
+    struct del_value *D = ctx;
+    (void)id;
+    snprintf(D->value, sizeof D->value, "%s", value);
+    D->found = 1;
+    return 1;   /* stop after the first line */
+}
+
+/* Stamp a tombstone for id: ts = now, hash = content hash of the record's value (so
+ * the deletion is portable for cross-device merge), or "" if the id is already gone. */
+static void del_stamp(ais *a, long id, char *ts, size_t tsz, char hash[17])
+{
+    struct del_value D;
+    D.found = 0;
+    D.value[0] = '\0';
+    ais_record(a, id, del_grab_value, &D);
+    store_now(ts, tsz);
+    if (D.found)
+        content_hash(D.value, hash);
+    else
+        hash[0] = '\0';
+}
+
 int ais_del(ais *a, long id)
 {
+    char ts[AIS_TS_MAX], hash[17];
     int rc;
 
     if (store_wlock(a) != 0)
         return -1;
-    rc = tomb_append(a, id);
+    del_stamp(a, id, ts, sizeof ts, hash);
+    rc = tomb_append(a, id, ts, hash);
     store_wunlock(a);
     if (rc == 0)
         debug("del: tombstoned id=%ld", id);
@@ -258,7 +287,9 @@ int ais_del_key(ais *a, const char *key)
     }
 
     for (; s.alive; post_next(&s)) {
-        if (tomb_append(a, s.head) != 0) {
+        char ts[AIS_TS_MAX], hash[17];
+        del_stamp(a, s.head, ts, sizeof ts, hash);
+        if (tomb_append(a, s.head, ts, hash) != 0) {
             rc = -1;
             goto cleanup;
         }

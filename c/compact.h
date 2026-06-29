@@ -10,8 +10,9 @@
 
 #include "ais.h"
 
-/* Append ID to INDEX/tomb. Returns 0, or -1 on error. */
-int tomb_append(const ais *a, long id);
+/* Tombstone ID into INDEX/tomb as "id|ts|hash" (v2; ts/hash may be ""). Legacy
+ * "id"-only lines still read. Returns 0, or -1 on error. */
+int tomb_append(const ais *a, long id, const char *ts, const char *hash);
 
 /* Is ID tombstoned? Streams INDEX/tomb. Returns 1 yes, 0 no, -1 on error.
  * Bounded memory; O(tomb) per call. */

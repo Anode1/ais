@@ -25,7 +25,11 @@ static int compact_path(const ais *a, const char *name, char *out, size_t outsz)
     return 0;
 }
 
-int tomb_append(const ais *a, long id)
+/* Tombstone id with the delete-time TS and the record's content HASH (either may be
+ * ""). Format: "id|ts|hash" (v2). Legacy "id"-only lines still read fine: tomb_contains
+ * parses the leading id via atol, and a v1 entry's empty ts/hash sort as oldest and are
+ * not exportable. The hash makes a deletion portable + compaction-proof for merge. */
+int tomb_append(const ais *a, long id, const char *ts, const char *hash)
 {
     char path[AIS_PATH_MAX];
     FILE *fp;
@@ -35,7 +39,7 @@ int tomb_append(const ais *a, long id)
     fp = fopen(path, "a");
     if (fp == NULL)
         return -1;
-    fprintf(fp, "%ld\n", id);
+    fprintf(fp, "%ld|%s|%s\n", id, ts ? ts : "", hash ? hash : "");
     if (fclose(fp) != 0)
         return -1;
     return 0;
