@@ -48,7 +48,7 @@ int tomb_append(const ais *a, long id, const char *ts, const char *hash)
 int tomb_contains(const ais *a, long id)
 {
     char path[AIS_PATH_MAX];
-    char line[64];
+    char line[64];   /* id-only: atol reads the leading id even if a long line truncates here; parse full id|ts|hash only via tomb_each */
     FILE *fp;
     int found = 0;
 

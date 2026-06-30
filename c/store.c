@@ -311,6 +311,18 @@ int store_append(const ais *a, long id, const char *ts,
 {
     char path[AIS_PATH_MAX];
     FILE *fp;
+    int need;
+
+    /* The whole record must round-trip through one AIS_LINE_MAX fgets on read; refuse one
+     * that would not (large content belongs in a --doc blob, not inline). */
+    need = (ts != NULL && ts[0] != '\0')
+         ? snprintf(NULL, 0, "%ld|%s|%s|%s\n", id, ts, keys, value)
+         : snprintf(NULL, 0, "%ld|%s|%s\n", id, keys, value);
+    if (need < 0 || need >= AIS_LINE_MAX) {
+        fprintf(stderr, "ais: record too long (%d bytes; max %d) -- use --doc for large values\n",
+                need, AIS_LINE_MAX - 1);
+        return -1;
+    }
 
     if (store_path(a, "store", path, sizeof(path)) != 0)
         return -1;

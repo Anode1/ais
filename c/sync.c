@@ -300,7 +300,7 @@ int sync_pull_url(ais *a, const char *url, const char *token, int timeout_s) {
     host[plen] = '\0';
 
     colon = strrchr(host, ':');
-    if (colon) { *colon = '\0'; port = atoi(colon + 1); if (port <= 0) port = AIS_SYNC_PORT; }
+    if (colon) { *colon = '\0'; port = atoi(colon + 1); if (port <= 0 || port > 65535) port = AIS_SYNC_PORT; }
     if (host[0] == '\0') {
         fprintf(stderr, "sync: bad url '%s'\n", url);
         return -1;
