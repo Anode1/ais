@@ -194,10 +194,10 @@ jobs:
           name: ais-windows-signed
           path: signed/*
 
-  # Android: the Flutter app (FFI to the C engine) as an installable .apk, so a
-  # phone user can sideload it straight from the release. Release-signed when the
-  # keystore secrets are set; otherwise debug-signed (gradle fallback) so the job
-  # still produces an installable apk before signing is configured.
+  # Android: the Flutter app (FFI to the C engine). The .apk is the installable
+  # build a phone user sideloads from the release; the .aab is the Google Play
+  # upload bundle (Play requires .aab; see doc/HOWTO_playstore.md). Release-signed
+  # when the keystore secrets are set; otherwise debug-signed (gradle fallback).
   android:
     name: build android apk (flutter)
     runs-on: ubuntu-latest
@@ -231,11 +231,12 @@ jobs:
           else
             echo "no ANDROID_KEYSTORE_BASE64 secret; building debug-signed (gradle fallback)"
           fi
-      - name: build apk
+      - name: build apk + play bundle
         working-directory: app/flutter
         run: |
           flutter pub get
           flutter build apk --release
+          flutter build appbundle --release   # .aab for the Play Store
       - name: verify the C engine (libais.so) is bundled per ABI
         run: |
           # FFI loads lib/<device-abi>/libais.so; a missing ABI = runtime crash on
@@ -245,12 +246,14 @@ jobs:
           unzip -l "$apk" | grep -E 'lib/.*/libais\.so' || true
           unzip -l "$apk" | grep -q 'lib/arm64-v8a/libais.so' \
             || { echo "ERROR: lib/arm64-v8a/libais.so missing from the apk"; exit 1; }
-      - name: stage apk + checksum
+      - name: stage apk + aab + checksums
         run: |
-          name="ais-${{ github.ref_name }}-android.apk"
+          apk="ais-${{ github.ref_name }}-android.apk"
+          aab="ais-${{ github.ref_name }}-android.aab"
           mkdir -p dist
-          cp app/flutter/build/app/outputs/flutter-apk/app-release.apk "dist/$name"
-          ( cd dist && sha256sum "$name" > "$name.sha256" )
+          cp app/flutter/build/app/outputs/flutter-apk/app-release.apk "dist/$apk"
+          cp app/flutter/build/app/outputs/bundle/release/app-release.aab "dist/$aab"
+          ( cd dist && sha256sum "$apk" > "$apk.sha256" && sha256sum "$aab" > "$aab.sha256" )
       - uses: actions/upload-artifact@v4
         with:
           name: ais-android
