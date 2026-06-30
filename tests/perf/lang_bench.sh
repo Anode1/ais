@@ -28,13 +28,17 @@ substr=${1:-Outputs}
 
 cc -O2 -o "$here/bench" "$here/bench.c"
 javac -d "$here" "$here/Bench.java"
+ada=""; command -v gnatmake >/dev/null 2>&1 && \
+  gnatmake -O2 -o "$here/bench_ada" "$here/bench.adb" >/dev/null 2>&1 && ada="$here/bench_ada"
 cat "$idx/store" "$k1" "$k2" > /dev/null    # warm the cache: measure CPU, not disk
 
 echo "### SCAN  (store, substring '$substr') ###"
 echo "-- C --";      "$here/bench"  find "$idx/store" "$substr"
+[ -n "$ada" ] && { echo "-- Ada --"; "$ada" find "$idx/store" "$substr"; }
 echo "-- Java --";   java -cp "$here" Bench find "$idx/store" "$substr"
 echo "-- Python --"; python3 "$here/bench.py" find "$idx/store" "$substr"
 echo "### INTERSECTION  ($(basename "$k1")  AND  $(basename "$k2")) ###"
 echo "-- C --";      "$here/bench"  and "$k1" "$k2"
+[ -n "$ada" ] && { echo "-- Ada --"; "$ada" and "$k1" "$k2"; }
 echo "-- Java --";   java -cp "$here" Bench and "$k1" "$k2"
 echo "-- Python --"; python3 "$here/bench.py" and "$k1" "$k2"

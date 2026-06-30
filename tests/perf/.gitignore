@@ -1,2 +1,8 @@
 /bench
+/bench_ada
+/bench_safe
+/bench_fast
 *.class
+*.ali
+*.o
+b~*

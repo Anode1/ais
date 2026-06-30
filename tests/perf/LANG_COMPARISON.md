@@ -12,11 +12,11 @@ CPython 3.12. First-order numbers; they move with the machine.
 
 ## Same hand-written algorithm (the loop, as written in C and Java)
 
-| Operation                          |  C -O2 |   Java warm | Python loop |
-|------------------------------------|-------:|------------:|------------:|
-| scan 88 MB store + count           |  ~90ms |  ~100-150ms |      ~300ms |
-| intersect posting lists (merge)    |  1.3ms |       1.3ms |       ~72ms |
-| process startup (before any work)  |   ~1ms |       ~30ms |       ~10ms |
+| Operation                          |  C -O2 | Ada (GNAT) |   Java warm | Python loop |
+|------------------------------------|-------:|-----------:|------------:|------------:|
+| scan 88 MB store + count           |  ~90ms |     ~130ms |  ~100-150ms |      ~300ms |
+| intersect posting lists (merge)    |  1.3ms |     1.45ms |       1.3ms |       ~72ms |
+| process startup (before any work)  |   ~1ms |       ~1ms |       ~30ms |       ~10ms |
 
 Apples to apples, Python is ~3x slower scanning and ~55x slower on the merge: a
 tight two-pointer integer loop is exactly what the CPython interpreter is worst
@@ -35,6 +35,22 @@ C speed once the JIT compiles the hot loop a few iterations in; cold it is
 hash-join, so competent Python is within a few x of C HERE, as long as the hot
 work stays inside CPython's C internals and not in Python bytecode.
 
+## Ada: native like C, and here the safety was free
+
+GNAT is a GCC front end, so Ada compiles to the same native code and starts
+instantly like C: C-class on both ops (~1.4x C on the scan, on par on the
+merge), far past Python's hand loop.
+
+The interesting part is the safety knob. Ada runs with bounds and overflow
+checks ON by default. Built with checks suppressed (`-gnatp`, the C model) the
+numbers were IDENTICAL to checks-on, because the optimizer discharged the checks
+statically: the loop indices are provably in range, so there was nothing to test
+at run time. So here Ada bought memory-and-overflow safety for free, at C speed
+and C startup, which C cannot offer (no checks at all) and the JVM and CPython
+offer only with a heavy runtime. Where the compiler cannot prove a bound,
+checks-on costs a little; for these well-structured loops it cost nothing
+measurable.
+
 ## What it means
 
 Python's speed is binary: C-fast when the loop is a builtin, ~50x slower the
@@ -52,5 +68,6 @@ or only by becoming a different, memory-heavier program.
 
 So: for batch, vectorizable, builtin-shaped work Python is fine and Java matches
 C. For a short-lived CLI running hand-written streaming loops on every command,
-the order is C, then warm Java, then Python-with-builtins, then hand-written
-Python far behind. ais is the second category, which is why it is C.
+the order is C and Ada (both native, instant start, Ada with safety on for free),
+then warm Java, then Python-with-builtins, then hand-written Python far behind.
+ais is the second category, which is why it is C.
