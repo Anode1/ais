@@ -18,15 +18,15 @@ URL); `ais --import <url> --token T` pulls and merges. Follow-ups: blob transfer
       store ──feed_export──► A|ts|keys|value  (live records)
                              D|ts|hash         (tombstones)
                              │
-                       aisc_seal(token)         XChaCha20-Poly1305,
-                             │                  key = blake2b(token)
-                       sync_serve ───TCP───► sync_pull
-                       (bind LAN, ONE          (connect, send token,
-                        client, token           read [len][sealed])
-                        auth, [len][sealed])           │
-                                               aisc_unseal(token)  ◄─ wrong token / tampering
-                                                      │               rejected HERE, before
-                                               feed_import_from ──┐    anything is merged
+                       aisc_seal_key(k_seal)    k_seal = subkey(token,"seal");
+                             │                  the token itself is NEVER sent
+                       sync_serve ──challenge─► sync_pull
+                             ◄────── proof ──── (answer = keyed proof of
+                       (verify; [len][sealed])   token+challenge)
+                                                      │
+                                               aisc_unseal_key(k_seal) ◄─ wrong token / tampering
+                                                      │                   rejected HERE, before
+                                               feed_import_from ──┐       anything is merged
                                                                   ▼
                                                           store (merge): live records arrive,
                                                           deletions propagate, last-write-wins by ts
@@ -86,48 +86,48 @@ it (a `http(s)://` URL is remote, otherwise local). The only remote-only flag is
 (auth, not source). Phone GUI: scan the QR to fill url+token, one tap to import.
 
 ## Wire protocol (as built: a raw length-framed exchange, not HTTP)
-The original draft used HTTP/1.0 (for browser compatibility), but the client is `ais` itself,
-not a browser, so the implementation is a smaller raw protocol:
+The client is `ais` itself, not a browser, so the protocol is a small raw exchange. The token
+is NEVER sent; the client proves knowledge by answering a fresh challenge:
 
-    client connects, sends:   <token>\n
-    server validates the token (length-checked compare). On a mismatch it serves nothing and
-      closes -- no error body, so it does not reveal whether data exists.
-    server replies:           [4-byte big-endian length][sealed blob]
-       where the sealed blob = aisc_seal(token, the full A|/D| merge stream from feed_export).
-    client reads the length + blob, aisc_unseal(token, ...), then feed_import_from the result.
+    server -> client:   challenge   (24 random bytes, fresh per session)
+    client -> server:   proof       (32 bytes = BLAKE2b-keyed(token, "ais-sync-auth-v1" || challenge))
+    server verifies the proof in constant time; on a mismatch it serves nothing and closes
+      (no error body, so it does not reveal whether data exists).
+    server -> client:   [4-byte big-endian length][sealed blob]
+       sealed = aisc_seal_key(k_seal, the full A|/D| stream), k_seal = BLAKE2b-keyed(token,
+       "ais-sync-seal-v1") -- a DIFFERENT subkey than the proof.
+    client reads length + blob, aisc_unseal_key(k_seal, ...), then feed_import_from.
 
-The whole merge stream (live records + tombstones, including any secret `aisc:` markers) is
-sealed as ONE blob, so the store/tomb/blobs split of the draft is unnecessary: the stream
-already carries everything `--import` needs. Both sides set `SO_RCVTIMEO`/`SO_SNDTIMEO` so a
-stalled peer cannot hang the transfer; the server is single-client and exits after one pull.
+The token never crosses the wire and the seal key is a domain-separated subkey, so a passive
+sniffer who captures the whole handshake learns neither the token nor `k_seal` and cannot
+decrypt the stream. The sealed blob is `version(1) | nonce(24) | ciphertext | tag(16)` (the
+version byte authenticated as AD, for algorithm agility). The whole merge stream (records +
+tombstones, incl. any `aisc:` markers) is one blob, capped at 64 MiB on BOTH ends. Both sides
+set `SO_RCVTIMEO`/`SO_SNDTIMEO` so a stalled peer cannot hang it; the server is single-client
+and exits after one pull.
 
 ## Merge / convergence
-There is NO index-to-index merge command today; `c/merge.c` is the query-time
-posting-list merge. Reconcile is built from existing pieces:
-- Pull fetches the peer's records (the `--dump` format) and feeds them through the
-  `--import` path (`feed_import`). `put` is idempotent (dedup by store scan), so new
-  records land and duplicates are suppressed. **Additions converge.**
-- **Deletions do NOT propagate yet**: `--import` only adds, `--dump` skips tombstoned
-  ids, and nothing unions the two `tomb` files. Propagating deletions needs a
-  tombstone-union reconcile, which is the planned "seamless index merging" engine item
-  (see ROADMAP).
-- One-way by nature: after A imports B, A holds A+B and B is unchanged; full convergence =
-  both sides import from the other.
-
-DECISION (chosen: **full merge**). Build the tombstone-union reconcile first (the
-seamless-merge engine item), then sync gets true convergence including deletions.
-Additions-only was rejected as a temp solution. Conflict rule: **last-write-wins by the
-store's `ts` column** (delete-after-add wins; re-add-after-delete wins), deterministic
-for a single user across their own devices.
+Reconcile is the content-keyed, ts-resolved tombstone-union merge (see `MERGE.md`).
+`--export` emits both adds (`A|ts|keys|value`) and tombstones (`D|ts|hash`); `--import`
+replays them through `feed_import_from`, where `put` is idempotent (dedup by content)
+and `ais_merge_del` unions the tombstones. **Additions and deletions both converge**,
+last-write-wins by the store's `ts` column (delete-after-add wins; re-add-after-delete
+wins), deterministic for one user across their own devices. One-way by nature: after A
+imports B, A holds A+B and B is unchanged; full convergence is both sides importing from
+the other.
 
 ## Security model (end-to-end encrypted, from the start)
 `--serve` binds 127.0.0.1 deliberately. `--export` MUST bind the LAN interface, so the
 channel is encrypted end-to-end, not merely token-gated:
 - the exporting device generates a **high-entropy one-time token** (>= 128-bit random,
   shown as text and a QR, never a short human PIN);
-- that token is the **shared secret**: both sides derive a session key from it and the
-  whole transfer body is sealed with **XChaCha20-Poly1305** (the ais_crypto AEAD), so a
-  MITM on the LAN sees only ciphertext and tampering fails the Poly1305 tag;
+- the token is the shared secret but **never travels**: the client proves knowledge by
+  answering a fresh challenge with `BLAKE2b-keyed(token, "...-auth-v1" || challenge)`, so a
+  sniffer who sees the proof cannot recover the token or replay it on a later session;
+- the body is sealed with **XChaCha20-Poly1305** under a SEPARATE subkey
+  `BLAKE2b-keyed(token, "...-seal-v1")`, domain-separated from the auth proof, so observing
+  the handshake never yields the seal key; a MITM sees only ciphertext and tampering fails
+  the Poly1305 tag (and a version byte allows future algorithm changes);
 - **ephemeral + single client**: the server runs only during the export, serves one
   authenticated peer, and exits on first success or at `--timeout`.
 

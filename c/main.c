@@ -361,6 +361,8 @@ int main(int argc, char **argv)
         else if (cmd != CMD_EXPORT)
             die("--serve combines only with --export (or alone for the web GUI)");
     }
+    if (token_arg != NULL && !(cmd == CMD_IMPORT && optind < argc))
+        die("--token is only used with: ais --import <url> --token TOKEN");
 
     /* nothing asked for at all */
     if (cmd == 0 && nval == 0 && !interactive && !encrypt &&

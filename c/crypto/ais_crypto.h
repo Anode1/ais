@@ -58,23 +58,33 @@ int aisc_decrypt(const uint8_t *file,     size_t file_len,
                  const uint8_t *keyfile,  size_t kf_len,
                  uint8_t **out, size_t *out_len);
 
-/* Token-keyed seal for the LAN sync transport: encrypt PLAIN under a HIGH-ENTROPY
- * one-time TOKEN (hashed straight to the AEAD key -- no Argon2, since the token is a
- * random QR code, not a human passphrase). Sealed layout: nonce(24) | ciphertext | tag(16).
- * Allocates *OUT (caller frees). Returns AISC_OK or an AISC_E_* code. */
-int aisc_seal(const uint8_t *token, size_t token_len,
-              const uint8_t *plain, size_t plain_len,
-              uint8_t **out, size_t *out_len);
+/* --- LAN sync transport crypto. The token is NEVER sent; the two sides derive subkeys
+ * from it by domain (aisc_subkey) and prove knowledge via a challenge, so observing the
+ * wire never yields the seal key. --- */
 
-/* Inverse of aisc_seal. A wrong token or any tampering returns AISC_E_AUTH and writes
+/* Fill OUT with N OS-random bytes (challenges, nonces). AISC_OK / AISC_E_RANDOM. */
+int aisc_random(uint8_t *out, size_t n);
+
+/* Constant-time equality of two 32-byte buffers (auth proofs). 1 if equal, else 0. */
+int aisc_verify(const uint8_t a[32], const uint8_t b[32]);
+
+/* Derive a 32-byte subkey from TOKEN, domain-separated by LABEL and optionally bound to
+ * CTX (a per-session challenge; NULL/0 for none). out = BLAKE2b-keyed(TOKEN, LABEL||CTX). */
+void aisc_subkey(const uint8_t *token, size_t token_len, const char *label,
+                 const uint8_t *ctx, size_t ctx_len, uint8_t out[32]);
+
+/* AEAD-seal PLAIN under a raw 32-byte KEY. Sealed = version(1) | nonce(24) | ciphertext |
+ * tag(16); the version byte is authenticated. Allocates *OUT. AISC_OK or AISC_E_*. */
+int aisc_seal_key(const uint8_t key[32], const uint8_t *plain, size_t plain_len,
+                  uint8_t **out, size_t *out_len);
+
+/* Inverse of aisc_seal_key. A wrong key or any tampering returns AISC_E_AUTH and writes
  * nothing. Allocates *OUT on success (caller frees, then wipes with aisc_wipe). */
-int aisc_unseal(const uint8_t *token, size_t token_len,
-                const uint8_t *sealed, size_t sealed_len,
-                uint8_t **out, size_t *out_len);
+int aisc_unseal_key(const uint8_t key[32], const uint8_t *sealed, size_t sealed_len,
+                    uint8_t **out, size_t *out_len);
 
-/* Generate a high-entropy one-time token as hex into OUT (OUT_SZ incl. NUL; fills
- * OUT_SZ-1 hex chars -- use 33 for a 128-bit token). The sync pairing secret that
- * becomes the seal key. Returns AISC_OK or an AISC_E_* code. */
+/* Generate a high-entropy one-time pairing token as hex into OUT (OUT_SZ incl. NUL; fills
+ * OUT_SZ-1 hex chars -- use 33 for a 128-bit token). AISC_OK or an AISC_E_* code. */
 int aisc_token(char *out, size_t out_sz);
 
 /* Read a passphrase from /dev/tty with echo OFF (not stdin, so it cannot be

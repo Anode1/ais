@@ -211,53 +211,81 @@ int aisc_decrypt(const uint8_t *file, size_t file_len,
     return AISC_OK;
 }
 
-/* ----- token-keyed seal (fast; no Argon2 -- the token is high-entropy) -- */
-/* For the LAN sync transport. The shared one-time TOKEN (a high-entropy QR code, not a
- * human passphrase) is hashed straight to the 32-byte AEAD key, so no memory-hard KDF is
- * needed. Sealed = nonce(24) | ciphertext(N) | tag(16). */
-int aisc_seal(const uint8_t *token, size_t token_len,
-              const uint8_t *plain, size_t plain_len,
-              uint8_t **out, size_t *out_len) {
-    if (!token || !plain || !out || !out_len) return AISC_E_ARG;
+/* ----- AEAD with a raw key + per-token subkeys (the LAN sync transport) -- */
+/* The sync transport NEVER sends the token. Each side derives subkeys from it by domain
+ * (aisc_subkey): one to answer a per-session challenge (auth), one to seal the body. The
+ * AEAD (aisc_seal_key) takes a raw 32-byte key, so the auth proof seen on the wire never
+ * yields the seal key, and BLAKE2b is one-way so neither yields the token. */
 
-    size_t total = AISC_NONCE_LEN + plain_len + AISC_TAG_LEN;
-    uint8_t *buf = malloc(total ? total : 1);
+#define AISC_SEAL_VERSION 1
+
+/* Fill OUT with N cryptographically-random bytes (the OS RNG). AISC_OK / AISC_E_RANDOM. */
+int aisc_random(uint8_t *out, size_t n) {
+    if (!out) return AISC_E_ARG;
+    return rand_bytes(out, n) ? AISC_E_RANDOM : AISC_OK;
+}
+
+/* Constant-time equality of two 32-byte buffers (auth proofs / MACs). 1 if equal, else 0. */
+int aisc_verify(const uint8_t a[32], const uint8_t b[32]) {
+    return crypto_verify32(a, b) == 0;
+}
+
+/* Derive a 32-byte subkey from TOKEN: OUT = BLAKE2b-keyed(key=TOKEN, msg = LABEL || CTX).
+ * LABEL domain-separates uses of one token ("...-seal-v1" vs "...-auth-v1"); CTX binds it to
+ * a per-session challenge (NULL/0 for none). Only subkeys and challenge proofs go on the
+ * wire; BLAKE2b is one-way, so observing them reveals neither the token nor a sibling subkey. */
+void aisc_subkey(const uint8_t *token, size_t token_len, const char *label,
+                 const uint8_t *ctx, size_t ctx_len, uint8_t out[32]) {
+    uint8_t msg[128];
+    size_t ll = strlen(label), n;
+    if (ll > 64) ll = 64;
+    memcpy(msg, label, ll);
+    n = ll;
+    if (ctx != NULL && ctx_len > 0) {
+        if (ctx_len > sizeof msg - n) ctx_len = sizeof msg - n;
+        memcpy(msg + n, ctx, ctx_len);
+        n += ctx_len;
+    }
+    crypto_blake2b_keyed(out, 32, token, token_len, msg, n);
+}
+
+/* AEAD-seal PLAIN under a raw 32-byte KEY. Sealed = version(1) | nonce(24) | ciphertext | tag(16);
+ * the version byte is authenticated (associated data) for future algorithm agility. */
+int aisc_seal_key(const uint8_t key[32], const uint8_t *plain, size_t plain_len,
+                  uint8_t **out, size_t *out_len) {
+    if (!key || !plain || !out || !out_len) return AISC_E_ARG;
+
+    size_t total = 1 + AISC_NONCE_LEN + plain_len + AISC_TAG_LEN;
+    uint8_t *buf = malloc(total);
     if (!buf) return AISC_E_MEM;
 
-    if (rand_bytes(buf, AISC_NONCE_LEN)) { free(buf); return AISC_E_RANDOM; }
+    buf[0] = AISC_SEAL_VERSION;
+    if (rand_bytes(buf + 1, AISC_NONCE_LEN)) { free(buf); return AISC_E_RANDOM; }
 
-    uint8_t key[32];
-    crypto_blake2b(key, sizeof key, token, token_len);
-
-    uint8_t *ct  = buf + AISC_NONCE_LEN;
+    uint8_t *ct  = buf + 1 + AISC_NONCE_LEN;
     uint8_t *tag = ct + plain_len;
-    crypto_aead_lock(ct, tag, key, buf /*nonce*/, NULL, 0, plain, plain_len);
+    crypto_aead_lock(ct, tag, key, buf + 1 /*nonce*/, buf, 1 /*ad = version*/, plain, plain_len);
 
-    aisc_wipe(key, sizeof key);
     *out = buf;
     *out_len = total;
     return AISC_OK;
 }
 
-int aisc_unseal(const uint8_t *token, size_t token_len,
-                const uint8_t *sealed, size_t sealed_len,
-                uint8_t **out, size_t *out_len) {
-    if (!token || !sealed || !out || !out_len) return AISC_E_ARG;
-    if (sealed_len < AISC_NONCE_LEN + AISC_TAG_LEN) return AISC_E_FORMAT;
+int aisc_unseal_key(const uint8_t key[32], const uint8_t *sealed, size_t sealed_len,
+                    uint8_t **out, size_t *out_len) {
+    if (!key || !sealed || !out || !out_len) return AISC_E_ARG;
+    if (sealed_len < 1 + AISC_NONCE_LEN + AISC_TAG_LEN) return AISC_E_FORMAT;
+    if (sealed[0] != AISC_SEAL_VERSION) return AISC_E_FORMAT;
 
-    size_t ct_len = sealed_len - AISC_NONCE_LEN - AISC_TAG_LEN;
-    const uint8_t *nonce = sealed;
-    const uint8_t *ct    = sealed + AISC_NONCE_LEN;
+    size_t ct_len = sealed_len - 1 - AISC_NONCE_LEN - AISC_TAG_LEN;
+    const uint8_t *nonce = sealed + 1;
+    const uint8_t *ct    = sealed + 1 + AISC_NONCE_LEN;
     const uint8_t *tag   = ct + ct_len;
 
-    uint8_t key[32];
-    crypto_blake2b(key, sizeof key, token, token_len);
-
     uint8_t *pt = malloc(ct_len ? ct_len : 1);
-    if (!pt) { aisc_wipe(key, sizeof key); return AISC_E_MEM; }
+    if (!pt) return AISC_E_MEM;
 
-    int bad = crypto_aead_unlock(pt, tag, key, nonce, NULL, 0, ct, ct_len);
-    aisc_wipe(key, sizeof key);
+    int bad = crypto_aead_unlock(pt, tag, key, nonce, sealed, 1 /*ad = version*/, ct, ct_len);
     if (bad) { aisc_wipe(pt, ct_len); free(pt); return AISC_E_AUTH; }
 
     *out = pt;
@@ -265,8 +293,7 @@ int aisc_unseal(const uint8_t *token, size_t token_len,
     return AISC_OK;
 }
 
-/* Generate a high-entropy one-time token as hex for the sync transport's pairing (it
- * becomes the AEAD key via aisc_seal). OUT gets (OUT_SZ-1) hex chars + NUL. */
+/* Generate a high-entropy one-time pairing token as hex. OUT gets (OUT_SZ-1) hex chars + NUL. */
 int aisc_token(char *out, size_t out_sz) {
     static const char hex[] = "0123456789abcdef";
     uint8_t buf[64];
@@ -275,7 +302,7 @@ int aisc_token(char *out, size_t out_sz) {
     if (!out || out_sz < 3) return AISC_E_ARG;
     nbytes = (out_sz - 1) / 2;
     if (nbytes == 0 || nbytes > sizeof buf) return AISC_E_ARG;
-    if (rand_bytes(buf, nbytes)) return AISC_E_RANDOM;
+    if (rand_bytes(buf, nbytes)) { aisc_wipe(buf, sizeof buf); return AISC_E_RANDOM; }
     for (i = 0; i < nbytes; i++) {
         out[2 * i]     = hex[(buf[i] >> 4) & 0xf];
         out[2 * i + 1] = hex[buf[i] & 0xf];

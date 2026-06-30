@@ -156,8 +156,10 @@ void feed_import_from(ais *a, FILE *in)
             fprintf(stderr, "import: empty keys, skipped: %s\n", val);
             continue;
         }
-        if (ais_put(a, keys, val) < 0)
-            die("import: failed on '%s'", val);
+        if (ais_put(a, keys, val) < 0) {       /* shared with the sync merge: skip, don't abort */
+            fprintf(stderr, "import: skipped (put failed): %s\n", val);
+            continue;
+        }
         n++;
     }
     fprintf(stderr, "imported %ld\n", n);

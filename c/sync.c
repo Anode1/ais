@@ -24,6 +24,7 @@
 #  include <time.h>
 #  include <unistd.h>
 #  include <errno.h>
+#  include <signal.h>
 #endif
 
 #ifdef SYNC_HAVE
@@ -33,6 +34,7 @@ int sync_export_sealed(ais *a, const char *token, uint8_t **out, size_t *out_len
     char *buf = NULL;
     size_t blen = 0;
     FILE *ms;
+    uint8_t kseal[32];
     int rc;
 
     if (!a || !token || !out || !out_len)
@@ -42,9 +44,19 @@ int sync_export_sealed(ais *a, const char *token, uint8_t **out, size_t *out_len
         return -1;
     feed_export(a, ms);
     if (fclose(ms) != 0) { free(buf); return -1; }
+    if (blen > AIS_SYNC_MAX_BLOB) {            /* cap the seal side too (the pull side matches) */
+        fprintf(stderr, "sync: index too large to seal (%zu bytes > %lu-byte cap)\n",
+                blen, (unsigned long)AIS_SYNC_MAX_BLOB);
+        if (blen) aisc_wipe(buf, blen);
+        free(buf);
+        return -1;
+    }
 
-    rc = aisc_seal((const uint8_t *)token, strlen(token),
-                   (const uint8_t *)buf, blen, out, out_len);
+    /* seal under a SUBKEY of the token, not the token itself: the auth proof on the wire
+     * never yields this key (domain-separated derivation). */
+    aisc_subkey((const uint8_t *)token, strlen(token), "ais-sync-seal-v1", NULL, 0, kseal);
+    rc = aisc_seal_key(kseal, (const uint8_t *)buf, blen, out, out_len);
+    aisc_wipe(kseal, sizeof kseal);
     if (blen)
         aisc_wipe(buf, blen);                  /* the cleartext export held secrets */
     free(buf);
@@ -55,12 +67,17 @@ int sync_import_sealed(ais *a, const char *token, const uint8_t *sealed, size_t 
 {
     uint8_t *plain = NULL;
     size_t plen = 0;
+    uint8_t kseal[32];
+    int rc;
     FILE *mf;
 
     if (!a || !token || !sealed)
         return -1;
     /* authenticate FIRST: a wrong token or any tampering fails here, before any merge */
-    if (aisc_unseal((const uint8_t *)token, strlen(token), sealed, len, &plain, &plen) != AISC_OK)
+    aisc_subkey((const uint8_t *)token, strlen(token), "ais-sync-seal-v1", NULL, 0, kseal);
+    rc = aisc_unseal_key(kseal, sealed, len, &plain, &plen);
+    aisc_wipe(kseal, sizeof kseal);
+    if (rc != AISC_OK)
         return -1;
 
     mf = fmemopen(plain, plen, "r");
@@ -108,8 +125,8 @@ static void set_timeout(int fd, int secs) {
 int sync_serve(ais *a, int port, const char *token, int timeout_s) {
     int srv, cli = -1, rc = -1, one = 1;
     struct sockaddr_in addr;
-    char tokbuf[256];
-    size_t tn = 0, tlen = strlen(token);
+    size_t tlen = strlen(token);
+    uint8_t challenge[24], proof_want[32], proof_got[32];
     uint8_t *blob = NULL;
     size_t blen = 0;
     unsigned char lenbuf[4];
@@ -129,15 +146,14 @@ int sync_serve(ais *a, int port, const char *token, int timeout_s) {
     if (cli < 0) { close(srv); return -1; }
     set_timeout(cli, timeout_s);
 
-    while (tn + 1 < sizeof tokbuf) {            /* read the client's token line */
-        char c;
-        ssize_t r = read(cli, &c, 1);
-        if (r < 0) { if (errno == EINTR) continue; goto done; }
-        if (r == 0 || c == '\n') break;
-        if (c != '\r') tokbuf[tn++] = c;
-    }
-    tokbuf[tn] = '\0';
-    if (tn != tlen || memcmp(token, tokbuf, tn) != 0)
+    /* Challenge-response: prove the peer knows the token WITHOUT it crossing the wire. Send a
+     * fresh random challenge; the peer must return the keyed proof of (token, challenge). */
+    if (aisc_random(challenge, sizeof challenge) != AISC_OK) goto done;
+    if (write_all(cli, challenge, sizeof challenge) != 0) goto done;
+    if (read_all(cli, proof_got, sizeof proof_got) != 0) goto done;
+    aisc_subkey((const uint8_t *)token, tlen, "ais-sync-auth-v1",
+                challenge, sizeof challenge, proof_want);
+    if (!aisc_verify(proof_got, proof_want))
         goto done;                              /* wrong token: serve nothing */
 
     if (sync_export_sealed(a, token, &blob, &blen) != 0) goto done;
@@ -149,6 +165,9 @@ int sync_serve(ais *a, int port, const char *token, int timeout_s) {
         rc = 0;
 
 done:
+    aisc_wipe(challenge, sizeof challenge);
+    aisc_wipe(proof_want, sizeof proof_want);
+    aisc_wipe(proof_got, sizeof proof_got);
     if (blob) { aisc_wipe(blob, blen); free(blob); }
     if (cli >= 0) close(cli);
     close(srv);
@@ -159,6 +178,7 @@ int sync_pull(ais *a, const char *host, int port, const char *token, int timeout
     int fd, rc = -1, attempt;
     struct sockaddr_in addr;
     unsigned char lenbuf[4];
+    uint8_t challenge[24], proof[32];
     size_t blen;
     uint8_t *blob = NULL;
 
@@ -176,11 +196,16 @@ int sync_pull(ais *a, const char *host, int port, const char *token, int timeout
     }
     if (attempt == 50) { close(fd); return -1; }
 
-    if (write_all(fd, token, strlen(token)) != 0 || write_all(fd, "\n", 1) != 0) goto done;
+    /* answer the server's challenge with the keyed proof; the token never goes on the wire */
+    if (read_all(fd, challenge, sizeof challenge) != 0) goto done;
+    aisc_subkey((const uint8_t *)token, strlen(token), "ais-sync-auth-v1",
+                challenge, sizeof challenge, proof);
+    if (write_all(fd, proof, sizeof proof) != 0) goto done;
+
     if (read_all(fd, lenbuf, 4) != 0) goto done;
     blen = ((size_t)lenbuf[0] << 24) | ((size_t)lenbuf[1] << 16)
          | ((size_t)lenbuf[2] << 8) | (size_t)lenbuf[3];
-    if (blen == 0 || blen > 64u * 1024u * 1024u) goto done;   /* sanity cap */
+    if (blen == 0 || blen > AIS_SYNC_MAX_BLOB) goto done;   /* match the seal-side cap */
     blob = malloc(blen);
     if (!blob) goto done;
     if (read_all(fd, blob, blen) != 0) goto done;
@@ -188,6 +213,8 @@ int sync_pull(ais *a, const char *host, int port, const char *token, int timeout
     rc = sync_import_sealed(a, token, blob, blen);
 
 done:
+    aisc_wipe(challenge, sizeof challenge);
+    aisc_wipe(proof, sizeof proof);
     if (blob) free(blob);
     close(fd);
     return rc;
@@ -216,6 +243,7 @@ static int sync_local_ip(char *buf, size_t n) {
 int sync_serve_lan(ais *a, int port, int timeout_s) {
     char token[33], ip[64];
 
+    signal(SIGPIPE, SIG_IGN);                  /* a peer that vanishes mid-write must not kill us */
     if (aisc_token(token, sizeof token) != AISC_OK) {
         fprintf(stderr, "sync: cannot generate a token\n");
         return -1;
@@ -244,6 +272,7 @@ int sync_pull_url(ais *a, const char *url, const char *token, int timeout_s) {
     int port = AIS_SYNC_PORT;
     size_t plen;
 
+    signal(SIGPIPE, SIG_IGN);
     if (!url || !token) {
         fprintf(stderr, "sync: --import <url> needs --token TOKEN\n");
         return -1;

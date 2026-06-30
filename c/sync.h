@@ -14,6 +14,7 @@
 #include "ais.h"
 
 #define AIS_SYNC_PORT 8766       /* default LAN sync port (distinct from --serve's 8765 GUI) */
+#define AIS_SYNC_MAX_BLOB (64u * 1024u * 1024u)   /* cap on one sealed transfer, BOTH sides */
 
 /* Produce A's merge stream (A|/D| lines) sealed under TOKEN, a high-entropy one-time
  * pairing secret. Allocates *OUT (caller frees; wipe with aisc_wipe). Returns 0, or -1

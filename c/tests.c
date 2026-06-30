@@ -1380,26 +1380,30 @@ static void test_crypto(void)
     rc = aisc_decrypt(file, flen, pw, sizeof pw - 1, NULL, 0, &out, &olen);
     CHECK(rc == AISC_E_AUTH, "crypto: tampering is detected");
 
-    /* token-keyed seal (the LAN sync transport): round-trip, wrong token, tamper */
+    /* sync crypto: domain-separated subkeys + raw-key AEAD (the token never becomes a seal key) */
     {
         static const unsigned char tok[] = "Zk3pQ9-7Lm2xW8nR4tB6vY1";  /* high-entropy */
-        uint8_t *sealed = NULL, *plain = NULL;
+        uint8_t kseal[32], kauth[32], *sealed = NULL, *plain = NULL;
         size_t slen = 0, plen = 0;
 
-        rc = aisc_seal(tok, sizeof tok - 1, pt, sizeof pt - 1, &sealed, &slen);
-        CHECK(rc == AISC_OK && sealed != NULL && slen == 24 + (sizeof pt - 1) + 16,
-              "seal: token-keyed seal -> nonce|ct|tag");
+        aisc_subkey(tok, sizeof tok - 1, "ais-sync-seal-v1", NULL, 0, kseal);
+        aisc_subkey(tok, sizeof tok - 1, "ais-sync-auth-v1", NULL, 0, kauth);
+        CHECK(memcmp(kseal, kauth, 32) != 0, "seal: domain separation -> distinct subkeys");
 
-        rc = aisc_unseal(tok, sizeof tok - 1, sealed, slen, &plain, &plen);
+        rc = aisc_seal_key(kseal, pt, sizeof pt - 1, &sealed, &slen);
+        CHECK(rc == AISC_OK && sealed != NULL && slen == 1 + 24 + (sizeof pt - 1) + 16,
+              "seal: version|nonce|ct|tag");
+
+        rc = aisc_unseal_key(kseal, sealed, slen, &plain, &plen);
         CHECK(rc == AISC_OK && plen == sizeof pt - 1 && memcmp(plain, pt, plen) == 0,
-              "seal: right token unseals and round-trips");
+              "seal: right key unseals and round-trips");
         if (plain) { aisc_wipe(plain, plen); free(plain); plain = NULL; }
 
-        rc = aisc_unseal((const unsigned char *)"wrong-token-entirely", 20, sealed, slen, &plain, &plen);
-        CHECK(rc == AISC_E_AUTH, "seal: wrong token is rejected (AEAD auth)");
+        rc = aisc_unseal_key(kauth, sealed, slen, &plain, &plen);   /* a different subkey */
+        CHECK(rc == AISC_E_AUTH, "seal: wrong key is rejected (AEAD auth)");
 
         sealed[slen - 1] ^= 0x01;              /* flip a tag bit */
-        rc = aisc_unseal(tok, sizeof tok - 1, sealed, slen, &plain, &plen);
+        rc = aisc_unseal_key(kseal, sealed, slen, &plain, &plen);
         CHECK(rc == AISC_E_AUTH, "seal: tampering is detected");
         aisc_wipe(sealed, slen); free(sealed);
     }
@@ -1654,6 +1658,25 @@ static void test_sync_socket(void)
     CHECK(value_present(&B, "Cafe de Flore") == 0, "sync(socket): deletion propagated over TCP");
     ais_close(&B);
     waitpid(pid, NULL, 0);
+
+    /* wrong token: the challenge-response proof fails, the server serves nothing, the pull
+     * fails, and B stays empty (nothing decrypted or merged). */
+    scratch_rm(db);
+    pid = fork();
+    if (pid == 0) {
+        ais cA;
+        ais_open(&cA, da);
+        sync_serve(&cA, port, tok, 5);           /* right token here; the client brings a wrong one */
+        ais_close(&cA);
+        _exit(0);
+    }
+    ais_open(&B, db);
+    rc = sync_pull(&B, "127.0.0.1", port, "ffffffffffffffffffffffffffffffff", 5);
+    CHECK(rc != 0, "sync(socket): wrong token is rejected");
+    CHECK(value_present(&B, "Hotel Danieli") == 0, "sync(socket): nothing merged on a wrong token");
+    ais_close(&B);
+    waitpid(pid, NULL, 0);
+
     scratch_rm(da);
     scratch_rm(db);
 }

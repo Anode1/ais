@@ -36,9 +36,10 @@ ais --export --serve
 ais --import http://192.168.1.5:8766 --token ad61d80ed83fbfe381eeac93768aa676
 
 Device B pulls A's records and merges them: new values arrive, and deletions made on A
-propagate to B (last writer wins, by timestamp). The transfer is sealed with the one-time
-token (XChaCha20-Poly1305), so a snoop or tamperer on the LAN gets only ciphertext, and a
-wrong token is rejected before anything is merged. The server is single-shot: it serves one
+propagate to B (last writer wins, by timestamp). The transfer is encrypted (XChaCha20-Poly1305)
+under a key derived from the one-time token, and the token itself never crosses the wire (the
+client proves it knows it by answering a challenge), so a snoop or tamperer on the LAN gets only
+ciphertext, and a wrong token is rejected before anything is merged. The server is single-shot: it serves one
 pull, then exits. Run it the other way to also merge B's changes back into A.
 
 The default port is 8766; pass one to `ais --export --serve PORT` to change it.
