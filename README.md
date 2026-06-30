@@ -5,6 +5,16 @@
 
 An extension of your associative memory: a memo that is always with you and always yours, that brings things back the way your mind does, by association. Underneath, an index: file anything under keys, recall it by keys, plain text on your own disk.
 
+<p align="center">
+  <img src="screenshots/android-timeline.png" width="30%" alt="Everything you saved: links, file paths, and encrypted secrets">
+  <img src="screenshots/android-search.png" width="30%" alt="Search returns clickable links">
+  <img src="screenshots/android-tags.png" width="30%" alt="Browse everything by tag">
+</p>
+<p align="center"><em>The phone app: file links, file paths and notes, recall them by tag; passwords stay encrypted (&#128274;). The same index from the command line:</em></p>
+<p align="center">
+  <img src="screenshots/cli.png" width="78%" alt="Store links and an encrypted password, then recall by key">
+</p>
+
 ## Download
 
 The latest stable build for every platform. The link below always points at the current release, never an old one:
