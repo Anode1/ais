@@ -51,6 +51,15 @@ WHAT IT IS
   Universal. Anything you can name with keys: bookmarks, files, shell commands,
   phone numbers, and multi-line documents (`ais --doc`).
 
+  Encryptable, and safe to hand to an agent. A value or a whole document can be
+  stored encrypted inline (`-e`). Decryption is interactive: the cleartext
+  appears only after you supply the passphrase, at a terminal or in the app, and
+  never when the output is piped, dumped, synced, or read programmatically. So an
+  AI agent reading your index sees an opaque `aisc:` marker, not the secret, while
+  still using everything around it as context. There is no unlocked vault to
+  drain, and no master key: each secret is its own blob, opened one at a time, by
+  you.
+
 WHAT IT IS NOT
 
   Not just another bookmark saver. It can save bookmarks, but it is a general,
@@ -70,6 +79,13 @@ WHAT IT IS NOT
   Not a file vault or document manager. It indexes your files where they live;
   it does not take them in, convert them, or lock them inside an app. Your
   storage stays untouched and immutable.
+
+  Not a password manager. No autofill, no generation, no breach alerts, no
+  shared vaults, so for hundreds of web logins a dedicated manager is more
+  convenient. But for a secret that lives with its context, AIS is the safer
+  thing to put in front of an agent: wiring a vault to an agent exposes the whole
+  vault, while an AIS secret stays sealed unless you decrypt it yourself, at a
+  terminal or in the app.
 
 WHERE YOUR DATA LIVES
 

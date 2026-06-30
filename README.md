@@ -62,6 +62,9 @@ It is deliberately minimal and not the main interface. The CLI is the contract; 
 **Is this not just a bookmark manager / recoll / org-mode?**
 It overlaps all three and copies none. Not a bookmark manager: it files *anything* under *any* keys, not URLs in a browser. Not full-text (recoll): it indexes the keys you choose, not document bodies. Not org-mode: no single tree, no app lock-in, no markup to learn, just keys with set algebra (AND / OR) over plain files. The distinctive part is that the index *is your bias*, kept unaveraged and portable.
 
+**Can it hold passwords? Is it a password manager?**
+It stores a secret encrypted inline (`-e`), but it is not a manager for hundreds of web logins: no autofill, no generation, no shared vaults; for those, a dedicated manager is more convenient. Where it wins is *agent safety*. Decryption is interactive (a passphrase you supply at a terminal or in the app), so an agent reading your index sees an opaque `aisc:` marker, not the secret, with no master key and no unlocked vault to drain. For the secret that belongs next to its context, that is safer to put in front of an agent than wiring a whole vault to one. See [`about.txt`](doc/about.txt).
+
 ## Learn more
 
 | Read | For |
