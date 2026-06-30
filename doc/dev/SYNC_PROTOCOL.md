@@ -1,4 +1,4 @@
-# AIS LAN sync, protocol spec (DRAFT, for review, no code yet)
+# AIS LAN sync, protocol spec (engine IMPLEMENTED; CLI surface remaining)
 
 ## Goal
 One-shot, no-cloud, no-dependency transfer of an index between two devices on the same
@@ -7,22 +7,41 @@ network, then reconcile via the merge-aware `--import` (see `doc/dev/MERGE.md`).
 installed, same Wi-Fi" path; for set-and-forget or cross-network sync, use Syncthing
 (see `doc/SYNC.md`).
 
-## Status & build order (where a new contributor starts)
-Design approved; decisions LOCKED: full tombstone-union merge (decision B), end-to-end
-encrypted from the start, CLI = `--export` / `--import <url>` (no `--remote`), `--import`
-merge-aware for all sources, plain `--dump` unchanged. Build in this order, each reviewed
-before the next:
+## Status (as built)
+Decisions LOCKED: full tombstone-union merge (decision B), end-to-end encrypted from the
+start, CLI = `--export` / `--import <url>` (no `--remote`), `--import` merge-aware for all
+sources, plain `--dump` unchanged. The whole data path is **built and tested** (257 unit
+tests, incl. a forked-loopback socket test); only the network CLI surface remains.
 
-1. **Engine: tombstone-union merge** (`doc/dev/MERGE.md`) — make `--import` merge-aware
-   (last-write-wins by `ts`; timestamped content-addressed tombstones). Record-level only in
-   v1; `ktomb` (key-level) is a deferred follow-up. This gates everything.
-2. **Transport: `sync.c`** — `--export` (ephemeral LAN server, token + QR, E2E AEAD) and
-   `--import <url>` (fetch, decrypt, merge). New file; reuse `serve.c` socket helpers, do
-   not restructure `serve.c`.
-3. **GUI: a "Sync" surface** — phone (scan QR -> import) and the desktop GUIs.
+    device A                                            device B
+      store ──feed_export──► A|ts|keys|value  (live records)
+                             D|ts|hash         (tombstones)
+                             │
+                       aisc_seal(token)         XChaCha20-Poly1305,
+                             │                  key = blake2b(token)
+                       sync_serve ───TCP───► sync_pull
+                       (bind LAN, ONE          (connect, send token,
+                        client, token           read [len][sealed])
+                        auth, [len][sealed])           │
+                                               aisc_unseal(token)  ◄─ wrong token / tampering
+                                                      │               rejected HERE, before
+                                               feed_import_from ──┐    anything is merged
+                                                                  ▼
+                                                          store (merge): live records arrive,
+                                                          deletions propagate, last-write-wins by ts
 
-Owner: the sync/engine track (separate from the GUI track). All decisions locked
-(`ktomb` deferred to a follow-up).
+1. **Engine: tombstone-union merge** (`doc/dev/MERGE.md`) — **DONE**. `--import` is merge-aware;
+   timestamped content-addressed tombstones; last-write-wins; record-level (v1), `ktomb`
+   (key-level) deferred.
+2. **Transport: `sync.c`** — **DONE**. `sync_export_sealed`/`sync_import_sealed` (seal / merge a
+   stream), `sync_serve`/`sync_pull` (ephemeral single-client TCP, token auth, timeouts),
+   `aisc_seal`/`aisc_unseal`/`aisc_token` (crypto). Forked-loopback test green.
+3. **CLI surface** — **REMAINING**. `ais --export --serve [port]` (generate + print token/QR,
+   call `sync_serve`) and `ais --import <url> --token T` (parse host:port, call `sync_pull`).
+   `ais --export` to stdout already exists.
+4. **GUI: a "Sync" surface** — later. Phone (scan QR -> import) and the desktop GUIs.
+
+Owner: the sync/engine track. All decisions locked (`ktomb` deferred).
 
 ## Non-goals (this is where the weight lives, kept out on purpose)
 - No auto-discovery (no mDNS/multicast). Pairing is manual: IP:port + token, shown as text and a QR.
@@ -65,17 +84,21 @@ Reuses the existing dump/import vocabulary. The only new verb is `--export`; the
 it (a `http(s)://` URL is remote, otherwise local). The only remote-only flag is `--token`
 (auth, not source). Phone GUI: scan the QR to fill url+token, one tap to import.
 
-## Wire protocol (HTTP/1.0, same loop as --serve)
-Every request carries the token (`X-AIS-Token: <TOK>` header, or `?token=`). Missing or
-wrong token returns 403; the server keeps waiting and does not reveal whether data exists.
+## Wire protocol (as built: a raw length-framed exchange, not HTTP)
+The original draft used HTTP/1.0 (for browser compatibility), but the client is `ais` itself,
+not a browser, so the implementation is a smaller raw protocol:
 
-    GET /sync/meta          -> version + record count (client checks compatibility first)
-    GET /sync/store         -> the raw store file (text/plain)
-    GET /sync/tomb          -> the raw tomb file (204 if none)
-    GET /sync/blobs         -> blob filenames, one per line
-    GET /sync/blob/<name>   -> one blob file (name validated: reject any '/' or '..')
+    client connects, sends:   <token>\n
+    server validates the token (length-checked compare). On a mismatch it serves nothing and
+      closes -- no error body, so it does not reveal whether data exists.
+    server replies:           [4-byte big-endian length][sealed blob]
+       where the sealed blob = aisc_seal(token, the full A|/D| merge stream from feed_export).
+    client reads the length + blob, aisc_unseal(token, ...), then feed_import_from the result.
 
-Client order: meta (version gate) -> store -> tomb -> list blobs -> fetch missing blobs.
+The whole merge stream (live records + tombstones, including any secret `aisc:` markers) is
+sealed as ONE blob, so the store/tomb/blobs split of the draft is unnecessary: the stream
+already carries everything `--import` needs. Both sides set `SO_RCVTIMEO`/`SO_SNDTIMEO` so a
+stalled peer cannot hang the transfer; the server is single-client and exits after one pull.
 
 ## Merge / convergence
 There is NO index-to-index merge command today; `c/merge.c` is the query-time
@@ -121,16 +144,25 @@ Covered: a passive snoop AND an active MITM on a hostile LAN get only ciphertext
 the token, which is infeasible to brute-force. Still out of scope: cross-internet reach
 (no relay), which remains Syncthing's job.
 
-## Implementation notes
-- New file `sync.c` (+ `sync.h`). Reuse the accept/read/write helpers from `serve.c`; if
-  clean, factor the shared bits into a tiny `httpd` helper, else duplicate the few lines.
-  Do not restructure `serve.c` while the GUI redesign is in flight there.
-- Token from the OS RNG already in `ais_crypto` (`rand_bytes`) / `/dev/urandom`.
-- Rough size: ~250-400 lines, no new dependency.
+## Implementation notes (as built)
+- New file `sync.c` (+ `sync.h`), gated POSIX + crypto; Windows / no-crypto builds get inert
+  stubs that return -1. It does NOT reuse `serve.c` (that loop is HTTP-on-127.0.0.1 for the
+  browser GUI); `sync.c` has its own small raw socket code that binds the LAN.
+- Token from `aisc_token` (OS RNG via `ais_crypto`'s `rand_bytes`).
+- The seal derives the key as `blake2b(token)` and uses XChaCha20-Poly1305 (`aisc_seal` /
+  `aisc_unseal`), no Argon2.
+- Tested by `test_sync_sealed` (sealed-stream round-trip) and `test_sync_socket` (a forked
+  client/server over loopback) in `c/tests.c`.
 
-## Open questions (resolve before coding)
-1. Does `--merge` union tombstones today? If not, that is the first task.
-2. Blob filename collisions across devices (same timestamp): keep ts-names or switch to a content hash?
-3. v1 pairing: emit a real QR (terminal unicode blocks + phone GUI), or just print URL+token and have the phone type it?
+## Remaining work & follow-ups
+1. **CLI surface** (the one piece left): `ais --export --serve [port]` and `ais --import <url>
+   --token T` in `main.c`, plus printing the token (and a QR) for pairing.
+2. **Blob files are not transferred yet.** `feed_export` emits records + tombstones; a doc /
+   encrypted-doc record's *value* (the `aisc:@blobs/<ts>` reference) crosses, but the blob
+   FILE does not, so the reference would dangle on the peer. Transferring blobs is a follow-up.
+3. **QR**: emit a real QR (terminal unicode blocks + phone GUI), or just print URL+token for v1.
 4. `--export` bind on multi-homed machines: all interfaces, or prompt which one?
-5. Full-store merge is an O(store) scan per sync: fine for personal scale, revisit only for very large indexes.
+5. Full-store merge is an O(store) scan per sync: fine at personal scale.
+
+Resolved during implementation: identity = value (not keys+value); content hash is FNV-1a;
+no tomb migration (v1/v2 coexist); the merge IS built (was "does --merge union tombstones?").
