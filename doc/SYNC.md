@@ -1,10 +1,13 @@
 # Syncing your AIS index across devices (no cloud)
 
-AIS keeps everything as plain files in one index folder, so syncing your phone and
-computer needs no AIS feature and no cloud account: you point a folder-sync tool at
-the index. The recommended tool is **Syncthing**, peer-to-peer over your own network
-(or an encrypted relay when the devices are apart), open source, and available on
-Android and Linux, Windows, macOS.
+AIS keeps everything as plain files in one index folder, so syncing needs no cloud account.
+There are two no-cloud paths, and you can use both:
+
+- **Built-in one-shot LAN sync** (below): `ais --export --serve` on one device, `ais --import`
+  on the other. Encrypted, nothing to install, good for an occasional copy or merge.
+- **Syncthing** for continuous, automatic background syncing: peer-to-peer over your own
+  network (or an encrypted relay when the devices are apart), open source, on Android and
+  Linux, Windows, macOS.
 
 ## What an index holds (so you know what matters)
 
@@ -18,6 +21,32 @@ Android and Linux, Windows, macOS.
 
 Simplest reliable rule: **sync the whole folder and ignore only `lock`.** Everything
 else stays internally consistent because Syncthing keeps it identical on both ends.
+
+## Built-in one-shot LAN sync (no setup)
+
+For a quick copy or merge between two devices on the same Wi-Fi, AIS has this built in,
+end-to-end encrypted, with nothing to install:
+
+# 1. On device A (the source), serve the index to one peer:
+ais --export --serve
+#    It prints a one-time token and the exact command to run on the other device, e.g.:
+#        ais --import http://192.168.1.5:8766 --token ad61d80ed83fbfe381eeac93768aa676
+
+# 2. On device B (the destination), run that printed command:
+ais --import http://192.168.1.5:8766 --token ad61d80ed83fbfe381eeac93768aa676
+
+Device B pulls A's records and merges them: new values arrive, and deletions made on A
+propagate to B (last writer wins, by timestamp). The transfer is sealed with the one-time
+token (XChaCha20-Poly1305), so a snoop or tamperer on the LAN gets only ciphertext, and a
+wrong token is rejected before anything is merged. The server is single-shot: it serves one
+pull, then exits. Run it the other way to also merge B's changes back into A.
+
+The default port is 8766; pass one to `ais --export --serve PORT` to change it.
+
+Limits today: this carries the records (values, keys, deletions), not the `doc` blob FILES,
+so a synced document reference can dangle on the peer until blob transfer lands. It is
+LAN-only by design; for devices on different networks, or for continuous background syncing,
+use Syncthing below.
 
 ## Syncthing setup
 
