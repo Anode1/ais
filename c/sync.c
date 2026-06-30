@@ -196,14 +196,18 @@ int sync_pull(ais *a, const char *host, int port, const char *token, int timeout
     addr.sin_port = htons((unsigned short)port);
     if (inet_pton(AF_INET, host, &addr.sin_addr) != 1) return -1;
 
-    fd = socket(AF_INET, SOCK_STREAM, 0);
-    if (fd < 0) return -1;
-    set_timeout(fd, timeout_s);
+    /* Recreate the socket each attempt: after a failed connect(), BSD/macOS will not
+     * let you connect() the same fd again (only Linux retries an unconnected fd cleanly). */
+    fd = -1;
     for (attempt = 0; attempt < 50; attempt++) {        /* server may still be binding */
+        fd = socket(AF_INET, SOCK_STREAM, 0);
+        if (fd < 0) return -1;
+        set_timeout(fd, timeout_s);
         if (connect(fd, (struct sockaddr *)&addr, sizeof addr) == 0) break;
+        close(fd); fd = -1;
         { struct timespec ts = { 0, 100000000L }; nanosleep(&ts, NULL); }   /* 100ms */
     }
-    if (attempt == 50) { close(fd); return -1; }
+    if (fd < 0) return -1;                              /* never connected */
 
     /* answer the server's challenge with the keyed proof; the token never goes on the wire */
     if (read_all(fd, challenge, sizeof challenge) != 0) goto done;
