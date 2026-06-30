@@ -25,6 +25,7 @@
 #  include <unistd.h>
 #  include <errno.h>
 #  include <signal.h>
+#  include <poll.h>
 #endif
 
 #ifdef SYNC_HAVE
@@ -140,8 +141,16 @@ int sync_serve(ais *a, int port, const char *token, int timeout_s) {
     addr.sin_port = htons((unsigned short)port);
     if (bind(srv, (struct sockaddr *)&addr, sizeof addr) != 0) { close(srv); return -1; }
     if (listen(srv, 1) != 0) { close(srv); return -1; }
-    set_timeout(srv, timeout_s);                /* accept() times out via SO_RCVTIMEO */
 
+    /* Portable accept timeout: SO_RCVTIMEO does NOT bound accept() on BSD/macOS,
+     * so wait for an incoming connection with poll() before accepting. */
+    {
+        struct pollfd pfd;
+        pfd.fd = srv; pfd.events = POLLIN; pfd.revents = 0;
+        if (poll(&pfd, 1, timeout_s > 0 ? timeout_s * 1000 : -1) <= 0) {
+            close(srv); return -1;              /* timeout or error: no peer connected */
+        }
+    }
     cli = accept(srv, NULL, NULL);
     if (cli < 0) { close(srv); return -1; }
     set_timeout(cli, timeout_s);
