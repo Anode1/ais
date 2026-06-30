@@ -31,6 +31,7 @@
 #include "find.h"
 #include "locate.h"
 #include "serve.h"
+#include "sync.h"
 #include "secret.h"
 
 /* Stamped from the git tag at build time (-DAIS_VERSION, see c/Makefile, single
@@ -263,7 +264,7 @@ static int confirm(const char *prompt)
 
 int main(int argc, char **argv)
 {
-    enum { OPT_HELP = 1000, OPT_VERSION,
+    enum { OPT_HELP = 1000, OPT_VERSION, OPT_TOKEN,
            CMD_FIND, CMD_ADD, CMD_DEL, CMD_DELKEY, CMD_DUMP, CMD_KEYS, CMD_STATS,
            CMD_COMPACT, CMD_INIT, CMD_IMPORT, CMD_IMPORTI, CMD_WHERE, CMD_SERVE, CMD_PROJECT,
            CMD_DOC, CMD_TIMELINE, CMD_TAGS, CMD_DEFAULT, CMD_UPDATE,
@@ -301,6 +302,7 @@ int main(int argc, char **argv)
         { "export",      no_argument,       NULL, CMD_EXPORT },
         { "where",       no_argument,       NULL, CMD_WHERE },
         { "serve",       no_argument,       NULL, CMD_SERVE },
+        { "token",       required_argument, NULL, OPT_TOKEN },
         { "doc",         no_argument,       NULL, CMD_DOC },
         { NULL, 0, NULL, 0 }
     };
@@ -311,7 +313,8 @@ int main(int argc, char **argv)
     int nval = 0, nexk = 0;
     ais_mode mode = AIS_AND;
     int assume_yes = 0, interactive = 0, project_given = 0, create = 0, encrypt = 0;
-    int cmd = 0;
+    int cmd = 0, serve_flag = 0;
+    const char *token_arg = NULL;
     char project[AIS_KEY_MAX];
     char keys[AIS_LINE_MAX], full[AIS_LINE_MAX];
     ais a;
@@ -336,9 +339,11 @@ int main(int argc, char **argv)
         case 'h': usage_short(stdout); return 0;
         case OPT_HELP:    usage_long(stdout);  return 0;
         case OPT_VERSION: printf("ais %s\n", AIS_VERSION); return 0;
+        case OPT_TOKEN:   token_arg = optarg; break;
+        case CMD_SERVE:   serve_flag = 1; break;
         case CMD_FIND: case CMD_ADD: case CMD_DEL: case CMD_DELKEY:
         case CMD_DUMP: case CMD_KEYS: case CMD_STATS: case CMD_COMPACT:
-        case CMD_INIT: case CMD_IMPORT: case CMD_IMPORTI: case CMD_EXPORT: case CMD_WHERE: case CMD_SERVE:
+        case CMD_INIT: case CMD_IMPORT: case CMD_IMPORTI: case CMD_EXPORT: case CMD_WHERE:
         case CMD_PROJECT: case CMD_DOC: case CMD_TIMELINE: case CMD_TAGS:
         case CMD_DEFAULT: case CMD_UPDATE:
         case CMD_SWITCH: case CMD_INDEXES: case CMD_FORGET:
@@ -347,6 +352,14 @@ int main(int argc, char **argv)
             break;
         default: usage_short(stderr); return 2;
         }
+    }
+
+    /* --serve is a command on its own (web GUI) and also a modifier of --export
+     * (serve the merge stream over the LAN). Resolve the combination here. */
+    if (serve_flag) {
+        if (cmd == 0) cmd = CMD_SERVE;            /* --serve alone -> web GUI */
+        else if (cmd != CMD_EXPORT)
+            die("--serve combines only with --export (or alone for the web GUI)");
     }
 
     /* nothing asked for at all */
@@ -388,9 +401,18 @@ int main(int argc, char **argv)
         case CMD_STATS: if (ais_stats(&a, stdout) != 0) die("stats failed"); break;
         case CMD_WHERE: printf("%s\n", dir); break;
         case CMD_INIT:  printf("initialized AIS index: %s\n", dir); break;
-        case CMD_IMPORT: feed_import(&a); break;
+        case CMD_IMPORT:
+            if (optind < argc) {                  /* ais --import <url> --token T : pull over LAN */
+                if (sync_pull_url(&a, argv[optind], token_arg, 120) != 0) { ais_close(&a); return 1; }
+            } else feed_import(&a);               /* ais --import : merge stdin */
+            break;
         case CMD_IMPORTI: feed_import_interactive(&a); break;
-        case CMD_EXPORT: feed_export(&a, stdout); break;
+        case CMD_EXPORT:
+            if (serve_flag) {                     /* ais --export --serve [PORT] : serve over LAN */
+                int port = (optind < argc) ? atoi(argv[optind]) : AIS_SYNC_PORT;
+                if (sync_serve_lan(&a, port, 120) != 0) { ais_close(&a); return 1; }
+            } else feed_export(&a, stdout);       /* ais --export : merge stream to stdout */
+            break;
         case CMD_FIND:
             if (optind >= argc) die("--find needs TEXT");
             if (ais_find(&a, argv[optind], stdout) != 0) die("find failed");

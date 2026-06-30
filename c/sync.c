@@ -193,6 +193,85 @@ done:
     return rc;
 }
 
+/* ----- high-level CLI wrappers (token + pairing print + URL parse) ----- */
+
+/* The primary LAN IP, via the connect-a-UDP-socket trick (no packet is sent). */
+static int sync_local_ip(char *buf, size_t n) {
+    int fd;
+    struct sockaddr_in to, me;
+    socklen_t ml = sizeof me;
+
+    fd = socket(AF_INET, SOCK_DGRAM, 0);
+    if (fd < 0) return -1;
+    memset(&to, 0, sizeof to);
+    to.sin_family = AF_INET;
+    to.sin_port = htons(53);
+    inet_pton(AF_INET, "8.8.8.8", &to.sin_addr);
+    if (connect(fd, (struct sockaddr *)&to, sizeof to) != 0) { close(fd); return -1; }
+    if (getsockname(fd, (struct sockaddr *)&me, &ml) != 0) { close(fd); return -1; }
+    close(fd);
+    return (inet_ntop(AF_INET, &me.sin_addr, buf, n) == NULL) ? -1 : 0;
+}
+
+int sync_serve_lan(ais *a, int port, int timeout_s) {
+    char token[33], ip[64];
+
+    if (aisc_token(token, sizeof token) != AISC_OK) {
+        fprintf(stderr, "sync: cannot generate a token\n");
+        return -1;
+    }
+    if (sync_local_ip(ip, sizeof ip) != 0)
+        snprintf(ip, sizeof ip, "<this-device-ip>");
+
+    printf("AIS LAN sync: serving one peer for up to %ds. On the other device run:\n\n", timeout_s);
+    printf("    ais --import http://%s:%d --token %s\n\n", ip, port, token);
+    fflush(stdout);
+
+    if (sync_serve(a, port, token, timeout_s) != 0) {
+        fprintf(stderr, "sync: no peer completed (timeout, wrong token, or error)\n");
+        aisc_wipe(token, sizeof token);
+        return -1;
+    }
+    printf("sync: a peer pulled and merged successfully.\n");
+    aisc_wipe(token, sizeof token);
+    return 0;
+}
+
+int sync_pull_url(ais *a, const char *url, const char *token, int timeout_s) {
+    char host[128];
+    const char *p, *slash;
+    char *colon;
+    int port = AIS_SYNC_PORT;
+    size_t plen;
+
+    if (!url || !token) {
+        fprintf(stderr, "sync: --import <url> needs --token TOKEN\n");
+        return -1;
+    }
+    p = url;
+    if (strncmp(p, "http://", 7) == 0)       p += 7;
+    else if (strncmp(p, "https://", 8) == 0) p += 8;
+    slash = strchr(p, '/');
+    plen = slash ? (size_t)(slash - p) : strlen(p);   /* host[:port], drop any path */
+    if (plen >= sizeof host) plen = sizeof host - 1;
+    memcpy(host, p, plen);
+    host[plen] = '\0';
+
+    colon = strrchr(host, ':');
+    if (colon) { *colon = '\0'; port = atoi(colon + 1); if (port <= 0) port = AIS_SYNC_PORT; }
+    if (host[0] == '\0') {
+        fprintf(stderr, "sync: bad url '%s'\n", url);
+        return -1;
+    }
+    if (sync_pull(a, host, port, token, timeout_s) != 0) {
+        fprintf(stderr, "sync: pull from %s:%d failed (wrong token, timeout, or no server there)\n",
+                host, port);
+        return -1;
+    }
+    printf("sync: merged from %s:%d\n", host, port);
+    return 0;
+}
+
 #else  /* no POSIX buffer streams or no crypto: transport unavailable */
 
 int sync_export_sealed(ais *a, const char *token, uint8_t **out, size_t *out_len)
@@ -213,6 +292,18 @@ int sync_serve(ais *a, int port, const char *token, int timeout_s)
 int sync_pull(ais *a, const char *host, int port, const char *token, int timeout_s)
 {
     (void)a; (void)host; (void)port; (void)token; (void)timeout_s;
+    return -1;
+}
+int sync_serve_lan(ais *a, int port, int timeout_s)
+{
+    (void)a; (void)port; (void)timeout_s;
+    fprintf(stderr, "sync: this build lacks LAN sync support (needs POSIX + the crypto module)\n");
+    return -1;
+}
+int sync_pull_url(ais *a, const char *url, const char *token, int timeout_s)
+{
+    (void)a; (void)url; (void)token; (void)timeout_s;
+    fprintf(stderr, "sync: this build lacks LAN sync support (needs POSIX + the crypto module)\n");
     return -1;
 }
 

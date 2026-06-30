@@ -1,4 +1,4 @@
-# AIS LAN sync, protocol spec (engine IMPLEMENTED; CLI surface remaining)
+# AIS LAN sync, protocol spec (IMPLEMENTED)
 
 ## Goal
 One-shot, no-cloud, no-dependency transfer of an index between two devices on the same
@@ -10,8 +10,9 @@ installed, same Wi-Fi" path; for set-and-forget or cross-network sync, use Synct
 ## Status (as built)
 Decisions LOCKED: full tombstone-union merge (decision B), end-to-end encrypted from the
 start, CLI = `--export` / `--import <url>` (no `--remote`), `--import` merge-aware for all
-sources, plain `--dump` unchanged. The whole data path is **built and tested** (257 unit
-tests, incl. a forked-loopback socket test); only the network CLI surface remains.
+sources, plain `--dump` unchanged. **Built, wired, and tested** (257 unit tests incl. a
+forked-loopback socket test): `ais --export --serve [PORT]` serves one peer (prints token +
+URL); `ais --import <url> --token T` pulls and merges. Follow-ups: blob transfer, QR, GUI.
 
     device A                                            device B
       store ──feed_export──► A|ts|keys|value  (live records)
@@ -36,9 +37,9 @@ tests, incl. a forked-loopback socket test); only the network CLI surface remain
 2. **Transport: `sync.c`** — **DONE**. `sync_export_sealed`/`sync_import_sealed` (seal / merge a
    stream), `sync_serve`/`sync_pull` (ephemeral single-client TCP, token auth, timeouts),
    `aisc_seal`/`aisc_unseal`/`aisc_token` (crypto). Forked-loopback test green.
-3. **CLI surface** — **REMAINING**. `ais --export --serve [port]` (generate + print token/QR,
-   call `sync_serve`) and `ais --import <url> --token T` (parse host:port, call `sync_pull`).
-   `ais --export` to stdout already exists.
+3. **CLI surface** — **DONE**. `ais --export --serve [PORT]` (`sync_serve_lan`: token + pairing
+   line, then `sync_serve`) and `ais --import <url> --token T` (`sync_pull_url`: parse host:port,
+   `sync_pull`); `--token` flag added; `ais --export` to stdout unchanged.
 4. **GUI: a "Sync" surface** — later. Phone (scan QR -> import) and the desktop GUIs.
 
 Owner: the sync/engine track. All decisions locked (`ktomb` deferred).
@@ -155,14 +156,12 @@ the token, which is infeasible to brute-force. Still out of scope: cross-interne
   client/server over loopback) in `c/tests.c`.
 
 ## Remaining work & follow-ups
-1. **CLI surface** (the one piece left): `ais --export --serve [port]` and `ais --import <url>
-   --token T` in `main.c`, plus printing the token (and a QR) for pairing.
-2. **Blob files are not transferred yet.** `feed_export` emits records + tombstones; a doc /
+1. **Blob files are not transferred yet.** `feed_export` emits records + tombstones; a doc /
    encrypted-doc record's *value* (the `aisc:@blobs/<ts>` reference) crosses, but the blob
    FILE does not, so the reference would dangle on the peer. Transferring blobs is a follow-up.
-3. **QR**: emit a real QR (terminal unicode blocks + phone GUI), or just print URL+token for v1.
-4. `--export` bind on multi-homed machines: all interfaces, or prompt which one?
-5. Full-store merge is an O(store) scan per sync: fine at personal scale.
+2. **QR**: emit a real QR (terminal unicode blocks + phone GUI), or just print URL+token for v1.
+3. `--export` bind on multi-homed machines: all interfaces (current), or prompt which one?
+4. Full-store merge is an O(store) scan per sync: fine at personal scale.
 
 Resolved during implementation: identity = value (not keys+value); content hash is FNV-1a;
 no tomb migration (v1/v2 coexist); the merge IS built (was "does --merge union tombstones?").

@@ -13,6 +13,8 @@
 #include <stdint.h>
 #include "ais.h"
 
+#define AIS_SYNC_PORT 8766       /* default LAN sync port (distinct from --serve's 8765 GUI) */
+
 /* Produce A's merge stream (A|/D| lines) sealed under TOKEN, a high-entropy one-time
  * pairing secret. Allocates *OUT (caller frees; wipe with aisc_wipe). Returns 0, or -1
  * (incl. when the build lacks POSIX buffer streams or the crypto module). */
@@ -31,5 +33,15 @@ int sync_serve(ais *a, int port, const char *token, int timeout_s);
 /* Pull from a peer at HOST:PORT: send TOKEN, receive the sealed stream, unseal + merge.
  * TIMEOUT_S bounds I/O. 0, or -1 on error/timeout/auth failure. */
 int sync_pull(ais *a, const char *host, int port, const char *token, int timeout_s);
+
+/* High-level CLI wrappers (these also generate the token and print the pairing line). */
+
+/* Generate a one-time token, print the pairing line (URL + token) for the peer, then serve
+ * ONE pull over the LAN on PORT for up to TIMEOUT_S. 0 on a served peer, -1 otherwise. */
+int sync_serve_lan(ais *a, int port, int timeout_s);
+
+/* Parse URL (`http://host:port` or `host:port`; default port AIS_SYNC_PORT) and pull from
+ * it with TOKEN, merging into A. 0 on success, -1 otherwise. */
+int sync_pull_url(ais *a, const char *url, const char *token, int timeout_s);
 
 #endif /* AIS_SYNC_H */

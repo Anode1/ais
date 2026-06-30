@@ -149,6 +149,13 @@ Assume yes for
 .B \-d
 Debug tracing to standard error.
 .TP
+.BI \-\-token " TOKEN"
+The one-time token printed by
+.B "ais \-\-export \-\-serve"
+on the other device; required by
+.B "ais \-\-import <url>"
+to authenticate and decrypt the LAN transfer.
+.TP
 .B \-h
 Short usage.
 .B \-\-help
@@ -219,7 +226,14 @@ lines) that
 .B \-\-import
 reads, so
 .B "ais \-f A \-\-export | ais \-f B \-\-import"
-merges A into B locally, with no network.
+merges A into B locally, with no network. With
+.B \-\-serve
+.RI [ PORT ]
+it instead serves that stream to ONE peer over the LAN, end-to-end encrypted: it prints a
+one-time token and the exact
+.B \-\-import
+command (URL + token) for the other device, waits for a single pull, then exits (default
+port 8766).
 .TP
 .B \-\-keys
 List all keys, sorted and distinct.
@@ -230,12 +244,22 @@ Print counts of records, keys, and deleted records.
 .B \-\-compact
 Reclaim space from deleted records.
 .TP
-.B \-\-import
-Read
+.B \-\-import \fR[\fIURL\fR]
+With no argument, read
 .IR keys | value
-lines from standard input and save each (the inverse of
+lines (or an
+.B \-\-export
+merge stream) from standard input and merge each (the inverse of
 .BR \-\-dump ;
-blank lines and #-comments are skipped).
+blank lines and #-comments are skipped). Given a
+.I URL
+.RB ( http://HOST:PORT ,
+from a peer's
+.BR "\-\-export \-\-serve" )
+and
+.BI \-\-token " TOKEN"
+, instead pull that peer's sealed merge stream over the LAN, decrypt, and merge it; a wrong
+token or any tampering is rejected before anything is merged.
 .TP
 .B \-\-import-interactively
 Like
@@ -370,8 +394,17 @@ Plain-text config; an
 line records the saved default index (see
 .BR "ais \-\-default" ).
 .SH SYNCING
-The index is plain files, so syncing it across devices needs no cloud account and no
-ais feature: point a folder-sync tool at the index directory.
+For a one-shot copy between two devices on the same network with no setup, AIS has a
+built-in encrypted transfer:
+.B "ais \-\-export \-\-serve"
+on one device prints a one-time token and an
+.B \-\-import
+command; run that on the other device to pull and merge (deletions included). It is
+LAN-only and end-to-end encrypted (XChaCha20-Poly1305 under the token); cross-internet sync
+stays a folder-sync tool's job.
+.PP
+For continuous, automatic syncing the index is plain files, so it needs no cloud account and
+no ais feature: point a folder-sync tool at the index directory.
 .B Syncthing
 is recommended: peer-to-peer over your own network, open source, on Android and the
 desktops. Pair the two devices once by exchanging Device IDs (scan a QR code), share
