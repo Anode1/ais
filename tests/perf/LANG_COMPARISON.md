@@ -12,11 +12,11 @@ CPython 3.12. First-order numbers; they move with the machine.
 
 ## Same hand-written algorithm (the loop, as written in C and Java)
 
-| Operation                          |  C -O2 | Ada (GNAT) |   Java warm | Python loop |
-|------------------------------------|-------:|-----------:|------------:|------------:|
-| scan 88 MB store + count           |  ~90ms |     ~130ms |  ~100-150ms |      ~300ms |
-| intersect posting lists (merge)    |  1.3ms |     1.45ms |       1.3ms |       ~72ms |
-| process startup (before any work)  |   ~1ms |       ~1ms |       ~30ms |       ~10ms |
+| Operation                          |  C -O2 | Ada (GNAT) | Rust -O |   Java warm | Python loop |
+|------------------------------------|-------:|-----------:|--------:|------------:|------------:|
+| scan 88 MB store + count           |  ~90ms |     ~130ms |   ~87ms |  ~100-150ms |      ~300ms |
+| intersect posting lists (merge)    |  1.3ms |     1.45ms |   1.3ms |       1.3ms |       ~72ms |
+| process startup (before any work)  |   ~1ms |       ~1ms |    ~1ms |       ~30ms |       ~10ms |
 
 Apples to apples, Python is ~3x slower scanning and ~55x slower on the merge: a
 tight two-pointer integer loop is exactly what the CPython interpreter is worst
@@ -51,6 +51,32 @@ offer only with a heavy runtime. Where the compiler cannot prove a bound,
 checks-on costs a little; for these well-structured loops it cost nothing
 measurable.
 
+## Rust: also native, C-class, safe at compile time
+
+Rust matched C exactly (~87 ms scan, 1.3 ms merge): same LLVM-class native code,
+and the bounds checks in the guarded loops were elided by the optimizer. So like
+Ada it delivers C speed with safety, but the safety is the borrow checker (memory
+and data-race safety proven at compile time) rather than runtime checks.
+
+## Safety: what each language guarantees
+
+Speed is one axis; what the language guarantees about that hot loop is another.
+
+| Language       | the hot loop's safety, and when it is enforced |
+|----------------|------------------------------------------------|
+| C              | none: overflow and out-of-bounds are undefined behavior |
+| Java / Python  | checked at RUN TIME (exception / panic), inside a heavy runtime |
+| Ada (default)  | checked at run time, native; the optimizer elided the checks here (cost ~0) |
+| Rust           | memory + data-race safety PROVEN at compile time (borrow checker); bounds checked at run time, mostly elided |
+| SPARK          | absence of ALL runtime errors PROVEN at compile time (`gnatprove`: no overflow, no out-of-range, no div-by-zero), so the C-speed `-gnatp` build is safe by proof, not by luck |
+
+Rust and SPARK are the compile-time-safety tier and prove different things: Rust
+proves memory and aliasing safety; SPARK proves the absence of every runtime
+error (and, with contracts, functional correctness) via an SMT solver. SPARK is
+the strongest static assurance of the set, which is why avionics and crypto use
+it. Running gnatprove to print the proof needs the SPARK toolset (via Alire), not
+in this benchmark's default tooling.
+
 ## What it means
 
 Python's speed is binary: C-fast when the loop is a builtin, ~50x slower the
@@ -68,6 +94,7 @@ or only by becoming a different, memory-heavier program.
 
 So: for batch, vectorizable, builtin-shaped work Python is fine and Java matches
 C. For a short-lived CLI running hand-written streaming loops on every command,
-the order is C and Ada (both native, instant start, Ada with safety on for free),
+the order is C, Rust, and Ada (all native, instant start; Rust and Ada safe too),
 then warm Java, then Python-with-builtins, then hand-written Python far behind.
-ais is the second category, which is why it is C.
+ais is the second category, which is why it is C (Rust or Ada would be the
+safe-systems alternative at the same speed).

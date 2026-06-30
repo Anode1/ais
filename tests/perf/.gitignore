@@ -6,3 +6,4 @@
 *.ali
 *.o
 b~*
+/bench_rust
