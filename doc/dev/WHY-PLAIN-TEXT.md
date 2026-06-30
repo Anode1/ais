@@ -52,6 +52,16 @@ also degrades gracefully: a damaged byte costs one line, not the database. The
 format is at once the API, the backup, and the documentation (see the shipped
 example index).
 
+## It outlives the program that made it
+
+Speed is not the deepest reason. A binary index is readable only while its
+program is maintained and still runs; when the app and its format are gone,
+and in fifty years they will be, the data goes with them. That is the real
+problem of a long-lived archive, and plain text is the answer: `cat`, any
+editor, or a tool not yet written reads the store directly, with nothing of
+AIS present. The format outlives the program that wrote it. Programs change;
+plain text does not.
+
 ## What we gave up, honestly
 
 Raw throughput at web scale, and sub-millisecond hot-key recall without warming

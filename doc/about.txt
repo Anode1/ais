@@ -33,7 +33,9 @@ WHAT IT IS
   nothing phones home and no one, not even the author, can read your keys or
   your memory. GPL keeps it free, open, and forkable: no vendor can enclose it
   or shut it down. Plain text keeps it repairable: a bad byte costs a line, not
-  the store, and `cat` still reads it in fifty years. Copy it to an SD card,
+  the store, and `cat` still reads it in fifty years, long after the apps and
+  formats holding your other data are gone. That is the hard part of an
+  archive: programs change, plain text does not. Copy it to an SD card,
   delete it, or move it to other storage with cp, then read it right there with
   any text viewer, on a machine that has never heard of AIS. Your backup is a
   folder you can read by hand, not a sealed blob only the app can reopen. You
