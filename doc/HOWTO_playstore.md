@@ -66,4 +66,35 @@ or let **Play App Signing** hold the app key while you keep only the upload key.
   real testing window before the public store.
 - Policies shift. The Console's own production-access checklist is the source of
   truth; the above is accurate as of mid-2026.
+
+## Appendix: automate uploads later (after the first manual release)
+
+The Play Developer API can push the `.aab` from CI to a track, so you stop
+uploading by hand. It works only once the app already exists in the Console and
+has had at least one build uploaded manually: the API updates an existing app,
+it cannot create the first one or pass the 20-tester gate for you.
+
+One-time setup (manual, in the Console and Google Cloud):
+
+- Play Console > Setup > API access: link a Google Cloud project, create a
+  service account, and grant it permission to release to your tracks.
+- In Google Cloud, create and download a JSON key for that service account.
+- Add the JSON as a CI secret, e.g. `PLAY_SERVICE_ACCOUNT_JSON`.
+
+Then push from CI with one command (fastlane `supply`):
+
+```sh
+# upload to the internal track; promote in the Console, or pass
+# --track production once you trust the pipeline
+fastlane supply --package_name com.aisindex.ais \
+  --aab dist/ais-<tag>-android.aab --track internal \
+  --json_key "$PLAY_SERVICE_ACCOUNT_JSON_FILE"
 ```
+
+Gate that step on the secret being present (the way the keystore-signing step
+is), so forks and unconfigured runs skip it. The Gradle Play Publisher plugin
+(`com.github.triplet.play`, run with `./gradlew publishReleaseBundle`) is the
+same API configured in Gradle instead, if you prefer not to add Ruby.
+
+Still not automatable: account ownership and ID verification, recruiting and
+keeping the 20 testers, and the first production review.
