@@ -6,7 +6,9 @@ working on it. Read it, then `doc/dev/STYLE.md` and `doc/dev/LAYOUT.md`.
 ## The contract (read first)
 
 - **`doc/dev/STYLE.md`** -- coding ideology: stack/streaming (avoid the heap), one
-  concept per `.c/.h`, error handling, idioms, lineage. Non-negotiable.
+  concept per `.c/.h`, error handling, idioms, lineage. Non-negotiable. Before adding
+  any `malloc` to the core, check it against STYLE.md's sanctioned-heap list ("The only
+  heap the core sanctions"); the record path allocates nothing.
 - **`doc/dev/LAYOUT.md`** -- on-disk format, module map, algorithms, CLI, build order.
 - **`doc/dev/LOCKING.md`** -- reader/writer lock model and `next_id` correctness.
 - **`c/ais.h`** -- the public API. The engine implements it; the tests test it.

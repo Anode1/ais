@@ -3,6 +3,12 @@
 How AIS is written, and why. Read this before contributing. The existing sources under `c/`
 are the reference; when a rule here is unclear, read the code.
 
+**Scope: the engine core.** These rules bind the C engine -- the `c/` sources behind `ais.h` and
+`embed.h` -- and are non-negotiable there. GUI wrappers, language bindings, and plugins sit outside
+the core and follow their host's conventions; they call the engine, they do not relax it. Do not let
+a peripheral's needs leak inward and dilute the core to ordinary C. The point of writing this down is
+that the strictness is the asset: it should not be distilled away by a well-meaning refactor.
+
 ## Language and style
 
 - **C99.** Style follows Arnold Robbins, *Linux Programming by Example: The Fundamentals*
@@ -27,11 +33,36 @@ from its name and a function's from its signature.
   and a 10 KB store run in the same memory. The largest footprint must be computable by hand from the
   structures held.
 - When the heap is truly unavoidable, the allocation is bounded, documented, and freed on every path.
+- **The only heap the core sanctions today.** Every other `malloc` is a defect to justify in review
+  or remove. The record path itself (get, find, set, merge, compact) is strictly stack-and-stream and
+  allocates nothing. The four exceptions are all bounded by something other than the corpus:
+  1. *FFI return strings and the handle* (`embed.c`): a variable-length result handed across the seam
+     to a GUI or binding, owned by the caller and released with `ais_embed_free`. Bounded by one
+     result, not the store.
+  2. *Bounded aggregate collectors* (`ais.c`: `ais_keys`, `ais_tags`, `tl_scan`): a set sized by key
+     cardinality or a fixed top-N count, never by record count, and freed before return.
+  3. *Crypto buffers* (`secret.c`): an AEAD document is authenticated as a whole, so the blob and its
+     plaintext are held once, bounded by the document, wiped and freed on every path.
+  4. *Sync transport* (`sync.c`): the sealed merge stream is buffered whole to seal or verify it as one
+     AEAD document (it cannot be authenticated incrementally), then wiped and freed on every path.
+     Bounded by the export and capped on the receive side (64 MiB); the send side needs the same cap,
+     and a streaming chunked AEAD is the planned follow-up that returns this to stack-and-stream.
 
-Why: it scales to any data size; it eliminates the leak / use-after-free / double-free class entirely;
-and it yields small static binaries that drop into locked-down environments with no dependency surface.
-This is how the author's earlier C tools ran unattended in hospitals and medical colleges, shipped as
-source and precompiled binaries, with no compatibility trouble.
+Why this discipline pays, four ways:
+
+- **Safety.** It eliminates the leak / use-after-free / double-free class by construction -- the bulk
+  of C's CVEs simply cannot occur where nothing is allocated. This is the avionics and medical-device
+  standard (Power of Ten, MISRA C:2012 rule 21.3), which is why the author's earlier C tools ran
+  unattended in hospitals and medical colleges, shipped as source and precompiled binaries with no
+  compatibility trouble.
+- **Low entropy.** The whole memory model fits in your head. Peak footprint is computable by hand from
+  the structs held: no allocator state, no ownership graph, no lifetimes to track, nothing hidden to
+  reason about. Less to know is less to get wrong, and a reviewer can verify the bound by reading.
+- **Fast execution.** No allocator on the record path means no `malloc` latency and no fragmentation,
+  and reading forward over fixed buffers is cache-friendly and predictable. A 10 GB store and a 10 KB
+  store run in the same small, constant memory.
+- **Portability.** Small static binaries with no dependency surface drop into locked-down environments
+  unchanged. A stock C99 toolchain is the only requirement.
 
 ## Error handling and C idioms
 
