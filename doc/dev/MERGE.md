@@ -83,10 +83,9 @@ last-write-wins. A plain (unprefixed) line fed to `--import` from a file/stdin i
 an `A` line with ts unknown (oldest), so a hand-edited or legacy dump still imports as adds.
 
 ## Migration
-- `version` bump. `tomb` v1 (`id`) -> v2 (`ts|hash`): on open, resolve each tombstoned id to
-  its content via the store and rewrite as `0|hash` (ts=0 = "deleted long ago"; loses to any
-  real re-add, the safe default). Ids already compacted away cannot be recovered, acceptable,
-  they are physically gone. `store_open` already does in-place v1->v2 for the store; extend it.
+None. v1 (`id`) and v2 (`ts|hash`) tombstones coexist, so old indexes keep working without a
+rewrite (see the "no migration" note in the header). The earlier plan to bump `version` and
+rewrite v1 tombstones to `0|hash` on open was not taken.
 
 ## Edge cases / assumptions
 - **Clock skew.** Last-write-wins assumes roughly-synced clocks (NTP-normal). A badly skewed

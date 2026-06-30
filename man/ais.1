@@ -136,8 +136,7 @@ and the record stores an
 .B aisc:@<path>
 reference; deleting such a record
 .RB ( \-\-del " / " \-\-del-key )
-best-effort shreds the blob (overwrite-then-unlink \(em the encryption, not the
-overwrite, is the real protection). Requires the crypto module
+best-effort shreds the blob. Requires the crypto module
 (see
 .IR crypto/vendor-monocypher.sh ).
 .TP
@@ -403,24 +402,13 @@ command; run that on the other device to pull and merge (deletions included). It
 LAN-only and end-to-end encrypted (XChaCha20-Poly1305; the token never crosses the wire); cross-internet sync
 stays a folder-sync tool's job.
 .PP
-For continuous, automatic syncing the index is plain files, so it needs no cloud account and
-no ais feature: point a folder-sync tool at the index directory.
-.B Syncthing
-is recommended: peer-to-peer over your own network, open source, on Android and the
-desktops. Pair the two devices once by exchanging Device IDs (scan a QR code), share
-the index folder, and it stays in sync automatically thereafter.
-.PP
-Sync the whole directory but ignore the per-device writer lock file
+For continuous, hands-off syncing the index is just plain files, so it needs no cloud
+account and no ais feature: point a folder-sync tool at the index directory, ignoring only
+the per-device writer lock file
 .RI ( lock ).
-The rebuildable files
-.RI ( idx/ ", " off )
-stay consistent because the tool keeps the directory identical on both ends.
-.PP
-You are almost always on one device at a time, so conflicts are rare; if you edit
-offline on two devices, Syncthing keeps both copies and the append-only
-.I store
-merges. For a one-shot manual copy use LocalSend or a USB cable instead; avoid
-Bluetooth (slow). The full walkthrough with pairing steps is in
+.B Syncthing
+is recommended: peer-to-peer, open source, on Android and the desktops. The full
+walkthrough (pairing, conflict handling, and one-shot alternatives like LocalSend) is in
 .IR doc/SYNC.md .
 .SH AUTHOR
 Vasili Gavrilov.
