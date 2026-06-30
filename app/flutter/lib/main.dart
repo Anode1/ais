@@ -607,8 +607,14 @@ class _RecallPageState extends State<RecallPage> {
       }
       final time = (dt != null && r.ts.contains('T')) ? '${p2(dt.hour)}:${p2(dt.minute)} · ' : '';
       items.add(ListTile(
-        title: SelectableText(r.value,
-            style: TextStyle(color: _isUrl(r.value) ? cs.primary : null)),
+        title: r.value.startsWith('aisc:')
+            ? Row(mainAxisSize: MainAxisSize.min, children: [
+                Icon(Icons.lock_outline, size: 16, color: cs.outline),
+                const SizedBox(width: 6),
+                Text('encrypted', style: TextStyle(color: cs.outline)),
+              ])
+            : SelectableText(r.value,
+                style: TextStyle(color: _isUrl(r.value) ? cs.primary : null)),
         subtitle: Text('$time${r.keys.isEmpty ? '(no keys)' : r.keys}',
             style: TextStyle(color: cs.onSurfaceVariant, fontSize: 13)),
       ));
