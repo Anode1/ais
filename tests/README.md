@@ -17,13 +17,15 @@ while a GUI is still in progress.
 | Layer | What it covers | Where | Runs here? |
 |-------|----------------|-------|-----------|
 | serve http api | `ais --serve` endpoints incl. the encrypt save + reveal round-trip | `tests/gui/serve.sh` | yes (needs curl + crypto) |
+| browser ui render | the `--serve` page in headless Chrome: it loads and its controls exist by id (post-JS DOM) | `tests/gui/ui.sh` (`make uiut`) | yes (needs Chrome); else SKIP |
 | native windows ui | that `win32/ais-gui.c` still compiles against the engine | `tests/gui/windows.sh` | only with MinGW-w64 (CI); else SKIP |
 | flutter app | `dart analyze` of `app/flutter` (FFI binding + widgets); `flutter test` if a `test/` dir exists | `tests/gui/flutter.sh` | analyze if Dart present; else SKIP |
 
 ## Running
 
     make ut       # engine unit tests only (fast inner loop)
-    make check    # CORE: engine unit + cli black-box  -- the commit gate
+    make check    # CORE: engine unit + cli black-box  -- the commit gate (alias: make test)
+    make uiut     # browser UI render only (headless Chrome vs --serve; SKIPs without Chrome)
     make suite    # CORE + GUI, every layer PASS / FAIL / SKIP, with a summary
 
 Or a single GUI layer directly, e.g. `sh tests/gui/serve.sh ./c/ais`.
