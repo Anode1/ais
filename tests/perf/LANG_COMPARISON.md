@@ -6,6 +6,8 @@ SAME algorithm, on the same warm 1M-record / 88 MB index. The question: how much
 of ais's speed is C, and how much is just the algorithm?
 
 Run it: `sh lang_bench.sh` (regenerates the index if absent, ~2 min first time).
+SPARK proof: `sh spark_prove.sh` (needs `gnatprove`; proves the merge has no
+runtime errors).
 
 Machine: one desktop core, /tmp, warm page cache. `cc -O2`, OpenJDK 21,
 CPython 3.12. First-order numbers; they move with the machine.
@@ -74,8 +76,19 @@ Rust and SPARK are the compile-time-safety tier and prove different things: Rust
 proves memory and aliasing safety; SPARK proves the absence of every runtime
 error (and, with contracts, functional correctness) via an SMT solver. SPARK is
 the strongest static assurance of the set, which is why avionics and crypto use
-it. Running gnatprove to print the proof needs the SPARK toolset (via Alire), not
-in this benchmark's default tooling.
+it.
+
+This is not hypothetical here. `spark/` holds a SPARK version of the merge;
+`sh spark_prove.sh` (needs `gnatprove`) proves it, and the result is clean:
+
+    Run-time Checks    15    15 (CVC5)    Unproved: 0
+    Termination         2     1 (CVC5)    Unproved: 0
+    Total              23    22 provers   Unproved: 0
+
+Every array index proved in range, every `+` proved non-overflowing, the loop
+proved to terminate: zero runtime-error checks left to chance. So the C-speed
+`-gnatp` (checks-off) build carries a machine-checked guarantee, not the
+optimizer's luck.
 
 ## What it means
 

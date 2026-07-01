@@ -7,3 +7,4 @@
 *.o
 b~*
 /bench_rust
+gnatprove/

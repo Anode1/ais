@@ -1,0 +1,3 @@
+project Merge is
+   for Source_Dirs use (".");
+end Merge;
