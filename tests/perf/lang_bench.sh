@@ -1,8 +1,8 @@
 #!/bin/sh
-# lang_bench.sh -- C vs Java vs Python on ais's two core operations (full store
-# scan, posting-list intersection), the SAME algorithm in each language. Builds
-# the benches, regenerates the 1M-record index if absent, warms the page cache,
-# runs all three. Result tables and analysis: LANG_COMPARISON.md.
+# lang_bench.sh -- C, Ada, Rust, Java, Python on ais's two core operations (full
+# store scan, posting-list intersection), the SAME algorithm in each language.
+# Builds the benches, regenerates the 1M-record index if absent, warms the page
+# cache, runs all five. Result tables and analysis: LANG_COMPARISON.md.
 set -e
 here=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 root=$(cd "$here/../.." && pwd)

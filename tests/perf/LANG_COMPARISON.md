@@ -1,18 +1,19 @@
-# C vs Java vs Python: the two core operations
+# Five languages, two core operations, one algorithm
 
 The two operations `performance.txt` measures for the engine (a full store scan,
-and the intersection of posting lists), written in all three languages with the
-SAME algorithm, on the same warm 1M-record / 88 MB index. The question: how much
-of ais's speed is C, and how much is just the algorithm?
+and the intersection of posting lists), written in all five (C, Ada, Rust, Java,
+Python) with the SAME algorithm, on the same warm 1M-record / 88 MB index. The
+question: how much of ais's speed is C, and how much is just the algorithm?
 
 Run it: `sh lang_bench.sh` (regenerates the index if absent, ~2 min first time).
 SPARK proof: `sh spark_prove.sh` (needs `gnatprove`; proves the merge has no
 runtime errors).
 
-Machine: one desktop core, /tmp, warm page cache. `cc -O2`, OpenJDK 21,
-CPython 3.12. First-order numbers; they move with the machine.
+Machine: one desktop core, /tmp, warm page cache. `cc -O2`, GNAT 13.3,
+rustc 1.75, OpenJDK 21, CPython 3.12. Each figure is the median of 7 runs, warm
+(the cold first run discarded). First-order numbers; they move with the machine.
 
-## Same hand-written algorithm (the loop, as written in C and Java)
+## Same hand-written algorithm (the identical loop in every language)
 
 | Operation                          |  C -O2 | Ada (GNAT) | Rust -O |   Java warm | Python loop |
 |------------------------------------|-------:|-----------:|--------:|------------:|------------:|
@@ -55,10 +56,10 @@ measurable.
 
 ## Rust: also native, C-class, safe at compile time
 
-Rust matched C exactly (~87 ms scan, 1.3 ms merge): same LLVM-class native code,
-and the bounds checks in the guarded loops were elided by the optimizer. So like
-Ada it delivers C speed with safety, but the safety is the borrow checker (memory
-and data-race safety proven at compile time) rather than runtime checks.
+Rust matched C within noise (~87 ms scan, 1.3 ms merge): same LLVM-class native
+code, and the bounds checks in the guarded loops were elided by the optimizer. So
+like Ada it delivers C speed with safety, but the safety is the borrow checker
+(memory and data-race safety proven at compile time) rather than runtime checks.
 
 ## Safety: what each language guarantees
 
@@ -81,9 +82,10 @@ it.
 This is not hypothetical here. `spark/` holds a SPARK version of the merge;
 `sh spark_prove.sh` (needs `gnatprove`) proves it, and the result is clean:
 
-    Run-time Checks    15    15 (CVC5)    Unproved: 0
-    Termination         2     1 (CVC5)    Unproved: 0
-    Total              23    22 provers   Unproved: 0
+    obligation         Total   Flow   Provers      Unproved
+    Run-time Checks       15      .    15 (CVC5)           0
+    Termination            2      1     1 (CVC5)           0
+    Total                 23      1    22                  0
 
 Every array index proved in range, every `+` proved non-overflowing, the loop
 proved to terminate: zero runtime-error checks left to chance. So the C-speed
@@ -97,8 +99,10 @@ moment the loop is yours. Java is C-class warm, but pays JVM startup plus JIT
 warmup on every invocation, which a short-lived CLI never amortizes.
 
 The catch for ais: its intersection is a STREAMING k-way merge of sorted posting
-lists, memory O(number of keys), holding only each list's head. There is no
-Python builtin for "merge N sorted streams". The choices are the hand-written
+lists, memory O(number of keys), holding only each list's head. (The timed merge
+above runs on two arrays already loaded, so it measures this loop's CPU, not the
+bounded-memory streaming, which is the engine's design, measured in
+`performance.txt`.) There is no Python builtin for "merge N sorted streams". The choices are the hand-written
 loop (the ~72 ms, ~55x) or `set &`, which is a hash join that loads every id of
 every key into hash tables and abandons the bounded-memory streaming that lets
 ais answer a 270k-hit key in ~2 s without holding it all in RAM. The very design
