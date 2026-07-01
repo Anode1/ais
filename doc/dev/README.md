@@ -11,6 +11,7 @@ Core format and code:
 - **STYLE.md**: coding ideology: C99, stack/streaming discipline, error idioms.
 - **LOCKING.md**: the reader/writer lock model and `next_id` correctness.
 - **WHY-PLAIN-TEXT.md**: why the text format is fast (1M-record measurements) and the case against "use a binary DB".
+- **WHY-C.md**: why the engine is C and not a memory-safe language, and how the memory-safety class is caught (sanitizers, style) without a rewrite.
 
 Sync (multi-device):
 
