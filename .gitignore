@@ -8,10 +8,15 @@
 # (.exe variants are the native MinGW Windows builds of the same binaries)
 *.o
 *.d
+# Ada/GNAT compiler output (regenerated each build, like *.o)
+*.ali
+b~*.ad[bs]
 /c/ais
 /c/ais.exe
 /c/ais_ut
 /c/ais_ut.exe
+/c/ais_ut_asan
+/c/ais_ut_ubsan
 /c/libais.a
 /c/libais.so
 
