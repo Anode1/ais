@@ -29,7 +29,7 @@ ifeq ($(strip $(AIS_VERSION)),)
 AIS_VERSION := 0.0.0-dev
 endif
 
-.PHONY: all ut clean static install install-strip install-desktop uninstall distclean check checkcli suite dist
+.PHONY: all ut ut-asan ut-ubsan hooks clean static install install-strip install-desktop uninstall distclean check test checkcli uiut suite dist
 
 # Build the engine in c/, then copy the binary up to the repo root as ./ais, so
 # from a source checkout you can run ./ais instead of ./c/ais.
@@ -44,18 +44,40 @@ static:
 ut:
 	$(MAKE) -C c ut
 
+# Same unit tests under AddressSanitizer / UndefinedBehaviorSanitizer: memory
+# and UB errors abort with a file:line report instead of passing silently. Run
+# before tagging; also the automatic backstop in .github/workflows/sanitizers.yml.
+ut-asan ut-ubsan:
+	$(MAKE) -C c $@
+
+# Enable the git pre-push hook so the sanitizer suite runs before every push --
+# a memory/UB bug can't reach the remote or turn CI red. Points core.hooksPath at
+# the committed scripts/hooks (always in sync). Undo: git config --unset core.hooksPath.
+hooks:
+	@git config core.hooksPath scripts/hooks
+	@echo "git hooks -> scripts/hooks  (pre-push runs make ut-asan + ut-ubsan)"
+
 clean:
 	$(MAKE) -C c clean
 	-rm -f ais
 
 # check = C unit tests (the ais.h API) + CLI/streaming tests (the binary).
+# It is the GNU-standard "run the tests" target; `test` is the common synonym, so
+# a newcomer's reflex (`make test` or `make check`) always works.
 check: all
 	$(MAKE) -C c check
 	@sh tests/cli.sh "$(CURDIR)/c/ais"
 
+test: check
+
 # checkcli = just the end-to-end binary tests (assumes ais is built).
 checkcli: all
 	@sh tests/cli.sh "$(CURDIR)/c/ais"
+
+# uiut = just the browser UI render tests (headless Chrome against --serve; SKIPs
+# without Chrome). The GUI analogue of checkcli, invoked the same way.
+uiut: all
+	@sh tests/gui/ui.sh "$(CURDIR)/c/ais"
 
 # suite = the whole test suite in two groups: CORE (engine + CLI, the commit
 # gate that `check` also runs) and GUI (--serve HTTP, native Windows, Flutter),

@@ -19,13 +19,25 @@ These four are the contract. Do not change behavior without changing them first.
 
     make        # build ./c/ais            (run from repo root; delegates to c/)
     make ut     # engine unit tests (c/tests.c) -- the fast inner loop
-    make check  # CORE: engine unit + CLI black-box (tests/cli.sh) -- the commit gate
+    make check  # CORE: engine unit + CLI black-box (tests/cli.sh) -- the commit gate (alias: make test)
+    make uiut   # browser UI render (tests/gui/ui.sh, headless Chrome) -- SKIPs without Chrome
     make suite  # CORE + GUI (--serve, native Windows, Flutter), each PASS/FAIL/SKIP
+    make ut-asan / ut-ubsan   # the unit tests under AddressSanitizer / UBSan
+    make hooks  # enable the pre-push hook (runs ut-asan + ut-ubsan before a push)
     make clean
 
 Tests are two groups: CORE (engine + CLI -- keep green, it is the commit gate)
 and GUI (the front-ends; a layer whose toolchain is absent SKIPs). A green CORE
 with a red or skipped GUI is fine to commit. Full layout in `tests/README.md`.
+
+Before tagging a release, run `make ut-asan` and `make ut-ubsan`: they rebuild
+the suite with the compiler's sanitizers so memory errors (overflow, use-after-
+free) and undefined behavior abort with a file:line report instead of passing
+silently under `-O2`. You do not have to remember: `.github/workflows/
+sanitizers.yml` runs both on Linux and macOS on every push, and `make hooks`
+installs a pre-push hook that runs them locally first (bypass once with
+`git push --no-verify`). Keep them out of the default build -- they are ~2-3x
+slower and not universally available, so `make` / `make check` stay portable.
 
 To SEE the web GUI (a C string `PAGE[]` in `c/serve.c`), screenshot it rather
 than guess at layout (`AIS_NO_OPEN=1` keeps `--serve` from opening a browser):

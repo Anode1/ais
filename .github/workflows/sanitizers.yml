@@ -1,0 +1,36 @@
+# Sanitizers -- run the unit tests under AddressSanitizer and Undefined-
+# BehaviorSanitizer on Linux and macOS, on every push and PR. This is the
+# automatic backstop for the memory-safety class of bug (buffer overflow,
+# use-after-free, signed overflow, bad shift, misaligned access) that a plain
+# -O2 test run cannot see: the tests pass green while the bug stays latent. The
+# sanitizers make it abort with a file:line report instead.
+#
+# macOS is the payoff CI adds over a local run: a different libc and allocator
+# catch what a Linux-only ASan cannot -- the same reason the release matrix once
+# caught BSD-only socket bugs. Reproduce any failure locally, identically:
+#   make ut-asan     # AddressSanitizer
+#   make ut-ubsan    # UndefinedBehaviorSanitizer
+name: sanitizers
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  san:
+    name: ${{ matrix.os }}
+    strategy:
+      fail-fast: false        # let Linux and macOS both report, even if one fails
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0          # full history + tags so `git describe` sees the tag
+      - name: AddressSanitizer (make ut-asan)
+        run: make ut-asan
+      - name: UndefinedBehaviorSanitizer (make ut-ubsan)
+        run: make ut-ubsan

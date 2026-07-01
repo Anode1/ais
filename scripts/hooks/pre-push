@@ -1,0 +1,11 @@
+#!/bin/sh
+# pre-push -- run the sanitizer suite before every push, so a memory or UB bug
+# can't reach the remote (or turn CI red). Mirrors .github/workflows/sanitizers.yml.
+# Enable:       make hooks           (points core.hooksPath at scripts/hooks)
+# Bypass once:  git push --no-verify
+set -e
+root=$(git rev-parse --show-toplevel)
+echo "pre-push: sanitizer suite (make ut-asan, ut-ubsan) ..."
+make -C "$root" ut-asan
+make -C "$root" ut-ubsan
+echo "pre-push: clean."

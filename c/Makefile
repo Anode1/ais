@@ -86,7 +86,7 @@ static   : LDFLAGS  += -static
 %.o: %.c
 	$(CC) $(AIS_CFLAGS) $(AIS_VERDEF) $(CPPFLAGS) $(CFLAGS) -MMD -c $< -o $@
 
-.PHONY: clean ut check static static-guard lib wasm
+.PHONY: clean ut ut-asan ut-ubsan check static static-guard lib wasm
 
 all release debug pedantic: $(BIN)
 
@@ -112,6 +112,22 @@ $(TESTBIN): $(SOURCES.c)
 
 ut check: $(TESTBIN)
 	./$(TESTBIN)
+
+# ut-asan / ut-ubsan: the SAME unit tests, but built with the compiler's
+# sanitizers so memory errors (buffer overflow, use-after-free) and undefined
+# behavior (signed overflow, bad shifts, misaligned access) abort with a
+# file:line report instead of passing silently under a plain -O2 run. Separate
+# binaries so they never clobber ais_ut. -fno-sanitize-recover makes UBSan
+# hard-fail (its default is to print and continue). The automatic Linux+macOS
+# backstop lives in ../.github/workflows/sanitizers.yml.
+ut-asan:
+	$(CC) $(AIS_CFLAGS) -g -DUNIT_TEST -fsanitize=address -fno-omit-frame-pointer \
+	  $(CPPFLAGS) $(SOURCES.c) -o $(TESTBIN)_asan $(LDLIBS)
+	./$(TESTBIN)_asan
+ut-ubsan:
+	$(CC) $(AIS_CFLAGS) -g -DUNIT_TEST -fsanitize=undefined -fno-sanitize-recover=undefined \
+	  $(CPPFLAGS) $(SOURCES.c) -o $(TESTBIN)_ubsan $(LDLIBS)
+	./$(TESTBIN)_ubsan
 
 # -- libais: the engine as a library, for embedders (Flutter dart:ffi, native
 # plugins). libais.a = static (linked into the app, e.g. iOS); libais.so =
@@ -140,6 +156,6 @@ wasm:
 	@echo "built $(WASM_OUT) (+ ais.wasm)"
 
 clean:
-	-rm -f $(BIN) $(TESTBIN) $(OBJS) $(OBJS:.o=.d) libais.a libais.so
+	-rm -f $(BIN) $(TESTBIN) $(TESTBIN)_asan $(TESTBIN)_ubsan $(OBJS) $(OBJS:.o=.d) libais.a libais.so
 
 -include $(OBJS:.o=.d)
