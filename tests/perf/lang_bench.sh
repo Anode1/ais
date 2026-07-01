@@ -31,7 +31,7 @@ javac -d "$here" "$here/Bench.java"
 ada=""; command -v gnatmake >/dev/null 2>&1 && \
   gnatmake -O2 -o "$here/bench_ada" "$here/bench.adb" >/dev/null 2>&1 && ada="$here/bench_ada"
 rust=""; command -v rustc >/dev/null 2>&1 && \
-  rustc -O "$here/bench.rs" -o "$here/bench_rust" 2>/dev/null && rust="$here/bench_rust"
+  rustc -O -C strip=symbols "$here/bench.rs" -o "$here/bench_rust" 2>/dev/null && rust="$here/bench_rust"
 cat "$idx/store" "$k1" "$k2" > /dev/null    # warm the cache: measure CPU, not disk
 
 echo "### SCAN  (store, substring '$substr') ###"
