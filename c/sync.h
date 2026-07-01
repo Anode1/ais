@@ -45,4 +45,9 @@ int sync_serve_lan(ais *a, int port, int timeout_s);
  * it with TOKEN, merging into A. 0 on success, -1 otherwise. */
 int sync_pull_url(ais *a, const char *url, const char *token, int timeout_s);
 
+/* Parse a sync URL into HOST (bounded by HOSTSZ) and *PORT: "http(s)://host[:port][/path]"
+ * or "host[:port]"; a missing or out-of-range port defaults to AIS_SYNC_PORT. Pure string
+ * logic (no sockets/crypto), always compiled. 0 on success, -1 if the host is empty. */
+int sync_parse_url(const char *url, char *host, size_t hostsz, int *port);
+
 #endif /* AIS_SYNC_H */

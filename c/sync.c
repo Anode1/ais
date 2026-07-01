@@ -28,6 +28,30 @@
 #  include <poll.h>
 #endif
 
+/* Parse a sync URL into HOST and *PORT. Pure string logic (no sockets), so it is always
+ * compiled and unit-testable. See sync.h. */
+int sync_parse_url(const char *url, char *host, size_t hostsz, int *port)
+{
+    const char *p, *slash;
+    char *colon;
+    size_t plen;
+
+    if (url == NULL || host == NULL || hostsz == 0 || port == NULL)
+        return -1;
+    *port = AIS_SYNC_PORT;
+    p = url;
+    if (strncmp(p, "http://", 7) == 0)       p += 7;
+    else if (strncmp(p, "https://", 8) == 0) p += 8;
+    slash = strchr(p, '/');
+    plen = slash ? (size_t)(slash - p) : strlen(p);      /* host[:port], drop any path */
+    if (plen >= hostsz) plen = hostsz - 1;
+    memcpy(host, p, plen);
+    host[plen] = '\0';
+    colon = strrchr(host, ':');
+    if (colon) { *colon = '\0'; *port = atoi(colon + 1); if (*port <= 0 || *port > 65535) *port = AIS_SYNC_PORT; }
+    return (host[0] == '\0') ? -1 : 0;
+}
+
 #ifdef SYNC_HAVE
 
 int sync_export_sealed(ais *a, const char *token, uint8_t **out, size_t *out_len)
@@ -280,28 +304,14 @@ int sync_serve_lan(ais *a, int port, int timeout_s) {
 
 int sync_pull_url(ais *a, const char *url, const char *token, int timeout_s) {
     char host[128];
-    const char *p, *slash;
-    char *colon;
-    int port = AIS_SYNC_PORT;
-    size_t plen;
+    int port;
 
     signal(SIGPIPE, SIG_IGN);
     if (!url || !token) {
         fprintf(stderr, "sync: --import <url> needs --token TOKEN\n");
         return -1;
     }
-    p = url;
-    if (strncmp(p, "http://", 7) == 0)       p += 7;
-    else if (strncmp(p, "https://", 8) == 0) p += 8;
-    slash = strchr(p, '/');
-    plen = slash ? (size_t)(slash - p) : strlen(p);   /* host[:port], drop any path */
-    if (plen >= sizeof host) plen = sizeof host - 1;
-    memcpy(host, p, plen);
-    host[plen] = '\0';
-
-    colon = strrchr(host, ':');
-    if (colon) { *colon = '\0'; port = atoi(colon + 1); if (port <= 0 || port > 65535) port = AIS_SYNC_PORT; }
-    if (host[0] == '\0') {
+    if (sync_parse_url(url, host, sizeof host, &port) != 0) {
         fprintf(stderr, "sync: bad url '%s'\n", url);
         return -1;
     }

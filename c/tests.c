@@ -1491,6 +1491,47 @@ static void test_secret_blob_crypto(void)
     if (pt) { aisc_wipe(pt, ptlen); free(pt); }
     remove(path);
 }
+
+/* The FFI crypto path the phone GUI uses for passwords: store encrypted, recall shows the
+ * opaque marker (not the secret), the right passphrase reveals it, a wrong one does not. */
+static void test_embed_encrypted(void)
+{
+    const char *dir = "/tmp/ais_ut_embcrypt";
+    void *h;
+    long id;
+    char *r, *clear, *bar, *nl;
+    char marker[AIS_LINE_MAX];
+
+    scratch_rm(dir);
+    h = ais_embed_open(dir);
+    CHECK(h != NULL, "embed-crypt: open");
+
+    id = ais_embed_store_encrypted(h, "gmail", "hunter2", "correct horse");
+    CHECK(id > 0, "embed-crypt: store_encrypted returns an id");
+
+    r = ais_embed_recall(h, "gmail", 0);
+    CHECK(r != NULL && strstr(r, "aisc:") != NULL && strstr(r, "hunter2") == NULL,
+          "embed-crypt: recall shows the opaque marker, not the secret");
+
+    marker[0] = '\0';                                    /* pull the marker out of "id|marker\n" */
+    if (r != NULL && (bar = strchr(r, '|')) != NULL) {
+        snprintf(marker, sizeof marker, "%s", bar + 1);
+        if ((nl = strchr(marker, '\n')) != NULL) *nl = '\0';
+    }
+    ais_embed_free(r);
+
+    clear = ais_embed_reveal(marker, "correct horse");
+    CHECK(clear != NULL && strcmp(clear, "hunter2") == 0,
+          "embed-crypt: right passphrase reveals the secret");
+    ais_embed_free(clear);
+
+    clear = ais_embed_reveal(marker, "nope");
+    CHECK(clear == NULL, "embed-crypt: wrong passphrase reveals nothing");
+    ais_embed_free(clear);
+
+    ais_embed_close(h);
+    scratch_rm(dir);
+}
 #endif
 
 static void test_content_hash(void)
@@ -1681,6 +1722,127 @@ static void test_sync_socket(void)
     scratch_rm(db);
 }
 
+/* Last-write-wins by ts: a newer delete beats an older add, an older re-add stays deleted, a
+ * newer re-add resurrects, and an older delete does not remove a newer add. */
+static void test_merge_lww(void)
+{
+    ais a;
+    const char *dir = "/tmp/ais_ut_lww";
+    char h[17];
+    const char *T_OLD = "2020-01-01T00:00:00Z";
+    const char *T_MID = "2025-01-01T00:00:00Z";
+    const char *T_NEW = "2030-01-01T00:00:00Z";
+
+    scratch_rm(dir);
+    ais_open(&a, dir);
+
+    ais_put_at(&a, "k", "X", T_OLD);                     /* add X, old */
+    content_hash("X", h);
+    ais_merge_del(&a, h, T_MID);                         /* delete X, newer -> wins */
+    CHECK(value_present(&a, "X") == 0, "lww: a newer delete beats an older add");
+
+    ais_put_at(&a, "k", "X", T_OLD);                     /* re-add older than the delete */
+    CHECK(value_present(&a, "X") == 0, "lww: an older re-add stays deleted");
+
+    ais_put_at(&a, "k", "X", T_NEW);                     /* re-add newer than the delete */
+    CHECK(value_present(&a, "X") == 1, "lww: a newer re-add resurrects");
+
+    ais_put_at(&a, "k2", "Y", T_MID);                    /* add Y, mid */
+    content_hash("Y", h);
+    ais_merge_del(&a, h, T_OLD);                         /* delete Y, older -> ignored */
+    CHECK(value_present(&a, "Y") == 1, "lww: an older delete does not remove a newer add");
+
+    ais_close(&a);
+    scratch_rm(dir);
+}
+
+/* The write-time line bound: a value that would overflow one AIS_LINE_MAX store line is
+ * refused with nothing written, while a within-limit value still stores and round-trips. */
+static void test_record_too_long(void)
+{
+    ais a;
+    const char *dir = "/tmp/ais_ut_toolong";
+    size_t over_n = AIS_LINE_MAX + 8;
+    size_t fit_n  = AIS_LINE_MAX - 64;                   /* leaves room for id|ts|keys| overhead */
+    char *big = malloc(over_n + 1);
+    char *fit = malloc(fit_n + 1);
+    long rc, id;
+
+    if (big == NULL || fit == NULL) { CHECK(0, "toolong: malloc"); free(big); free(fit); return; }
+    scratch_rm(dir);
+    ais_open(&a, dir);
+
+    memset(big, 'x', over_n); big[over_n] = '\0';
+    rc = ais_put(&a, "huge", big);
+    CHECK(rc < 0, "toolong: an over-length value is refused");
+    CHECK(value_present(&a, big) == 0, "toolong: nothing was written");
+
+    memset(fit, 'y', fit_n); fit[fit_n] = '\0';
+    id = ais_put(&a, "ok", fit);
+    CHECK(id > 0, "toolong: a within-limit value still stores");
+    CHECK(value_present(&a, fit) == 1, "toolong: the within-limit value round-trips");
+
+    free(big); free(fit);
+    ais_close(&a);
+    scratch_rm(dir);
+}
+
+/* Deferred behavior (decision A): a multi-value record (ais_add) survives a merge, but its
+ * values un-group into separate records on the peer. Pin it so a future change is noticed. */
+static void test_merge_multivalue(void)
+{
+    ais A, B;
+    FILE *tmp;
+    const char *da = "/tmp/ais_ut_mvA", *db = "/tmp/ais_ut_mvB";
+    long id, i1, i2;
+
+    scratch_rm(da);
+    scratch_rm(db);
+    ais_open(&A, da);
+    id = ais_put(&A, "k", "v1");
+    ais_add(&A, id, "v2");                                /* id now carries v1 AND v2 */
+    store_find_value(&A, "v1", &i1);
+    store_find_value(&A, "v2", &i2);
+    CHECK(i1 == i2, "multivalue: in the source, both values share one id");
+
+    ais_open(&B, db);
+    tmp = tmpfile();
+    feed_export(&A, tmp);
+    rewind(tmp);
+    feed_import_from(&B, tmp);
+    fclose(tmp);
+
+    CHECK(value_present(&B, "v1") == 1 && value_present(&B, "v2") == 1,
+          "multivalue: both values survive the merge");
+    store_find_value(&B, "v1", &i1);
+    store_find_value(&B, "v2", &i2);
+    CHECK(i1 != i2, "multivalue: values un-group into separate records on the peer");
+
+    ais_close(&A);
+    ais_close(&B);
+    scratch_rm(da);
+    scratch_rm(db);
+}
+
+/* URL parsing for the pull side: scheme strip, host:port split, path drop, port defaulting. */
+static void test_sync_url(void)
+{
+    char host[128];
+    int port;
+
+    CHECK(sync_parse_url("http://127.0.0.1:8766", host, sizeof host, &port) == 0
+          && strcmp(host, "127.0.0.1") == 0 && port == 8766, "url: http://host:port");
+    CHECK(sync_parse_url("192.168.1.5", host, sizeof host, &port) == 0
+          && strcmp(host, "192.168.1.5") == 0 && port == AIS_SYNC_PORT, "url: bare host -> default port");
+    CHECK(sync_parse_url("https://10.0.0.2:80/sync/x", host, sizeof host, &port) == 0
+          && strcmp(host, "10.0.0.2") == 0 && port == 80, "url: https + path dropped");
+    CHECK(sync_parse_url("h:99999", host, sizeof host, &port) == 0 && port == AIS_SYNC_PORT,
+          "url: out-of-range port -> default");
+    CHECK(sync_parse_url("h:0", host, sizeof host, &port) == 0 && port == AIS_SYNC_PORT,
+          "url: zero port -> default");
+    CHECK(sync_parse_url("http://", host, sizeof host, &port) == -1, "url: empty host rejected");
+}
+
 int main(void)
 {
     printf("AIS regression tests (make ut)\n");
@@ -1689,6 +1851,12 @@ int main(void)
     printf("merge:\n");
     test_export_stream();
     test_merge_roundtrip();
+    test_merge_lww();
+    test_merge_multivalue();
+    printf("store bounds:\n");
+    test_record_too_long();
+    printf("sync url:\n");
+    test_sync_url();
     printf("key:\n");
     test_key_encode();
     test_key_prefix();
@@ -1755,6 +1923,8 @@ int main(void)
     test_sync_sealed();
     printf("sync transport (socket, forked loopback):\n");
     test_sync_socket();
+    printf("embed encrypted (FFI store/reveal):\n");
+    test_embed_encrypted();
 #endif
     printf("----\n%d passed, %d failed\n", ut_pass, ut_fail);
     return ut_fail == 0 ? 0 : 1;
