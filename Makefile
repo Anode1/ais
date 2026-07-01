@@ -4,7 +4,7 @@
 #
 #   make            build c/ais     (optimized, dynamic; the portable artifact on macOS/BSD)
 #   make static     build a static, dependency-free c/ais   (Linux only)
-#   make check      build and run the unit tests
+#   make ut         build and run all the tests (codeut / cliut / uiut are the layers)
 #   sudo make install                 -> /usr/local/bin (on PATH)
 #   make install prefix=$HOME/.local  per-user, no sudo
 #   make install DESTDIR=/tmp/pkg     stage for a package (deb/rpm/ebuild/brew)
@@ -29,7 +29,7 @@ ifeq ($(strip $(AIS_VERSION)),)
 AIS_VERSION := 0.0.0-dev
 endif
 
-.PHONY: all ut ut-asan ut-ubsan hooks clean static install install-strip install-desktop uninstall distclean check test checkcli uiut suite dist
+.PHONY: all codeut cliut uiut ut codeut-asan codeut-ubsan hooks clean static install install-strip install-desktop uninstall distclean dist
 
 # Build the engine in c/, then copy the binary up to the repo root as ./ais, so
 # from a source checkout you can run ./ais instead of ./c/ais.
@@ -41,48 +41,43 @@ static:
 	$(MAKE) -C c static
 	@cp -f c/ais ais && echo "built ./ais (static)"
 
-ut:
+# codeut = the C engine tests (c/tests.c, in-process) -- the fast inner loop.
+codeut:
 	$(MAKE) -C c ut
 
-# Same unit tests under AddressSanitizer / UndefinedBehaviorSanitizer: memory
-# and UB errors abort with a file:line report instead of passing silently. Run
-# before tagging; also the automatic backstop in .github/workflows/sanitizers.yml.
-ut-asan ut-ubsan:
-	$(MAKE) -C c $@
+# codeut-asan / codeut-ubsan = the engine tests under AddressSanitizer / UBSan:
+# memory and UB errors abort with a file:line report instead of passing silently.
+# Run before tagging; also the backstop in .github/workflows/sanitizers.yml.
+codeut-asan:
+	$(MAKE) -C c ut-asan
+codeut-ubsan:
+	$(MAKE) -C c ut-ubsan
 
-# Enable the git pre-push hook so the sanitizer suite runs before every push --
-# a memory/UB bug can't reach the remote or turn CI red. Points core.hooksPath at
-# the committed scripts/hooks (always in sync). Undo: git config --unset core.hooksPath.
+# Enable the git pre-push hook so the sanitizers run before every push -- a
+# memory/UB bug can't reach the remote or turn CI red. Points core.hooksPath at
+# the committed scripts/hooks. Undo: git config --unset core.hooksPath.
 hooks:
 	@git config core.hooksPath scripts/hooks
-	@echo "git hooks -> scripts/hooks  (pre-push runs make ut-asan + ut-ubsan)"
+	@echo "git hooks -> scripts/hooks  (pre-push runs make codeut-asan + codeut-ubsan)"
 
 clean:
 	$(MAKE) -C c clean
 	-rm -f ais
 
-# check = C unit tests (the ais.h API) + CLI/streaming tests (the binary).
-# It is the GNU-standard "run the tests" target; `test` is the common synonym, so
-# a newcomer's reflex (`make test` or `make check`) always works.
-check: all
-	$(MAKE) -C c check
+# cliut = the CLI black-box: the real binary through the shell (argv, pipes, -v -).
+cliut: all
 	@sh tests/cli.sh "$(CURDIR)/c/ais"
 
-test: check
-
-# checkcli = just the end-to-end binary tests (assumes ais is built).
-checkcli: all
-	@sh tests/cli.sh "$(CURDIR)/c/ais"
-
-# uiut = just the browser UI render tests (headless Chrome against --serve; SKIPs
-# without Chrome). The GUI analogue of checkcli, invoked the same way.
+# uiut = the web GUI: `ais --serve`'s HTTP API + the rendered page in headless
+# Chrome (SKIPs without curl / Chrome). Runs both web-layer scripts.
 uiut: all
+	@sh tests/gui/serve.sh "$(CURDIR)/c/ais"
 	@sh tests/gui/ui.sh "$(CURDIR)/c/ais"
 
-# suite = the whole test suite in two groups: CORE (engine + CLI, the commit
-# gate that `check` also runs) and GUI (--serve HTTP, native Windows, Flutter),
-# each layer PASS/FAIL/SKIP. A green CORE with a red/skipped GUI is committable.
-suite: all
+# ut = the whole suite: codeut + cliut + uiut + the wrapper build-checks, each
+# layer PASS / FAIL / SKIP. The one command to run before committing -- a green
+# core with a skipped GUI layer is still committable.
+ut: all
 	@sh tests/run.sh
 
 # dist = a release bundle for THIS platform into releases/ (kept across runs;

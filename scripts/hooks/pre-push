@@ -5,7 +5,7 @@
 # Bypass once:  git push --no-verify
 set -e
 root=$(git rev-parse --show-toplevel)
-echo "pre-push: sanitizer suite (make ut-asan, ut-ubsan) ..."
-make -C "$root" ut-asan
-make -C "$root" ut-ubsan
+echo "pre-push: sanitizers (make codeut-asan, codeut-ubsan) ..."
+make -C "$root" codeut-asan
+make -C "$root" codeut-ubsan
 echo "pre-push: clean."

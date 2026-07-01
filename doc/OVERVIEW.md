@@ -33,7 +33,7 @@ Performance is traded for **universality, robustness, and longevity**: the store
 
 ## Status
 
-v0.1: the C core is working and tested (`make check`: the C unit tests plus the
+v0.1: the C core is working and tested (`make ut`: the C unit tests plus the
 end-to-end CLI/streaming suite, all green). Implemented: key algebra (AND/OR over
 sorted-unique posting sets), `put`/`add`/`del`/`dump`/`find`/`import`/`doc`/`init`,
 `timeline` (recent records by save time, dateless first) and `tags` (every key by

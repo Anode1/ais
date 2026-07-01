@@ -1,16 +1,15 @@
 #!/bin/sh
-# run.sh -- the ais test suite, in two clearly separated groups:
+# run.sh -- the whole ais test suite (this is what `make ut` runs), in two groups:
 #
-#   CORE  engine unit tests (c/tests.c via `make ut`) + CLI black-box (cli.sh).
-#         The commit gate -- keep it green. (`make check` runs exactly this.)
-#   GUI   the front-ends over the one engine: --serve HTTP, native Windows,
-#         Flutter. May lag while a GUI is in progress; a layer whose toolchain is
-#         absent (no MinGW, no Flutter SDK) reports SKIP, not FAIL.
+#   CORE  the must-pass gate: engine tests (codeut) + CLI black-box (cliut).
+#   GUI   the front-ends over the one engine: --serve (uiut = HTTP api + browser
+#         render), native Windows, Flutter. May lag; a layer whose toolchain is
+#         absent (no curl/Chrome, no MinGW, no Flutter SDK) reports SKIP, not FAIL.
 #
 # A green CORE with a red or skipped GUI is fine to commit -- the summary says
 # which side. Exit is non-zero iff a non-skipped layer FAILS.
 #
-# Usage:  sh tests/run.sh        or        make suite
+# Usage:  make ut        (or  sh tests/run.sh)
 
 root=$(cd "$(dirname "$0")/.." && pwd)
 AIS="$root/c/ais"
@@ -34,15 +33,15 @@ layer() {  # layer FAILVAR LABEL CMD...
 bar; echo "ais test suite"; bar
 make -C "$root/c" >/dev/null 2>&1 || { echo "build FAILED -- aborting"; exit 1; }
 
-echo "CORE  (engine + CLI -- the commit gate; keep green)"
+echo "CORE  (codeut + cliut -- the must-pass gate; keep green)"
 sub
-layer fail_core "engine unit (make ut)" make -C "$root/c" ut
-layer fail_core "cli black-box"         sh "$root/tests/cli.sh" "$AIS"
+layer fail_core "engine (codeut)"       make -C "$root/c" ut
+layer fail_core "cli (cliut)"           sh "$root/tests/cli.sh" "$AIS"
 
 echo "GUI  (one engine, many front-ends; absent toolchain = SKIP)"
 sub
-layer fail_gui  "serve http api"        sh "$root/tests/gui/serve.sh" "$AIS"
-layer fail_gui  "browser ui render"     sh "$root/tests/gui/ui.sh" "$AIS"
+layer fail_gui  "web api (uiut)"        sh "$root/tests/gui/serve.sh" "$AIS"
+layer fail_gui  "web render (uiut)"     sh "$root/tests/gui/ui.sh" "$AIS"
 layer fail_gui  "native windows ui"     sh "$root/tests/gui/windows.sh"
 layer fail_gui  "flutter app"           sh "$root/tests/gui/flutter.sh"
 

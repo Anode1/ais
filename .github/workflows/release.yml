@@ -40,7 +40,7 @@ jobs:
 
       - name: build and test
         run: |
-          make check                 # builds the engine + runs the unit/CLI tests
+          make ut                    # builds the engine + runs all the tests
           ./ais --version
 
       - name: package bundle + checksum

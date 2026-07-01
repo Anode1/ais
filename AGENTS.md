@@ -18,26 +18,26 @@ These four are the contract. Do not change behavior without changing them first.
 ## Build and test
 
     make        # build ./c/ais            (run from repo root; delegates to c/)
-    make ut     # engine unit tests (c/tests.c) -- the fast inner loop
-    make check  # CORE: engine unit + CLI black-box (tests/cli.sh) -- the commit gate (alias: make test)
-    make uiut   # browser UI render (tests/gui/ui.sh, headless Chrome) -- SKIPs without Chrome
-    make suite  # CORE + GUI (--serve, native Windows, Flutter), each PASS/FAIL/SKIP
-    make ut-asan / ut-ubsan   # the unit tests under AddressSanitizer / UBSan
-    make hooks  # enable the pre-push hook (runs ut-asan + ut-ubsan before a push)
+    make codeut # engine tests (c/tests.c, in-process) -- the fast inner loop
+    make cliut  # CLI black-box (tests/cli.sh: the binary through the shell)
+    make uiut   # web GUI (tests/gui: --serve HTTP api + page in headless Chrome) -- SKIPs absent
+    make ut     # EVERYTHING: codeut + cliut + uiut + wrappers, each PASS/FAIL/SKIP -- run before commit
+    make codeut-asan / codeut-ubsan   # the engine tests under AddressSanitizer / UBSan
+    make hooks  # enable the pre-push hook (runs codeut-asan + codeut-ubsan before a push)
     make clean
 
-Tests are two groups: CORE (engine + CLI -- keep green, it is the commit gate)
-and GUI (the front-ends; a layer whose toolchain is absent SKIPs). A green CORE
-with a red or skipped GUI is fine to commit. Full layout in `tests/README.md`.
+`make ut` runs two groups: CORE (codeut + cliut -- keep green, the commit gate)
+and GUI (uiut + the wrapper build-checks; a layer whose toolchain is absent SKIPs).
+A green CORE with a red or skipped GUI is fine to commit. Full layout in `tests/README.md`.
 
-Before tagging a release, run `make ut-asan` and `make ut-ubsan`: they rebuild
-the suite with the compiler's sanitizers so memory errors (overflow, use-after-
-free) and undefined behavior abort with a file:line report instead of passing
-silently under `-O2`. You do not have to remember: `.github/workflows/
+Before tagging a release, run `make codeut-asan` and `make codeut-ubsan`: they
+rebuild the engine tests with the compiler's sanitizers so memory errors (overflow,
+use-after-free) and undefined behavior abort with a file:line report instead of
+passing silently under `-O2`. You do not have to remember: `.github/workflows/
 sanitizers.yml` runs both on Linux and macOS on every push, and `make hooks`
 installs a pre-push hook that runs them locally first (bypass once with
 `git push --no-verify`). Keep them out of the default build -- they are ~2-3x
-slower and not universally available, so `make` / `make check` stay portable.
+slower and not universally available, so `make` / `make ut` stay portable.
 
 To SEE the web GUI (a C string `PAGE[]` in `c/serve.c`), screenshot it rather
 than guess at layout (`AIS_NO_OPEN=1` keeps `--serve` from opening a browser):
@@ -61,7 +61,7 @@ Tests are the objective gate. Never trust output you have not verified.
    file, modules return codes, only the CLI `die()`s; the rationale is there).
 3. **Test.** Add or extend tests in `c/tests.c` -- linear, inline, ONE comment per
    test saying what it checks. Cover the new behavior and its edges.
-4. **Verify.** `make ut` green; no warnings under `-std=c99 -Wall -Wextra` (a
+4. **Verify.** `make codeut` green; no warnings under `-std=c99 -Wall -Wextra` (a
    warning is a defect, per `STYLE.md`).
 
 Red -> green -> refactor. Every change keeps the whole suite green (regression).
@@ -77,7 +77,7 @@ Developed with Claude Code's built-in orchestration -- nothing to install:
 - The **integrator** (the main session) locks the contract and runs `make ut`.
 - For a large structured job, a deterministic multi-agent workflow can fan out;
   for ordinary work, one subagent plus the test gate is enough.
-- A `PostToolUse` hook auto-runs `make ut` after edits to `c/` (see `.claude/`).
+- A `PostToolUse` hook auto-runs `make codeut` after edits to `c/` (see `.claude/`).
 
 Keep orchestration minimal: the model + native subagents + the test gate. Resist
 building agent infrastructure that itself needs maintaining.
@@ -91,7 +91,7 @@ building agent infrastructure that itself needs maintaining.
     c/attic/   the pre-rewrite v0 prototype -- reference only, not built
     doc/       about.txt, OVERVIEW.md, foundation.md, ROADMAP.md, migration.txt,
                performance.txt, limitations.txt, USING.txt                       (public)
-    doc/dev/   STYLE, LAYOUT, BNF, LOCKING, WHY-PLAIN-TEXT, DISTRIBUTION, SIGNING,
+    doc/dev/   STYLE, LAYOUT, BNF, LOCKING, WHY-PLAIN-TEXT, WHY-C, DISTRIBUTION, SIGNING,
                GUI, README, and the sync docs (SYNC, SYNC_PROTOCOL, MERGE) (developers)
     tests/     the committed fixture (tests/INDEX/store)
     tests/shot/ screenshot the --serve GUI to a PNG so an agent can see its frontend change

@@ -83,8 +83,10 @@ Why this discipline pays, four ways:
 - **`static` for everything module-private**: a `.c` exposes only what its `.h` declares.
 - **Declare at point of use, `const`-correct, `size_t` for sizes** -- the C99 cleanups, not
   K&R top-of-function.
-- Build clean under `-std=c99 -Wall -Wextra`; run under AddressSanitizer/valgrind during development.
-  No build framework: a plain `Makefile` and `cc`. (ant, not Maven.)
+- Build clean under `-std=c99 -Wall -Wextra`; the suite runs under AddressSanitizer/UBSan on every
+  push and in a pre-push hook (`make codeut-asan`), which is how the memory-safety class is caught
+  rather than by switching language (the rationale is `WHY-C.md`). No build framework: a plain
+  `Makefile` and `cc`. (ant, not Maven.)
 
 ## Streaming
 
@@ -129,7 +131,7 @@ None of this is invented here; the parts are canonical, only the assembly is our
 
 ## Testing
 
-- `make ut` runs the unit tests. `tests/INDEX/store` is both fixture and a worked example of the format.
+- `make codeut` runs the unit tests. `tests/INDEX/store` is both fixture and a worked example of the format.
 
 ---
 

@@ -8,8 +8,8 @@
 # macOS is the payoff CI adds over a local run: a different libc and allocator
 # catch what a Linux-only ASan cannot -- the same reason the release matrix once
 # caught BSD-only socket bugs. Reproduce any failure locally, identically:
-#   make ut-asan     # AddressSanitizer
-#   make ut-ubsan    # UndefinedBehaviorSanitizer
+#   make codeut-asan     # AddressSanitizer
+#   make codeut-ubsan    # UndefinedBehaviorSanitizer
 name: sanitizers
 
 on:
@@ -30,7 +30,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0          # full history + tags so `git describe` sees the tag
-      - name: AddressSanitizer (make ut-asan)
-        run: make ut-asan
-      - name: UndefinedBehaviorSanitizer (make ut-ubsan)
-        run: make ut-ubsan
+      - name: AddressSanitizer (make codeut-asan)
+        run: make codeut-asan
+      - name: UndefinedBehaviorSanitizer (make codeut-ubsan)
+        run: make codeut-ubsan
