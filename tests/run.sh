@@ -42,6 +42,7 @@ layer fail_core "cli black-box"         sh "$root/tests/cli.sh" "$AIS"
 echo "GUI  (one engine, many front-ends; absent toolchain = SKIP)"
 sub
 layer fail_gui  "serve http api"        sh "$root/tests/gui/serve.sh" "$AIS"
+layer fail_gui  "browser ui render"     sh "$root/tests/gui/ui.sh" "$AIS"
 layer fail_gui  "native windows ui"     sh "$root/tests/gui/windows.sh"
 layer fail_gui  "flutter app"           sh "$root/tests/gui/flutter.sh"
 
