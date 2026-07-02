@@ -4,7 +4,7 @@
 #   * Linux:   linux/CMakeLists.txt      -> add_subdirectory(../src ais_build)
 # iOS/macOS do not use this -- there the C sources are compiled straight into
 # the app target (see README), and the FFI uses DynamicLibrary.process().
-cmake_minimum_required(VERSION 3.10)
+cmake_minimum_required(VERSION 3.12)   # >= 3.12 for CONFIGURE_DEPENDS on the glob below
 project(ais C)
 set(CMAKE_C_STANDARD 99)
 
@@ -13,7 +13,11 @@ set(CMAKE_C_STANDARD 99)
 # calls them (the header resolves via the -I below), so they MUST be compiled
 # in -- otherwise libais.so ships an unresolved aisc_encrypt and the app fails
 # to load on Android. The C Makefile auto-globs subdirs; this must match it.
-file(GLOB AIS_SRC "${CMAKE_CURRENT_SOURCE_DIR}/../../../c/*.c"
+# CONFIGURE_DEPENDS re-checks the glob on every build, so a newly added c/*.c
+# (e.g. sync.c) lands in libais.so on an INCREMENTAL build too; without it a
+# stale CMake cache omits the new file and the APK fails to link (undefined
+# symbol sync_serve/sync_pull) until a manual `flutter clean`.
+file(GLOB AIS_SRC CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/../../../c/*.c"
                   "${CMAKE_CURRENT_SOURCE_DIR}/../../../c/crypto/*.c")
 list(FILTER AIS_SRC EXCLUDE REGEX "/main\\.c$")
 
