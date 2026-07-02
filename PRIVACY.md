@@ -21,12 +21,12 @@ analytics, advertising identifiers, location, contacts, or any other information
 to the developer or to third parties. There is no telemetry and no crash
 reporting.
 
-## Optional sync
+## On-demand LAN sync
 
-The app can optionally synchronize your index **directly between your own
-devices** over your local network, only when you initiate it. That traffic is
-**end-to-end encrypted** and travels only between devices you control. It does
-not pass through the developer or any third-party server.
+The app offers optional **on-demand LAN sync**: a one-time transfer of your index
+**directly between your own devices** over your local network, only when you start
+it. That traffic is **end-to-end encrypted** and travels only between devices you
+control. It does not pass through the developer or any third-party server.
 
 ## Third parties, ads, and tracking
 

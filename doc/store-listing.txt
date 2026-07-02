@@ -8,17 +8,18 @@ Package name (permanent):
 com.aisindex.ais
 
 Short description (max 80 chars):
-Your memory extension: a private index for links, notes, and passwords.
+Private keeper for your links, notes, and passwords. On-device, no cloud.
 
 Full description:
 Your memory extension. AIS is a fast, private index for the things you want to
 find again: links, documents, notes, and passwords, filed under your own
 keywords and recalled by any combination of them.
 
-Everything stays on your device in plain text you can read and export. Secrets
-are encrypted. No accounts, no ads, no tracking, no servers. Optional sync is
-peer-to-peer between your own devices over your local network, end to end
-encrypted.
+Everything stays on your device in plain text you can read and export; secrets
+are encrypted. No accounts, no ads, no tracking, no servers, and your data never
+leaves your phone unless you sync it yourself. Optional sync is on-demand and
+peer-to-peer: a one-time transfer directly between your own devices over your
+local network, end to end encrypted.
 
 Built on a small C engine for instant startup and search over very large
 collections, the same engine behind the desktop, web, and command-line versions.
@@ -26,8 +27,17 @@ collections, the same engine behind the desktop, web, and command-line versions.
 - File anything under your own tags, recall by any combination.
 - Plain-text storage you own and can export; encrypted secrets.
 - No accounts, no ads, no tracking, no cloud.
-- Optional encrypted peer-to-peer sync across your devices.
+- On-demand, end-to-end-encrypted LAN sync between your own devices.
 - Fast even at a lifetime of entries.
+
+Your index is plain text, so it outlives its own tools: it survives decades of
+archiving, it will still open in 50 years, and you can import it into other
+programs whenever you want. No lock-in.
+
+Why that matters: keeping data readable for decades is a genuinely unsolved
+problem in computer science, the "digital dark age", where file formats and the
+apps that open them die faster than the data. Plain text is the oldest, safest
+answer: readable since the 1960s, on any machine, with no special program.
 
 Graphics:
 - App icon (512x512):      icons/ais-512.png

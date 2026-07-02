@@ -1,0 +1,37 @@
+AIS LAN sync: how to describe it (copy/paste)
+
+Two ready blocks for answering "how does sync work." Use TECHNICAL for a
+technical audience, PLAIN for everyone else. Authoritative spec:
+doc/dev/SYNC_PROTOCOL.md.
+
+=== TECHNICAL ===
+
+AIS LAN sync is a one-shot, direct device-to-device transfer over the local
+network: no cloud, no relay, no dependencies. One device runs an ephemeral
+single-client TCP server (ais --export --serve) and shows a pairing token and a
+URL (as text or QR); the other device pulls and merges (ais --import
+<host:port> --token T). Pairing is manual, there is no auto-discovery, and it
+works on the same LAN only (no internet, relays, or NAT traversal).
+
+Security is a pre-shared one-time token plus challenge-response auth: the server
+sends a random challenge, the client returns a keyed proof of token+challenge,
+so the token itself is never transmitted. The payload (the export stream: live
+records A|ts|keys|value and tombstones D|ts|hash) is sealed as an AEAD document
+under a key derived from the token. A wrong token or any tampering is rejected at
+decryption, before anything is merged. So the transfer is end-to-end encrypted
+and authenticated between the two devices.
+
+The receiver merges the stream into its store: tombstone-union, last-write-wins
+by timestamp, content-addressed and idempotent (re-syncing is safe; only
+genuinely new records land). Only non-rebuildable data moves (store, tombstones,
+saved blobs); the index is rebuilt locally. The server is single-use and exits
+after one transfer.
+
+=== PLAIN ===
+
+Sync is optional and on-demand, directly between your own devices on the same
+Wi-Fi. One device shows a code (and a QR); the other uses it to pull the data
+over your local network. The transfer is end-to-end encrypted with a one-time
+token only your devices share, and a wrong token is rejected before any data is
+read. No cloud, no account, nothing passes through us, and it is a one-time
+manual transfer, not always-on background sync.

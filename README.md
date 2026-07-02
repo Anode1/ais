@@ -5,6 +5,8 @@
 
 An extension of your associative memory: a memo that is always with you and always yours, that brings things back the way your mind does, by association. Underneath, an index: file anything under keys, recall it by keys, plain text on your own disk.
 
+And because it is plain text, it outlives its own tools: your index survives decades of archiving, still opens in fifty years, and exports into anything, no lock-in. Keeping data readable that long is computing's unsolved *digital dark age*, where file formats and the apps that open them die faster than the data. Plain text, readable since the 1960s on any machine with no special program, is the oldest and safest answer.
+
 <p align="center">
   <img src="screenshots/android-timeline.png" width="30%" alt="Everything you saved: links, file paths, and encrypted secrets">
   <img src="screenshots/android-search.png" width="30%" alt="Search returns clickable links">
