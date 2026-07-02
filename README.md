@@ -23,7 +23,7 @@ The latest stable build for every platform. The link below always points at the 
 
 > **<https://github.com/Anode1/ais/releases/latest>**
 
-- **Windows**: unzip `…-windows-x86_64.zip` and double-click **`ais-gui.exe`** (the native desktop app). Nothing is installed; to remove it, delete the folder. Prefer a Start-Menu entry? Run `…-installer.exe` instead (per-user, no admin).
+- **Windows**: _(temporarily unavailable while the desktop GUI is reworked; use `ais --serve` or the mobile app meanwhile.)_ unzip `…-windows-x86_64.zip` and double-click **`ais-gui.exe`** (the native desktop app). Nothing is installed; to remove it, delete the folder. Prefer a Start-Menu entry? Run `…-installer.exe` instead (per-user, no admin).
 - **macOS / Linux**: unzip the `…-<os>-<arch>.zip`, then `./ais --serve` opens the GUI in your browser (or use the `ais` CLI; add it to your PATH to use it anywhere).
 
 The binaries are not code-signed, so the first run is flagged as an unrecognized download (Windows SmartScreen "unknown publisher"; macOS Gatekeeper "could not verify"). That is a new-and-unsigned notice, not a malware finding. On Windows click **More info ▸ Run anyway** (once per file); on macOS run `xattr -dr com.apple.quarantine .` in the unzipped folder. A copy you build yourself is never flagged.
