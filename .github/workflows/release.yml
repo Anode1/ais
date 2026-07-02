@@ -60,140 +60,6 @@ jobs:
           name: ais-${{ matrix.name }}
           path: dist/*
 
-  # Windows ships the NATIVE build (Cygwin-free): the engine and the Win32 GUI are
-  # cross-compiled with MinGW-w64 into self-contained ais.exe (CLI) + ais-gui.exe
-  # (desktop app), using the win.h/win.c shims (Winsock, flock->LockFileEx, etc.).
-  # No cygwin1.dll, no .NET, no runtime. ISCC (the installer compiler) needs
-  # Windows, so the build is split: cross-compile here on Linux, assemble the
-  # installer on windows-latest. (The Cygwin shipping path has been removed
-  # entirely -- there are effectively no Cygwin users to serve.)
-  windows-native:
-    name: cross-compile native windows (mingw-w64)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0          # full history + tags so `git describe` sees the tag
-      - name: install MinGW-w64
-        run: sudo apt-get update && sudo apt-get install -y gcc-mingw-w64-x86-64 zip
-      - name: cross-compile native CLI + GUI (static, self-contained)
-        run: |
-          make -C c clean
-          # gnu99 (not strict c99) so MinGW's <windows.h> isn't hidden by
-          # __STRICT_ANSI__; -static folds in libgcc so the exe stands alone.
-          make -C c CC=x86_64-w64-mingw32-gcc AIS_STD=-std=gnu99 \
-                    BIN=ais.exe LDFLAGS=-static LDLIBS="-lws2_32 -lshell32"
-          make -C win32 CC=x86_64-w64-mingw32-gcc
-          file c/ais.exe win32/ais-gui.exe
-      - uses: actions/upload-artifact@v4
-        with:
-          name: ais-windows-native-bin
-          path: |
-            c/ais.exe
-            win32/ais-gui.exe
-
-      # The PRIMARY Windows download: a portable zip (native exes + docs). No
-      # installer, no registry -- unzip, double-click ais-gui.exe; delete the
-      # folder to uninstall. Same xcopy/zip model as the linux/macos bundles.
-      - name: package portable zip (delete-to-uninstall)
-        run: |
-          name="ais-${{ github.ref_name }}-windows-x86_64"
-          mkdir -p "stage/$name"
-          cp c/ais.exe win32/ais-gui.exe gui/ais-web.bat COPYING doc/about.txt doc/USING.txt "stage/$name/"
-          cp installer/README-portable.txt "stage/$name/README.txt"
-          ( cd stage && zip -rq "$name.zip" "$name" && sha256sum "$name.zip" > "$name.zip.sha256" )
-          ls -l stage
-      - uses: actions/upload-artifact@v4
-        with:
-          name: ais-windows-portable
-          path: |
-            stage/*.zip
-            stage/*.zip.sha256
-
-  # Assemble the per-user installer from the native exes (Inno Setup; ISCC is a
-  # native Windows tool). Start-Menu shortcut -> the native GUI (ais-gui.exe);
-  # ais.exe goes on PATH only (no console-flashing CLI shortcut). Per-user install
-  # to %LOCALAPPDATA%\Programs\AIS, no admin prompt.
-  build-windows:
-    name: build windows installer (native)
-    needs: windows-native
-    runs-on: windows-latest
-    outputs:
-      artifact-id: ${{ steps.upload.outputs.artifact-id }}
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - name: get native exes
-        uses: actions/download-artifact@v4
-        with:
-          name: ais-windows-native-bin
-          path: native
-      - name: build Windows installer
-        shell: pwsh
-        run: |
-          choco install innosetup --no-progress -y
-          $ver = "${{ github.ref_name }}" -replace '^v',''   # numeric, for Inno AppVersion
-          # assemble the installer source dir (native, Cygwin-free)
-          New-Item -ItemType Directory -Force -Path src | Out-Null
-          Copy-Item native\c\ais.exe         src\ais.exe
-          Copy-Item native\win32\ais-gui.exe src\ais-gui.exe
-          Copy-Item icons\ais.ico            src\ais.ico
-          Copy-Item COPYING                  src\COPYING
-          Copy-Item doc\about.txt            src\about.txt
-          Copy-Item doc\USING.txt            src\USING.txt
-          Copy-Item installer\README.txt     src\README.txt
-          $iscc = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
-          & $iscc /DSrcDir="$((Resolve-Path src).Path)" /DAppVersion="$ver" installer\ais.iss
-          if ($LASTEXITCODE -ne 0) { throw "ISCC failed ($LASTEXITCODE)" }
-          $setup = Get-ChildItem installer\Output\*installer.exe | Select-Object -First 1
-          $name = "ais-${{ github.ref_name }}-windows-x86_64-installer.exe"   # double-click to install
-          New-Item -ItemType Directory -Force -Path dist | Out-Null
-          Copy-Item $setup.FullName "dist\$name"
-          ((Get-FileHash "dist\$name" -Algorithm SHA256).Hash.ToLower() + "  $name") | Out-File -Encoding ascii "dist\$name.sha256"
-
-      - id: upload
-        uses: actions/upload-artifact@v4
-        with:
-          name: ais-windows-x86_64
-          path: dist/*
-
-  # Code-sign the Windows installer with SignPath (free for open-source). Runs
-  # ONLY when SignPath is configured (repo variable SIGNPATH_ORGANIZATION_ID set);
-  # otherwise it is skipped and the release ships unsigned (SmartScreen warns).
-  # Setup + the required secrets/variables: doc/dev/SIGNING.md.
-  sign-windows:
-    name: sign Windows installer (SignPath)
-    needs: build-windows
-    runs-on: ubuntu-latest
-    if: ${{ startsWith(github.ref, 'refs/tags/') && vars.SIGNPATH_ORGANIZATION_ID != '' }}
-    permissions:
-      id-token: write     # OIDC trust between SignPath and this run
-      contents: read
-      actions: read       # let SignPath fetch the build artifact to sign
-    steps:
-      - name: submit signing request to SignPath
-        uses: signpath/github-action-submit-signing-request@v1
-        with:
-          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
-          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
-          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG }}
-          signing-policy-slug: ${{ vars.SIGNPATH_POLICY_SLUG }}
-          artifact-configuration-slug: ${{ vars.SIGNPATH_ARTIFACT_CONFIG_SLUG }}
-          github-artifact-id: ${{ needs.build-windows.outputs.artifact-id }}
-          wait-for-completion: true
-          output-artifact-directory: signed
-      - name: refresh checksum for the signed installer
-        run: |
-          cd signed
-          for f in *-windows-x86_64-installer.exe; do
-            [ -f "$f" ] && sha256sum "$f" > "$f.sha256"
-          done
-      - uses: actions/upload-artifact@v4
-        with:
-          name: ais-windows-signed
-          path: signed/*
-
   # Android: the Flutter app (FFI to the C engine). The .apk is the installable
   # build a phone user sideloads from the release; the .aab is the Google Play
   # upload bundle (Play requires .aab; see doc/HOWTO_playstore.md). Release-signed
@@ -261,16 +127,13 @@ jobs:
 
   publish:
     name: publish release
-    needs: [build, build-windows, sign-windows, android]
+    needs: [build, android]
     runs-on: ubuntu-latest
-    # always() so a SKIPPED sign-windows (SignPath not configured) doesn't skip
-    # publish; still require the builds to have succeeded.
+    # publish only on a tag, and only if the platform builds succeeded.
     if: >-
-      ${{ always() && startsWith(github.ref, 'refs/tags/')
+      ${{ startsWith(github.ref, 'refs/tags/')
           && needs.build.result == 'success'
-          && needs.build-windows.result == 'success'
-          && needs.android.result == 'success'
-          && (needs.sign-windows.result == 'success' || needs.sign-windows.result == 'skipped') }}
+          && needs.android.result == 'success' }}
     permissions:
       contents: write
     steps:
@@ -278,17 +141,12 @@ jobs:
         with:
           path: artifacts          # each artifact lands in artifacts/<name>/
 
-      - name: assemble release files (prefer the signed Windows installer)
+      - name: assemble release files
         run: |
           mkdir -p dist
           for d in artifacts/*/; do
-            [ "$d" = "artifacts/ais-windows-signed/" ] && continue
             cp -f "$d"* dist/ 2>/dev/null || true
           done
-          # overlay the SignPath-signed installer + checksum, if the sign job ran
-          if [ -d artifacts/ais-windows-signed ]; then
-            cp -f artifacts/ais-windows-signed/* dist/
-          fi
           ls -l dist
 
       - name: publish to GitHub Releases
