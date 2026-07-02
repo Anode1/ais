@@ -1687,13 +1687,13 @@ static void test_sync_socket(void)
     if (pid == 0) {                              /* child: serve A once, then exit */
         ais cA;
         ais_open(&cA, da);
-        sync_serve(&cA, port, tok, 5);
+        sync_serve(&cA, port, tok, 5, 0);
         ais_close(&cA);
         _exit(0);
     }
 
     ais_open(&B, db);                            /* parent: pull into B */
-    rc = sync_pull(&B, "127.0.0.1", port, tok, 5);
+    rc = sync_pull(&B, "127.0.0.1", port, tok, 5, 0);
     CHECK(rc == 0, "sync(socket): pull over loopback succeeded");
     CHECK(value_present(&B, "Hotel Danieli") == 1, "sync(socket): live record arrived over TCP");
     CHECK(value_present(&B, "Cafe de Flore") == 0, "sync(socket): deletion propagated over TCP");
@@ -1707,12 +1707,12 @@ static void test_sync_socket(void)
     if (pid == 0) {
         ais cA;
         ais_open(&cA, da);
-        sync_serve(&cA, port, tok, 5);           /* right token here; the client brings a wrong one */
+        sync_serve(&cA, port, tok, 5, 0);           /* right token here; the client brings a wrong one */
         ais_close(&cA);
         _exit(0);
     }
     ais_open(&B, db);
-    rc = sync_pull(&B, "127.0.0.1", port, "ffffffffffffffffffffffffffffffff", 5);
+    rc = sync_pull(&B, "127.0.0.1", port, "ffffffffffffffffffffffffffffffff", 5, 0);
     CHECK(rc != 0, "sync(socket): wrong token is rejected");
     CHECK(value_present(&B, "Hotel Danieli") == 0, "sync(socket): nothing merged on a wrong token");
     ais_close(&B);
@@ -1754,7 +1754,7 @@ static void test_embed_sync(void)
     pid = fork();
     if (pid == 0) {
         ais cA; ais_open(&cA, da);
-        sync_serve(&cA, port, tok, 5);
+        sync_serve(&cA, port, tok, 5, 0);
         ais_close(&cA);
         _exit(0);
     }
@@ -1772,7 +1772,7 @@ static void test_embed_sync(void)
     pid = fork();
     if (pid == 0) {
         ais cB; ais_open(&cB, db);
-        sync_pull(&cB, "127.0.0.1", port, tok, 5);   /* retries connect until the parent binds */
+        sync_pull(&cB, "127.0.0.1", port, tok, 5, 0);   /* retries connect until the parent binds */
         ais_close(&cB);
         _exit(0);
     }
@@ -1783,6 +1783,46 @@ static void test_embed_sync(void)
     { ais B; ais_open(&B, db);
       CHECK(value_present(&B, "Hotel Danieli") == 1, "embed serve: A's record reached B via the FFI serve");
       ais_close(&B); }
+
+    scratch_rm(da);
+    scratch_rm(db);
+}
+#endif /* AIS_UT_HAVE_CRYPTO */
+
+#ifdef AIS_UT_HAVE_CRYPTO
+/* The symmetric exchange (sync_serve/sync_pull with bidir=1): after ONE
+ * connection both sides hold the union, converging with no sender/receiver role.
+ * A has X, B has Y; after the exchange each has both. */
+static void test_sync_exchange(void)
+{
+    const char *da = "/tmp/ais_ut_exchA", *db = "/tmp/ais_ut_exchB";
+    const char *tok = "0123456789abcdef0123456789abcdef";
+    const int port = 47141;
+    pid_t pid;
+
+    scratch_rm(da);
+    scratch_rm(db);
+    { ais A; ais_open(&A, da); ais_put(&A, "venice", "Hotel Danieli"); ais_close(&A); }
+    { ais B; ais_open(&B, db); ais_put(&B, "paris",  "Cafe de Flore"); ais_close(&B); }
+
+    pid = fork();
+    if (pid == 0) {                              /* child: serve A, bidirectional */
+        ais cA; ais_open(&cA, da);
+        sync_serve(&cA, port, tok, 5, 1);
+        ais_close(&cA);
+        _exit(0);
+    }
+    { ais B; ais_open(&B, db);                   /* parent: pull into B, bidirectional */
+      CHECK(sync_pull(&B, "127.0.0.1", port, tok, 5, 1) == 0, "exchange: bidirectional pull -> 0");
+      CHECK(value_present(&B, "Hotel Danieli") == 1, "exchange: A's record reached B (forward)");
+      CHECK(value_present(&B, "Cafe de Flore") == 1, "exchange: B kept its own record");
+      ais_close(&B); }
+    waitpid(pid, NULL, 0);
+
+    { ais A; ais_open(&A, da);                   /* A (served by child) must also hold B's record */
+      CHECK(value_present(&A, "Cafe de Flore") == 1, "exchange: B's record reached A (reverse)");
+      CHECK(value_present(&A, "Hotel Danieli") == 1, "exchange: A kept its own record");
+      ais_close(&A); }
 
     scratch_rm(da);
     scratch_rm(db);
@@ -1992,6 +2032,8 @@ int main(void)
     test_sync_socket();
     printf("embed sync (FFI pull/serve over loopback):\n");
     test_embed_sync();
+    printf("sync exchange (symmetric bidir, both converge):\n");
+    test_sync_exchange();
     printf("embed encrypted (FFI store/reveal):\n");
     test_embed_encrypted();
 #endif

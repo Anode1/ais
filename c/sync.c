@@ -147,7 +147,7 @@ static void set_timeout(int fd, int secs) {
     setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof tv);
 }
 
-int sync_serve(ais *a, int port, const char *token, int timeout_s) {
+int sync_serve(ais *a, int port, const char *token, int timeout_s, int bidir) {
     int srv, cli = -1, rc = -1, one = 1;
     struct sockaddr_in addr;
     size_t tlen = strlen(token);
@@ -194,8 +194,29 @@ int sync_serve(ais *a, int port, const char *token, int timeout_s) {
     lenbuf[1] = (unsigned char)(blen >> 16);
     lenbuf[2] = (unsigned char)(blen >> 8);
     lenbuf[3] = (unsigned char)(blen);
-    if (write_all(cli, lenbuf, 4) == 0 && write_all(cli, blob, blen) == 0)
-        rc = 0;
+    if (write_all(cli, lenbuf, 4) == 0 && write_all(cli, blob, blen) == 0) {
+        if (!bidir) {
+            rc = 0;
+        } else {
+            /* symmetric exchange: also receive and merge the peer's sealed stream,
+             * which the seal (under the same token) authenticates -- so both sides
+             * converge in one connection, with no sender/receiver role. */
+            unsigned char rlen[4];
+            uint8_t *rblob = NULL;
+            size_t rblen = 0;
+            if (read_all(cli, rlen, 4) == 0) {
+                rblen = ((size_t)rlen[0] << 24) | ((size_t)rlen[1] << 16)
+                      | ((size_t)rlen[2] << 8) | (size_t)rlen[3];
+                if (rblen > 0 && rblen <= AIS_SYNC_MAX_BLOB) {
+                    rblob = malloc(rblen);
+                    if (rblob && read_all(cli, rblob, rblen) == 0
+                        && sync_import_sealed(a, token, rblob, rblen) == 0)
+                        rc = 0;
+                }
+            }
+            if (rblob) { aisc_wipe(rblob, rblen); free(rblob); }
+        }
+    }
 
 done:
     aisc_wipe(challenge, sizeof challenge);
@@ -207,7 +228,7 @@ done:
     return rc;
 }
 
-int sync_pull(ais *a, const char *host, int port, const char *token, int timeout_s) {
+int sync_pull(ais *a, const char *host, int port, const char *token, int timeout_s, int bidir) {
     int fd, rc = -1, attempt;
     struct sockaddr_in addr;
     unsigned char lenbuf[4];
@@ -248,6 +269,25 @@ int sync_pull(ais *a, const char *host, int port, const char *token, int timeout
     if (read_all(fd, blob, blen) != 0) goto done;
 
     rc = sync_import_sealed(a, token, blob, blen);
+
+    if (rc == 0 && bidir) {
+        /* symmetric exchange: seal and send our own stream back so the peer
+         * converges too. Our index now includes what we just merged; the peer
+         * re-merges idempotently. */
+        uint8_t *mine = NULL;
+        size_t mlen = 0;
+        rc = -1;
+        if (sync_export_sealed(a, token, &mine, &mlen) == 0 && mlen > 0) {
+            unsigned char slen[4];
+            slen[0] = (unsigned char)(mlen >> 24);
+            slen[1] = (unsigned char)(mlen >> 16);
+            slen[2] = (unsigned char)(mlen >> 8);
+            slen[3] = (unsigned char)(mlen);
+            if (write_all(fd, slen, 4) == 0 && write_all(fd, mine, mlen) == 0)
+                rc = 0;
+        }
+        if (mine) { aisc_wipe(mine, mlen); free(mine); }
+    }
 
 done:
     aisc_wipe(challenge, sizeof challenge);
@@ -292,7 +332,7 @@ int sync_serve_lan(ais *a, int port, int timeout_s) {
     printf("    ais --import http://%s:%d --token %s\n\n", ip, port, token);
     fflush(stdout);
 
-    if (sync_serve(a, port, token, timeout_s) != 0) {
+    if (sync_serve(a, port, token, timeout_s, 0) != 0) {
         fprintf(stderr, "sync: no peer completed (timeout, wrong token, or error)\n");
         aisc_wipe(token, sizeof token);
         return -1;
@@ -315,7 +355,7 @@ int sync_pull_url(ais *a, const char *url, const char *token, int timeout_s) {
         fprintf(stderr, "sync: bad url '%s'\n", url);
         return -1;
     }
-    if (sync_pull(a, host, port, token, timeout_s) != 0) {
+    if (sync_pull(a, host, port, token, timeout_s, 0) != 0) {
         fprintf(stderr, "sync: pull from %s:%d failed (wrong token, timeout, or no server there)\n",
                 host, port);
         return -1;
@@ -336,14 +376,14 @@ int sync_import_sealed(ais *a, const char *token, const uint8_t *sealed, size_t 
     (void)a; (void)token; (void)sealed; (void)len;
     return -1;
 }
-int sync_serve(ais *a, int port, const char *token, int timeout_s)
+int sync_serve(ais *a, int port, const char *token, int timeout_s, int bidir)
 {
-    (void)a; (void)port; (void)token; (void)timeout_s;
+    (void)a; (void)port; (void)token; (void)timeout_s; (void)bidir;
     return -1;
 }
-int sync_pull(ais *a, const char *host, int port, const char *token, int timeout_s)
+int sync_pull(ais *a, const char *host, int port, const char *token, int timeout_s, int bidir)
 {
-    (void)a; (void)host; (void)port; (void)token; (void)timeout_s;
+    (void)a; (void)host; (void)port; (void)token; (void)timeout_s; (void)bidir;
     return -1;
 }
 int sync_serve_lan(ais *a, int port, int timeout_s)

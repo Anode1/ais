@@ -115,7 +115,7 @@ int ais_embed_pull(void *handle, const char *url, const char *token)
     signal(SIGPIPE, SIG_IGN);               /* a dropped peer must not kill the host app */
     if (sync_parse_url(url, host, sizeof host, &port) != 0)
         return -1;                          /* malformed url */
-    if (sync_pull(a, host, port, token, 10) != 0)   /* 10s LAN timeout */
+    if (sync_pull(a, host, port, token, 10, 0) != 0)   /* 10s LAN timeout, one-way */
         return -2;                          /* unreachable, wrong token, or timeout */
     return 0;                               /* merged */
 }
@@ -127,7 +127,7 @@ int ais_embed_serve(void *handle, int port, const char *token)
     if (a == NULL || token == NULL)
         return -1;                          /* bad args */
     signal(SIGPIPE, SIG_IGN);               /* a peer that vanishes mid-write must not kill the app */
-    if (sync_serve(a, port, token, 120) != 0)   /* wait up to 120s for one peer */
+    if (sync_serve(a, port, token, 120, 0) != 0)   /* wait up to 120s for one peer, one-way */
         return -2;                          /* no peer completed: timeout, wrong token, or error */
     return 0;                               /* a peer pulled and merged */
 }
