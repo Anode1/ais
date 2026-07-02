@@ -106,6 +106,13 @@ int ais_embed_update(void *handle, long id, const char *keys)
 
 static int embed_pull(void *handle, const char *url, const char *token, int bidir)
 {
+#ifdef _WIN32
+    /* LAN sync (sync.c: raw BSD sockets + poll + SIGPIPE) is not ported to
+     * Winsock yet, and the Windows client exposes no sync UI. Stub it so the
+     * FFI seam stays symmetric and the Windows engine links without sync.c. */
+    (void)handle; (void)url; (void)token; (void)bidir;
+    return -1;
+#else
     ais *a = handle;
     char host[128];
     int port;
@@ -118,6 +125,7 @@ static int embed_pull(void *handle, const char *url, const char *token, int bidi
     if (sync_pull(a, host, port, token, 10, bidir) != 0)   /* 10s LAN timeout */
         return -2;                          /* unreachable, wrong token, or timeout */
     return 0;                               /* merged (and, if bidir, sent back) */
+#endif
 }
 
 int ais_embed_pull(void *handle, const char *url, const char *token)
@@ -128,6 +136,10 @@ int ais_embed_sync_pull(void *handle, const char *url, const char *token)
 
 static int embed_serve(void *handle, int port, const char *token, int bidir)
 {
+#ifdef _WIN32
+    (void)handle; (void)port; (void)token; (void)bidir;   /* sync not ported to Winsock (see embed_pull) */
+    return -2;
+#else
     ais *a = handle;
     int r;
 
@@ -138,6 +150,7 @@ static int embed_serve(void *handle, int port, const char *token, int bidir)
     if (r == -2) return -3;                 /* the port is busy (bind failed) -- fast, not a timeout */
     if (r != 0)  return -2;                 /* no peer completed: timeout, wrong token, or error */
     return 0;                               /* a peer pulled (and, if bidir, we merged theirs) */
+#endif
 }
 
 int ais_embed_serve(void *handle, int port, const char *token)

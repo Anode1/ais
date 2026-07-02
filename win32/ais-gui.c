@@ -233,7 +233,12 @@ static void do_add(void)
         if (enc) {
             char *pp = get_text(g_pp);
             if (pp == NULL || pp[0] == '\0') {
+                /* Encrypt is on but no passphrase: say so (the web alerts too),
+                 * else the save silently does nothing and looks broken. */
                 log_error("encrypt: enter a passphrase");
+                MessageBoxA(NULL, "Enter a passphrase to encrypt, or uncheck "
+                            "Encrypt to save the value in plain text.",
+                            "AIS", MB_OK | MB_ICONINFORMATION);
                 free(pp);
                 SetFocus(g_pp);
                 free(val); free(vk);
@@ -245,16 +250,23 @@ static void do_add(void)
         } else {
             rc = ais_embed_store(g_ais, (vk != NULL) ? vk : "", val);
         }
-        if (rc < 0)
+        if (rc < 0) {
+            /* Save failed: tell the user and KEEP the form so the entry can be
+             * retried -- never clear silently as if it had saved. */
             log_error("save failed (keys='%s')", (vk != NULL) ? vk : "");
-        if (vk != NULL && vk[0] != '\0')                 /* echo the save into the Get box */
-            SetWindowTextA(g_keys, vk);
-        SetWindowTextA(g_value, "");                     /* reset the Add form for the next entry */
-        SetWindowTextA(g_vkeys, "");
-        SetWindowTextA(g_pp, "");                         /* clear the passphrase field */
-        SendMessage(g_enc, BM_SETCHECK, BST_UNCHECKED, 0); /* back to off (not the default) */
-        do_view(g_view);                                 /* refresh the current view */
-        SetFocus(g_vkeys);
+            MessageBoxA(NULL, "Could not save the entry. The index may be read-only "
+                        "or in use; details are in %LOCALAPPDATA%\\AIS\\ais-error.log.",
+                        "AIS", MB_OK | MB_ICONWARNING);
+        } else {
+            if (vk != NULL && vk[0] != '\0')             /* echo the save into the Get box */
+                SetWindowTextA(g_keys, vk);
+            SetWindowTextA(g_value, "");                 /* reset the Add form for the next entry */
+            SetWindowTextA(g_vkeys, "");
+            SetWindowTextA(g_pp, "");                     /* clear the passphrase field */
+            SendMessage(g_enc, BM_SETCHECK, BST_UNCHECKED, 0); /* back to off (not the default) */
+            do_view(g_view);                             /* refresh the current view */
+            SetFocus(g_vkeys);
+        }
     }
     free(val);
     free(vk);

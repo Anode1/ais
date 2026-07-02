@@ -63,6 +63,17 @@ int ais_doc_blobname(const ais *a, char *relval, size_t rvsz,
     return ais_doc_blobname_ext(a, "txt", relval, rvsz, blobpath, bpsz);
 }
 
+int ais_doc_is_blob(const ais *a, const char *value, char *path, size_t psz)
+{
+    int n;
+    if (a == NULL || value == NULL
+        || strncmp(value, "blobs/", 6) != 0    /* our out-of-line store, not a URL/bookmark */
+        || strstr(value, "..") != NULL)        /* never escape the index dir */
+        return 0;
+    n = snprintf(path, psz, "%s/%s", a->dir, value);
+    return (n > 0 && (size_t)n < psz) ? 1 : 0;
+}
+
 long ais_doc_put(ais *a, const char *keys, const char *content, size_t len)
 {
     char blobpath[AIS_PATH_MAX], relval[AIS_PATH_MAX];

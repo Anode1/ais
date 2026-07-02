@@ -24,6 +24,7 @@
 #include <string.h>
 
 #include "ais.h"
+#include "doc.h"           /* ais_doc_is_blob: recall cats a document, not its path */
 #include "help.h"
 #include "log.h"
 #include "feed.h"
@@ -56,10 +57,26 @@ struct get_ctx {
 static int print_value(long id, const char *value, void *vp)
 {
     struct get_ctx *g = vp;
-    if (g->reveal && secret_is_marked(value))
+    char path[AIS_PATH_MAX];
+    FILE *f;
+    if (g->reveal && secret_is_marked(value)) {
         secret_reveal(id, value, g->a->dir);   /* decrypt-dialog to /dev/tty, not stdout */
-    else
+    } else if (ais_doc_is_blob(g->a, value, path, sizeof path)
+               && (f = fopen(path, "rb")) != NULL) {
+        char buf[8192];                         /* a document blob: cat its CONTENT, not the path */
+        size_t r;
+        int last = '\n';
+        printf("%ld|", id);
+        while ((r = fread(buf, 1, sizeof buf, f)) > 0) {
+            fwrite(buf, 1, r, stdout);
+            last = (unsigned char)buf[r - 1];
+        }
+        fclose(f);
+        if (last != '\n')
+            putchar('\n');                      /* keep records line-separated */
+    } else {
         printf("%ld|%s\n", id, value);     /* opaque: a normal value, or an "aisc:" blob */
+    }
     g->printed_any = 1;
     return 0;
 }

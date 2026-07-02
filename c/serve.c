@@ -31,6 +31,7 @@
 #endif
 
 #include "ais.h"
+#include "b64.h"           /* base64 a document blob's content onto the line-based wire */
 #include "common.h"
 #include "doc.h"
 #include "secret.h"       /* GUI encrypt: secret_encrypt for the "aisc:" marker */
@@ -192,18 +193,23 @@ static const char PAGE[] =
 "async function revealSecret(node,v){var pp=prompt('Passphrase:');if(!pp)return;"
 "var r=await fetch('/api/reveal',{method:'POST',body:pp+'\\n'+v});var t=await r.text();"
 "node.innerHTML='';if(t){fillVal(node,t);var c=document.createElement('button');c.className='actbtn';c.textContent='copy';c.style.marginLeft='.5rem';c.onclick=function(){copyText(t,c)};node.appendChild(c)}else{node.textContent='(cannot decrypt)'}}"
+/* A document blob comes over the wire as "aisdoc:<base64 of the content>", so
+ * the (possibly multi-line) content survives the line-based record split. Decode
+ * the base64 as UTF-8 bytes and show it verbatim (newlines preserved). */
+"function docText(v){try{var s=atob(v.slice(7)),b=new Uint8Array(s.length),i;for(i=0;i<s.length;i++)b[i]=s.charCodeAt(i);return new TextDecoder().decode(b)}catch(e){return v}}"
+"function fillDoc(node,v){var d=document.createElement('div');d.style.whiteSpace='pre-wrap';d.textContent=docText(v);node.appendChild(d)}"
 "function render(t,q,ms){var L=t.split('\\n').filter(function(s){return s.length});"
 "$('count').textContent=L.length+' result'+(L.length==1?'':'s')+' - '+ms.toFixed(0)+' ms';"
 "var o=$('out');o.innerHTML='';"
 "if(!L.length){o.textContent='No results for '+q;o.className='empty';return}o.className='';"
 "L.forEach(function(ln){var p=ln.indexOf('|'),id=p>=0?ln.slice(0,p):'',v=p>=0?ln.slice(p+1):ln,"
 "r=document.createElement('div');r.className='hit';"
-"(v.indexOf('aisc:')==0?fillSecret(r,v):fillVal(r,v));if(id)r.appendChild(rowActions(id,v));o.appendChild(r)})}"
+"(v.indexOf('aisc:')==0?fillSecret(r,v):v.indexOf('aisdoc:')==0?fillDoc(r,v):fillVal(r,v));if(id)r.appendChild(rowActions(id,v));o.appendChild(r)})}"
 /* per-row edit (attach/detach keys by id) and delete; both refresh the view */
 "function rowActions(id,v){var d=document.createElement('div');d.className='act';"
 "var m=document.createElement('button');m.className='actbtn';m.textContent='\\u22EE';m.title='more';"
 "var box=document.createElement('span');box.className='actmenu';box.hidden=true;"
-"if(v.indexOf('aisc:')!=0){var c=document.createElement('button');c.className='actbtn';c.textContent='copy';c.onclick=function(){copyText(v,c)};box.appendChild(c)}"
+"if(v.indexOf('aisc:')!=0){var c=document.createElement('button');c.className='actbtn';c.textContent='copy';c.onclick=function(){copyText(v.indexOf('aisdoc:')==0?docText(v):v,c)};box.appendChild(c)}"
 "var e=document.createElement('button');e.className='actbtn';e.textContent='edit keys';e.onclick=function(){editRec(id)};"
 "var x=document.createElement('button');x.className='actbtn del';x.textContent='\\u2715 delete';x.onclick=function(){delRec(id)};"
 "box.appendChild(e);box.appendChild(x);m.onclick=function(){box.hidden=!box.hidden};"
@@ -239,7 +245,7 @@ static const char PAGE[] =
 "L.forEach(function(ln){var r=parseTL(ln),lt=locDT(r.ts),d=lt?lt.day:'';"
 "if(d!==tlDay){tlDay=d;var h=document.createElement('div');h.className='daygroup';"
 "h.textContent=d?fmtDay(d):'(undated)';o.appendChild(h)}"
-"var row=document.createElement('div');row.className='hit';fillVal(row,r.value);"
+"var row=document.createElement('div');row.className='hit';(r.value.indexOf('aisdoc:')==0?fillDoc(row,r.value):fillVal(row,r.value));"
 "var m=document.createElement('div');m.className='meta';"
 "var tm=lt&&lt.time?lt.time+' - ':'';"
 "m.textContent=tm+(r.keys||'(no keys)');row.appendChild(m);"
@@ -268,7 +274,10 @@ static const char PAGE[] =
 "async function save(){var v=$('v').value.trim();if(!v)return;var k=$('vk').value.trim();"
 "var enc=$('enc').checked,pp=$('pp').value;"
 "if(enc&&!pp){alert('Enter a passphrase to encrypt');return}"
-"await fetch('/api/put?keys='+encodeURIComponent(k)+(enc?'&enc=1':''),{method:'POST',body:enc?(pp+'\\n'+v):v});"
+/* On a failed or unreachable put, tell the user and KEEP the sheet so they can
+ * retry -- never leave a stuck, silent modal (an unhandled await used to). */
+"try{var r=await fetch('/api/put?keys='+encodeURIComponent(k)+(enc?'&enc=1':''),{method:'POST',body:enc?(pp+'\\n'+v):v});"
+"if(!r.ok)throw new Error('server '+r.status)}catch(e){alert('Save failed ('+e.message+'). Nothing was saved.');return}"
 "closeSheet();$('q').value=k;recall()}"
 "$('q').addEventListener('keydown',function(e){if(e.key=='Enter')setView('recall')});"
 "$('seg-recall').onclick=function(){setView('recall')};"
@@ -425,11 +434,40 @@ static void url_decode(char *s)
 /* ---- get: stream each matching record's values to the socket ------------ */
 struct sink { ais *a; int fd; };
 
+/* A multi-line value is stored as a plain-text document blob (blobs/<ts>.txt)
+ * whose PATH is the record value; the GUI must show the CONTENT, not the path.
+ * If VALUE is such a blob, read it (capped) and return "aisdoc:<base64>" in OUT:
+ * base64 carries the bytes with no newline or '|', so the line-based wire and
+ * the client's record split stay intact; the client decodes and renders it.
+ * Otherwise return VALUE unchanged. Single-threaded server, so a static read
+ * buffer is safe. */
+static const char *show_value(ais *a, const char *value, char *out, size_t outsz)
+{
+    static unsigned char raw[AIS_LINE_MAX / 2];   /* content preview cap */
+    char path[AIS_PATH_MAX];
+    FILE *f;
+    size_t got;
+
+    if (!ais_doc_is_blob(a, value, path, sizeof path))
+        return value;                             /* not a document blob ref */
+    f = fopen(path, "rb");
+    if (f == NULL)
+        return value;                             /* no such blob: show the value as-is */
+    got = fread(raw, 1, sizeof raw, f);
+    fclose(f);
+    if (outsz < 7 + AIS_B64_ENCLEN(got))
+        return value;                             /* won't fit: fall back to the path */
+    memcpy(out, "aisdoc:", 7);
+    return (b64_encode(raw, got, out + 7, outsz - 7) >= 0) ? out : value;
+}
+
 static int on_value(long id, const char *value, void *vp)
 {
     struct sink *s = vp;
+    static char vbuf[AIS_LINE_MAX];
     char line[AIS_LINE_MAX];
-    int n = snprintf(line, sizeof(line), "%ld|%s\n", id, value);
+    const char *v = show_value(s->a, value, vbuf, sizeof vbuf);
+    int n = snprintf(line, sizeof(line), "%ld|%s\n", id, v);
     if (n > 0)
         write_all(s->fd, line, (size_t)n);
     return 0;
@@ -498,8 +536,10 @@ static int tl_sink(long id, const char *ts, const char *keys,
                    const char *value, void *vp)
 {
     struct sink *s = vp;
+    static char vbuf[AIS_LINE_MAX];
     char line[AIS_LINE_MAX];
-    int n = snprintf(line, sizeof(line), "%ld|%s|%s|%s\n", id, ts, keys, value);
+    const char *v = show_value(s->a, value, vbuf, sizeof vbuf);   /* document blob -> content */
+    int n = snprintf(line, sizeof(line), "%ld|%s|%s|%s\n", id, ts, keys, v);
     if (n > 0)
         write_all(s->fd, line, (size_t)n);
     return 0;

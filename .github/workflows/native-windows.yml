@@ -1,31 +1,63 @@
-# Experimental NATIVE (Cygwin-free) Windows build.
+# Native (Cygwin-free) Windows cross-build, MinGW-w64.
 #
-# Cross-compiles the engine with MinGW-w64 into a self-contained ais.exe that
-# links no cygwin1.dll -- using the win.h/win.c compatibility shims (Winsock,
-# flock->LockFileEx, nftw->opendir walk, realpath->_fullpath, mkdir).
+# TWO jobs, deliberately different in how they gate:
 #
-# This is the TEST HARNESS for that port: run it by hand from the Actions tab.
-# It is deliberately NOT part of release.yml, so a failure here never blocks a
-# release. Once the native exe is proven (and tested on real Windows), it can
-# replace the Cygwin build and drop the cygwin1.dll/LGPL-notice baggage.
+#   win32-gui : cross-compiles the native Win32 GUI (ais-gui.exe). This is the
+#               shipping Windows client, so it GATES -- it runs on every push/PR
+#               that touches c/ or win32/ and MUST stay green. (It broke silently
+#               once when the LAN-sync feature added SIGPIPE/sockets into embed.c;
+#               running it automatically is what stops that recurring.)
+#
+#   cli       : cross-compiles the CLI ais.exe. This still pulls in sync.c, which
+#               is NOT ported to Winsock (raw sockets, poll(), SIGPIPE) -- see
+#               doc/dev/WINDOWS_FILE_SYNC.md "Out of scope". So it is manual-only
+#               (workflow_dispatch) and non-gating until that port lands.
 name: native-windows
 
 on:
+  push:
+    branches: [main]
+    paths: ['c/**', 'win32/**', '.github/workflows/native-windows.yml']
+  pull_request:
+    paths: ['c/**', 'win32/**', '.github/workflows/native-windows.yml']
   workflow_dispatch:
 
 jobs:
-  build:
-    name: cross-compile ais.exe (mingw-w64)
+  win32-gui:
+    name: cross-compile ais-gui.exe (gates)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0          # full history + tags so `git describe` sees the tag
 
-      - name: install MinGW-w64
-        run: sudo apt-get update && sudo apt-get install -y gcc-mingw-w64-x86-64
+      - name: install MinGW-w64 (gcc + windres)
+        run: sudo apt-get update && sudo apt-get install -y gcc-mingw-w64-x86-64 binutils-mingw-w64-x86-64
 
-      - name: cross-compile (static, link Winsock)
+      - name: cross-compile the native Win32 GUI
+        run: |
+          make -C win32 CC=x86_64-w64-mingw32-gcc WINDRES=x86_64-w64-mingw32-windres
+          file win32/ais-gui.exe
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ais-gui-windows-x86_64
+          path: win32/ais-gui.exe
+
+  cli:
+    name: cross-compile ais.exe (experimental -- awaits sync.c Winsock port)
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch'   # manual only; never blocks push/PR
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: install MinGW-w64 (gcc + windres)
+        run: sudo apt-get update && sudo apt-get install -y gcc-mingw-w64-x86-64 binutils-mingw-w64-x86-64
+
+      - name: cross-compile the CLI (fails until sync.c is ported to Winsock)
         run: |
           make -C c clean
           # gnu99 (not strict c99) so MinGW's <windows.h> isn't hidden by
@@ -34,14 +66,8 @@ jobs:
                     BIN=ais.exe LDFLAGS=-static LDLIBS="-lws2_32 -lshell32"
           file c/ais.exe
 
-      - name: cross-compile the native Win32 GUI (ais-gui.exe)
-        run: |
-          make -C win32 CC=x86_64-w64-mingw32-gcc
-          file win32/ais-gui.exe
-
       - uses: actions/upload-artifact@v4
+        if: success()
         with:
-          name: ais-windows-native-x86_64
-          path: |
-            c/ais.exe
-            win32/ais-gui.exe
+          name: ais-cli-windows-x86_64
+          path: c/ais.exe

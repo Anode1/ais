@@ -5,6 +5,7 @@
  *   - Winsock init (ais_net_init) for serve.c
  *   - flock(2)  -> LockFileEx        (store.c index lock)
  *   - mkdir(p,mode) -> _mkdir(p)     (mode ignored on Windows)
+ *   - rename(2) -> MoveFileEx        (POSIX replace-existing; MSVCRT rename fails)
  *   - lstat -> stat                  (no POSIX symlinks on Windows)
  * The MinGW build is cross-compiled from Linux CI; see native-windows.yml. */
 #ifndef AIS_WIN_H
@@ -42,6 +43,16 @@
 #endif
 int ais_flock(int fd, int op);
 #define flock(fd, op) ais_flock((fd), (op))
+
+/* rename(2): POSIX atomically REPLACES an existing destination, but the MSVCRT
+ * rename FAILS if the target exists. AIS updates idx/off files by writing a .tmp
+ * then renaming over the live file (post.c detach, compact.c), so without this
+ * those updates fail on Windows. MoveFileEx restores replace-existing. */
+int ais_rename(const char *from, const char *to);
+#ifdef rename
+#undef rename
+#endif
+#define rename(from, to) ais_rename((from), (to))
 
 /* Initialise Winsock once (WSAStartup); no-op after the first call. */
 void ais_net_init(void);

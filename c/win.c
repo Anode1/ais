@@ -37,6 +37,14 @@ int ais_flock(int fd, int op)
     return LockFileEx(h, flags, 0, MAXDWORD, MAXDWORD, &ov) ? 0 : -1;
 }
 
+/* rename(2) with POSIX replace-existing semantics: MSVCRT rename() fails if TO
+ * exists; MoveFileEx replaces it (atomic on NTFS). Called via the win.h macro,
+ * which #undefs rename first, so this definition itself is not remapped. */
+int ais_rename(const char *from, const char *to)
+{
+    return MoveFileExA(from, to, MOVEFILE_REPLACE_EXISTING | MOVEFILE_COPY_ALLOWED) ? 0 : -1;
+}
+
 void ais_net_init(void)
 {
     static int done = 0;

@@ -32,4 +32,11 @@ long ais_doc_put(ais *a, const char *keys, const char *content, size_t len);
  * new record id, or -1. This is the entry point every GUI calls. */
 long ais_put_value(ais *a, const char *keys, const char *value);
 
+/* Is VALUE a document-blob reference ("blobs/<...>", the out-of-line store for a
+ * multi-line value)? Unlike a URL or a file-location bookmark (references shown
+ * verbatim), a blob's CONTENT is what the user meant, so a viewer resolves it.
+ * If so, build the blob's absolute path under the index in PATH and return 1;
+ * else 0. Existence is the caller's to check (open PATH, show VALUE if it fails). */
+int  ais_doc_is_blob(const ais *a, const char *value, char *path, size_t psz);
+
 #endif /* AIS_DOC_H */
