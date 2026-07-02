@@ -61,8 +61,9 @@ int   ais_embed_pull(void *handle, const char *url, const char *token);
  * `ais --import <url> --token TOKEN`. Single-shot: blocks up to an internal
  * timeout waiting for one peer, then returns (run it off the host's UI thread).
  * TOKEN is a shared secret the caller shows the user; the peer must supply the
- * same. Returns 0 (a peer pulled and merged), -1 (bad args), or -2 (no peer
- * completed: timeout, wrong token, or error). Does not print. */
+ * same. Returns 0 (a peer pulled and merged), -1 (bad args), -2 (no peer
+ * completed: timeout, wrong token, or error), or -3 (the port is busy: bind
+ * failed, returned at once, not after the timeout). Does not print. */
 int   ais_embed_serve(void *handle, int port, const char *token);
 
 /* The direction-less "Sync": like pull/serve, but a SYMMETRIC exchange -- after

@@ -129,12 +129,14 @@ int ais_embed_sync_pull(void *handle, const char *url, const char *token)
 static int embed_serve(void *handle, int port, const char *token, int bidir)
 {
     ais *a = handle;
+    int r;
 
     if (a == NULL || token == NULL)
         return -1;                          /* bad args */
     signal(SIGPIPE, SIG_IGN);               /* a peer that vanishes mid-write must not kill the app */
-    if (sync_serve(a, port, token, 120, bidir) != 0)   /* wait up to 120s for one peer */
-        return -2;                          /* no peer completed: timeout, wrong token, or error */
+    r = sync_serve(a, port, token, 120, bidir);   /* wait up to 120s for one peer */
+    if (r == -2) return -3;                 /* the port is busy (bind failed) -- fast, not a timeout */
+    if (r != 0)  return -2;                 /* no peer completed: timeout, wrong token, or error */
     return 0;                               /* a peer pulled (and, if bidir, we merged theirs) */
 }
 

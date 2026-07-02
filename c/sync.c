@@ -163,7 +163,7 @@ int sync_serve(ais *a, int port, const char *token, int timeout_s, int bidir) {
     addr.sin_family = AF_INET;
     addr.sin_addr.s_addr = htonl(INADDR_ANY);   /* LAN, not 127.0.0.1 -- a peer must reach it */
     addr.sin_port = htons((unsigned short)port);
-    if (bind(srv, (struct sockaddr *)&addr, sizeof addr) != 0) { close(srv); return -1; }
+    if (bind(srv, (struct sockaddr *)&addr, sizeof addr) != 0) { close(srv); return -2; }   /* port busy */
     if (listen(srv, 1) != 0) { close(srv); return -1; }
 
     /* Portable accept timeout: SO_RCVTIMEO does NOT bound accept() on BSD/macOS,

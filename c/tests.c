@@ -19,6 +19,9 @@
 #include <unistd.h>
 #include <sys/stat.h>      /* mkdir (canonicalize a scratch dir via realpath) */
 #include <sys/wait.h>      /* waitpid -- the forked socket-transport test */
+#include <sys/socket.h>    /* the busy-port sync test holds a port in-process */
+#include <netinet/in.h>
+#include <arpa/inet.h>
 
 #include "ais.h"
 #include "key.h"
@@ -1830,6 +1833,36 @@ static void test_embed_sync_exchange(void)
 #endif /* AIS_UT_HAVE_CRYPTO */
 
 #ifdef AIS_UT_HAVE_CRYPTO
+/* A busy port fails FAST with a distinct code, not after the serve timeout: hold
+ * the port in-process, then ais_embed_serve on it must return -3 (bind failed). */
+static void test_embed_sync_portbusy(void)
+{
+    const char *db = "/tmp/ais_ut_busy";
+    const char *tok = "0123456789abcdef0123456789abcdef";
+    const int port = 47205;
+    int s, one = 1;
+    struct sockaddr_in a;
+    void *h;
+
+    s = socket(AF_INET, SOCK_STREAM, 0);
+    memset(&a, 0, sizeof a);
+    a.sin_family = AF_INET;
+    a.sin_addr.s_addr = htonl(INADDR_ANY);
+    a.sin_port = htons((unsigned short)port);
+    setsockopt(s, SOL_SOCKET, SO_REUSEADDR, &one, sizeof one);
+    CHECK(bind(s, (struct sockaddr *)&a, sizeof a) == 0 && listen(s, 1) == 0,
+          "portbusy: test holds the port");
+
+    scratch_rm(db);
+    h = ais_embed_open(db);
+    CHECK(ais_embed_serve(h, port, tok) == -3, "embed serve: busy port -> -3 (fast, not a timeout)");
+    ais_embed_close(h);
+    close(s);
+    scratch_rm(db);
+}
+#endif /* AIS_UT_HAVE_CRYPTO */
+
+#ifdef AIS_UT_HAVE_CRYPTO
 /* The symmetric exchange (sync_serve/sync_pull with bidir=1): after ONE
  * connection both sides hold the union, converging with no sender/receiver role.
  * A has X, B has Y; after the exchange each has both. */
@@ -2076,6 +2109,8 @@ int main(void)
     test_sync_exchange();
     printf("embed sync (FFI bidir, one-tap converge):\n");
     test_embed_sync_exchange();
+    printf("embed sync (busy port -> fast distinct error):\n");
+    test_embed_sync_portbusy();
     printf("embed encrypted (FFI store/reveal):\n");
     test_embed_encrypted();
 #endif

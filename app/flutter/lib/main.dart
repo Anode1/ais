@@ -317,10 +317,18 @@ class _RecallPageState extends State<RecallPage> {
     );
     final rc = await fut;
     if (!mounted) return;
-    messenger.showSnackBar(SnackBar(
-        content: Text(rc == 0
-            ? 'Synced. Both devices now have the same records.'
-            : 'No device joined in time. Try again.')));
+    final String msg;
+    switch (rc) {
+      case 0:
+        msg = 'Synced. Both devices now have the same records.';
+        break;
+      case -3:
+        msg = 'Port 8766 is busy. Is a sync already running? Try again in a moment.';
+        break;
+      default:
+        msg = 'No device joined in time. Try again.';
+    }
+    messenger.showSnackBar(SnackBar(content: Text(msg)));
     if (rc == 0) _setView(_view);
   }
 
@@ -331,18 +339,31 @@ class _RecallPageState extends State<RecallPage> {
         16, (_) => r.nextInt(256).toRadixString(16).padLeft(2, '0')).join();
   }
 
-  // This device's first non-loopback IPv4 (its LAN address), or null.
+  // This device's LAN IPv4: prefer a private-range (Wi-Fi/LAN) address over a
+  // VPN/cellular one; fall back to the first non-loopback address. Null if none.
   Future<String?> _lanIp() async {
     try {
       final ifs = await NetworkInterface.list(
           type: InternetAddressType.IPv4, includeLoopback: false);
+      String? fallback;
       for (final ni in ifs) {
         for (final a in ni.addresses) {
-          if (!a.isLoopback) return a.address;
+          if (a.isLoopback) continue;
+          fallback ??= a.address;
+          if (_isPrivate(a.address)) return a.address;
         }
       }
+      return fallback;
     } catch (_) {}
     return null;
+  }
+
+  // RFC 1918 private ranges (10/8, 172.16/12, 192.168/16) = a LAN/Wi-Fi address.
+  static bool _isPrivate(String ip) {
+    final p = ip.split('.');
+    if (p.length != 4) return false;
+    final a = int.tryParse(p[0]) ?? 0, b = int.tryParse(p[1]) ?? 0;
+    return a == 10 || (a == 192 && b == 168) || (a == 172 && b >= 16 && b <= 31);
   }
 
   Future<void> _changeStore() async {

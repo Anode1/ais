@@ -66,5 +66,7 @@
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>AIS syncs your index directly between your own devices over the local network. Nothing leaves your network.</string>
 </dict>
 </plist>
