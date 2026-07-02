@@ -68,11 +68,13 @@ clean:
 cliut: all
 	@sh tests/cli.sh "$(CURDIR)/c/ais"
 
-# uiut = the web GUI: `ais --serve`'s HTTP API + the rendered page in headless
-# Chrome (SKIPs without curl / Chrome). Runs both web-layer scripts.
+# uiut = the web GUI: `ais --serve`'s HTTP API, the rendered page, and a real
+# click-and-assert interaction driven by the C CDP client (SKIPs without curl /
+# cc / Chrome). Runs all three web-layer scripts.
 uiut: all
 	@sh tests/gui/serve.sh "$(CURDIR)/c/ais"
 	@sh tests/gui/ui.sh "$(CURDIR)/c/ais"
+	@sh tests/gui/inter.sh "$(CURDIR)/c/ais"
 
 # ut = the whole suite: codeut + cliut + uiut + the wrapper build-checks, each
 # layer PASS / FAIL / SKIP. The one command to run before committing -- a green

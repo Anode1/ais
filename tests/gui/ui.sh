@@ -5,9 +5,9 @@
 # which asserts the /api JSON. Breadth, read-only: the page loads and its controls exist
 # by id (the same rule as any UI test: anchor on ids, never presentational classes).
 #
-# Click-and-assert interaction (recall a seeded record, reveal a secret in-browser) needs
-# a Chrome DevTools Protocol client driven from C; this dump-dom layer is the shell-only
-# first cut. See tests/README.md.
+# This is the static render cut (controls exist post-JS). The click-and-assert
+# complement -- typing a query and asserting the result renders -- is inter.sh,
+# driven by the C CDP client (tests/gui/cdp.c). See tests/README.md.
 #
 # Needs: the ais binary, curl (to wait for the server), and Chrome/Chromium on PATH.
 # Exit 0 = all passed, 1 = a failure, 77 = SKIP (no browser or no curl).
