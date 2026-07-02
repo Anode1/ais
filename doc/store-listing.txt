@@ -1,0 +1,38 @@
+AIS -- Google Play store listing text
+(paste into Play Console: Grow > Store presence > Main store listing)
+
+App name:
+AIS
+
+Package name (permanent):
+com.aisindex.ais
+
+Short description (max 80 chars):
+Your memory extension: a private index for links, notes, and passwords.
+
+Full description:
+Your memory extension. AIS is a fast, private index for the things you want to
+find again: links, documents, notes, and passwords, filed under your own
+keywords and recalled by any combination of them.
+
+Everything stays on your device in plain text you can read and export. Secrets
+are encrypted. No accounts, no ads, no tracking, no servers. Optional sync is
+peer-to-peer between your own devices over your local network, end to end
+encrypted.
+
+Built on a small C engine for instant startup and search over very large
+collections, the same engine behind the desktop, web, and command-line versions.
+
+- File anything under your own tags, recall by any combination.
+- Plain-text storage you own and can export; encrypted secrets.
+- No accounts, no ads, no tracking, no cloud.
+- Optional encrypted peer-to-peer sync across your devices.
+- Fast even at a lifetime of entries.
+
+Graphics:
+- App icon (512x512):      icons/ais-512.png
+- Feature graphic (1024x500): icons/feature-graphic.png
+- Phone screenshots (2-8): screenshots/android-*.png
+
+Privacy policy URL:
+https://github.com/Anode1/ais/blob/main/PRIVACY.md
