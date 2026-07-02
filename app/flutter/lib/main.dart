@@ -234,9 +234,17 @@ class _RecallPageState extends State<RecallPage> {
 
     if (!mounted) return;
     final messenger = ScaffoldMessenger.of(context);
-    messenger.showSnackBar(const SnackBar(content: Text('Syncing...')));
-    final rc = await _ais!.pullAsync(url, token);      // off the UI isolate
-    messenger.hideCurrentSnackBar();
+    // Block the UI during the pull. It shares the engine handle with the sync
+    // isolate, so the main isolate must not touch it concurrently (data race).
+    final fut = _ais!.pullAsync(url, token);           // off the UI isolate
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) =>
+          _SyncWaitDialog(title: 'Receive', waiting: 'Receiving...', done: fut),
+    );
+    final rc = await fut;
+    if (!mounted) return;
     final String msg;
     switch (rc) {
       case 0:
@@ -273,7 +281,11 @@ class _RecallPageState extends State<RecallPage> {
     await showDialog<void>(
       context: context,
       barrierDismissible: false,
-      builder: (_) => _SendWaitDialog(command: cmd, done: fut),
+      builder: (_) => _SyncWaitDialog(
+          title: 'Send to another device',
+          command: cmd,
+          waiting: 'Waiting for the other device...',
+          done: fut),
     );
     final rc = await fut;
     if (!mounted) return;
@@ -901,18 +913,25 @@ class _RecallPageState extends State<RecallPage> {
   }
 }
 
-// A non-dismissible dialog shown while serveAsync blocks: it keeps the desktop
-// command visible, and closes itself when serving completes (a peer pulled, or
-// the timeout hit). Cancel just hides it; the serve finishes on its own.
-class _SendWaitDialog extends StatefulWidget {
-  final String command;
+// A non-dismissible barrier dialog shown while a sync FFI call blocks: it keeps
+// the UI from touching the shared engine handle during the sync, shows an
+// optional desktop command (send), and closes itself when the future completes
+// (peer done, or timeout). Used by both receive and send.
+class _SyncWaitDialog extends StatefulWidget {
+  final String title;
+  final String? command;   // shown on send; null on receive
+  final String waiting;
   final Future<int> done;
-  const _SendWaitDialog({required this.command, required this.done});
+  const _SyncWaitDialog(
+      {required this.title,
+      this.command,
+      required this.waiting,
+      required this.done});
   @override
-  State<_SendWaitDialog> createState() => _SendWaitDialogState();
+  State<_SyncWaitDialog> createState() => _SyncWaitDialogState();
 }
 
-class _SendWaitDialogState extends State<_SendWaitDialog> {
+class _SyncWaitDialogState extends State<_SyncWaitDialog> {
   @override
   void initState() {
     super.initState();
@@ -923,22 +942,24 @@ class _SendWaitDialogState extends State<_SendWaitDialog> {
 
   @override
   Widget build(BuildContext context) => AlertDialog(
-        title: const Text('Send to another device'),
+        title: Text(widget.title),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Text('On your desktop, on the same Wi-Fi, run:'),
-            const SizedBox(height: 8),
-            SelectableText(widget.command,
-                style: const TextStyle(fontFamily: 'monospace', fontSize: 12)),
-            const SizedBox(height: 16),
-            const Row(mainAxisSize: MainAxisSize.min, children: [
-              SizedBox(
+            if (widget.command != null) ...[
+              const Text('On your desktop, on the same Wi-Fi, run:'),
+              const SizedBox(height: 8),
+              SelectableText(widget.command!,
+                  style: const TextStyle(fontFamily: 'monospace', fontSize: 12)),
+              const SizedBox(height: 16),
+            ],
+            Row(mainAxisSize: MainAxisSize.min, children: [
+              const SizedBox(
                   width: 16,
                   height: 16,
                   child: CircularProgressIndicator(strokeWidth: 2)),
-              SizedBox(width: 12),
-              Flexible(child: Text('Waiting for the other device...')),
+              const SizedBox(width: 12),
+              Flexible(child: Text(widget.waiting)),
             ]),
           ],
         ),

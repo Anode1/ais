@@ -2,6 +2,10 @@
     <!-- Voice recall: native SpeechRecognizer needs the mic. The permission is
          requested at runtime on the first mic tap (see lib/main.dart). -->
     <uses-permission android:name="android.permission.RECORD_AUDIO"/>
+    <!-- LAN sync: pull from / serve to a peer on the local network. Flutter adds
+         INTERNET only to the debug/profile manifests, so it must be declared here
+         or sync fails silently in the release (Play) build. -->
+    <uses-permission android:name="android.permission.INTERNET"/>
     <application
         android:label="ais"
         android:name="${applicationName}"
