@@ -65,6 +65,13 @@ int   ais_embed_pull(void *handle, const char *url, const char *token);
  * completed: timeout, wrong token, or error). Does not print. */
 int   ais_embed_serve(void *handle, int port, const char *token);
 
+/* The direction-less "Sync": like pull/serve, but a SYMMETRIC exchange -- after
+ * the one-way transfer each side also sends the other way, so BOTH converge in
+ * one round (no sender/receiver role). Same return codes. One device hosts
+ * (sync_serve), the other joins (sync_pull); either way both end up merged. */
+int   ais_embed_sync_pull(void *handle, const char *url, const char *token);
+int   ais_embed_sync_serve(void *handle, int port, const char *token);
+
 /* One timeline page as "id|ts|keys|value\n" lines: the COUNT records with id <
  * BEFORE_ID (BEFORE_ID <= 0 = from newest; COUNT <= 0 = default), newest first,
  * whose save date is within [FROM,TO] ("YYYY-MM-DD", inclusive; "" / NULL = open

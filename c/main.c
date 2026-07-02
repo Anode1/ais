@@ -268,7 +268,7 @@ int main(int argc, char **argv)
            CMD_FIND, CMD_ADD, CMD_DEL, CMD_DELKEY, CMD_DUMP, CMD_KEYS, CMD_STATS,
            CMD_COMPACT, CMD_INIT, CMD_IMPORT, CMD_IMPORTI, CMD_WHERE, CMD_SERVE, CMD_PROJECT,
            CMD_DOC, CMD_TIMELINE, CMD_TAGS, CMD_DEFAULT, CMD_UPDATE,
-           CMD_SWITCH, CMD_INDEXES, CMD_FORGET, CMD_EXPORT };
+           CMD_SWITCH, CMD_INDEXES, CMD_FORGET, CMD_EXPORT, CMD_SYNC };
     static const struct option longopts[] = {
         { "index",       required_argument, NULL, 'f' },
         { "or",          no_argument,       NULL, 'o' },
@@ -300,6 +300,7 @@ int main(int argc, char **argv)
         { "import",      no_argument,       NULL, CMD_IMPORT },
         { "import-interactively", no_argument, NULL, CMD_IMPORTI },
         { "export",      no_argument,       NULL, CMD_EXPORT },
+        { "sync",        no_argument,       NULL, CMD_SYNC },
         { "where",       no_argument,       NULL, CMD_WHERE },
         { "serve",       no_argument,       NULL, CMD_SERVE },
         { "token",       required_argument, NULL, OPT_TOKEN },
@@ -346,7 +347,7 @@ int main(int argc, char **argv)
         case CMD_INIT: case CMD_IMPORT: case CMD_IMPORTI: case CMD_EXPORT: case CMD_WHERE:
         case CMD_PROJECT: case CMD_DOC: case CMD_TIMELINE: case CMD_TAGS:
         case CMD_DEFAULT: case CMD_UPDATE:
-        case CMD_SWITCH: case CMD_INDEXES: case CMD_FORGET:
+        case CMD_SWITCH: case CMD_INDEXES: case CMD_FORGET: case CMD_SYNC:
             if (cmd != 0) die("only one command at a time");
             cmd = c;
             break;
@@ -358,11 +359,11 @@ int main(int argc, char **argv)
      * (serve the merge stream over the LAN). Resolve the combination here. */
     if (serve_flag) {
         if (cmd == 0) cmd = CMD_SERVE;            /* --serve alone -> web GUI */
-        else if (cmd != CMD_EXPORT)
-            die("--serve combines only with --export (or alone for the web GUI)");
+        else if (cmd != CMD_EXPORT && cmd != CMD_SYNC)
+            die("--serve combines only with --export or --sync (or alone for the web GUI)");
     }
-    if (token_arg != NULL && !(cmd == CMD_IMPORT && optind < argc))
-        die("--token is only used with: ais --import <url> --token TOKEN");
+    if (token_arg != NULL && !((cmd == CMD_IMPORT || cmd == CMD_SYNC) && optind < argc))
+        die("--token is used with: ais --import <url> --token T  (or ais --sync <url> --token T)");
 
     /* nothing asked for at all */
     if (cmd == 0 && nval == 0 && !interactive && !encrypt &&
@@ -405,15 +406,25 @@ int main(int argc, char **argv)
         case CMD_INIT:  printf("initialized AIS index: %s\n", dir); break;
         case CMD_IMPORT:
             if (optind < argc) {                  /* ais --import <url> --token T : pull over LAN */
-                if (sync_pull_url(&a, argv[optind], token_arg, 120) != 0) { ais_close(&a); return 1; }
+                if (sync_pull_url(&a, argv[optind], token_arg, 120, 0) != 0) { ais_close(&a); return 1; }
             } else feed_import(&a);               /* ais --import : merge stdin */
             break;
         case CMD_IMPORTI: feed_import_interactive(&a); break;
         case CMD_EXPORT:
             if (serve_flag) {                     /* ais --export --serve [PORT] : serve over LAN */
                 int port = (optind < argc) ? atoi(argv[optind]) : AIS_SYNC_PORT;
-                if (sync_serve_lan(&a, port, 120) != 0) { ais_close(&a); return 1; }
+                if (sync_serve_lan(&a, port, 120, 0) != 0) { ais_close(&a); return 1; }
             } else feed_export(&a, stdout);       /* ais --export : merge stream to stdout */
+            break;
+        case CMD_SYNC:                            /* symmetric: both sides converge in one round */
+            if (serve_flag) {                     /* ais --sync --serve [PORT] : host */
+                int port = (optind < argc) ? atoi(argv[optind]) : AIS_SYNC_PORT;
+                if (sync_serve_lan(&a, port, 120, 1) != 0) { ais_close(&a); return 1; }
+            } else if (optind < argc) {           /* ais --sync <url> --token T : join */
+                if (sync_pull_url(&a, argv[optind], token_arg, 120, 1) != 0) { ais_close(&a); return 1; }
+            } else {
+                die("usage: ais --sync --serve [PORT]  |  ais --sync <url> --token TOKEN");
+            }
             break;
         case CMD_FIND:
             if (optind >= argc) die("--find needs TEXT");

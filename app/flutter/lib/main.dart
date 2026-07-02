@@ -196,13 +196,38 @@ class _RecallPageState extends State<RecallPage> {
   // Switch the active index: type a folder path, reopen the engine there.
   // Sync (Receive): pull + merge from another device running `ais --export
   // --serve`. Off the UI isolate; every outcome gets a plain-language SnackBar.
-  Future<void> _receiveSync() async {
+  // The one-tap "Sync": pick a role, both devices converge (symmetric exchange).
+  Future<void> _syncSheet() async {
+    if (_ais == null) return;
+    final choice = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Sync with another device'),
+        content: const Text(
+            'Both devices end up with the same records. One hosts and waits; the '
+            'other joins it. Same Wi-Fi.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+          TextButton(onPressed: () => Navigator.pop(ctx, 'join'), child: const Text('Join')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, 'host'), child: const Text('Host')),
+        ],
+      ),
+    );
+    if (choice == 'host') {
+      await _syncHost();
+    } else if (choice == 'join') {
+      await _syncJoin();
+    }
+  }
+
+  // Join: connect to a device that is hosting; both converge (bidirectional).
+  Future<void> _syncJoin() async {
     final urlCtrl = TextEditingController(text: 'http://');
     final tokCtrl = TextEditingController();
     final go = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Receive from another device'),
+        title: const Text('Join a sync'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -217,13 +242,15 @@ class _RecallPageState extends State<RecallPage> {
               decoration: const InputDecoration(labelText: 'Token'),
             ),
             const SizedBox(height: 8),
-            const Text('On the other device, run:  ais --export --serve',
+            const Text(
+                'On the other device: open Sync, choose Host, and read off its '
+                'address and token.',
                 style: TextStyle(fontSize: 12)),
           ],
         ),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
-          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Import')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Sync')),
         ],
       ),
     );
@@ -234,36 +261,35 @@ class _RecallPageState extends State<RecallPage> {
 
     if (!mounted) return;
     final messenger = ScaffoldMessenger.of(context);
-    // Block the UI during the pull. It shares the engine handle with the sync
-    // isolate, so the main isolate must not touch it concurrently (data race).
-    final fut = _ais!.pullAsync(url, token);           // off the UI isolate
+    // Block the UI: the sync isolate shares the engine handle, so the main
+    // isolate must not touch it concurrently (data race).
+    final fut = _ais!.pullAsync(url, token, bidir: true);
     await showDialog<void>(
       context: context,
       barrierDismissible: false,
       builder: (_) =>
-          _SyncWaitDialog(title: 'Receive', waiting: 'Receiving...', done: fut),
+          _SyncWaitDialog(title: 'Join a sync', waiting: 'Syncing...', done: fut),
     );
     final rc = await fut;
     if (!mounted) return;
     final String msg;
     switch (rc) {
       case 0:
-        msg = 'Imported and merged from the other device.';
+        msg = 'Synced. Both devices now have the same records.';
         break;
       case -1:
         msg = 'That address looks wrong. Use http://host:port.';
         break;
       default:
-        msg = 'Could not sync. Same Wi-Fi? Check that "ais --export --serve" '
-            'is running and the token is right.';
+        msg = 'Could not sync. Same Wi-Fi? Check the host is waiting and the token is right.';
     }
     messenger.showSnackBar(SnackBar(content: Text(msg)));
-    if (rc == 0) _setView(_view);                       // refresh with merged records
+    if (rc == 0) _setView(_view); // refresh with merged records
   }
 
-  // Sync (Send): serve this index to one LAN peer that pulls with `ais --import`.
-  // Off the UI isolate; the command (URL + token) stays visible while serving.
-  Future<void> _sendSync() async {
+  // Host: wait for another device to join; both converge (bidirectional). The
+  // address + token stay visible while waiting.
+  Future<void> _syncHost() async {
     if (_ais == null) return;
     final messenger = ScaffoldMessenger.of(context);
     final ip = await _lanIp();
@@ -275,15 +301,17 @@ class _RecallPageState extends State<RecallPage> {
     }
     const port = 8766;
     final token = _genToken();
-    final cmd = 'ais --import http://$ip:$port --token $token';
+    final detail = 'http://$ip:$port\ntoken: $token\n\n'
+        'desktop:  ais --sync http://$ip:$port --token $token';
 
-    final fut = _ais!.serveAsync(port, token); // blocks up to ~120s for one peer
+    final fut = _ais!.serveAsync(port, token, bidir: true); // blocks up to ~120s
     await showDialog<void>(
       context: context,
       barrierDismissible: false,
       builder: (_) => _SyncWaitDialog(
-          title: 'Send to another device',
-          command: cmd,
+          title: 'Host a sync',
+          commandLabel: 'On the other device, choose Join and enter:',
+          command: detail,
           waiting: 'Waiting for the other device...',
           done: fut),
     );
@@ -291,8 +319,9 @@ class _RecallPageState extends State<RecallPage> {
     if (!mounted) return;
     messenger.showSnackBar(SnackBar(
         content: Text(rc == 0
-            ? 'Sent: the other device pulled and merged.'
-            : 'No device connected in time. Run the command on your desktop, then tap send again.')));
+            ? 'Synced. Both devices now have the same records.'
+            : 'No device joined in time. Try again.')));
+    if (rc == 0) _setView(_view);
   }
 
   // A random 128-bit token as 32 hex chars (the peer must supply the same one).
@@ -464,22 +493,13 @@ class _RecallPageState extends State<RecallPage> {
                         child: const Text('change'),
                       ),
                       TextButton(
-                        onPressed: _ais == null ? null : _receiveSync,
+                        onPressed: _ais == null ? null : _syncSheet,
                         style: TextButton.styleFrom(
                           padding: const EdgeInsets.symmetric(horizontal: 8),
                           minimumSize: Size.zero,
                           tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                         ),
-                        child: const Text('receive'),
-                      ),
-                      TextButton(
-                        onPressed: _ais == null ? null : _sendSync,
-                        style: TextButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(horizontal: 8),
-                          minimumSize: Size.zero,
-                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                        ),
-                        child: const Text('send'),
+                        child: const Text('sync'),
                       ),
                     ]),
                   ],
@@ -919,11 +939,13 @@ class _RecallPageState extends State<RecallPage> {
 // (peer done, or timeout). Used by both receive and send.
 class _SyncWaitDialog extends StatefulWidget {
   final String title;
-  final String? command;   // shown on send; null on receive
+  final String? commandLabel; // line shown above the command (host); null hides it
+  final String? command;      // shown on host; null on join
   final String waiting;
   final Future<int> done;
   const _SyncWaitDialog(
       {required this.title,
+      this.commandLabel,
       this.command,
       required this.waiting,
       required this.done});
@@ -947,7 +969,7 @@ class _SyncWaitDialogState extends State<_SyncWaitDialog> {
           mainAxisSize: MainAxisSize.min,
           children: [
             if (widget.command != null) ...[
-              const Text('On your desktop, on the same Wi-Fi, run:'),
+              Text(widget.commandLabel ?? ''),
               const SizedBox(height: 8),
               SelectableText(widget.command!,
                   style: const TextStyle(fontFamily: 'monospace', fontSize: 12)),

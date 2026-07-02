@@ -260,11 +260,12 @@ class AisEngine {
   /// Pull + merge a peer's `ais --export --serve` over the LAN (sync: Receive).
   /// Runs off the UI isolate (it blocks on the network). Returns 0 = merged,
   /// -1 = bad URL/args, -2 = could not connect / wrong token / timeout.
-  Future<int> pullAsync(String url, String token) {
+  Future<int> pullAsync(String url, String token, {bool bidir = false}) {
     final addr = _h.address;
+    final name = bidir ? 'ais_embed_sync_pull' : 'ais_embed_pull';
     return Isolate.run(() {
       final lib = _load();
-      final fn = lib.lookupFunction<_PullC, _PullD>('ais_embed_pull');
+      final fn = lib.lookupFunction<_PullC, _PullD>(name);
       final u = url.toNativeUtf8();
       final t = token.toNativeUtf8();
       final rc = fn(Pointer<Void>.fromAddress(addr), u, t);
@@ -278,11 +279,12 @@ class AisEngine {
   /// Send). Blocks up to ~120s for one peer, so run it off the UI isolate.
   /// Returns 0 = a peer pulled and merged, -1 = bad args, -2 = no peer
   /// completed (timeout / wrong token / error).
-  Future<int> serveAsync(int port, String token) {
+  Future<int> serveAsync(int port, String token, {bool bidir = false}) {
     final addr = _h.address;
+    final name = bidir ? 'ais_embed_sync_serve' : 'ais_embed_serve';
     return Isolate.run(() {
       final lib = _load();
-      final fn = lib.lookupFunction<_ServeC, _ServeD>('ais_embed_serve');
+      final fn = lib.lookupFunction<_ServeC, _ServeD>(name);
       final t = token.toNativeUtf8();
       final rc = fn(Pointer<Void>.fromAddress(addr), port, t);
       calloc.free(t);

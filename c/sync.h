@@ -41,12 +41,15 @@ int sync_pull(ais *a, const char *host, int port, const char *token, int timeout
 /* High-level CLI wrappers (these also generate the token and print the pairing line). */
 
 /* Generate a one-time token, print the pairing line (URL + token) for the peer, then serve
- * ONE pull over the LAN on PORT for up to TIMEOUT_S. 0 on a served peer, -1 otherwise. */
-int sync_serve_lan(ais *a, int port, int timeout_s);
+ * ONE pull over the LAN on PORT for up to TIMEOUT_S. If BIDIR, the exchange is symmetric
+ * (both converge) and the printed pairing line is `ais --sync` rather than `ais --import`.
+ * 0 on a served peer, -1 otherwise. */
+int sync_serve_lan(ais *a, int port, int timeout_s, int bidir);
 
 /* Parse URL (`http://host:port` or `host:port`; default port AIS_SYNC_PORT) and pull from
- * it with TOKEN, merging into A. 0 on success, -1 otherwise. */
-int sync_pull_url(ais *a, const char *url, const char *token, int timeout_s);
+ * it with TOKEN, merging into A. If BIDIR, also sends A's stream back so the peer converges.
+ * 0 on success, -1 otherwise. */
+int sync_pull_url(ais *a, const char *url, const char *token, int timeout_s, int bidir);
 
 /* Parse a sync URL into HOST (bounded by HOSTSZ) and *PORT: "http(s)://host[:port][/path]"
  * or "host[:port]"; a missing or out-of-range port defaults to AIS_SYNC_PORT. Pure string

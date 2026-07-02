@@ -1790,6 +1790,46 @@ static void test_embed_sync(void)
 #endif /* AIS_UT_HAVE_CRYPTO */
 
 #ifdef AIS_UT_HAVE_CRYPTO
+/* The FFI "Sync" (ais_embed_sync_pull / _serve): the app's one-tap converge. One
+ * side hosts (bidir serve), the other joins (bidir pull); both end merged. */
+static void test_embed_sync_exchange(void)
+{
+    const char *da = "/tmp/ais_ut_embxA", *db = "/tmp/ais_ut_embxB";
+    const char *tok = "0123456789abcdef0123456789abcdef";
+    const char *url = "http://127.0.0.1:47143";
+    const int port = 47143;
+    void *h;
+    char *r;
+    pid_t pid;
+
+    scratch_rm(da); scratch_rm(db);
+    { ais A; ais_open(&A, da); ais_put(&A, "venice", "Hotel Danieli"); ais_close(&A); }
+    { ais B; ais_open(&B, db); ais_put(&B, "paris",  "Cafe de Flore"); ais_close(&B); }
+
+    pid = fork();
+    if (pid == 0) {                              /* child: host (bidir serve) via the FFI */
+        void *ch = ais_embed_open(da);
+        ais_embed_sync_serve(ch, port, tok);
+        ais_embed_close(ch);
+        _exit(0);
+    }
+    h = ais_embed_open(db);                       /* parent: join (bidir pull) via the FFI */
+    CHECK(ais_embed_sync_pull(h, url, tok) == 0, "embed sync: bidir pull -> 0");
+    r = ais_embed_recall(h, "venice", 0);
+    CHECK(r != NULL && strstr(r, "Hotel Danieli") != NULL, "embed sync: host's record reached the joiner");
+    ais_embed_free(r);
+    ais_embed_close(h);
+    waitpid(pid, NULL, 0);
+
+    { ais A; ais_open(&A, da);                    /* host also has the joiner's record (converged) */
+      CHECK(value_present(&A, "Cafe de Flore") == 1, "embed sync: joiner's record reached the host");
+      ais_close(&A); }
+
+    scratch_rm(da); scratch_rm(db);
+}
+#endif /* AIS_UT_HAVE_CRYPTO */
+
+#ifdef AIS_UT_HAVE_CRYPTO
 /* The symmetric exchange (sync_serve/sync_pull with bidir=1): after ONE
  * connection both sides hold the union, converging with no sender/receiver role.
  * A has X, B has Y; after the exchange each has both. */
@@ -2034,6 +2074,8 @@ int main(void)
     test_embed_sync();
     printf("sync exchange (symmetric bidir, both converge):\n");
     test_sync_exchange();
+    printf("embed sync (FFI bidir, one-tap converge):\n");
+    test_embed_sync_exchange();
     printf("embed encrypted (FFI store/reveal):\n");
     test_embed_encrypted();
 #endif
