@@ -5,6 +5,7 @@
 // visible.
 import 'dart:io';
 import 'dart:ui';
+import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
@@ -193,6 +194,116 @@ class _RecallPageState extends State<RecallPage> {
   bool _isUrl(String v) => v.startsWith('http://') || v.startsWith('https://');
 
   // Switch the active index: type a folder path, reopen the engine there.
+  // Sync (Receive): pull + merge from another device running `ais --export
+  // --serve`. Off the UI isolate; every outcome gets a plain-language SnackBar.
+  Future<void> _receiveSync() async {
+    final urlCtrl = TextEditingController(text: 'http://');
+    final tokCtrl = TextEditingController();
+    final go = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Receive from another device'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: urlCtrl,
+              autofocus: true,
+              decoration: const InputDecoration(
+                  labelText: 'Address', hintText: 'http://192.168.1.5:8766'),
+            ),
+            TextField(
+              controller: tokCtrl,
+              decoration: const InputDecoration(labelText: 'Token'),
+            ),
+            const SizedBox(height: 8),
+            const Text('On the other device, run:  ais --export --serve',
+                style: TextStyle(fontSize: 12)),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Import')),
+        ],
+      ),
+    );
+    if (go != true || _ais == null) return;
+    final url = urlCtrl.text.trim();
+    final token = tokCtrl.text.trim();
+    if (url.isEmpty || token.isEmpty) return;
+
+    if (!mounted) return;
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.showSnackBar(const SnackBar(content: Text('Syncing...')));
+    final rc = await _ais!.pullAsync(url, token);      // off the UI isolate
+    messenger.hideCurrentSnackBar();
+    final String msg;
+    switch (rc) {
+      case 0:
+        msg = 'Imported and merged from the other device.';
+        break;
+      case -1:
+        msg = 'That address looks wrong. Use http://host:port.';
+        break;
+      default:
+        msg = 'Could not sync. Same Wi-Fi? Check that "ais --export --serve" '
+            'is running and the token is right.';
+    }
+    messenger.showSnackBar(SnackBar(content: Text(msg)));
+    if (rc == 0) _setView(_view);                       // refresh with merged records
+  }
+
+  // Sync (Send): serve this index to one LAN peer that pulls with `ais --import`.
+  // Off the UI isolate; the command (URL + token) stays visible while serving.
+  Future<void> _sendSync() async {
+    if (_ais == null) return;
+    final messenger = ScaffoldMessenger.of(context);
+    final ip = await _lanIp();
+    if (!mounted) return;
+    if (ip == null) {
+      messenger.showSnackBar(const SnackBar(
+          content: Text("Couldn't find your Wi-Fi address. Are you on Wi-Fi?")));
+      return;
+    }
+    const port = 8766;
+    final token = _genToken();
+    final cmd = 'ais --import http://$ip:$port --token $token';
+
+    final fut = _ais!.serveAsync(port, token); // blocks up to ~120s for one peer
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => _SendWaitDialog(command: cmd, done: fut),
+    );
+    final rc = await fut;
+    if (!mounted) return;
+    messenger.showSnackBar(SnackBar(
+        content: Text(rc == 0
+            ? 'Sent: the other device pulled and merged.'
+            : 'No device connected in time. Run the command on your desktop, then tap send again.')));
+  }
+
+  // A random 128-bit token as 32 hex chars (the peer must supply the same one).
+  String _genToken() {
+    final r = Random.secure();
+    return List.generate(
+        16, (_) => r.nextInt(256).toRadixString(16).padLeft(2, '0')).join();
+  }
+
+  // This device's first non-loopback IPv4 (its LAN address), or null.
+  Future<String?> _lanIp() async {
+    try {
+      final ifs = await NetworkInterface.list(
+          type: InternetAddressType.IPv4, includeLoopback: false);
+      for (final ni in ifs) {
+        for (final a in ni.addresses) {
+          if (!a.isLoopback) return a.address;
+        }
+      }
+    } catch (_) {}
+    return null;
+  }
+
   Future<void> _changeStore() async {
     final ctrl = TextEditingController(text: _dir);
     final picked = await showDialog<String>(
@@ -339,6 +450,24 @@ class _RecallPageState extends State<RecallPage> {
                           tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                         ),
                         child: const Text('change'),
+                      ),
+                      TextButton(
+                        onPressed: _ais == null ? null : _receiveSync,
+                        style: TextButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(horizontal: 8),
+                          minimumSize: Size.zero,
+                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        ),
+                        child: const Text('receive'),
+                      ),
+                      TextButton(
+                        onPressed: _ais == null ? null : _sendSync,
+                        style: TextButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(horizontal: 8),
+                          minimumSize: Size.zero,
+                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        ),
+                        child: const Text('send'),
                       ),
                     ]),
                   ],
@@ -770,4 +899,53 @@ class _RecallPageState extends State<RecallPage> {
     _ais?.close();
     super.dispose();
   }
+}
+
+// A non-dismissible dialog shown while serveAsync blocks: it keeps the desktop
+// command visible, and closes itself when serving completes (a peer pulled, or
+// the timeout hit). Cancel just hides it; the serve finishes on its own.
+class _SendWaitDialog extends StatefulWidget {
+  final String command;
+  final Future<int> done;
+  const _SendWaitDialog({required this.command, required this.done});
+  @override
+  State<_SendWaitDialog> createState() => _SendWaitDialogState();
+}
+
+class _SendWaitDialogState extends State<_SendWaitDialog> {
+  @override
+  void initState() {
+    super.initState();
+    widget.done.whenComplete(() {
+      if (mounted) Navigator.of(context).pop();
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+        title: const Text('Send to another device'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text('On your desktop, on the same Wi-Fi, run:'),
+            const SizedBox(height: 8),
+            SelectableText(widget.command,
+                style: const TextStyle(fontFamily: 'monospace', fontSize: 12)),
+            const SizedBox(height: 16),
+            const Row(mainAxisSize: MainAxisSize.min, children: [
+              SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(strokeWidth: 2)),
+              SizedBox(width: 12),
+              Flexible(child: Text('Waiting for the other device...')),
+            ]),
+          ],
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancel')),
+        ],
+      );
 }

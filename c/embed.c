@@ -7,6 +7,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
+#include <signal.h>
 
 #include "ais.h"
 #include "common.h"
@@ -14,6 +15,7 @@
 #include "embed.h"
 #include "locate.h"
 #include "secret.h"
+#include "sync.h"
 
 void *ais_embed_open(const char *dir)
 {
@@ -100,6 +102,34 @@ int ais_embed_update(void *handle, long id, const char *keys)
     if (handle == NULL || keys == NULL)
         return -1;
     return ais_update((ais *)handle, id, keys);
+}
+
+int ais_embed_pull(void *handle, const char *url, const char *token)
+{
+    ais *a = handle;
+    char host[128];
+    int port;
+
+    if (a == NULL || url == NULL || token == NULL)
+        return -1;                          /* bad args */
+    signal(SIGPIPE, SIG_IGN);               /* a dropped peer must not kill the host app */
+    if (sync_parse_url(url, host, sizeof host, &port) != 0)
+        return -1;                          /* malformed url */
+    if (sync_pull(a, host, port, token, 10) != 0)   /* 10s LAN timeout */
+        return -2;                          /* unreachable, wrong token, or timeout */
+    return 0;                               /* merged */
+}
+
+int ais_embed_serve(void *handle, int port, const char *token)
+{
+    ais *a = handle;
+
+    if (a == NULL || token == NULL)
+        return -1;                          /* bad args */
+    signal(SIGPIPE, SIG_IGN);               /* a peer that vanishes mid-write must not kill the app */
+    if (sync_serve(a, port, token, 120) != 0)   /* wait up to 120s for one peer */
+        return -2;                          /* no peer completed: timeout, wrong token, or error */
+    return 0;                               /* a peer pulled and merged */
 }
 
 void ais_embed_free(char *buf)

@@ -1722,6 +1722,73 @@ static void test_sync_socket(void)
     scratch_rm(db);
 }
 
+#ifdef AIS_UT_HAVE_CRYPTO
+/* The FFI seam's sync (embed.h) -- the EXACT call path the mobile/desktop GUI
+ * uses: ais_embed_pull (Receive) and ais_embed_serve (Send) over a forked
+ * loopback, plus their bad-arg / return-code contract. Lets us test the sync
+ * feature without rolling an APK. */
+static void test_embed_sync(void)
+{
+    const char *da = "/tmp/ais_ut_embsyncA", *db = "/tmp/ais_ut_embsyncB";
+    const char *tok = "0123456789abcdef0123456789abcdef";
+    const char *url = "http://127.0.0.1:47139";
+    const int port = 47139;
+    void *h;
+    char *r;
+    pid_t pid;
+
+    /* bad args / URL parse (pure, fast) */
+    CHECK(ais_embed_pull(NULL, url, tok) == -1, "embed pull: NULL handle -> -1");
+    CHECK(ais_embed_serve(NULL, port, tok) == -1, "embed serve: NULL handle -> -1");
+    scratch_rm(db);
+    h = ais_embed_open(db);
+    CHECK(ais_embed_pull(h, "http://", tok) == -1, "embed pull: empty-host URL -> -1");
+    ais_embed_close(h);
+
+    /* Receive: a forked child serves A once (engine, 5s); the parent pulls into
+     * B through the FFI and must end up with A's record. */
+    scratch_rm(da);
+    scratch_rm(db);
+    { ais A; ais_open(&A, da); ais_put(&A, "venice", "Hotel Danieli"); ais_close(&A); }
+
+    pid = fork();
+    if (pid == 0) {
+        ais cA; ais_open(&cA, da);
+        sync_serve(&cA, port, tok, 5);
+        ais_close(&cA);
+        _exit(0);
+    }
+    h = ais_embed_open(db);
+    CHECK(ais_embed_pull(h, url, tok) == 0, "embed pull: Receive over loopback -> 0 (merged)");
+    r = ais_embed_recall(h, "venice", 0);
+    CHECK(r != NULL && strstr(r, "Hotel Danieli") != NULL, "embed pull: A's record arrived in B");
+    ais_embed_free(r);
+    ais_embed_close(h);
+    waitpid(pid, NULL, 0);
+
+    /* Send: the parent serves A through the FFI; a forked child pulls into B
+     * (engine) promptly, so ais_embed_serve returns as soon as it is served. */
+    scratch_rm(db);
+    pid = fork();
+    if (pid == 0) {
+        ais cB; ais_open(&cB, db);
+        sync_pull(&cB, "127.0.0.1", port, tok, 5);   /* retries connect until the parent binds */
+        ais_close(&cB);
+        _exit(0);
+    }
+    h = ais_embed_open(da);
+    CHECK(ais_embed_serve(h, port, tok) == 0, "embed serve: Send, a peer pulled -> 0");
+    ais_embed_close(h);
+    waitpid(pid, NULL, 0);
+    { ais B; ais_open(&B, db);
+      CHECK(value_present(&B, "Hotel Danieli") == 1, "embed serve: A's record reached B via the FFI serve");
+      ais_close(&B); }
+
+    scratch_rm(da);
+    scratch_rm(db);
+}
+#endif /* AIS_UT_HAVE_CRYPTO */
+
 /* Last-write-wins by ts: a newer delete beats an older add, an older re-add stays deleted, a
  * newer re-add resurrects, and an older delete does not remove a newer add. */
 static void test_merge_lww(void)
@@ -1923,6 +1990,8 @@ int main(void)
     test_sync_sealed();
     printf("sync transport (socket, forked loopback):\n");
     test_sync_socket();
+    printf("embed sync (FFI pull/serve over loopback):\n");
+    test_embed_sync();
     printf("embed encrypted (FFI store/reveal):\n");
     test_embed_encrypted();
 #endif

@@ -21,6 +21,10 @@ typedef _DelC = Int32 Function(Pointer<Void>, Int64);
 typedef _DelD = int Function(Pointer<Void>, int);
 typedef _UpdateC = Int32 Function(Pointer<Void>, Int64, Pointer<Utf8>);
 typedef _UpdateD = int Function(Pointer<Void>, int, Pointer<Utf8>);
+typedef _PullC = Int32 Function(Pointer<Void>, Pointer<Utf8>, Pointer<Utf8>);
+typedef _PullD = int Function(Pointer<Void>, Pointer<Utf8>, Pointer<Utf8>);
+typedef _ServeC = Int32 Function(Pointer<Void>, Int32, Pointer<Utf8>);
+typedef _ServeD = int Function(Pointer<Void>, int, Pointer<Utf8>);
 typedef _FreeC = Void Function(Pointer<Utf8>);
 typedef _FreeD = void Function(Pointer<Utf8>);
 typedef _CloseC = Void Function(Pointer<Void>);
@@ -250,6 +254,39 @@ class AisEngine {
       final s = r.toDartString();
       freeFn(r);
       return s;
+    });
+  }
+
+  /// Pull + merge a peer's `ais --export --serve` over the LAN (sync: Receive).
+  /// Runs off the UI isolate (it blocks on the network). Returns 0 = merged,
+  /// -1 = bad URL/args, -2 = could not connect / wrong token / timeout.
+  Future<int> pullAsync(String url, String token) {
+    final addr = _h.address;
+    return Isolate.run(() {
+      final lib = _load();
+      final fn = lib.lookupFunction<_PullC, _PullD>('ais_embed_pull');
+      final u = url.toNativeUtf8();
+      final t = token.toNativeUtf8();
+      final rc = fn(Pointer<Void>.fromAddress(addr), u, t);
+      calloc.free(u);
+      calloc.free(t);
+      return rc;
+    });
+  }
+
+  /// Serve this index to one LAN peer that pulls with `ais --import` (sync:
+  /// Send). Blocks up to ~120s for one peer, so run it off the UI isolate.
+  /// Returns 0 = a peer pulled and merged, -1 = bad args, -2 = no peer
+  /// completed (timeout / wrong token / error).
+  Future<int> serveAsync(int port, String token) {
+    final addr = _h.address;
+    return Isolate.run(() {
+      final lib = _load();
+      final fn = lib.lookupFunction<_ServeC, _ServeD>('ais_embed_serve');
+      final t = token.toNativeUtf8();
+      final rc = fn(Pointer<Void>.fromAddress(addr), port, t);
+      calloc.free(t);
+      return rc;
     });
   }
 

@@ -51,6 +51,20 @@ int   ais_embed_del(void *handle, long id);
  * The id and value are unchanged. Returns 0, or -1 if id is unknown/deleted. */
 int   ais_embed_update(void *handle, long id, const char *keys);
 
+/* Sync (Receive): pull + merge a peer's `ais --export --serve` over the LAN,
+ * last-writer-wins by timestamp. URL is http://host[:port]; TOKEN is the peer's
+ * one-time token. Returns 0 (merged), -1 (bad args / malformed URL), or -2
+ * (could not connect, wrong token, or timeout). Does not print. */
+int   ais_embed_pull(void *handle, const char *url, const char *token);
+
+/* Sync (Send): serve this index to ONE LAN peer that pulls with
+ * `ais --import <url> --token TOKEN`. Single-shot: blocks up to an internal
+ * timeout waiting for one peer, then returns (run it off the host's UI thread).
+ * TOKEN is a shared secret the caller shows the user; the peer must supply the
+ * same. Returns 0 (a peer pulled and merged), -1 (bad args), or -2 (no peer
+ * completed: timeout, wrong token, or error). Does not print. */
+int   ais_embed_serve(void *handle, int port, const char *token);
+
 /* One timeline page as "id|ts|keys|value\n" lines: the COUNT records with id <
  * BEFORE_ID (BEFORE_ID <= 0 = from newest; COUNT <= 0 = default), newest first,
  * whose save date is within [FROM,TO] ("YYYY-MM-DD", inclusive; "" / NULL = open
