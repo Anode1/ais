@@ -44,10 +44,42 @@ pull, then exits. Run it the other way to also merge B's changes back into A.
 
 The default port is 8766; pass one to `ais --export --serve PORT` to change it.
 
-Limits today: this carries the records (values, keys, deletions), not the `doc` blob FILES,
-so a synced document reference can dangle on the peer until blob transfer lands. It is
-LAN-only by design; for devices on different networks, or for continuous background syncing,
-use Syncthing below.
+### Two-way in one round: `ais --sync`
+
+To converge BOTH devices in a single connection (no running it twice), use
+`--sync` instead of `--export`/`--import`:
+
+# 1. On the host device:
+ais --sync --serve
+#    prints, e.g.:  ais --sync http://192.168.1.5:8766 --token <token>
+
+# 2. On the other device, run the printed command:
+ais --sync http://192.168.1.5:8766 --token <token>
+
+Both devices merge each other's records in one exchange, so neither is fixed as
+"sender" or "receiver" (the merge is order-independent, so any device can sync
+with any other). The one-way `--export`/`--import` above still work for a
+deliberate one-directional copy. The mobile app's "Sync" button runs this same
+`--sync` exchange (Host / Join).
+
+### Pairing by scan (phone): no token typing
+
+Typing a 32-character token is tedious. Instead, the hosting device can show the address
+and token as a QR that encodes a link:
+
+    ais://sync?host=192.168.1.5:8766&token=<token>
+
+On the phone, scan that with the ordinary camera app. The phone recognizes the link, opens
+AIS, and AIS asks you to confirm the sync (a link can come from anywhere, and syncing shares
+this device's records) before it joins. The app bundles no QR scanner: your phone's own
+camera does the reading, and AIS just registers the `ais://` link. If you would rather not
+scan, Join still accepts the address and token typed by hand.
+
+This carries both the records (values, keys, deletions) and the `doc` blob FILES, so a
+synced document opens on the peer. If two devices independently saved different documents
+under the same name, both are kept (the incoming one lands beside the local one under a new
+name, and its record is repointed). Limits today: it is LAN-only by design; for devices on
+different networks, or for continuous background syncing, use Syncthing below.
 
 ## Syncthing setup
 

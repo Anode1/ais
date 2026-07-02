@@ -1902,6 +1902,137 @@ static void test_sync_exchange(void)
 }
 #endif /* AIS_UT_HAVE_CRYPTO */
 
+#ifdef AIS_UT_HAVE_CRYPTO
+/* Carry a doc BLOB over the socket sync: A stores a MULTI-LINE value (which
+ * ais_put_value turns into a blobs/<ts>.txt file + a record holding the path);
+ * B pulls and must end up with BOTH the record AND the actual blob file on disk,
+ * content-identical. A second pull is idempotent (dedup, no error, no dup file).
+ * Finally, a payload sealed with a WRONG protocol version byte must be rejected
+ * LOUDLY with -2 and merge nothing. */
+static void test_sync_blob(void)
+{
+    ais B;
+    const char *da = "/tmp/ais_ut_blobA", *db = "/tmp/ais_ut_blobB";
+    const char *tok = "0123456789abcdef0123456789abcdef";
+    const char *doc = "line one\nline two\nline three\n";
+    int port = 47145, rc;
+    pid_t pid;
+    char relval[AIS_PATH_MAX] = "", bpath[2 * AIS_PATH_MAX];  /* bpath = dir + '/' + relval */
+    long docid;
+
+    scratch_rm(da);
+    scratch_rm(db);
+    {   /* A: store a multi-line value -> a blobs/ file, then read back its path */
+        ais A;
+        struct valvec vv = { {{0}}, 0 };
+        ais_open(&A, da);
+        docid = ais_put_value(&A, "notes recipe", doc);
+        CHECK(docid > 0, "blob: ais_put_value stored a multi-line value");
+        ais_record(&A, docid, collect_val, &vv);
+        if (vv.n == 1) snprintf(relval, sizeof relval, "%.*s", (int)(sizeof relval - 1), vv.vals[0]);
+        ais_close(&A);
+    }
+    CHECK(strncmp(relval, "blobs/", 6) == 0, "blob: the stored value is a blobs/ path");
+
+    pid = fork();
+    if (pid == 0) {                              /* child: serve A once, then exit */
+        ais cA;
+        ais_open(&cA, da);
+        sync_serve(&cA, port, tok, 5, 0);
+        ais_close(&cA);
+        _exit(0);
+    }
+
+    ais_open(&B, db);                            /* parent: pull into B */
+    rc = sync_pull(&B, "127.0.0.1", port, tok, 5, 0);
+    CHECK(rc == 0, "blob: pull over loopback succeeded");
+    CHECK(value_present(&B, relval) == 1, "blob: the doc record arrived in B");
+    ais_close(&B);
+    waitpid(pid, NULL, 0);
+
+    /* the actual blob FILE must now exist under B and round-trip its content */
+    snprintf(bpath, sizeof bpath, "%s/%s", db, relval);
+    {
+        FILE *f = fopen(bpath, "rb");
+        char got[256];
+        size_t n = 0;
+        CHECK(f != NULL, "blob: the blob file exists on B's disk");
+        if (f) { n = fread(got, 1, sizeof got - 1, f); got[n] = '\0'; fclose(f); }
+        CHECK(n == strlen(doc) && memcmp(got, doc, n) == 0, "blob: B's blob content matches A's");
+    }
+
+    /* second pull: idempotent -- no error and the blob is deduped (not duplicated) */
+    pid = fork();
+    if (pid == 0) {
+        ais cA;
+        ais_open(&cA, da);
+        sync_serve(&cA, port, tok, 5, 0);
+        ais_close(&cA);
+        _exit(0);
+    }
+    ais_open(&B, db);
+    rc = sync_pull(&B, "127.0.0.1", port, tok, 5, 0);
+    CHECK(rc == 0, "blob: a repeat pull is idempotent (no error)");
+    ais_close(&B);
+    waitpid(pid, NULL, 0);
+    {   /* exactly ONE blob file under B (dedup skipped the re-write, minted no -1) */
+        char cmd[AIS_PATH_MAX + 64];
+        FILE *p;
+        int cnt = -1;
+        snprintf(cmd, sizeof cmd, "ls '%s/blobs' | wc -l", db);
+        p = popen(cmd, "r");
+        if (p) { if (fscanf(p, "%d", &cnt) != 1) cnt = -1; pclose(p); }
+        CHECK(cnt == 1, "blob: dedup kept exactly one blob file on B");
+    }
+
+    /* version guard: seal a payload whose plaintext version byte is NOT AIS_SYNC_PROTO(1);
+     * sync_import_sealed must return -2 and merge nothing. We build the sealed blob with
+     * the same subkey derivation sync_export_sealed uses, so the auth passes and only the
+     * version check can trip. */
+    {
+        ais V;
+        uint8_t kseal[32], *sealed = NULL;
+        size_t slen = 0;
+        /* a well-formed record text, but prefixed with a WRONG version byte (2) */
+        uint8_t bad[64];
+        const char *body = "A|2030-01-01T00:00:00Z|ghost|Should Not Merge\n";
+        size_t blen = strlen(body);
+        bad[0] = 2;                            /* != AIS_SYNC_PROTO(1): a future/foreign format */
+        memcpy(bad + 1, body, blen);
+        aisc_subkey((const uint8_t *)tok, strlen(tok), "ais-sync-seal-v1", NULL, 0, kseal);
+        CHECK(aisc_seal_key(kseal, bad, blen + 1, &sealed, &slen) == AISC_OK,
+              "blob(ver): sealed a wrong-version payload");
+        aisc_wipe(kseal, sizeof kseal);
+
+        scratch_rm(db);
+        ais_open(&V, db);
+        CHECK(sync_import_sealed(&V, tok, sealed, slen) == -2,
+              "blob(ver): wrong version byte -> -2 (loud, not silent)");
+        CHECK(value_present(&V, "Should Not Merge") == 0,
+              "blob(ver): nothing merged on a version mismatch");
+        /* and the current format still round-trips (auth + version both good) */
+        {
+            ais S;
+            uint8_t *good = NULL;
+            size_t glen = 0;
+            scratch_rm(da);
+            ais_open(&S, da);
+            ais_put(&S, "keep", "Present Value");
+            CHECK(sync_export_sealed(&S, tok, &good, &glen) == 0, "blob(ver): current-format export");
+            CHECK(sync_import_sealed(&V, tok, good, glen) == 0, "blob(ver): current-format import -> 0");
+            CHECK(value_present(&V, "Present Value") == 1, "blob(ver): current format still merges");
+            if (good) free(good);
+            ais_close(&S);
+        }
+        if (sealed) free(sealed);
+        ais_close(&V);
+    }
+
+    scratch_rm(da);
+    scratch_rm(db);
+}
+#endif /* AIS_UT_HAVE_CRYPTO */
+
 /* Last-write-wins by ts: a newer delete beats an older add, an older re-add stays deleted, a
  * newer re-add resurrects, and an older delete does not remove a newer add. */
 static void test_merge_lww(void)
@@ -2107,6 +2238,8 @@ int main(void)
     test_embed_sync();
     printf("sync exchange (symmetric bidir, both converge):\n");
     test_sync_exchange();
+    printf("sync transport (doc blob carry + dedup + version guard):\n");
+    test_sync_blob();
     printf("embed sync (FFI bidir, one-tap converge):\n");
     test_embed_sync_exchange();
     printf("embed sync (busy port -> fast distinct error):\n");

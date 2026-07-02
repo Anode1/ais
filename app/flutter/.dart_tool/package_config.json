@@ -182,6 +182,18 @@
       "languageVersion": "3.4"
     },
     {
+      "name": "qr",
+      "rootUri": "file:///home/vas/.pub-cache/hosted/pub.dev/qr-3.0.2",
+      "packageUri": "lib/",
+      "languageVersion": "3.4"
+    },
+    {
+      "name": "qr_flutter",
+      "rootUri": "file:///home/vas/.pub-cache/hosted/pub.dev/qr_flutter-4.1.0",
+      "packageUri": "lib/",
+      "languageVersion": "2.19"
+    },
+    {
       "name": "record_use",
       "rootUri": "file:///home/vas/.pub-cache/hosted/pub.dev/record_use-0.6.0",
       "packageUri": "lib/",

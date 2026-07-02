@@ -5,11 +5,12 @@
   "packages": [
     {
       "name": "ais",
-      "version": "0.3.0",
+      "version": "0.3.1",
       "dependencies": [
         "ffi",
         "flutter",
         "path_provider",
+        "qr_flutter",
         "speech_to_text"
       ],
       "devDependencies": [
@@ -21,6 +22,14 @@
       "version": "3.0.2",
       "dependencies": [
         "lints"
+      ]
+    },
+    {
+      "name": "qr_flutter",
+      "version": "4.1.0",
+      "dependencies": [
+        "flutter",
+        "qr"
       ]
     },
     {
@@ -350,6 +359,13 @@
       "name": "term_glyph",
       "version": "1.2.2",
       "dependencies": []
+    },
+    {
+      "name": "qr",
+      "version": "3.0.2",
+      "dependencies": [
+        "meta"
+      ]
     }
   ],
   "configVersion": 1

@@ -9,6 +9,7 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:qr_flutter/qr_flutter.dart';
 import 'package:speech_to_text/speech_to_text.dart';
 import 'ais_ffi.dart';
 
@@ -55,6 +56,15 @@ class _RecallPageState extends State<RecallPage> {
   String _query = '';
   String _dir = '';
   int _ms = 0;
+  // One sync at a time: a scanned deep link arrives off the platform channel, not
+  // through the barrier dialog, so it could otherwise start a second sync on the
+  // shared engine handle mid-sync (data race). This gates every sync entry point.
+  bool _syncBusy = false;
+
+  // Custom-scheme deep links (ais://sync?...). The native side (MainActivity /
+  // AppDelegate) pushes live links as 'onLink' and holds a cold-start link for
+  // 'getInitialLink'. Absent on desktop, where the calls just throw and are ignored.
+  static const _linkChannel = MethodChannel('ais/deeplink');
 
   @override
   void initState() {
@@ -90,6 +100,55 @@ class _RecallPageState extends State<RecallPage> {
     // Speech is initialized lazily on the first mic tap (see _listen), so the
     // permission prompt is tied to a user gesture rather than app launch.
     if (mounted) setState(() {});
+    _wireDeepLinks();
+  }
+
+  // Custom-scheme deep links (ais://sync?...): register the live-link handler and
+  // check for a link that cold-started the app. No plugin; the native side is thin.
+  void _wireDeepLinks() {
+    _linkChannel.setMethodCallHandler((call) async {
+      if (call.method == 'onLink' && call.arguments is String) {
+        await _handleLink(call.arguments as String);
+      }
+    });
+    _linkChannel.invokeMethod<String>('getInitialLink').then((link) {
+      if (link != null && link.isNotEmpty) _handleLink(link);
+    }).catchError((_) {}); // no such channel on desktop; ignore
+  }
+
+  // A scanned ais://sync?host=IP:PORT&token=HEX link: the phone's own camera
+  // opened it and the OS routed it here (no in-app scanner). Confirm first -- a
+  // link can come from anywhere and a sync shares this device's records -- then join.
+  Future<void> _handleLink(String link) async {
+    if (_ais == null || !mounted) return;
+    final Uri uri;
+    try {
+      uri = Uri.parse(link);
+    } catch (_) {
+      return;
+    }
+    if (uri.scheme != 'ais' || uri.host != 'sync') return;
+    final host = uri.queryParameters['host'] ?? '';
+    final token = uri.queryParameters['token'] ?? '';
+    if (host.isEmpty || token.isEmpty) return;
+    if (_syncBusy) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('A sync is already running. Finish it first.')));
+      return;
+    }
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Sync with this device?'),
+        content: Text('Scanned $host.\n\nBoth devices will end up with the same '
+            'records. Continue only if you just started Host on that device.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Sync')),
+        ],
+      ),
+    );
+    if (ok == true) await _runJoin('http://$host', token);
   }
 
   void _recall() {
@@ -193,6 +252,32 @@ class _RecallPageState extends State<RecallPage> {
 
   bool _isUrl(String v) => v.startsWith('http://') || v.startsWith('https://');
 
+  // "Not here": the value points at a file that is absent on THIS device -- an
+  // AIS blob not yet synced down, or a local-file reference added elsewhere.
+  // http(s) URLs and inline text always resolve, so never a badge. Display-only.
+  bool _notHere(String v) {
+    try {
+      var p = v;
+      if (p.startsWith('aisc:@blobs/')) p = p.substring(6); // strip 'aisc:@'
+      if (p.startsWith('blobs/')) return !File('$_dir/$p').existsSync();
+      if (p.startsWith('http://') || p.startsWith('https://')) return false;
+      if (p.startsWith('file://')) p = p.substring(7);
+      final isLocal = p.startsWith('/') ||
+          RegExp(r'^[A-Za-z]:[\\/]').hasMatch(p);
+      if (isLocal) return !File(p).existsSync();
+    } catch (_) {}
+    return false;
+  }
+
+  // The subtle, muted "not on this device" marker reused by both lists.
+  Widget _notHereBadge(ColorScheme cs) => Padding(
+        padding: const EdgeInsets.only(left: 6),
+        child: Tooltip(
+          message: 'Not on this device — open it on the desktop, or mount that disk.',
+          child: Icon(Icons.cloud_off, size: 16, color: cs.outline),
+        ),
+      );
+
   // Switch the active index: type a folder path, reopen the engine there.
   // Sync (Receive): pull + merge from another device running `ais --export
   // --serve`. Off the UI isolate; every outcome gets a plain-language SnackBar.
@@ -258,11 +343,16 @@ class _RecallPageState extends State<RecallPage> {
     final url = urlCtrl.text.trim();
     final token = tokCtrl.text.trim();
     if (url.isEmpty || token.isEmpty) return;
+    await _runJoin(url, token);
+  }
 
-    if (!mounted) return;
+  // Run the bidirectional join for an address + token, whether typed into the
+  // Join dialog or parsed from a scanned ais:// link. Blocks the UI while the
+  // sync isolate holds the shared engine handle (a data race otherwise).
+  Future<void> _runJoin(String url, String token) async {
+    if (_ais == null || !mounted || _syncBusy) return;
+    _syncBusy = true;
     final messenger = ScaffoldMessenger.of(context);
-    // Block the UI: the sync isolate shares the engine handle, so the main
-    // isolate must not touch it concurrently (data race).
     final fut = _ais!.pullAsync(url, token, bidir: true);
     await showDialog<void>(
       context: context,
@@ -271,6 +361,7 @@ class _RecallPageState extends State<RecallPage> {
           _SyncWaitDialog(title: 'Join a sync', waiting: 'Syncing...', done: fut),
     );
     final rc = await fut;
+    _syncBusy = false;
     if (!mounted) return;
     final String msg;
     switch (rc) {
@@ -290,7 +381,7 @@ class _RecallPageState extends State<RecallPage> {
   // Host: wait for another device to join; both converge (bidirectional). The
   // address + token stay visible while waiting.
   Future<void> _syncHost() async {
-    if (_ais == null) return;
+    if (_ais == null || _syncBusy) return;
     final messenger = ScaffoldMessenger.of(context);
     final ip = await _lanIp();
     if (!mounted) return;
@@ -301,21 +392,29 @@ class _RecallPageState extends State<RecallPage> {
     }
     const port = 8766;
     final token = _genToken();
+    // Same ais:// pairing link the desktop web host encodes, so one QR format
+    // feeds the one deep-link handler (see _handleLink). Another phone scans it
+    // with its camera; a desktop can type the address + token instead.
+    final link =
+        'ais://sync?host=${Uri.encodeQueryComponent('$ip:$port')}&token=$token';
     final detail = 'http://$ip:$port\ntoken: $token\n\n'
         'desktop:  ais --sync http://$ip:$port --token $token';
 
+    _syncBusy = true;
     final fut = _ais!.serveAsync(port, token, bidir: true); // blocks up to ~120s
     await showDialog<void>(
       context: context,
       barrierDismissible: false,
       builder: (_) => _SyncWaitDialog(
           title: 'Host a sync',
-          commandLabel: 'On the other device, choose Join and enter:',
+          qrData: link,
+          commandLabel: 'Or type the address and token on the other device:',
           command: detail,
           waiting: 'Waiting for the other device...',
           done: fut),
     );
     final rc = await fut;
+    _syncBusy = false;
     if (!mounted) return;
     final String msg;
     switch (rc) {
@@ -513,14 +612,21 @@ class _RecallPageState extends State<RecallPage> {
                         ),
                         child: const Text('change'),
                       ),
-                      TextButton(
-                        onPressed: _ais == null ? null : _syncSheet,
-                        style: TextButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(horizontal: 8),
-                          minimumSize: Size.zero,
-                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      Tooltip(
+                        message:
+                            'Copy records to/from another device on the same Wi-Fi. '
+                            'One device taps Host and shows its code; the other '
+                            'scans that code with its camera (or taps Join and types '
+                            'it in). Both then hold the same records.',
+                        child: TextButton(
+                          onPressed: _ais == null ? null : _syncSheet,
+                          style: TextButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(horizontal: 8),
+                            minimumSize: Size.zero,
+                            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          ),
+                          child: const Text('sync'),
                         ),
-                        child: const Text('sync'),
                       ),
                     ]),
                   ],
@@ -678,15 +784,21 @@ class _RecallPageState extends State<RecallPage> {
         final hit = _results[i];
         final v = hit.value;
         final isSecret = v.startsWith('aisc:');
+        final away = _notHere(v);
         return ListTile(
-          title: isSecret
-              ? Row(mainAxisSize: MainAxisSize.min, children: [
-                  Icon(Icons.lock_outline, size: 16, color: cs.outline),
-                  const SizedBox(width: 6),
-                  Text('encrypted', style: TextStyle(color: cs.outline)),
-                ])
-              : SelectableText(v,
-                  style: TextStyle(color: _isUrl(v) ? cs.primary : null)),
+          title: Row(mainAxisSize: MainAxisSize.min, children: [
+            Flexible(
+              child: isSecret
+                  ? Row(mainAxisSize: MainAxisSize.min, children: [
+                      Icon(Icons.lock_outline, size: 16, color: cs.outline),
+                      const SizedBox(width: 6),
+                      Text('encrypted', style: TextStyle(color: cs.outline)),
+                    ])
+                  : SelectableText(v,
+                      style: TextStyle(color: _isUrl(v) ? cs.primary : null)),
+            ),
+            if (away) _notHereBadge(cs),
+          ]),
           trailing: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -789,14 +901,19 @@ class _RecallPageState extends State<RecallPage> {
       }
       final time = (dt != null && r.ts.contains('T')) ? '${p2(dt.hour)}:${p2(dt.minute)} · ' : '';
       items.add(ListTile(
-        title: r.value.startsWith('aisc:')
-            ? Row(mainAxisSize: MainAxisSize.min, children: [
-                Icon(Icons.lock_outline, size: 16, color: cs.outline),
-                const SizedBox(width: 6),
-                Text('encrypted', style: TextStyle(color: cs.outline)),
-              ])
-            : SelectableText(r.value,
-                style: TextStyle(color: _isUrl(r.value) ? cs.primary : null)),
+        title: Row(mainAxisSize: MainAxisSize.min, children: [
+          Flexible(
+            child: r.value.startsWith('aisc:')
+                ? Row(mainAxisSize: MainAxisSize.min, children: [
+                    Icon(Icons.lock_outline, size: 16, color: cs.outline),
+                    const SizedBox(width: 6),
+                    Text('encrypted', style: TextStyle(color: cs.outline)),
+                  ])
+                : SelectableText(r.value,
+                    style: TextStyle(color: _isUrl(r.value) ? cs.primary : null)),
+          ),
+          if (_notHere(r.value)) _notHereBadge(cs),
+        ]),
         subtitle: Text('$time${r.keys.isEmpty ? '(no keys)' : r.keys}',
             style: TextStyle(color: cs.onSurfaceVariant, fontSize: 13)),
       ));
@@ -960,12 +1077,14 @@ class _RecallPageState extends State<RecallPage> {
 // (peer done, or timeout). Used by both receive and send.
 class _SyncWaitDialog extends StatefulWidget {
   final String title;
+  final String? qrData;       // ais:// pairing link; shown as a QR on host, null hides it
   final String? commandLabel; // line shown above the command (host); null hides it
   final String? command;      // shown on host; null on join
   final String waiting;
   final Future<int> done;
   const _SyncWaitDialog(
       {required this.title,
+      this.qrData,
       this.commandLabel,
       this.command,
       required this.waiting,
@@ -989,6 +1108,22 @@ class _SyncWaitDialogState extends State<_SyncWaitDialog> {
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
+            if (widget.qrData != null) ...[
+              Container(
+                color: Colors.white,
+                padding: const EdgeInsets.all(8),
+                child: QrImageView(
+                  data: widget.qrData!,
+                  version: QrVersions.auto,
+                  size: 180,
+                  backgroundColor: Colors.white,
+                ),
+              ),
+              const SizedBox(height: 8),
+              const Text("Scan with the other phone's camera to join.",
+                  style: TextStyle(fontSize: 12)),
+              const SizedBox(height: 16),
+            ],
             if (widget.command != null) ...[
               Text(widget.commandLabel ?? ''),
               const SizedBox(height: 8),

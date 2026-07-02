@@ -106,6 +106,37 @@ tombstones, incl. any `aisc:` markers) is one blob, capped at 64 MiB on BOTH end
 set `SO_RCVTIMEO`/`SO_SNDTIMEO` so a stalled peer cannot hang it; the server is single-client
 and exits after one pull.
 
+## Sealed payload format (records + blob files)
+Inside the sealed blob, the *plaintext* is versioned and self-describing:
+
+    byte 0        AIS_SYNC_PROTO (=1), the payload-format version. This is distinct from the
+                  AEAD-frame version byte above (line ~103): that one guards the crypto
+                  envelope, this one guards the plaintext layout. On a mismatch the importer
+                  merges NOTHING and returns loud (-2), surfaced as "the other device runs a
+                  different AIS version -- update both", so a format skew can never silently
+                  half-apply.
+    blob section  zero or more  B|blobs/<name>|<size>\n  headers, each followed by <size> raw
+                  bytes: the doc blob FILES themselves. The section ends at the first line
+                  that does not start with "B|".
+    record stream the A|/D| feed_export text (records + tombstones), from there to end of
+                  payload -- unchanged from the one-way format, so this byte-0 gate is the
+                  only thing an older peer would trip on.
+
+Blob merge is by NAME + CONTENT (blobs are immutable and timestamp-named, so never by mtime):
+same name + identical bytes = skip (dedup); same name + different bytes = keep BOTH (the
+incoming file lands as `blobs/<stem>-<seq><ext>`) and the incoming record's value is repointed,
+covering both the plain `blobs/X` and the encrypted `aisc:@blobs/X` value forms. The relpath is
+validated to stay inside `blobs/` (no `/`, no `..`); each blob and the whole payload are capped
+(`AIS_SYNC_MAX_BLOB` / 64 MiB) on both ends.
+
+## Two-way in one round (`--sync`, bidir)
+`sync_serve`/`sync_pull` take a `bidir` flag; with it set, one connection carries the sealed
+payload BOTH ways (server sends then receives+merges, client the reverse), so both devices
+converge in a single round with no fixed sender/receiver -- safe because the merge is a CRDT
+(`MERGE.md`). CLI verb `ais --sync --serve [PORT]` / `ais --sync <url> --token T`; the mobile
+app's one "Sync" button (Host / Join) runs the same exchange. One-way `--export`/`--import`
+(`bidir=0`) stays for a deliberate one-directional copy.
+
 ## Merge / convergence
 Reconcile is the content-keyed, ts-resolved tombstone-union merge (see `MERGE.md`).
 `--export` emits both adds (`A|ts|keys|value`) and tombstones (`D|ts|hash`); `--import`
@@ -156,10 +187,18 @@ the token, which is infeasible to brute-force. Still out of scope: cross-interne
   client/server over loopback) in `c/tests.c`.
 
 ## Remaining work & follow-ups
-1. **Blob files are not transferred yet.** `feed_export` emits records + tombstones; a doc /
-   encrypted-doc record's *value* (the `aisc:@blobs/<ts>` reference) crosses, but the blob
-   FILE does not, so the reference would dangle on the peer. Transferring blobs is a follow-up.
-2. **QR**: emit a real QR (terminal unicode blocks + phone GUI), or just print URL+token for v1.
+1. **Blob files** — **DONE** (see "Sealed payload format" above). The doc blob FILES now travel
+   in the sealed payload ahead of the record stream, with keep-both-on-collision and value
+   repointing, so a synced doc reference no longer dangles.
+2. **QR / scan-to-join** — pairing link defined: `ais://sync?host=<ip:port>&token=<hex>`. The
+   phone registers the `ais://` scheme (Android intent-filter + iOS `CFBundleURLTypes`) and a
+   thin native `MethodChannel` (`ais/deeplink`, MainActivity / SceneDelegate) hands a scanned
+   link to Dart, which CONFIRMS then joins -- so the phone's OWN camera scans (no bundled QR
+   scanner / no ML Kit). Android is the tested path; iOS is best-effort (deferred to TestFlight).
+   Still to do: RENDER that link as a QR on a host device -- the desktop web Sync surface
+   (`serve.c`, a small vendored single-file JS generator), and/or a phone-host QR via the
+   pure-Dart `qr_flutter`. The link is confirmed before any sync because it can arrive from
+   anywhere.
 3. `--export` bind on multi-homed machines: all interfaces (current), or prompt which one?
 4. Full-store merge is an O(store) scan per sync: fine at personal scale.
 

@@ -14,6 +14,7 @@ dependencies:
   ffi: ^2.1.0            # Pointer<Utf8>, calloc — for the C FFI seam
   speech_to_text: ^7.0.0 # native iOS Speech / Android SpeechRecognizer (v2 embedding)
   path_provider: ^2.1.0  # per-app data dir for the on-device index
+  qr_flutter: ^4.1.0     # pure-Dart QR painter (no ML Kit) — host shows a scan-to-join code
 
 dev_dependencies:
   flutter_lints: ^3.0.0

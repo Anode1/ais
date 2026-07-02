@@ -26,6 +26,20 @@
 	<string>$(FLUTTER_BUILD_NUMBER)</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<!-- Scan-to-join: register the ais:// scheme so the camera (or another app)
+	     can open an ais://sync?host=..&token=.. link straight into AIS, which
+	     SceneDelegate forwards to Dart. No in-app QR scanner. -->
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>com.aisindex.ais.sync</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>ais</string>
+			</array>
+		</dict>
+	</array>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

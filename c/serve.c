@@ -38,6 +38,17 @@
 #include "win.h"          /* Winsock + socket shims on native Windows; empty on POSIX */
 #include "serve.h"
 
+/* LAN sync (the GUI's Host/Join, mirroring the mobile Sync feature): available
+ * only where the sync transport is -- POSIX plus the vendored crypto module, the
+ * same guard sync.c uses. Elsewhere the routes report the build lacks it. */
+#if !defined(_WIN32) && defined(__has_include) && __has_include("crypto/monocypher.h")
+#  define SERVE_HAVE_SYNC 1
+#  include <arpa/inet.h>
+#  include <sys/wait.h>
+#  include "crypto/ais_crypto.h"   /* aisc_token */
+#  include "sync.h"                /* sync_serve, sync_pull, sync_parse_url, AIS_SYNC_PORT */
+#endif
+
 /* socket I/O is read()/write()/close() on POSIX, recv()/send()/closesocket()
  * on native Windows (where a SOCKET is not a file descriptor). */
 #ifdef _WIN32
@@ -116,7 +127,8 @@ static const char PAGE[] =
 "<div class=searchrow><input id=q type=search placeholder='type keys, then Search' autocomplete=off autofocus>"
 "<button id=seg-recall class=getbtn>Search</button></div>"
 "<label class=allk style='display:flex;align-items:center;gap:.4rem;font-size:.85rem;color:var(--muted);margin-top:.5rem'><input id=anyk type=checkbox style='width:auto'> Match any key</label>"
-"<div class=storerow><span id=store class=muted></span><span style='flex:1'></span><button id=storebtn class=link>change</button></div>"
+"<div class=storerow><span id=store class=muted></span><span style='flex:1'></span>"
+"<button id=syncbtn class=link>sync</button><button id=storebtn class=link>change</button></div>"
 "<div id=tlrange style='display:none;gap:.4rem;align-items:center;margin-top:.5rem;font-size:.85rem;color:var(--muted)'>"
 "<span>from</span><input id=tlfrom type=date style='font:inherit'>"
 "<span>to</span><input id=tlto type=date style='font:inherit'>"
@@ -134,6 +146,29 @@ static const char PAGE[] =
 "<input id=enc type=checkbox style='width:auto'> Encrypt</label>"
 "<input id=pp type=password placeholder='Passphrase' hidden style='flex:1'></div>"
 "<div class=actions><button id=cancel class=ghost>Cancel</button><button id=save class=primary>Save</button></div>"
+"</div></div>"
+/* Sync sheet: mirrors the mobile Sync (Host / Join). One device Hosts and waits;
+ * the other Joins with its address + token. Both converge (bidirectional). */
+"<div id=syncsheet hidden><div class=card>"
+"<h2>Sync with another device</h2>"
+"<p class=muted style='margin:.2rem 0 1rem;font-size:.9rem'>Both devices end up with the same records. One hosts and waits; the other joins it. Same Wi-Fi.</p>"
+"<div id=syncpick class=actions style='justify-content:center'>"
+"<button id=syncjoinbtn class=ghost>Join</button><button id=synchostbtn class=primary>Host</button></div>"
+/* Host pane: address + token to read off, a QR to scan, and a live status line. */
+"<div id=synchost hidden>"
+"<p style='margin:.2rem 0 .6rem;font-size:.9rem'>Scan with the AIS app, or on the other device choose Join and enter:</p>"
+"<div id=qr style='display:flex;justify-content:center;margin:.4rem 0 .8rem'></div>"
+"<div style='font-family:monospace;font-size:.85rem;word-break:break-all;background:#fafafc;border:1px solid var(--line);border-radius:10px;padding:.6rem'>"
+"<div id=hostaddr></div><div id=hosttok class=muted></div></div>"
+"<p id=hoststatus class=muted style='margin:.6rem 0 0;font-size:.9rem'>Waiting for the other device...</p></div>"
+/* Join pane: address + token inputs and a status line. */
+"<div id=syncjoin hidden>"
+"<input id=jaddr placeholder='Address' value='http://' style='margin-bottom:.6rem'>"
+"<input id=jtok placeholder='Token' style='margin-bottom:.6rem'>"
+"<p class=muted style='margin:0 0 .6rem;font-size:.85rem'>On the other device: open Sync, choose Host, and read off its address and token.</p>"
+"<div class=actions><button id=jgo class=primary>Sync</button></div>"
+"<p id=joinstatus class=muted style='margin:.6rem 0 0;font-size:.9rem'></p></div>"
+"<div class=actions style='margin-top:1rem'><button id=synccancel class=ghost>Close</button></div>"
 "</div></div>"
 "<script>"
 "var $=function(i){return document.getElementById(i)};"
@@ -250,6 +285,94 @@ static const char PAGE[] =
 "if(r.ok){$('q').value='';$('out').innerHTML='';$('count').textContent='';loadStore()}"
 "else{alert('Could not open that index')}}"
 "$('storebtn').onclick=changeStore;loadStore();"
+/* ---- Sync (Host / Join), mirroring the mobile Sync feature ---------------
+ * qrGen: a small pure-JS byte-mode QR encoder (ECC level L, mask 0, versions
+ * 1-10) so a phone can scan the url+token with no server-side or network
+ * dependency. Returns a matrix of 0/1 modules. */
+"function qrGen(s){var EXP=new Array(512),LOG=new Array(256),x=1,i;"
+"for(i=0;i<255;i++){EXP[i]=x;LOG[x]=i;x<<=1;if(x&256)x^=285}"
+"for(i=255;i<512;i++)EXP[i]=EXP[i-255];"
+"function mul(a,b){return(a===0||b===0)?0:EXP[LOG[a]+LOG[b]]}"
+"function rsGen(n){var g=[1],j;for(i=0;i<n;i++){var ng=new Array(g.length+1).fill(0);"
+"for(j=0;j<g.length;j++){ng[j]^=mul(g[j],EXP[i]);ng[j+1]^=g[j]}g=ng}return g}"
+"var CAP=[[19,7],[34,10],[55,15],[80,20],[108,26],[136,18],[156,20],[194,24],[232,30],[274,18]];"
+"var bytes=[];for(i=0;i<s.length;i++)bytes.push(s.charCodeAt(i)&255);"
+"var ver=-1,dataCW=0,eccCW=0;"
+"for(i=0;i<CAP.length;i++){var cw=CAP[i][0];"
+"if(4+8+8*bytes.length<=cw*8){ver=i+1;dataCW=cw;eccCW=CAP[i][1];break}}"
+"if(ver<0)throw'payload too big';"
+"var bits=[];function put(v,n){for(var b=n-1;b>=0;b--)bits.push((v>>b)&1)}"
+"put(4,4);put(bytes.length,8);for(i=0;i<bytes.length;i++)put(bytes[i],8);"
+"var cap=dataCW*8;var t=Math.min(4,cap-bits.length);for(i=0;i<t;i++)bits.push(0);"
+"while(bits.length%8!==0)bits.push(0);"
+"var data=[];for(i=0;i<bits.length;i+=8){var v=0;for(var j=0;j<8;j++)v=(v<<1)|bits[i+j];data.push(v)}"
+"var pad=[236,17],pi=0;while(data.length<dataCW){data.push(pad[pi&1]);pi++}"
+"var gen=rsGen(eccCW),ecc=new Array(eccCW).fill(0);"
+"for(i=0;i<data.length;i++){var f=data[i]^ecc[0];ecc.shift();ecc.push(0);"
+"if(f!==0)for(var j=0;j<eccCW;j++)ecc[j]^=mul(gen[j+1],f)}"
+"var all=data.concat(ecc);"
+"var size=17+4*ver,m=[],used=[];for(i=0;i<size;i++){m.push(new Array(size).fill(0));used.push(new Array(size).fill(0))}"
+"function set(r,c,v){m[r][c]=v?1:0;used[r][c]=1}"
+"function finder(r,c){for(var dr=-1;dr<=7;dr++)for(var dc=-1;dc<=7;dc++){var rr=r+dr,cc=c+dc;"
+"if(rr<0||cc<0||rr>=size||cc>=size)continue;"
+"var on=(dr>=0&&dr<=6&&(dc===0||dc===6))||(dc>=0&&dc<=6&&(dr===0||dr===6))||(dr>=2&&dr<=4&&dc>=2&&dc<=4);"
+"set(rr,cc,on?1:0)}}"
+"finder(0,0);finder(0,size-7);finder(size-7,0);"
+"for(i=8;i<size-8;i++){if(!used[6][i])set(6,i,(i%2===0)?1:0);if(!used[i][6])set(i,6,(i%2===0)?1:0)}"
+"var AL=[[],[],[6,18],[6,22],[6,26],[6,30],[6,34],[6,22,38],[6,24,42],[6,26,46],[6,28,50]];"
+"var al=AL[ver];for(var a=0;a<al.length;a++)for(var b=0;b<al.length;b++){var r=al[a],c=al[b];"
+"if(used[r][c])continue;for(var dr=-2;dr<=2;dr++)for(var dc=-2;dc<=2;dc++){var on=(Math.abs(dr)===2||Math.abs(dc)===2||(dr===0&&dc===0));set(r+dr,c+dc,on?1:0)}}"
+"set(size-8,8,1);"
+"for(i=0;i<9;i++){if(!used[8][i])used[8][i]=2;if(!used[i][8])used[i][8]=2}"
+"for(i=0;i<8;i++){used[8][size-1-i]=2;used[size-1-i][8]=2}"
+"if(ver>=7){for(var vr=0;vr<6;vr++)for(var vc=0;vc<3;vc++){used[vr][size-11+vc]=2;used[size-11+vc][vr]=2}}"
+"var idx=0,dir=-1,col;"
+"for(col=size-1;col>0;col-=2){if(col===6)col--;"
+"for(var t2=0;t2<size;t2++){var row=(dir<0)?(size-1-t2):t2;"
+"for(var q=0;q<2;q++){var cc=col-q;"
+"if(used[row][cc])continue;"
+"var bit=(idx<all.length*8)?((all[idx>>3]>>(7-(idx&7)))&1):0;idx++;"
+"if(((row+cc)%2)===0)bit^=1;"
+"set(row,cc,bit)}}dir=-dir}"
+"var fmt=0x77c4,fb=[];for(i=14;i>=0;i--)fb.push((fmt>>i)&1);"
+"var fp1=[[8,0],[8,1],[8,2],[8,3],[8,4],[8,5],[8,7],[8,8],[7,8],[5,8],[4,8],[3,8],[2,8],[1,8],[0,8]];"
+"for(i=0;i<15;i++)m[fp1[i][0]][fp1[i][1]]=fb[i];"
+"var fp2=[[size-1,8],[size-2,8],[size-3,8],[size-4,8],[size-5,8],[size-6,8],[size-7,8],[8,size-8],[8,size-7],[8,size-6],[8,size-5],[8,size-4],[8,size-3],[8,size-2],[8,size-1]];"
+"for(i=0;i<15;i++)m[fp2[i][0]][fp2[i][1]]=fb[i];return m}"
+/* qrDraw: paint the matrix into EL as a crisp canvas with a 4-module quiet zone. */
+"function qrDraw(el,text){el.innerHTML='';try{var M=qrGen(text),n=M.length,q=4,sc=6,px=(n+2*q)*sc;"
+"var cv=document.createElement('canvas');cv.width=px;cv.height=px;cv.style.width=px+'px';cv.style.height=px+'px';"
+"var g=cv.getContext('2d');g.fillStyle='#fff';g.fillRect(0,0,px,px);g.fillStyle='#000';"
+"for(var r=0;r<n;r++)for(var c=0;c<n;c++)if(M[r][c])g.fillRect((c+q)*sc,(r+q)*sc,sc,sc);"
+"el.appendChild(cv)}catch(e){el.textContent='(QR unavailable)'}}"
+/* the Sync sheet: a role picker, then a Host pane (address+token+QR, polling) or
+ * a Join pane (address+token inputs). Both converge (the bidir exchange). */
+"var syncPoll=null;"
+"function openSync(){$('syncpick').style.display='flex';$('synchost').hidden=true;$('syncjoin').hidden=true;$('syncsheet').hidden=false}"
+"function closeSync(){$('syncsheet').hidden=true;if(syncPoll){clearInterval(syncPoll);syncPoll=null}}"
+"async function syncHost(){$('syncpick').style.display='none';$('synchost').hidden=false;"
+"$('hoststatus').textContent='Starting...';"
+"var r=await fetch('/api/sync/host',{method:'POST'});"
+"if(!r.ok){$('hoststatus').textContent='Could not start host. Is one already running?';return}"
+"var t=(await r.text()).split('\\n'),url=t[0],tok=t[1];"
+"$('hostaddr').textContent=url;$('hosttok').textContent='token: '+tok;"
+"qrDraw($('qr'),'ais://sync?host='+encodeURIComponent(url.split('://')[1])+'&token='+tok);"
+"$('hoststatus').textContent='Waiting for the other device...';"
+"if(syncPoll)clearInterval(syncPoll);"
+"syncPoll=setInterval(async function(){var s=(await(await fetch('/api/sync/status')).text()).trim();"
+"if(s=='synced'){clearInterval(syncPoll);syncPoll=null;$('hoststatus').textContent='Synced. Both devices now have the same records.';setView(view)}"
+"else if(s=='timeout'){clearInterval(syncPoll);syncPoll=null;$('hoststatus').textContent='No device joined in time. Try again.'}},1500)}"
+"function syncJoinPane(){$('syncpick').style.display='none';$('syncjoin').hidden=false;$('joinstatus').textContent='';$('jaddr').focus()}"
+"async function syncJoinGo(){var url=$('jaddr').value.trim(),tok=$('jtok').value.trim();"
+"if(!url||!tok){$('joinstatus').textContent='Enter an address and a token.';return}"
+"$('joinstatus').textContent='Syncing...';"
+"var r=await fetch('/api/sync/join',{method:'POST',body:url+'\\n'+tok});var s=(await r.text()).trim();"
+"if(s=='merged'){$('joinstatus').textContent='Synced. Both devices now have the same records.';setView(view)}"
+"else if(s=='bad url')$('joinstatus').textContent='That address looks wrong. Use http://host:port.';"
+"else $('joinstatus').textContent='Could not sync. Same Wi-Fi? Check the host is waiting and the token is right.'}"
+"$('syncbtn').onclick=openSync;$('synccancel').onclick=closeSync;"
+"$('synchostbtn').onclick=syncHost;$('syncjoinbtn').onclick=syncJoinPane;$('jgo').onclick=syncJoinGo;"
+"$('syncsheet').addEventListener('click',function(e){if(e.target==$('syncsheet'))closeSync()});"
 "</script>";
 
 static void write_all(int fd, const char *p, size_t n)
@@ -444,6 +567,160 @@ static int serve_asset(int fd, const char *name)
     return 1;
 }
 
+#ifdef SERVE_HAVE_SYNC
+/* ---- LAN sync (Host / Join), mirroring the mobile Sync feature -----------
+ * Host: fork an ephemeral child that runs sync_serve() single-shot, so the
+ * single-threaded HTTP loop is not blocked while it waits for a peer; the
+ * parent returns the pairing info (URL + token) at once and the page renders a
+ * QR of it. The child exits after one peer or the timeout; the parent reaps it.
+ * Join: synchronous sync_pull() -- a LAN merge is quick. Both use bidir=1, the
+ * symmetric exchange the mobile app uses (both devices converge in one round).
+ */
+#define SERVE_SYNC_BIDIR    1     /* symmetric exchange (matches the mobile Sync) */
+#define SERVE_SYNC_TIMEOUT 120    /* seconds the host child waits for one peer    */
+
+static volatile sig_atomic_t sync_child = -1;   /* live Host child pid, or -1 (one at a time) */
+static volatile sig_atomic_t sync_last  = -2;   /* last Host outcome: 0 served, else not      */
+
+/* Reap the Host child if it has finished so it leaves no zombie, remembering its
+ * outcome (the child exits 0 when a peer synced, non-zero on timeout/error).
+ * Called both from a SIGCHLD handler (a child dying between polls) and from the
+ * routes; WNOHANG and the pid guard make a double call harmless. Only
+ * waitpid-and-plain-assignment here, so it is async-signal-safe. */
+static void sync_reap(void)
+{
+    pid_t pid = (pid_t)sync_child;
+    int st;
+    if (pid <= 0)
+        return;
+    if (waitpid(pid, &st, WNOHANG) == pid) {
+        sync_last = (WIFEXITED(st) && WEXITSTATUS(st) == 0) ? 0 : -2;
+        sync_child = -1;
+    }
+}
+
+static void sync_on_sigchld(int sig)
+{
+    (void)sig;
+    sync_reap();                               /* async-signal-safe: only waitpid */
+}
+
+/* The primary LAN IPv4, via connecting a UDP socket (no packet is sent). Same
+ * trick as the engine's CLI wrapper; kept local so this stays a pure GUI caller. */
+static int sync_lan_ip(char *buf, size_t n)
+{
+    int fd;
+    struct sockaddr_in to, me;
+    socklen_t ml = sizeof me;
+
+    fd = socket(AF_INET, SOCK_DGRAM, 0);
+    if (fd < 0) return -1;
+    memset(&to, 0, sizeof to);
+    to.sin_family = AF_INET;
+    to.sin_port = htons(53);
+    inet_pton(AF_INET, "8.8.8.8", &to.sin_addr);
+    if (connect(fd, (struct sockaddr *)&to, sizeof to) != 0) { close(fd); return -1; }
+    if (getsockname(fd, (struct sockaddr *)&me, &ml) != 0) { close(fd); return -1; }
+    close(fd);
+    return (inet_ntop(AF_INET, &me.sin_addr, buf, n) == NULL) ? -1 : 0;
+}
+
+/* Host: generate a token, find this device's LAN IP, fork a child that serves one
+ * peer, and reply "http://ip:port\ntoken\n" so the page shows it and draws a QR.
+ * The child exits after one peer or the timeout; /api/sync/status reaps it. */
+static void sync_host(ais *a, int fd)
+{
+    char ip[64], token[33], reply[160];
+    int port = AIS_SYNC_PORT, m;
+    pid_t pid;
+
+    sync_reap();                              /* clear a finished previous Host */
+    if (sync_child > 0) {                      /* one at a time */
+        static const char e[] = "HTTP/1.0 409 Conflict\r\nConnection: close\r\n\r\n"
+            "a sync host is already waiting\n";
+        write_all(fd, e, sizeof(e) - 1);
+        return;
+    }
+    if (aisc_token(token, sizeof token) != AISC_OK ||
+        sync_lan_ip(ip, sizeof ip) != 0) {
+        static const char e[] = "HTTP/1.0 500 Internal Server Error\r\n"
+            "Connection: close\r\n\r\ncould not start host\n";
+        write_all(fd, e, sizeof(e) - 1);
+        return;
+    }
+    pid = fork();
+    if (pid == 0) {                            /* child: serve one peer, then exit */
+        ais fresh;
+        int rc;
+        signal(SIGCHLD, SIG_DFL);              /* drop the parent's reaper: its handler */
+        SOCK_CLOSE(fd);                        /* would EINTR sync_serve's poll(). Also  */
+                                               /* close the client fd we no longer use. */
+        /* Fresh handle to the same dir, not the inherited one: separate OFDs, so the
+         * store's file lock serializes this merge against the parent's writes. */
+        if (ais_open(&fresh, a->dir) != 0)
+            _exit(1);
+        rc = sync_serve(&fresh, port, token, SERVE_SYNC_TIMEOUT, SERVE_SYNC_BIDIR);
+        ais_close(&fresh);
+        _exit(rc == 0 ? 0 : 1);                /* 0 = a peer synced; 1 = timeout/error */
+    }
+    if (pid < 0) {
+        static const char e[] = "HTTP/1.0 500 Internal Server Error\r\n"
+            "Connection: close\r\n\r\ncould not start host\n";
+        write_all(fd, e, sizeof(e) - 1);
+        return;
+    }
+    sync_child = pid;
+    sync_last = -1;                            /* -1 = still waiting */
+    m = snprintf(reply, sizeof reply, "http://%s:%d\n%s\n", ip, port, token);
+    send_head(fd, "text/plain");
+    if (m > 0)
+        write_all(fd, reply, (size_t)m);
+}
+
+/* Status: reap a finished Host and report "waiting" / "synced" / "timeout" so the
+ * page can poll and tell the user when a peer completed. */
+static void sync_status(int fd)
+{
+    const char *s;
+    sync_reap();
+    if (sync_child > 0)      s = "waiting\n";
+    else if (sync_last == 0) s = "synced\n";
+    else                     s = "timeout\n";
+    send_head(fd, "text/plain");
+    write_all(fd, s, strlen(s));
+}
+
+/* Join: pull + merge from a peer's URL with its token (bidir, so the host also
+ * converges). Reply "merged" / "bad url" / "could not connect or wrong token". */
+static void sync_join(ais *a, char *body, int fd)
+{
+    char host[128], *tok;
+    int port, rc;
+    size_t bl;
+
+    tok = strchr(body, '\n');                  /* body = "url\ntoken" */
+    if (tok == NULL) {
+        send_head(fd, "text/plain");
+        write_all(fd, "bad url\n", 8);
+        return;
+    }
+    *tok++ = '\0';
+    bl = strlen(tok);                          /* trim any trailing CR/LF/space */
+    while (bl > 0 && (tok[bl-1] == '\r' || tok[bl-1] == '\n' ||
+                      tok[bl-1] == ' '  || tok[bl-1] == '\t'))
+        tok[--bl] = '\0';
+    if (sync_parse_url(body, host, sizeof host, &port) != 0) {
+        send_head(fd, "text/plain");
+        write_all(fd, "bad url\n", 8);
+        return;
+    }
+    rc = sync_pull(a, host, port, tok, 10, SERVE_SYNC_BIDIR);   /* 10s LAN timeout */
+    send_head(fd, "text/plain");
+    if (rc == 0) write_all(fd, "merged\n", 7);
+    else         write_all(fd, "could not connect or wrong token\n", 33);
+}
+#endif /* SERVE_HAVE_SYNC */
+
 /* ---- one request -------------------------------------------------------- */
 static void handle(ais *a, int fd)
 {
@@ -589,6 +866,14 @@ static void handle(ais *a, int fd)
         }
         send_head(fd, "text/plain");
         write_all(fd, a->dir, strlen(a->dir));
+#ifdef SERVE_HAVE_SYNC
+    } else if (strcmp(method, "POST") == 0 && strcmp(path, "/api/sync/host") == 0) {
+        sync_host(a, fd);                      /* fork a child to serve one peer */
+    } else if (strcmp(method, "GET") == 0 && strcmp(path, "/api/sync/status") == 0) {
+        sync_status(fd);                       /* poll: waiting / synced / timeout */
+    } else if (strcmp(method, "POST") == 0 && strcmp(path, "/api/sync/join") == 0) {
+        sync_join(a, body, fd);                /* pull + merge from a host's url+token */
+#endif
     } else if (strcmp(method, "GET") == 0) {
         /* an external asset (e.g. /style.css) if gui/web has it; the root falls
          * back to the embedded page so the binary still works with no files. */
@@ -615,6 +900,9 @@ int ais_serve(ais *a, int port)
     ais_net_init();             /* WSAStartup before any socket call */
 #else
     signal(SIGPIPE, SIG_IGN);   /* a client hangup must not kill the server */
+#ifdef SERVE_HAVE_SYNC
+    signal(SIGCHLD, sync_on_sigchld);   /* reap the Host child -> no zombies */
+#endif
 #endif
 
     sfd = socket(AF_INET, SOCK_STREAM, 0);
