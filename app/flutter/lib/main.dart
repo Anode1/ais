@@ -1105,7 +1105,12 @@ class _SyncWaitDialogState extends State<_SyncWaitDialog> {
   @override
   Widget build(BuildContext context) => AlertDialog(
         title: Text(widget.title),
-        content: Column(
+        // Bound the width: QrImageView is a CustomPaint with no intrinsic size,
+        // so an unbounded-width AlertDialog content collapses it and the whole
+        // card never paints (the Host pane bug; Join has no QR, so it was fine).
+        content: SizedBox(
+          width: 260,
+          child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             if (widget.qrData != null) ...[
@@ -1117,6 +1122,11 @@ class _SyncWaitDialogState extends State<_SyncWaitDialog> {
                   version: QrVersions.auto,
                   size: 180,
                   backgroundColor: Colors.white,
+                  errorStateBuilder: (ctx, err) => const SizedBox(
+                    width: 180,
+                    height: 180,
+                    child: Center(child: Text('QR unavailable')),
+                  ),
                 ),
               ),
               const SizedBox(height: 8),
@@ -1140,7 +1150,7 @@ class _SyncWaitDialogState extends State<_SyncWaitDialog> {
               Flexible(child: Text(widget.waiting)),
             ]),
           ],
-        ),
+        )),
         actions: [
           TextButton(
               onPressed: () => Navigator.pop(context),
