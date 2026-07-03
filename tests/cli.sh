@@ -139,11 +139,12 @@ out=$("$AIS" -f "$IM2" a b)
 ok "import: dump|import round-trips"    "second" "$out"
 rm -rf "$IM" "$IM2"
 
-# 8. doc: a multi-line document becomes a blob file; the value is its path
+# 8. doc: a multi-line document becomes a blob file; recall CATS its content
+#    (the blob is content, not a reference -- the stored path is resolved on read)
 DC=$(mktemp -d "${TMPDIR:-/tmp}/ais_doc.XXXXXX") || exit 2
 printf 'line one\nline two\nline three\n' | "$AIS" -f "$DC" --doc kul memo >/dev/null 2>&1
 out=$("$AIS" -f "$DC" kul memo)
-ok "doc: value is a blobs/<timestamp>.txt path"  'blobs/.*\.txt' "$out"
+ok "doc: recall cats the blob content, not the blobs/ path"  'line three' "$out"
 blob=$(ls "$DC"/blobs/*.txt 2>/dev/null | head -1)
 if [ -n "$blob" ] && [ -f "$blob" ]; then
     pass=$((pass + 1)); echo "  ok   doc: blob file created"
