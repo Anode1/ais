@@ -33,15 +33,19 @@ Performance is traded for **universality, robustness, and longevity**: the store
 
 ## Status
 
-v0.1: the C core is working and tested (`make ut`: the C unit tests plus the
+v0.3: the C core is working and tested (`make ut`: the C unit tests plus the
 end-to-end CLI/streaming suite, all green). Implemented: key algebra (AND/OR over
-sorted-unique posting sets), `put`/`add`/`del`/`dump`/`find`/`import`/`doc`/`init`,
-`timeline` (recent records by save time, dateless first) and `tags` (every key by
-record count) over a per-record timestamp column, an id→offset fast path for large
-stores, an append-only immutable store with
-confirmation-guarded deletes, multi-link records, UTF-8 keys, and a local web GUI
-(`ais --serve`). The store is plain text and the whole index rebuilds from it
-(`compact`); the CLI is the contract, and the GUIs are thin wrappers over it.
+sorted-unique posting sets), `save`/`add`/`del`/`dump`/`find`/`import`/`doc`/`init`,
+inline-encrypted secrets (`-e`, stored as opaque `aisc:` values), multi-line
+documents saved as blob files (`--doc`, recalled as their content), `timeline`
+(recent records by save time, dateless first) and `tags` (every key by record
+count) over a per-record timestamp column, multiple named indexes
+(`--switch`/`--indexes`) with a default project (`--project`), one-way LAN transfer
+and two-way device sync (`--export`/`--import`, `--sync`), an id→offset fast path
+for large stores, an append-only immutable store with confirmation-guarded deletes,
+multi-link records, UTF-8 keys, and a local web GUI (`ais --serve`). The store is
+plain text and the whole index rebuilds from it (`compact`); the CLI is the
+contract, and the GUIs are thin wrappers over it.
 
 ## Provenance
 

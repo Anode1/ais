@@ -5,7 +5,7 @@ buffers, no heap in the data path (the `keys` listing is the one bounded malloc;
 see ais.c). Peak memory is a function of these sizes, never of the data.
 
 Sizes (compile-time, c/common.h)
-  AIS_LINE_MAX   65536   one store line "id|keys|value" -- so a single VALUE,
+  AIS_LINE_MAX   65536   one store line "id|ts|keys|value" -- so a single VALUE,
                          or the whole keys field, maxes near 64 KB.
   AIS_KEY_MAX      512   one encoded key (a path component / filename).
   AIS_KEYS_MAX      64   keys per record AND per query (the k-way merge width).

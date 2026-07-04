@@ -8,68 +8,46 @@ Help is welcome: open an issue to claim a piece.
 
 ## Shipped
 
-- **Command line** (`ais`): Linux, macOS, Windows.
-- **Local web GUI** (`ais --serve`, 127.0.0.1 only): the default GUI on every OS.
-- **Native Windows app** (`win32/`, pure Win32 over the engine): built; in testing.
+- **Command line** (`ais`): Linux and macOS. (The Windows CLI is CI-validated but
+  temporarily not published while the desktop GUI is reworked.)
+- **Local web GUI** (`ais --serve`, 127.0.0.1 only): the default GUI on every desktop OS.
+- **Android app** (Flutter over the C engine via the `embed.h` FFI seam): built and
+  published each release as `.apk` (sideload) and `.aab` (Play bundle).
+- **Documents as blobs** (`--doc`): a multi-line value is stored out-of-line under
+  `blobs/` and recalled as its content.
+- **Encrypted secrets** (`-e`): store a password or token encrypted inline (an opaque
+  `aisc:` value; single-file ChaCha20-Poly1305 via monocypher in `c/crypto/`). Recall
+  decrypts interactively; secrets are never emitted in plaintext by `--dump`.
+- **Built-in LAN sync** (`c/sync.c`): one-way encrypted transfer (`--export --serve` /
+  `--import <url> --token`) and two-way device sync (`--sync --serve` / `--sync <url>
+  --token`) that converge in one round — end-to-end encrypted (XChaCha20-Poly1305 under a
+  one-time token), LAN-only. See [`doc/SYNC.md`](SYNC.md).
+- **Multiple named indexes** (`--switch` / `--indexes` / `--forget`) with a default
+  project (`--project`).
+- **Native Windows app** (`win32/`, pure Win32 over the engine): built and CI-validated,
+  temporarily not published during the GUI rework.
 
 ## Planned
 
-Roughly in priority order. Most are UI or platform glue; the engine changes only
-for the two items flagged engine-level below (merging/sync and encrypted secrets).
+Roughly in priority order. These are now all UI or platform glue over the
+unchanged engine: the two former engine-level items — LAN sync and encrypted
+secrets — have shipped (see above).
 
-### Mobile: Android and iPhone (PWA + Flutter) · next up
+### iPhone (iOS) · next up
 
-**This is the next focus**, to begin after the current round of tests, releases,
-and publishing. The scaffolds already exist, a **PWA** (`app/`) and a **Flutter**
-app (`app/flutter/`), over the C engine through the FFI seam: `make lib` builds
-the shared library and `embed.h` is the contract. Android first (simpler signing
-and distribution), then iOS. The engine already compiles small and
-dependency-free, so the work is UI + platform plumbing, not core changes.
+The **Android** app has shipped (above); **iOS** is the next focus. The same
+**Flutter** app (`app/flutter/`) runs over the C engine through the FFI seam
+(`make lib` builds the shared library; `embed.h` is the contract). iOS needs a
+native shell (App Store signing, and native speech later), but the engine already
+compiles small and dependency-free, so the work is UI + platform plumbing, not
+core changes. A browser **PWA** (`app/`) is a parallel, lower-friction track (see
+[`dev/DISTRIBUTION.md`](dev/DISTRIBUTION.md) for the WASM/standalone plan).
 
 ### F-Droid (Android)
 
 Publish the Android build on **F-Droid**, the free/open app store: a reproducible
 build from source, no proprietary dependencies, plus the F-Droid metadata recipe.
 Depends on the Android app above. Google Play is a separate, optional track.
-
-### Seamless index merging and sync
-
-An engine-level item (not just a wrapper). Today, combining two indexes
-is manual: `ais --dump` from one piped into `ais --import` on another, or rsync
-the plain files and rebuild. The goal is automatic, conflict-free merging: point
-two indexes (or two copies of one) at each other and have them reconcile into the
-union of records, de-duplicated, with the key index rebuilt. Because the store is
-append-only plain text, merges compose cleanly (the same property that makes
-rsync-style replication safe). This is the backbone of multi-device use: your
-phone and laptop holding the same memory, with no central server.
-
-**Transport: end-to-end encrypted, cloudless, in two layers:**
-
-- **Today:** point Syncthing at the index folder, peer-to-peer, TLS + device keys,
-  no cloud account. Documented in `doc/SYNC.md`.
-- **Planned (built-in):** `ais --export` / `ais --import <url>`, a one-shot LAN transfer
-  with nothing to install. An ephemeral, single-client HTTP server whose body is sealed
-  with XChaCha20-Poly1305 under a key derived from a one-time QR token (high entropy, so
-  no Argon2, no PAKE, no TLS certs). `--import` fetches the peer's records and runs the
-  merge. The **merge engine is built** (last-write-wins, deletions propagate; see
-  `doc/dev/MERGE.md`), and `--import` is already merge-aware for stdin/file/URL; the
-  remaining piece is the network transport. Same-LAN only by design; cross-network stays
-  Syncthing's job. Spec: `doc/dev/SYNC_PROTOCOL.md`.
-
-### Encrypted secrets: passwords under keys
-
-The second engine-level item. Store secret values (passwords, tokens) encrypted
-but retrievable by key like any other record: `ais` encrypts the value with a
-user passphrase *before* it enters the store, so the on-disk file still holds
-only opaque ciphertext text: the append-only, greppable, rsync-safe properties
-are untouched (the field is simply unreadable without the key). Recall decrypts
-on demand (an unlocked session, or a per-get passphrase prompt); secrets are a
-distinct value class, never emitted in plaintext by `--dump`. Constraints, to
-stay true to the project: a small, dependency-free, audited primitive (e.g. a
-single-file ChaCha20-Poly1305 / AES-GCM, never a heavyweight crypto library or
-hand-rolled cipher), authenticated encryption (tamper-evident), and an explicit
-passphrase→key derivation (a KDF). This is the one place AIS would hold data it
-cannot itself read: so the design bar (and review) is correspondingly higher.
 
 ### Speech support
 
@@ -111,7 +89,8 @@ download by its SHA-256 or build from source (see the README).
   the durability and transparency guarantee, not a limitation, see the README
   "Questions."
 - **A cloud account or sync service.** Sync is peer-to-peer over your own files
-  (see *Seamless index merging and sync*); nothing phones home, by design.
+  (the built-in LAN sync under *Shipped*, or Syncthing; see [`doc/SYNC.md`](SYNC.md));
+  nothing phones home, by design.
 
 ## How to contribute
 

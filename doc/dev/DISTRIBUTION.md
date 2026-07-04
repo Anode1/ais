@@ -8,28 +8,36 @@ the repo; the Releases page stays minimal so users never have to ask "which one?
 
 | Platform | The one download | GUI the user gets |
 |----------|------------------|-------------------|
-| Windows  | `ais-<tag>-windows-x86_64.zip` (primary; `…-installer.exe` optional) | a **native window** (`ais-gui.exe`); delete the folder to uninstall. CLI `ais.exe` beside it |
+| Windows  | _temporarily unavailable while the desktop GUI is reworked_ (use `ais --serve` or the mobile app meanwhile) | a **native window** (`ais-gui.exe`) when it returns |
 | macOS    | `ais-<tag>-macos-arm64.zip`              | **web** (`ais --serve`) via the `.command` launcher |
 | Linux    | `ais-<tag>-linux-x86_64.zip`, `…-arm64.zip` | **web** (`ais --serve`) via the `.desktop` launcher |
-| Phones   | the PWA (hosted, later)                  | web |
+| Android  | `ais-<tag>-android.apk` (sideload) and `…-android.aab` (Play bundle) | the Flutter app |
+| Phones (browser) | the PWA (hosted, later)          | web |
 
-Each asset ships a `.sha256`. **Windows ships two:** the **portable zip**
-(primary: unzip, double-click `ais-gui.exe`, delete the folder to uninstall; no
-registry, the Java/xcopy model) and the **installer** (optional, for a Start-Menu
-entry). **Not shipped:** source bundles or duplicate engines. The CLI is present
-under every download.
+Each shipped asset (macOS, Linux, Android) is accompanied by a matching
+`.sha256`. **Not shipped:** source bundles or duplicate engines. The CLI is
+present under every desktop download.
 
-Rule of thumb, matching how normal apps ship: **Windows gets a native Windows
-app; the unix desktops get the universal web GUI; the CLI is under everything.**
+Rule of thumb, matching how normal apps ship: the unix desktops get the universal
+web GUI, Android gets the Flutter app, and the CLI is under every desktop
+download. **Windows will again get a native app once the desktop GUI rework lands**
+(see below); until then its download is temporarily withheld.
 
-## Windows: the native MinGW build
+## Windows: native build, temporarily not published
 
-Windows ships a **native MinGW-w64 build**, no Cygwin and no `cygwin1.dll`.
-`release.yml` cross-compiles `ais.exe` (CLI + `--serve`) and `ais-gui.exe`
-(native GUI) on Linux and assembles the installer on `windows-latest`; the
-installer bundles both, the Start-Menu shortcut launches `ais-gui.exe`, and
-`ais.exe` is on PATH (no console-flashing CLI shortcut). Result: one Windows
-download, a native app, no runtime, no third-party DLL.
+The Windows desktop GUI is being reworked, so **no Windows artifact is published
+in releases right now.** `release.yml`'s build matrix is Linux (x86_64, arm64) and
+macOS (arm64) plus the Android job; it has no `windows-latest` runner and builds
+no `ais.exe`, `ais-gui.exe`, or installer.
+
+The native build is still **CI-validated** in `native-windows.yml`: the `win32-gui`
+job cross-compiles `ais-gui.exe` (**native MinGW-w64**, no Cygwin, no `cygwin1.dll`)
+and uploads it as a CI artifact (not attached to a Release); a manual
+(`workflow_dispatch`) `cli` job builds `ais.exe`, kept manual and
+`continue-on-error` because `sync.c` is not yet Winsock-ported. When the GUI rework
+lands, a Windows job returns to `release.yml` to publish one native download again
+(portable zip + optional installer; the registry-free Java/xcopy model, Start-Menu
+shortcut to `ais-gui.exe`, `ais.exe` on PATH).
 
 ## The GUI inventory
 

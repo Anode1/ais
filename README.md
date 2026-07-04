@@ -83,6 +83,7 @@ It stores a secret encrypted inline (`-e`), but it is not a manager for hundreds
 |------|-----|
 | [`doc/USING.txt`](doc/USING.txt) | How to use it, GUI on every OS (plain steps, no jargon). |
 | [`doc/about.txt`](doc/about.txt) | What AIS is, and what it is not. |
+| [`doc/SYNC.md`](doc/SYNC.md) | Sync your index between devices over the LAN, encrypted (`--sync`). |
 | [`doc/OVERVIEW.md`](doc/OVERVIEW.md) | Design philosophy, status, provenance. |
 | [`doc/ROADMAP.md`](doc/ROADMAP.md) | What's planned, and where to help. |
 | [`doc/dev/LAYOUT.md`](doc/dev/LAYOUT.md) | On-disk format and module map. |

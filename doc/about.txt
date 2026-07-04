@@ -93,7 +93,7 @@ WHERE YOUR DATA LIVES
 
   Plain files you can find, copy, back up, edit, or delete yourself, under
   ~/.ais by default. See USING.txt for the per-OS paths, `ais --where`,
-  `ais --default`, and `ais --init`.
+  `ais --switch` / `ais --indexes` (multiple named indexes), and `ais --init`.
 
 
 PROVENANCE

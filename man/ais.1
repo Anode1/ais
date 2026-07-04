@@ -51,7 +51,7 @@ ais \- associative index: save values under keys, get them back by keys
 .B ais
 .RB [ \-f
 .IR DIR ]
-.BR \-\-del | \-\-del-key | \-\-dump | \-\-keys | \-\-stats | \-\-compact | \-\-export | \-\-import | \-\-import-interactively | \-\-where | \-\-project | \-\-switch | \-\-indexes | \-\-forget | \-\-default | \-\-serve | \-\-init
+.BR \-\-del | \-\-del-key | \-\-dump | \-\-keys | \-\-stats | \-\-timeline | \-\-tags | \-\-compact | \-\-export | \-\-import | \-\-import-interactively | \-\-sync | \-\-where | \-\-project | \-\-switch | \-\-indexes | \-\-forget | \-\-default | \-\-serve | \-\-init
 .RI [ ARG ]
 .SH DESCRIPTION
 .B ais
@@ -151,8 +151,12 @@ Debug tracing to standard error.
 .BI \-\-token " TOKEN"
 The one-time token printed by
 .B "ais \-\-export \-\-serve"
+(or
+.BR "ais \-\-sync \-\-serve" )
 on the other device; required by
 .B "ais \-\-import <url>"
+and
+.B "ais \-\-sync <url>"
 to authenticate and decrypt the LAN transfer.
 .TP
 .B \-h
@@ -240,6 +244,14 @@ List all keys, sorted and distinct.
 .B \-\-stats
 Print counts of records, keys, and deleted records.
 .TP
+.B \-\-timeline \fR[\fIN\fR]
+The
+.I N
+most recent records, newest first (default 500); a GUI pages through older ones on demand.
+.TP
+.B \-\-tags
+Every key with how many records use it, busiest first.
+.TP
 .B \-\-compact
 Reclaim space from deleted records.
 .TP
@@ -287,6 +299,15 @@ ais \-f OTHER \-\-dump | sed 's/^[0-9]*|//' | ais \-\-import-interactively
 ais \-\-import-interactively < project-knowledge.txt
 .fi
 .RE
+.TP
+.B \-\-sync \-\-serve \fR[\fIPORT\fR]
+Two-way LAN sync. This form hosts one peer (prints a URL, a one-time token, and a QR); the
+other device joins with
+.B \-\-sync \fIURL\fR \-\-token \fITOKEN\fR\fR.
+Both converge in one round \(em a tombstone-union, timestamp last-writer-wins merge, blobs
+included \(em unlike the one-shot
+.B \-\-export \-\-serve
+copy.
 .TP
 .B \-\-init
 Create a local
@@ -366,7 +387,10 @@ or the per-user default
 .TP
 .I store
 Append-only records,
-.IR id | keys | value .
+.IR id | ts | keys | value
+(legacy v1 lines omit the
+.I ts
+field).
 .TP
 .I idx/<p>/<key>
 Per-key posting lists (sorted record ids).
@@ -383,7 +407,7 @@ Tombstoned (deleted) ids.
 .I blobs/<timestamp>.txt
 Documents saved by
 .B \-\-doc
-(real data; not rebuildable).
+(\fB.aisc\fR when encrypted; real data, not rebuildable).
 .PP
 Outside the index, in your home AIS dir:
 .TP
@@ -401,6 +425,15 @@ on one device prints a one-time token and an
 command; run that on the other device to pull and merge (deletions included). It is
 LAN-only and end-to-end encrypted (XChaCha20-Poly1305; the token never crosses the wire); cross-internet sync
 stays a folder-sync tool's job.
+.PP
+For a two-way merge in which both devices converge in a single round, use
+.B "ais \-\-sync \-\-serve"
+on one device and
+.B "ais \-\-sync \fIURL\fR \-\-token"
+on the other. Unlike the one-shot
+.B \-\-export
+copy, changes flow in both directions (blobs included), by a tombstone-union,
+timestamp last-writer-wins merge.
 .PP
 For continuous, hands-off syncing the index is just plain files, so it needs no cloud
 account and no ais feature: point a folder-sync tool at the index directory, ignoring only

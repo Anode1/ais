@@ -13,8 +13,8 @@
 # (you verify the download against it).
 #
 # One machine can't cross-build the others -> run `make dist` on each. Windows is
-# NOT built here: it ships the native (MinGW) installer, cross-compiled in CI
-# (see .github/workflows/release.yml + installer/ais.iss).
+# NOT built here, and is not currently published while the desktop GUI is reworked;
+# the native (MinGW) build is CI-validated only (see .github/workflows/native-windows.yml).
 set -e
 cd "$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
 VERSION=$(git describe --tags --always --dirty 2>/dev/null | sed 's/^v//')

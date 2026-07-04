@@ -12,7 +12,7 @@ Decisions LOCKED: full tombstone-union merge (decision B), end-to-end encrypted 
 start, CLI = `--export` / `--import <url>` (no `--remote`), `--import` merge-aware for all
 sources, plain `--dump` unchanged. **Built, wired, and tested** (257 unit tests incl. a
 forked-loopback socket test): `ais --export --serve [PORT]` serves one peer (prints token +
-URL); `ais --import <url> --token T` pulls and merges. Follow-ups: blob transfer, QR, GUI.
+URL); `ais --import <url> --token T` pulls and merges. Blob transfer is done (below); remaining follow-ups: GUI polish.
 
     device A                                            device B
       store ──feed_export──► A|ts|keys|value  (live records)
@@ -68,10 +68,11 @@ land. Stores are small plain text; optimize to a ts/hash delta later only if siz
 Reuses the existing dump/import vocabulary. The only new verb is `--export`; there is no
 `--remote` flag (a URL operand is self-evidently remote, otherwise it is stdin/file).
 
-    ais --export [--timeout 60]
+    ais --export --serve [PORT] [--timeout 60]
         Serve to ONE authenticated peer over the LAN. Print the URL (ip:port), a one-time
         high-entropy TOKEN, and a QR encoding both. Exit on the first successful import, or
-        at --timeout. (`--dump` is unchanged: print records to stdout, local.)
+        at --timeout. (Bare `ais --export`, without `--serve`, writes the A|/D| merge stream
+        to stdout; `--dump` prints plain records, local.)
 
     ais --import <url> --token TOK
         Remote: fetch the peer's export stream, decrypt with TOKEN, and MERGE into the
@@ -148,8 +149,9 @@ imports B, A holds A+B and B is unchanged; full convergence is both sides import
 the other.
 
 ## Security model (end-to-end encrypted, from the start)
-`--serve` binds 127.0.0.1 deliberately. `--export` MUST bind the LAN interface, so the
-channel is encrypted end-to-end, not merely token-gated:
+The local web `--serve` binds 127.0.0.1 deliberately; `--export --serve` (and `--sync
+--serve`) bind all interfaces so a LAN peer can reach them, and the channel is encrypted
+end-to-end, not merely token-gated:
 - the exporting device generates a **high-entropy one-time token** (>= 128-bit random,
   shown as text and a QR, never a short human PIN);
 - the token is the shared secret but **never travels**: the client proves knowledge by
