@@ -159,6 +159,19 @@ int ais_embed_serve(void *handle, int port, const char *token)
 int ais_embed_sync_serve(void *handle, int port, const char *token)
 { return embed_serve(handle, port, token, 1); }
 
+char *ais_embed_display(void *handle, const char *value)
+{
+    char *out;
+
+    if (handle == NULL || value == NULL)
+        return NULL;
+    out = malloc(AIS_LINE_MAX);            /* generous preview cap */
+    if (out == NULL)
+        return NULL;
+    ais_doc_display((ais *)handle, value, out, AIS_LINE_MAX);
+    return out;                            /* content-or-verbatim; never NULL here */
+}
+
 void ais_embed_free(char *buf)
 {
     free(buf);

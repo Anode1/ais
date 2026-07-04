@@ -85,7 +85,14 @@ char *ais_embed_timeline(void *handle, long before_id, int count,
  * ais_embed_free(). NULL only on bad args / allocation failure. */
 char *ais_embed_tags(void *handle);
 
-/* Free a buffer returned by ais_embed_recall() / _timeline() / _tags(). */
+/* Resolve VALUE to the bounded text a GUI SHOWS (see ais_doc_display): a document
+ * blob's CONTENT, else VALUE verbatim. Returns a freshly-allocated, NUL-terminated
+ * string (free with ais_embed_free), or NULL on bad args / OOM. The Flutter app
+ * calls this instead of reading blob files itself, so blob resolution lives in
+ * ONE place (this engine), shared with `ais serve` -- no viewer can drift. */
+char *ais_embed_display(void *handle, const char *value);
+
+/* Free a buffer returned by ais_embed_recall() / _timeline() / _tags() / _display(). */
 void  ais_embed_free(char *buf);
 
 /* Release the lock, flush the id counter, free the handle. */

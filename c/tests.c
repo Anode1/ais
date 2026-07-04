@@ -1048,6 +1048,45 @@ static void test_put_value(void)
     scratch_rm(dir);
 }
 
+/* ais_doc_display: the ONE resolver the web (serve.c) and Flutter (via
+ * ais_embed_display) share -- a document blob shows its CONTENT (capped),
+ * everything else shows verbatim. Guards the bug where a viewer showed the
+ * "blobs/<ts>.txt" PATH instead of the multi-line text. */
+static void test_doc_display(void)
+{
+    const char *dir = "/tmp/ais_ut_docdisplay";
+    ais a;
+    long idp, idd, n;
+    char out[AIS_LINE_MAX];
+
+    scratch_rm(dir);
+    CHECK(ais_open(&a, dir) == 0, "doc_display: open scratch index");
+
+    /* inline value -> verbatim, flagged NOT-a-document (return -1) */
+    idp = ais_put_value(&a, "u", "https://example.org/x");
+    g_pv[0] = '\0'; ais_record(&a, idp, grab_value, NULL);
+    n = ais_doc_display(&a, g_pv, out, sizeof out);
+    CHECK(n < 0 && strcmp(out, "https://example.org/x") == 0,
+          "doc_display: inline value shown verbatim, flagged not-a-document");
+
+    /* multi-line value -> a blobs/ path is stored; display resolves to CONTENT */
+    idd = ais_put_value(&a, "doc", "alpha\nbeta\ngamma");
+    g_pv[0] = '\0'; ais_record(&a, idd, grab_value, NULL);
+    CHECK(strncmp(g_pv, "blobs/", 6) == 0,
+          "doc_display: multi-line stored as a blobs/ path (setup)");
+    n = ais_doc_display(&a, g_pv, out, sizeof out);
+    CHECK(n == 16 && strcmp(out, "alpha\nbeta\ngamma") == 0,
+          "doc_display: a blob ref resolves to its CONTENT, not the path");
+
+    /* an absent blob (a blobs/ path with no file) -> verbatim + not-a-document */
+    n = ais_doc_display(&a, "blobs/nope.txt", out, sizeof out);
+    CHECK(n < 0 && strcmp(out, "blobs/nope.txt") == 0,
+          "doc_display: an absent blob falls back to the path (viewer badges it)");
+
+    ais_close(&a);
+    scratch_rm(dir);
+}
+
 /* ---- update: attach/detach keys by id (the handle); idempotent ----------
  * The cycle the user asked for: add a key, verify it's findable; remove it,
  * verify it's gone but the record (id + value) survives; re-attach; and confirm
@@ -2210,6 +2249,8 @@ int main(void)
     test_tags();
     printf("put_value (one paste -> one record):\n");
     test_put_value();
+    printf("doc_display (blob -> content, shared by web + Flutter):\n");
+    test_doc_display();
     printf("embed (FFI seam):\n");
     test_embed();
     printf("import-interactively:\n");

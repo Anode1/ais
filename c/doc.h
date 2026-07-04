@@ -39,4 +39,15 @@ long ais_put_value(ais *a, const char *keys, const char *value);
  * else 0. Existence is the caller's to check (open PATH, show VALUE if it fails). */
 int  ais_doc_is_blob(const ais *a, const char *value, char *path, size_t psz);
 
+/* Resolve VALUE to the text a GUI should DISPLAY (a bounded PREVIEW), so the web
+ * server and the Flutter app share ONE implementation and cannot drift (the CLI
+ * cats the FULL blob instead -- a different, deliberate mode). If VALUE is a
+ * document blob, read its content into OUT, capped to OUTSZ-1 bytes with a
+ * trailing "…" when truncated, and return the byte length (>= 0). For anything
+ * else -- inline text, a URL, a path, an "aisc:" secret -- or an absent/unreadable
+ * blob, copy VALUE verbatim into OUT and return -1 (so a caller can tell it was
+ * NOT a resolved document: the web sends it as-is so URLs stay linkable; a viewer
+ * may badge an absent blob). OUT is always NUL-terminated (unless OUTSZ == 0). */
+long ais_doc_display(const ais *a, const char *value, char *out, size_t outsz);
+
 #endif /* AIS_DOC_H */

@@ -253,25 +253,22 @@ class _RecallPageState extends State<RecallPage> {
   bool _isUrl(String v) => v.startsWith('http://') || v.startsWith('https://');
 
   // A multi-line paste is stored out-of-line as a blob (blobs/<ts>.txt); the
-  // record holds only that path, an internal detail. Show the blob's CONTENT,
-  // like the CLI (main.c) and web (serve.c) do -- never the path. Cached by
-  // absolute path; blobs are immutable, so the cache never goes stale.
+  // record holds only that path, an internal detail. Blob resolution lives in
+  // the C engine (ais_embed_display), shared with the CLI and `ais serve`, so
+  // this viewer can't drift -- we never read blob files in Dart. Cache resolved
+  // content by absolute path (blobs are immutable) to skip the FFI on rebuilds;
+  // an absent blob resolves to its path (uncached), so _notHere still badges it.
   final Map<String, String> _blobCache = {};
   String _display(String v) {
-    if (!v.startsWith('blobs/')) return v; // inline text / URL / path: verbatim
+    if (!v.startsWith('blobs/')) return v; // inline value: no FFI, verbatim
+    final e = _ais;
+    if (e == null) return v;
     final full = '$_dir/$v';
     final cached = _blobCache[full];
     if (cached != null) return cached;
-    try {
-      final f = File(full);
-      if (!f.existsSync()) return v; // not synced here: _notHere badges it
-      var s = f.readAsStringSync();
-      // cap the preview, like the C viewers (main.c's 8192-byte buffer)
-      if (s.length > 8192) s = '${s.substring(0, 8192)}…';
-      return _blobCache[full] = s;
-    } catch (_) {
-      return v;
-    }
+    final shown = e.display(v);
+    if (shown != v) _blobCache[full] = shown; // don't cache an absent/unresolved blob
+    return shown;
   }
 
   // "Not here": the value points at a file that is absent on THIS device -- an

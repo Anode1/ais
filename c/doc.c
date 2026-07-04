@@ -74,6 +74,40 @@ int ais_doc_is_blob(const ais *a, const char *value, char *path, size_t psz)
     return (n > 0 && (size_t)n < psz) ? 1 : 0;
 }
 
+long ais_doc_display(const ais *a, const char *value, char *out, size_t outsz)
+{
+    char path[AIS_PATH_MAX];
+    FILE *f;
+    size_t cap, got;
+
+    if (out == NULL || outsz == 0)
+        return -1;
+    out[0] = '\0';
+    if (!ais_doc_is_blob(a, value, path, sizeof path)) {
+        if (value != NULL)                 /* inline text / URL / secret: verbatim */
+            snprintf(out, outsz, "%s", value);
+        return -1;
+    }
+    f = fopen(path, "rb");
+    if (f == NULL) {                       /* absent (e.g. not synced here) */
+        snprintf(out, outsz, "%s", value); /* fall back to the path; viewer badges it */
+        return -1;
+    }
+    /* leave room for a NUL and, if truncated, a 3-byte "…" (U+2026) marker */
+    cap = outsz > 4 ? outsz - 4 : 0;
+    got = fread(out, 1, cap, f);
+    if (got == cap && cap > 0) {           /* more remained? probe one byte */
+        char probe;
+        if (fread(&probe, 1, 1, f) == 1) {
+            memcpy(out + got, "\xE2\x80\xA6", 3);
+            got += 3;
+        }
+    }
+    fclose(f);
+    out[got] = '\0';
+    return (long)got;
+}
+
 long ais_doc_put(ais *a, const char *keys, const char *content, size_t len)
 {
     char blobpath[AIS_PATH_MAX], relval[AIS_PATH_MAX];

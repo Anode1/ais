@@ -443,22 +443,16 @@ struct sink { ais *a; int fd; };
  * buffer is safe. */
 static const char *show_value(ais *a, const char *value, char *out, size_t outsz)
 {
-    static unsigned char raw[AIS_LINE_MAX / 2];   /* content preview cap */
-    char path[AIS_PATH_MAX];
-    FILE *f;
-    size_t got;
+    static char content[AIS_LINE_MAX / 2];        /* preview cap, one shared resolver */
+    long got = ais_doc_display(a, value, content, sizeof content);
 
-    if (!ais_doc_is_blob(a, value, path, sizeof path))
-        return value;                             /* not a document blob ref */
-    f = fopen(path, "rb");
-    if (f == NULL)
-        return value;                             /* no such blob: show the value as-is */
-    got = fread(raw, 1, sizeof raw, f);
-    fclose(f);
-    if (outsz < 7 + AIS_B64_ENCLEN(got))
+    if (got < 0)
+        return value;                             /* not a document blob (or absent): as-is */
+    if (outsz < 7 + AIS_B64_ENCLEN((size_t)got))
         return value;                             /* won't fit: fall back to the path */
     memcpy(out, "aisdoc:", 7);
-    return (b64_encode(raw, got, out + 7, outsz - 7) >= 0) ? out : value;
+    return (b64_encode((const unsigned char *)content, (size_t)got, out + 7, outsz - 7) >= 0)
+               ? out : value;
 }
 
 static int on_value(long id, const char *value, void *vp)

@@ -17,6 +17,8 @@ typedef _StoreEncC = Int64 Function(Pointer<Void>, Pointer<Utf8>, Pointer<Utf8>,
 typedef _StoreEncD = int Function(Pointer<Void>, Pointer<Utf8>, Pointer<Utf8>, Pointer<Utf8>);
 typedef _RevealC = Pointer<Utf8> Function(Pointer<Utf8>, Pointer<Utf8>);
 typedef _RevealD = Pointer<Utf8> Function(Pointer<Utf8>, Pointer<Utf8>);
+typedef _DisplayC = Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>);
+typedef _DisplayD = Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>);
 typedef _DelC = Int32 Function(Pointer<Void>, Int64);
 typedef _DelD = int Function(Pointer<Void>, int);
 typedef _UpdateC = Int32 Function(Pointer<Void>, Int64, Pointer<Utf8>);
@@ -112,6 +114,8 @@ class AisEngine {
       _lib.lookupFunction<_StoreEncC, _StoreEncD>('ais_embed_store_encrypted');
   late final _RevealD _reveal =
       _lib.lookupFunction<_RevealC, _RevealD>('ais_embed_reveal');
+  late final _DisplayD _displayFn =
+      _lib.lookupFunction<_DisplayC, _DisplayD>('ais_embed_display');
   late final _FreeD _free = _lib.lookupFunction<_FreeC, _FreeD>('ais_embed_free');
   late final _CloseD _close = _lib.lookupFunction<_CloseC, _CloseD>('ais_embed_close');
   late final _TimelineD _timelineFn =
@@ -216,6 +220,19 @@ class AisEngine {
     if (r == nullptr) return null;
     final s = r.toDartString();
     _free(r);
+    return s;
+  }
+
+  /// Resolve [value] to the text to SHOW: a document blob's content (bounded),
+  /// else [value] verbatim. Blob resolution lives in the C engine (shared with
+  /// the CLI and `ais serve`), so the app never reads blob files itself.
+  String display(String value) {
+    final v = value.toNativeUtf8();
+    final p = _displayFn(_h, v);
+    calloc.free(v);
+    if (p == nullptr) return value;
+    final s = p.toDartString();
+    _free(p);
     return s;
   }
 
