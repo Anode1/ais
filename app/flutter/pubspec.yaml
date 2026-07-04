@@ -1,7 +1,7 @@
 name: ais
 description: "AIS — associative index, native client (Flutter, FFI to the C engine)."
 publish_to: none
-version: 0.3.2+2
+version: 0.3.3+3
 
 environment:
   sdk: ">=3.0.0 <4.0.0"
