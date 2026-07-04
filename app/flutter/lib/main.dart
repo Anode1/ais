@@ -252,6 +252,28 @@ class _RecallPageState extends State<RecallPage> {
 
   bool _isUrl(String v) => v.startsWith('http://') || v.startsWith('https://');
 
+  // A multi-line paste is stored out-of-line as a blob (blobs/<ts>.txt); the
+  // record holds only that path, an internal detail. Show the blob's CONTENT,
+  // like the CLI (main.c) and web (serve.c) do -- never the path. Cached by
+  // absolute path; blobs are immutable, so the cache never goes stale.
+  final Map<String, String> _blobCache = {};
+  String _display(String v) {
+    if (!v.startsWith('blobs/')) return v; // inline text / URL / path: verbatim
+    final full = '$_dir/$v';
+    final cached = _blobCache[full];
+    if (cached != null) return cached;
+    try {
+      final f = File(full);
+      if (!f.existsSync()) return v; // not synced here: _notHere badges it
+      var s = f.readAsStringSync();
+      // cap the preview, like the C viewers (main.c's 8192-byte buffer)
+      if (s.length > 8192) s = '${s.substring(0, 8192)}…';
+      return _blobCache[full] = s;
+    } catch (_) {
+      return v;
+    }
+  }
+
   // "Not here": the value points at a file that is absent on THIS device -- an
   // AIS blob not yet synced down, or a local-file reference added elsewhere.
   // http(s) URLs and inline text always resolve, so never a badge. Display-only.
@@ -647,7 +669,13 @@ class _RecallPageState extends State<RecallPage> {
       // Three peer destinations, thumb-reachable. The label is "Search"; the
       // internal view key stays 'recall' (RecallPage / _view). The header's
       // "Get" is the ACTION button -- one word per concept, no two "Get"s.
-      bottomNavigationBar: NavigationBar(
+      // Float the bar over the soft keyboard: Scaffold resizes the body above
+      // the keyboard but not this slot, so pad it up by the keyboard height
+      // (animated). The FAB anchors above the bar, so it rides up too.
+      bottomNavigationBar: AnimatedPadding(
+        duration: const Duration(milliseconds: 100),
+        padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+        child: NavigationBar(
         selectedIndex:
             ['recall', 'timeline', 'tags'].indexOf(_view).clamp(0, 2),
         onDestinationSelected: (i) =>
@@ -666,6 +694,7 @@ class _RecallPageState extends State<RecallPage> {
               selectedIcon: Icon(Icons.label),
               label: 'Tags'),
         ],
+        ),
       ),
     );
   }
@@ -694,7 +723,7 @@ class _RecallPageState extends State<RecallPage> {
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('Delete this record?'),
-        content: SelectableText(hit.value),
+        content: SelectableText(_display(hit.value)),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
           FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Delete')),
@@ -794,7 +823,7 @@ class _RecallPageState extends State<RecallPage> {
                       const SizedBox(width: 6),
                       Text('encrypted', style: TextStyle(color: cs.outline)),
                     ])
-                  : SelectableText(v,
+                  : SelectableText(_display(v),
                       style: TextStyle(color: _isUrl(v) ? cs.primary : null)),
             ),
             if (away) _notHereBadge(cs),
@@ -814,7 +843,7 @@ class _RecallPageState extends State<RecallPage> {
                 tooltip: 'More',
                 onSelected: (a) {
                   if (a == 'copy') {
-                    Clipboard.setData(ClipboardData(text: v));
+                    Clipboard.setData(ClipboardData(text: _display(v)));
                     ScaffoldMessenger.of(context)
                         .showSnackBar(const SnackBar(content: Text('Copied')));
                   } else if (a == 'edit') {
@@ -909,7 +938,7 @@ class _RecallPageState extends State<RecallPage> {
                     const SizedBox(width: 6),
                     Text('encrypted', style: TextStyle(color: cs.outline)),
                   ])
-                : SelectableText(r.value,
+                : SelectableText(_display(r.value),
                     style: TextStyle(color: _isUrl(r.value) ? cs.primary : null)),
           ),
           if (_notHere(r.value)) _notHereBadge(cs),
