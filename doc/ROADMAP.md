@@ -56,6 +56,16 @@ Voice as a first-class input: **speak to file** (PUT) and **speak to recall**
 native speech APIs, not browser Safari, which is one reason iOS needs a native
 shell). This is the seam toward the longer-horizon hands-free / wearable use.
 
+### Agent integration on Android
+
+On the desktop an AI agent recalls from AIS by running the `ais` CLI as a tool,
+spending far fewer tokens than re-searching its files (measured in *Compress the
+Access*). On **Android** the same win needs a mobile seam: a way for an on-device
+or connected agent to query the index — a share/intent entry point, or the FFI
+`recall` exposed to a local agent runtime — so mobile agents get the same
+near-zero-token recall the CLI gives today. Wrapper work over the unchanged
+engine; `embed.h`'s `recall` is already the contract.
+
 ### Native macOS app
 
 A native macOS wrapper over the engine (as `win32/` is for Windows), so Mac users
