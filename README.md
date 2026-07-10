@@ -92,6 +92,10 @@ Yes. A secret is stored encrypted inline (`-e`), so a login lives right next to 
 | [`doc/dev/LAYOUT.md`](doc/dev/LAYOUT.md) | On-disk format and module map. |
 | `man ais` | Full command reference. |
 
+## See also
+
+[agent-recipes](https://github.com/Anode1/agent-recipes) - short prompts for working with coding agents; ais is one of them (store and recall procedures instead of re-deriving them).
+
 ## License
 
 New code (`c/`): GNU GPL v2 or later (per source headers). Legacy material (`legacy/`) under its original Apache License 2.0. Author: Vasili Gavrilov (GitHub [Anode1](https://github.com/Anode1)).
