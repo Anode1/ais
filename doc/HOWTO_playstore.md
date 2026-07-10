@@ -19,21 +19,41 @@ is invisible to this process and counts for nothing.
   late 2023 must pass the 20-tester / 14-day closed test before production.
   **Organization** accounts skip it but need D-U-N-S business verification.
 - A signed **Android App Bundle (`.aab`)**, not an APK. New Play apps must ship
-  `.aab`; the GitHub release artifact is an `.apk`, so this is a separate build.
+  `.aab`. Each tagged CI release attaches a correctly release-signed
+  `ais-<tag>-android.aab` (built with `ais-release.jks` via the `ANDROID_*`
+  secrets), next to the `.apk` -- that bundle is the simplest thing to upload.
 - Package id: `com.aisindex.ais`.
 
-## 1. Build the Play bundle (the one runnable step)
+## 1. Get a release-signed Play bundle
+
+Two sources; the first is foolproof.
+
+**A. Download the CI bundle (recommended).** Every tagged release attaches
+`ais-<tag>-android.aab`, already signed with your upload key (`ais-release.jks`,
+via the `ANDROID_*` secrets). Download it from the GitHub Releases page and go to
+step 2.
+
+**B. Build locally:**
 
 ```sh
-# build a release App Bundle for Play (not the CI's apk)
 cd app/flutter
 flutter build appbundle --release
 # output: build/app/outputs/bundle/release/app-release.aab
 ```
 
-For a real upload, sign it with your upload key (set `android/key.properties`
-and the `signingConfigs`, the same keystore the CI release-signing step uses),
-or let **Play App Signing** hold the app key while you keep only the upload key.
+> **Warning -- a local release build is DEBUG-signed unless you set up the key.**
+> When `android/key.properties` is absent, `android/app/build.gradle.kts` falls
+> back to the debug keystore, so the command above silently emits a
+> **debug-signed** bundle -- Play rejects it (*"signed with the wrong key"*: the
+> debug cert, not your upload cert). To sign locally, copy
+> `android/key.properties.example` to `android/key.properties`, pointing at
+> `ais-release.jks` (alias `ais`) with the same passwords as the
+> `ANDROID_STORE_PASSWORD` / `ANDROID_KEY_PASSWORD` secrets. Verify before
+> uploading: `keytool -printcert -jarfile <the.aab> | grep SHA1` must show your
+> upload cert, not the debug one. When unsure, use option A.
+
+Play App Signing holds the app key that signs what users download; you only ever
+sign uploads with this upload key.
 
 ## 2. Create the app (Play Console, manual)
 
