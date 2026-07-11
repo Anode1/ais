@@ -92,6 +92,10 @@ Yes. A secret is stored encrypted inline (`-e`), so a login lives right next to 
 | [`doc/dev/LAYOUT.md`](doc/dev/LAYOUT.md) | On-disk format and module map. |
 | `man ais` | Full command reference. |
 
+## Claude Code skill
+
+This repo ships a Claude Code skill at [`.claude/skills/ais/SKILL.md`](.claude/skills/ais/SKILL.md): it teaches a coding agent to recall from and store to your ais index by keyword, near-zero-token recall instead of re-searching. Copy it into your own project's `.claude/skills/` to give your agent the same.
+
 ## See also
 
 [agent-recipes](https://github.com/Anode1/agent-recipes) - short prompts for working with coding agents; ais is one of them (store and recall procedures instead of re-deriving them).

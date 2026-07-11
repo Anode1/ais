@@ -25,7 +25,7 @@ Do not assume which keys exist. If unsure, list them first (see Conventions); th
 Output is the matching records (id and value). Use the values directly; mention the id when the user might want to update or delete a record.
 
 ## Store
-- `ais -v "<value>" <key> <key> ...`   e.g. `ais -v "https://example.org/page" <keyA> <keyB>`
+- `ais <key> <key> ... -v "<value>"`   e.g. `ais <keyA> <keyB> -v "https://example.org/page"`   (recall, plus `-v`)
 - The value is a reference: a URL, a path, a short note, or a command. Keep values short. AIS indexes references, not documents.
 
 ## Update and delete (by id)
