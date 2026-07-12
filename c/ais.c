@@ -14,6 +14,7 @@
 #include "merge.h"
 #include "post.h"
 #include "store.h"
+#include "win.h"          /* rename() -> MoveFileEx shim on native Windows; empty on POSIX */
 
 int ais_open(ais *a, const char *dir)
 {
@@ -249,6 +250,103 @@ out:
     store_wunlock(a);
     if (rc == 0)
         debug("update: id=%ld keys='%s'", id, keys);
+    return rc;
+}
+
+/* Replace a record's VALUE in place, keeping its id, ts and keys. Streams the
+ * store to a temp file, rewriting the ONE line whose id == ID and whose value
+ * exactly equals OLD_VALUE (its original ts and keys carried through verbatim);
+ * every other line is copied byte-for-byte, legacy "id|keys|value" lines kept
+ * legacy. Value is not in the key index, so only the store is touched -- next_id,
+ * tomb, ktomb and multi are left alone. */
+struct setval_ctx {
+    FILE       *out;
+    long        id;
+    const char *old_value, *new_value;
+    int         matched, error;
+};
+
+static int setval_line(long id, const char *ts, const char *keys,
+                       const char *value, void *vp)
+{
+    struct setval_ctx *c = vp;
+    const char *wval = value;
+
+    if (!c->matched && id == c->id && strcmp(value, c->old_value) == 0) {
+        int need = (ts[0] != '\0')
+                 ? snprintf(NULL, 0, "%ld|%s|%s|%s\n", id, ts, keys, c->new_value)
+                 : snprintf(NULL, 0, "%ld|%s|%s\n", id, keys, c->new_value);
+        if (need < 0 || need >= AIS_LINE_MAX) {   /* the edited line would not round-trip */
+            c->error = 1;
+            return -1;
+        }
+        wval = c->new_value;
+        c->matched = 1;
+    }
+    if (ts[0] != '\0')
+        fprintf(c->out, "%ld|%s|%s|%s\n", id, ts, keys, wval);   /* v2 */
+    else
+        fprintf(c->out, "%ld|%s|%s\n", id, keys, wval);          /* legacy */
+    return 0;
+}
+
+/* Replace record ID's value (OLD_VALUE -> NEW_VALUE), preserving id, ts and keys.
+ * Returns 0 on success, -1 on any error/IO, on an unknown id, or if no line's
+ * value matches OLD_VALUE (nothing is renamed in that case -- the store is left
+ * untouched). A value fed verbatim (an "aisc:"/"@blob" marker) is compared and
+ * replaced as a plain string: no re-encryption and no blob file is touched. */
+int ais_set_value(ais *a, long id, const char *old_value, const char *new_value)
+{
+    char storep[AIS_PATH_MAX], newp[AIS_PATH_MAX], offp[AIS_PATH_MAX];
+    struct setval_ctx c;
+    FILE *out;
+    int rc = -1;
+
+    if (old_value == NULL || new_value == NULL)
+        return -1;
+    if (snprintf(storep, sizeof storep, "%s/store", a->dir) >= (int)sizeof storep ||
+        snprintf(newp, sizeof newp, "%s/store.new", a->dir) >= (int)sizeof newp)
+        return -1;
+
+    if (store_wlock(a) != 0)
+        return -1;
+
+    out = fopen(newp, "w");
+    if (out == NULL) {
+        store_wunlock(a);
+        return -1;
+    }
+    c.out = out;
+    c.id = id;
+    c.old_value = old_value;
+    c.new_value = new_value;
+    c.matched = 0;
+    c.error = 0;
+
+    if (store_each_record(a, setval_line, &c) != 0 || !c.matched) {
+        fclose(out);                       /* io error, or no matching line: no rename */
+        remove(newp);
+        goto out;
+    }
+    if (fflush(out) != 0) {                /* rename below is atomic; no fsync, matching compact.c */
+        fclose(out);
+        remove(newp);
+        goto out;
+    }
+    if (fclose(out) != 0) { remove(newp); goto out; }
+    if (rename(newp, storep) != 0) { remove(newp); goto out; }
+
+    /* The "off" id->offset map now points at stale byte offsets. It is a pure,
+     * rebuildable accelerator and ais_record falls back to a scan without it, so
+     * simply drop it (rebuilding one by hand would risk a wrong offset). */
+    if (snprintf(offp, sizeof offp, "%s/off", a->dir) < (int)sizeof offp)
+        remove(offp);
+    rc = 0;
+
+out:
+    store_wunlock(a);
+    if (rc == 0)
+        debug("set_value: id=%ld value replaced", id);
     return rc;
 }
 

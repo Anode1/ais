@@ -11,6 +11,8 @@ typedef _OpenC = Pointer<Void> Function(Pointer<Utf8>);
 typedef _OpenD = Pointer<Void> Function(Pointer<Utf8>);
 typedef _RecallC = Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>, Int32);
 typedef _RecallD = Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>, int);
+typedef _FindC = Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>);
+typedef _FindD = Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>);
 typedef _StoreC = Int64 Function(Pointer<Void>, Pointer<Utf8>, Pointer<Utf8>);
 typedef _StoreD = int Function(Pointer<Void>, Pointer<Utf8>, Pointer<Utf8>);
 typedef _StoreEncC = Int64 Function(Pointer<Void>, Pointer<Utf8>, Pointer<Utf8>, Pointer<Utf8>);
@@ -23,10 +25,14 @@ typedef _DelC = Int32 Function(Pointer<Void>, Int64);
 typedef _DelD = int Function(Pointer<Void>, int);
 typedef _UpdateC = Int32 Function(Pointer<Void>, Int64, Pointer<Utf8>);
 typedef _UpdateD = int Function(Pointer<Void>, int, Pointer<Utf8>);
+typedef _SetValueC = Int32 Function(Pointer<Void>, Int64, Pointer<Utf8>, Pointer<Utf8>);
+typedef _SetValueD = int Function(Pointer<Void>, int, Pointer<Utf8>, Pointer<Utf8>);
 typedef _PullC = Int32 Function(Pointer<Void>, Pointer<Utf8>, Pointer<Utf8>);
 typedef _PullD = int Function(Pointer<Void>, Pointer<Utf8>, Pointer<Utf8>);
 typedef _ServeC = Int32 Function(Pointer<Void>, Int32, Pointer<Utf8>);
 typedef _ServeD = int Function(Pointer<Void>, int, Pointer<Utf8>);
+typedef _BundleC = Int32 Function(Pointer<Void>, Pointer<Utf8>, Pointer<Utf8>);   // (handle, path, secret)
+typedef _BundleD = int Function(Pointer<Void>, Pointer<Utf8>, Pointer<Utf8>);
 typedef _FreeC = Void Function(Pointer<Utf8>);
 typedef _FreeD = void Function(Pointer<Utf8>);
 typedef _CloseC = Void Function(Pointer<Void>);
@@ -35,6 +41,8 @@ typedef _TimelineC = Pointer<Utf8> Function(Pointer<Void>, Int64, Int32, Pointer
 typedef _TimelineD = Pointer<Utf8> Function(Pointer<Void>, int, int, Pointer<Utf8>, Pointer<Utf8>);
 typedef _TagsC = Pointer<Utf8> Function(Pointer<Void>);
 typedef _TagsD = Pointer<Utf8> Function(Pointer<Void>);
+typedef _KeysC = Pointer<Utf8> Function(Pointer<Void>, Int64);
+typedef _KeysD = Pointer<Utf8> Function(Pointer<Void>, int);
 typedef _DefaultSetC = Int32 Function(Pointer<Utf8>);
 typedef _DefaultSetD = int Function(Pointer<Utf8>);
 typedef _LocateC = Int32 Function(Pointer<Utf8>, IntPtr);     // (out, outsz)
@@ -109,6 +117,7 @@ class AisEngine {
   late final Pointer<Void> _h;
   late final _OpenD _open = _lib.lookupFunction<_OpenC, _OpenD>('ais_embed_open');
   late final _RecallD _recall = _lib.lookupFunction<_RecallC, _RecallD>('ais_embed_recall');
+  late final _FindD _find = _lib.lookupFunction<_FindC, _FindD>('ais_embed_find');
   late final _StoreD _store = _lib.lookupFunction<_StoreC, _StoreD>('ais_embed_store');
   late final _StoreEncD _storeEnc =
       _lib.lookupFunction<_StoreEncC, _StoreEncD>('ais_embed_store_encrypted');
@@ -121,8 +130,15 @@ class AisEngine {
   late final _TimelineD _timelineFn =
       _lib.lookupFunction<_TimelineC, _TimelineD>('ais_embed_timeline');
   late final _TagsD _tagsFn = _lib.lookupFunction<_TagsC, _TagsD>('ais_embed_tags');
+  late final _KeysD _keysFn = _lib.lookupFunction<_KeysC, _KeysD>('ais_embed_keys');
   late final _DelD _del = _lib.lookupFunction<_DelC, _DelD>('ais_embed_del');
   late final _UpdateD _update = _lib.lookupFunction<_UpdateC, _UpdateD>('ais_embed_update');
+  late final _SetValueD _setValue =
+      _lib.lookupFunction<_SetValueC, _SetValueD>('ais_embed_set_value');
+  late final _BundleD _exportBundle =
+      _lib.lookupFunction<_BundleC, _BundleD>('ais_embed_export_bundle');
+  late final _BundleD _importBundle =
+      _lib.lookupFunction<_BundleC, _BundleD>('ais_embed_import_bundle');
 
   AisEngine(String indexDir) {
     final dir = indexDir.toNativeUtf8();
@@ -137,6 +153,27 @@ class AisEngine {
     final k = keys.toNativeUtf8();
     final p = _recall(_h, k, orMode ? 1 : 0);
     calloc.free(k);
+    if (p == nullptr) return const [];
+    final text = p.toDartString();
+    _free(p);
+    return text
+        .split('\n')
+        .where((l) => l.isNotEmpty)
+        .map((l) {
+          final i = l.indexOf('|'); // split the "id|value" line (value may hold '|')
+          if (i < 0) return Hit(0, l);
+          return Hit(int.tryParse(l.substring(0, i)) ?? 0, l.substring(i + 1));
+        })
+        .toList();
+  }
+
+  /// Content search: the records whose VALUE contains [needle] (a plain, case-
+  /// sensitive substring), for a "forgot the key" fallback. Each hit keeps its
+  /// id and value, exactly like [recall].
+  List<Hit> find(String needle) {
+    final n = needle.toNativeUtf8();
+    final p = _find(_h, n);
+    calloc.free(n);
     if (p == nullptr) return const [];
     final text = p.toDartString();
     _free(p);
@@ -184,6 +221,17 @@ class AisEngine {
       final i = l.indexOf('|');
       return TagRow(l.substring(i + 1), int.tryParse(l.substring(0, i)) ?? 0);
     }).toList();
+  }
+
+  /// Record [id]'s keys as one space-separated string (the same KEYS the
+  /// timeline shows), for an "edit keys" chip editor. '' if the record has no
+  /// keys or the id is unknown/deleted.
+  String keysOf(int id) {
+    final p = _keysFn(_h, id);
+    if (p == nullptr) return '';
+    final s = p.toDartString();
+    _free(p);
+    return s;
   }
 
   /// Store [value] under [keys]; returns the record id, or -1 on error.
@@ -309,6 +357,32 @@ class AisEngine {
     });
   }
 
+  /// Seal the WHOLE index under [secret] and write it to [path], for offline
+  /// sync (move the file by Drive / USB / email, import elsewhere). File I/O
+  /// only, no network. Returns the C int: 0 = written, -1 = bad args / seal /
+  /// write error.
+  int exportBundle(String path, String secret) {
+    final p = path.toNativeUtf8();
+    final s = secret.toNativeUtf8();
+    final rc = _exportBundle(_h, p, s);
+    calloc.free(p);
+    calloc.free(s);
+    return rc;
+  }
+
+  /// Read the sealed bundle at [path], unseal under [secret], and merge it into
+  /// this index (same last-writer-wins as LAN sync). Returns the C int: 0 =
+  /// merged, -1 = I/O / bad args, -2 = version mismatch (old/newer file), -3 =
+  /// wrong secret or corrupt file.
+  int importBundle(String path, String secret) {
+    final p = path.toNativeUtf8();
+    final s = secret.toNativeUtf8();
+    final rc = _importBundle(_h, p, s);
+    calloc.free(p);
+    calloc.free(s);
+    return rc;
+  }
+
   /// Delete record [id]. True on success.
   bool del(int id) => _del(_h, id) == 0;
 
@@ -318,6 +392,19 @@ class AisEngine {
     final k = keys.toNativeUtf8();
     final rc = _update(_h, id, k);
     calloc.free(k);
+    return rc == 0;
+  }
+
+  /// Replace record [id]'s value ([oldValue] -> [newValue]), preserving its id,
+  /// save time and keys (the in-place value edit). [oldValue] must be the
+  /// record's exact stored value. True on success (false if id unknown or the
+  /// value did not match, leaving the store untouched).
+  bool setValue(int id, String oldValue, String newValue) {
+    final o = oldValue.toNativeUtf8();
+    final n = newValue.toNativeUtf8();
+    final rc = _setValue(_h, id, o, n);
+    calloc.free(o);
+    calloc.free(n);
     return rc == 0;
   }
 

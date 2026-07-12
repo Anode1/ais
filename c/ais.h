@@ -52,6 +52,16 @@ int  ais_add(ais *a, long id, const char *value);
  * id and value are unchanged. Returns 0, or -1 if `id` is unknown/deleted. */
 int  ais_update(ais *a, long id, const char *keys);
 
+/* Replace record `id`'s VALUE, preserving its id, ts (timeline position) and
+ * keys -- the in-place value edit (put/del would re-date the record and mint a
+ * new id). Rewrites only the store: the ONE line whose id == `id` and whose
+ * value exactly equals OLD_VALUE becomes `id|ts|keys|NEW_VALUE`, every other
+ * line unchanged (legacy no-ts lines stay legacy), then the stale "off"
+ * accelerator is dropped so it rebuilds lazily. Returns 0 on success, or -1 on
+ * an unknown id, a value that does not match OLD_VALUE (the store is left
+ * untouched), or any IO error. */
+int  ais_set_value(ais *a, long id, const char *old_value, const char *new_value);
+
 /* Tombstone a record. Idempotent (deleting an absent id is a no-op).
  * Space is reclaimed later by ais_compact(). Returns 0. */
 int  ais_del(ais *a, long id);

@@ -995,6 +995,91 @@ static void test_embed(void)
     scratch_rm(dir);
 }
 
+/* ais_embed_find: content search over values (the "forgot the key" fallback).
+ * Same "id|value\n" lines as recall, captured from ais_find via a tmpfile. */
+static void test_embed_find(void)
+{
+    const char *dir = "/tmp/ais_ut_embed_find";
+    void *h;
+    char *r;
+
+    scratch_rm(dir);
+
+    h = ais_embed_open(dir);
+    CHECK(h != NULL, "embed find: open returns a handle");
+    if (h == NULL) { scratch_rm(dir); return; }
+
+    ais_embed_store(h, "trip", "hotel in venice");   /* id 1 */
+    ais_embed_store(h, "food", "pasta recipe");      /* id 2 */
+
+    r = ais_embed_find(h, "venice");                 /* value match -> the trip record only */
+    CHECK(r != NULL && strstr(r, "1|hotel in venice") != NULL,
+          "embed find: 'venice' hits the venice record");
+    CHECK(r != NULL && strstr(r, "pasta") == NULL,
+          "embed find: 'venice' does not hit the pasta record");
+    ais_embed_free(r);
+
+    r = ais_embed_find(h, "zzz-nomatch");            /* no match -> "" not NULL */
+    CHECK(r != NULL && r[0] == '\0', "embed find: no match -> empty string");
+    ais_embed_free(r);
+
+    ais_embed_close(h);
+    scratch_rm(dir);
+}
+
+/* Regression: ais_embed_keys must return a record's CURRENT (visible) keys,
+ * derived from the index like recall -- NOT the stale keys off the store line.
+ * The bug: after an update that detaches/attaches keys, the store line still
+ * holds the ORIGINAL keys, so reading them there is wrong. keys() must agree
+ * with what recall can find. */
+static void test_embed_keys_visible(void)
+{
+    const char *dir = "/tmp/ais_ut_keysvis";
+    void *h;
+    char *r, *k;
+    long id;
+
+    scratch_rm(dir);
+    h = ais_embed_open(dir);
+    CHECK(h != NULL, "embed-keys: open returns a handle");
+    if (h == NULL) { scratch_rm(dir); return; }
+
+    id = ais_embed_store(h, "trip rome venice", "a val");
+    CHECK(id > 0, "embed-keys: store returns an id");
+
+    /* capture the id from recall's "id|value\n" (proves it starts under 'rome') */
+    r = ais_embed_recall(h, "trip", 0);
+    CHECK(r != NULL && strtol(r, NULL, 10) == id,
+          "embed-keys: recall 'trip' returns the stored record");
+    ais_embed_free(r);
+
+    /* detach 'rome', attach 'fjord' -- the store line keeps the original keys */
+    CHECK(ais_embed_update(h, id, "-rome fjord") == 0,
+          "embed-keys: update detaches 'rome', attaches 'fjord'");
+
+    k = ais_embed_keys(h, id);
+    CHECK(k != NULL, "embed-keys: keys() returns a buffer");
+    if (k != NULL) {
+        CHECK(strstr(k, "trip") != NULL,  "embed-keys: keys() still lists 'trip'");
+        CHECK(strstr(k, "venice") != NULL, "embed-keys: keys() still lists 'venice'");
+        CHECK(strstr(k, "fjord") != NULL, "embed-keys: keys() lists the attached 'fjord'");
+        CHECK(strstr(k, "rome") == NULL,  "embed-keys: keys() drops the detached 'rome'");
+    }
+    ais_embed_free(k);
+
+    /* keys() must match recall: 'rome' no longer finds it, 'fjord' now does */
+    r = ais_embed_recall(h, "rome", 0);
+    CHECK(r != NULL && r[0] == '\0', "embed-keys: recall 'rome' no longer finds the record");
+    ais_embed_free(r);
+    r = ais_embed_recall(h, "fjord", 0);
+    CHECK(r != NULL && strtol(r, NULL, 10) == id,
+          "embed-keys: recall 'fjord' now finds the record (keys() matches recall)");
+    ais_embed_free(r);
+
+    ais_embed_close(h);
+    scratch_rm(dir);
+}
+
 /* ais_put_value: one paste -> one record. Single line stays a plain, verbatim
  * record; a lone trailing newline is trimmed (still plain); a genuinely
  * multi-line value is written to a blobs/ file and the record holds its path.
@@ -1153,6 +1238,70 @@ static void test_update(void)
     /* a deleted record cannot be updated */
     ais_del(&a, id);
     CHECK(ais_update(&a, id, "rome") == -1, "update: deleted id -> -1");
+
+    ais_close(&a);
+    scratch_rm(dir);
+}
+
+/* ---- set_value: replace a record's VALUE, keeping its id, ts and keys ----- */
+static void test_set_value(void)
+{
+    ais a;
+    long id;
+    struct idvec v;
+    struct valvec vv;
+    struct tlvec tl;
+    char ts_before[AIS_TS_MAX] = "";
+    char ts_after[AIS_TS_MAX] = "";
+    int i;
+    const char *dir = "/tmp/ais_ut_setval";
+
+    scratch_rm(dir);
+    ais_open(&a, dir);
+
+    id = ais_put(&a, "trip rome", "old note");
+    CHECK(id == 1, "set_value: seed record id == 1");
+
+    /* remember the record's save time (its timeline position) */
+    tl.n = 0; ais_timeline(&a, 0, 0, "", "", collect_tl, &tl);
+    for (i = 0; i < tl.n; i++)
+        if (tl.r[i].id == id)
+            snprintf(ts_before, sizeof ts_before, "%s", tl.r[i].ts);
+    CHECK(ts_before[0] != '\0', "set_value: seed record carries a ts");
+
+    /* replace the value; keys unchanged, so a wrong old value is refused first */
+    CHECK(ais_set_value(&a, id, "old note", "new note") == 0,
+          "set_value: matching old value -> 0");
+
+    vv.n = 0; ais_record(&a, id, collect_val, &vv);
+    CHECK(vv.n == 1 && strcmp(vv.vals[0], "new note") == 0,
+          "set_value: ais_record now yields 'new note'");
+
+    /* keys preserved: still recalled by both 'trip' and 'rome' */
+    query(&a, AIS_AND, &v, 1, "trip");
+    { long w[1] = {1}; CHECK(ids_eq(&v, w, 1), "set_value: still recalled by 'trip'"); }
+    query(&a, AIS_AND, &v, 1, "rome");
+    { long w[1] = {1}; CHECK(ids_eq(&v, w, 1), "set_value: still recalled by 'rome'"); }
+
+    /* id and ts (timeline position) unchanged */
+    tl.n = 0; ais_timeline(&a, 0, 0, "", "", collect_tl, &tl);
+    CHECK(tl.n == 1 && tl.r[0].id == id, "set_value: id unchanged (single record, id 1)");
+    for (i = 0; i < tl.n; i++)
+        if (tl.r[i].id == id)
+            snprintf(ts_after, sizeof ts_after, "%s", tl.r[i].ts);
+    CHECK(strcmp(ts_before, ts_after) == 0, "set_value: ts unchanged");
+
+    /* a value mismatch changes nothing and returns -1 */
+    CHECK(ais_set_value(&a, id, "wrong", "x") == -1, "set_value: value mismatch -> -1");
+    vv.n = 0; ais_record(&a, id, collect_val, &vv);
+    CHECK(vv.n == 1 && strcmp(vv.vals[0], "new note") == 0,
+          "set_value: mismatch left the value 'new note'");
+
+    /* an unknown id is likewise refused, store untouched */
+    CHECK(ais_set_value(&a, 999, "new note", "x") == -1, "set_value: unknown id -> -1");
+    vv.n = 0; ais_record(&a, id, collect_val, &vv);
+    CHECK(vv.n == 1 && strcmp(vv.vals[0], "new note") == 0,
+          "set_value: unknown-id no-op left the value 'new note'");
 
     ais_close(&a);
     scratch_rm(dir);
@@ -1573,6 +1722,82 @@ static void test_embed_encrypted(void)
 
     ais_embed_close(h);
     scratch_rm(dir);
+}
+
+/* File bundle round-trip over the embed seam: export index A sealed under a
+ * secret to a FILE, import it into a fresh index B (right secret -> merged),
+ * and reject a wrong secret into C (-3, nothing merged). Proves the offline
+ * Drive/USB/email path a GUI drives, distinct from live socket sync. */
+static void test_embed_bundle_file(void)
+{
+    const char *da = "/tmp/ais_ut_bundleA";
+    const char *db = "/tmp/ais_ut_bundleB";
+    const char *dc = "/tmp/ais_ut_bundleC";
+    const char *path = "/tmp/ais_ut_bundle.seal";
+    void *hA, *hB, *hC;
+    char *r;
+    long a1, a2;
+    FILE *f;
+    long fsize = -1;
+
+    scratch_rm(da);
+    scratch_rm(db);
+    scratch_rm(dc);
+    remove(path);
+
+    hA = ais_embed_open(da);
+    CHECK(hA != NULL, "embed-bundle: open source index A");
+    if (hA == NULL) { scratch_rm(da); return; }
+
+    a1 = ais_embed_store(hA, "venice italy", "https://ex.org/v");
+    a2 = ais_embed_store(hA, "recipe pasta", "boil then toss");
+    CHECK(a1 > 0 && a2 > 0, "embed-bundle: seed two records in A");
+
+    CHECK(ais_embed_export_bundle(hA, path, "correct horse") == 0,
+          "embed-bundle: export_bundle -> 0");
+    f = fopen(path, "rb");
+    CHECK(f != NULL, "embed-bundle: the bundle file was written");
+    if (f != NULL) {
+        if (fseek(f, 0, SEEK_END) == 0) fsize = ftell(f);
+        fclose(f);
+    }
+    CHECK(fsize > 0, "embed-bundle: the bundle file is non-empty");
+
+    /* right secret into a fresh index -> both records merge in */
+    hB = ais_embed_open(db);
+    CHECK(hB != NULL, "embed-bundle: open empty index B");
+    if (hB != NULL) {
+        CHECK(ais_embed_import_bundle(hB, path, "correct horse") == 0,
+              "embed-bundle: import with the right secret -> 0");
+        r = ais_embed_recall(hB, "venice", 0);
+        CHECK(r != NULL && strstr(r, "ex.org/v") != NULL,
+              "embed-bundle: the first record merged into B");
+        ais_embed_free(r);
+        r = ais_embed_recall(hB, "pasta", 0);
+        CHECK(r != NULL && strstr(r, "boil then toss") != NULL,
+              "embed-bundle: the second record merged into B");
+        ais_embed_free(r);
+        ais_embed_close(hB);
+    }
+
+    /* wrong secret into a fresh index -> -3, nothing merged */
+    hC = ais_embed_open(dc);
+    CHECK(hC != NULL, "embed-bundle: open empty index C");
+    if (hC != NULL) {
+        CHECK(ais_embed_import_bundle(hC, path, "wrong secret") == -3,
+              "embed-bundle: import with a wrong secret -> -3");
+        r = ais_embed_recall(hC, "venice", 0);
+        CHECK(r != NULL && strstr(r, "ex.org/v") == NULL,
+              "embed-bundle: nothing merged into C on a wrong secret");
+        ais_embed_free(r);
+        ais_embed_close(hC);
+    }
+
+    ais_embed_close(hA);
+    remove(path);
+    scratch_rm(da);
+    scratch_rm(db);
+    scratch_rm(dc);
 }
 #endif
 
@@ -2221,6 +2446,8 @@ int main(void)
     test_add_multilink();
     printf("update:\n");
     test_update();
+    printf("set_value:\n");
+    test_set_value();
     printf("del:\n");
     test_del();
     test_del_key();
@@ -2253,6 +2480,10 @@ int main(void)
     test_doc_display();
     printf("embed (FFI seam):\n");
     test_embed();
+    printf("embed find (content search fallback):\n");
+    test_embed_find();
+    printf("embed keys (visible/current keys, not stale store line):\n");
+    test_embed_keys_visible();
     printf("import-interactively:\n");
     test_import_interactive();
     printf("switch / indexes:\n");
@@ -2287,6 +2518,8 @@ int main(void)
     test_embed_sync_portbusy();
     printf("embed encrypted (FFI store/reveal):\n");
     test_embed_encrypted();
+    printf("embed bundle (FFI file export/import round-trip):\n");
+    test_embed_bundle_file();
 #endif
     printf("----\n%d passed, %d failed\n", ut_pass, ut_fail);
     return ut_fail == 0 ? 0 : 1;

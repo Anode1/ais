@@ -28,6 +28,13 @@ void *ais_embed_open(const char *dir);
  * string if no matches); free with ais_embed_free(). NULL on bad args / OOM. */
 char *ais_embed_recall(void *handle, const char *keys, int or_mode);
 
+/* Content search: recall records whose VALUE contains NEEDLE (a plain, case-
+ * sensitive substring), for a "forgot the key" fallback. Same "id|value\n" line
+ * format as ais_embed_recall, so the host reuses one parser. Returns a newly
+ * allocated, NUL-terminated buffer (empty string if nothing matches); free with
+ * ais_embed_free(). NULL on bad args / OOM. */
+char *ais_embed_find(void *handle, const char *needle);
+
 /* Store VALUE under KEYS. Returns the record id (> 0), or -1 on error. */
 long  ais_embed_store(void *handle, const char *keys, const char *value);
 
@@ -51,6 +58,14 @@ int   ais_embed_del(void *handle, long id);
  * The id and value are unchanged. Returns 0, or -1 if id is unknown/deleted. */
 int   ais_embed_update(void *handle, long id, const char *keys);
 
+/* Replace record ID's VALUE (OLD_VALUE -> NEW_VALUE), preserving its id, ts and
+ * keys -- the in-place value edit, for a GUI's "edit value". OLD_VALUE must be
+ * the record's exact stored value (the "id|value" handle from recall/timeline).
+ * Returns 0, or -1 if the id is unknown, the value does not match (nothing is
+ * changed), or on IO error. */
+int   ais_embed_set_value(void *handle, long id, const char *old_value,
+                          const char *new_value);
+
 /* Sync (Receive): pull + merge a peer's `ais --export --serve` over the LAN,
  * last-writer-wins by timestamp. URL is http://host[:port]; TOKEN is the peer's
  * one-time token. Returns 0 (merged), -1 (bad args / malformed URL), or -2
@@ -73,6 +88,20 @@ int   ais_embed_serve(void *handle, int port, const char *token);
 int   ais_embed_sync_pull(void *handle, const char *url, const char *token);
 int   ais_embed_sync_serve(void *handle, int port, const char *token);
 
+/* File bundle (offline sync): seal the WHOLE index under SECRET and write it to
+ * PATH, for the user to move by any channel (Drive / USB / email) and import
+ * elsewhere -- covering PC<->PC and Windows, which live LAN sync can't. Same
+ * seal as sync; File I/O only, no sockets. SECRET is any passphrase (keyed via
+ * the engine's subkey/KDF). Returns 0, or -1 (bad args / seal / write). */
+int   ais_embed_export_bundle(void *handle, const char *path, const char *secret);
+
+/* Read the sealed bundle at PATH (capped at AIS_SYNC_MAX_BLOB), unseal under
+ * SECRET, and merge it into the index -- the same tombstone-union last-writer-
+ * wins as socket sync. Returns 0 (merged), -1 (I/O / bad args), -2 (version
+ * mismatch: an older/newer bundle format), or -3 (wrong secret / corrupt: the
+ * unseal failed), so a GUI can tell "wrong password" from "unreadable file". */
+int   ais_embed_import_bundle(void *handle, const char *path, const char *secret);
+
 /* One timeline page as "id|ts|keys|value\n" lines: the COUNT records with id <
  * BEFORE_ID (BEFORE_ID <= 0 = from newest; COUNT <= 0 = default), newest first,
  * whose save date is within [FROM,TO] ("YYYY-MM-DD", inclusive; "" / NULL = open
@@ -84,6 +113,12 @@ char *ais_embed_timeline(void *handle, long before_id, int count,
 /* Every distinct key as "count|key\n" lines, busiest first. Free with
  * ais_embed_free(). NULL only on bad args / allocation failure. */
 char *ais_embed_tags(void *handle);
+
+/* Record ID's keys as one space-separated string (the same KEYS field the
+ * timeline emits), for a GUI's "edit keys" chip editor. Free with
+ * ais_embed_free(). Returns "" (empty, not NULL) if the record has no keys or
+ * ID is unknown/deleted; NULL only on bad args / allocation failure. */
+char *ais_embed_keys(void *handle, long id);
 
 /* Resolve VALUE to the bounded text a GUI SHOWS (see ais_doc_display): a document
  * blob's CONTENT, else VALUE verbatim. Returns a freshly-allocated, NUL-terminated

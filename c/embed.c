@@ -7,14 +7,17 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
+#include <stdint.h>
 #include <signal.h>
 
 #include "ais.h"
 #include "common.h"
 #include "doc.h"
 #include "embed.h"
+#include "find.h"
 #include "locate.h"
 #include "secret.h"
+#include "store.h"
 #include "sync.h"
 
 void *ais_embed_open(const char *dir)
@@ -104,6 +107,14 @@ int ais_embed_update(void *handle, long id, const char *keys)
     return ais_update((ais *)handle, id, keys);
 }
 
+int ais_embed_set_value(void *handle, long id, const char *old_value,
+                        const char *new_value)
+{
+    if (handle == NULL || old_value == NULL || new_value == NULL)
+        return -1;
+    return ais_set_value((ais *)handle, id, old_value, new_value);
+}
+
 static int embed_pull(void *handle, const char *url, const char *token, int bidir)
 {
 #ifdef _WIN32
@@ -158,6 +169,79 @@ int ais_embed_serve(void *handle, int port, const char *token)
 
 int ais_embed_sync_serve(void *handle, int port, const char *token)
 { return embed_serve(handle, port, token, 1); }
+
+/* ---- file bundle: seal the whole index to a FILE and merge one back -------
+ * Same seal + merge as LAN sync (sync.c), but the sealed blob lands in a file
+ * the user can move by any channel (Drive / USB / email) instead of a socket --
+ * covering PC<->PC and cross-network transfer, which live sync can't. NOTE: sync.c
+ * (the seal/merge) is not built on Windows, so both calls are #ifdef'd to a -1 stub
+ * there, matching embed_pull/serve. SECRET is passed straight
+ * to sync_export/import_sealed as the token: it is domain-separated through the
+ * engine's subkey/KDF, so an arbitrary passphrase is fine (no entropy demand). */
+int ais_embed_export_bundle(void *handle, const char *path, const char *secret)
+{
+#ifdef _WIN32
+    (void)handle; (void)path; (void)secret;     /* sync.c (seal/merge) not built on Windows */
+    return -1;
+#else
+    ais *a = handle;
+    uint8_t *blob = NULL;
+    size_t blen = 0, wrote;
+    FILE *f;
+
+    if (a == NULL || path == NULL || secret == NULL)
+        return -1;                              /* bad args */
+    if (sync_export_sealed(a, secret, &blob, &blen) != 0)
+        return -1;                              /* seal failed (or crypto/POSIX absent) */
+    f = fopen(path, "wb");
+    if (f == NULL) { free(blob); return -1; }   /* destination not writable */
+    wrote = fwrite(blob, 1, blen, f);
+    free(blob);                                 /* sealed ciphertext: no cleartext to wipe */
+    if (wrote != blen) { fclose(f); return -1; }
+    if (fclose(f) != 0) return -1;              /* flush/close error = incomplete file */
+    return 0;
+#endif
+}
+
+int ais_embed_import_bundle(void *handle, const char *path, const char *secret)
+{
+#ifdef _WIN32
+    (void)handle; (void)path; (void)secret;     /* sync.c (seal/merge) not built on Windows */
+    return -1;
+#else
+    ais *a = handle;
+    FILE *f;
+    long size;
+    uint8_t *blob;
+    size_t got;
+    int rc;
+
+    if (a == NULL || path == NULL || secret == NULL)
+        return -1;                              /* bad args */
+    f = fopen(path, "rb");
+    if (f == NULL)
+        return -1;                              /* missing / unreadable */
+    if (fseek(f, 0, SEEK_END) != 0 || (size = ftell(f)) < 0 ||
+        fseek(f, 0, SEEK_SET) != 0) { fclose(f); return -1; }
+    /* honour the same size cap both sides enforce on the wire (sync.h) */
+    if (size == 0 || (unsigned long)size > AIS_SYNC_MAX_BLOB) { fclose(f); return -1; }
+    blob = malloc((size_t)size);
+    if (blob == NULL) { fclose(f); return -1; }
+    got = fread(blob, 1, (size_t)size, f);
+    fclose(f);
+    if (got != (size_t)size) { free(blob); return -1; }
+
+    /* Args are checked and the bytes are in hand, so sync_import_sealed's -1 can
+     * only be an unseal failure (wrong secret / tampered) -- map it to -3; its -2
+     * (an unrecognized version byte) passes through so the GUI can tell "wrong
+     * password" from "corrupt/old file". Merge is the same tombstone-union LWW. */
+    rc = sync_import_sealed(a, secret, blob, got);
+    free(blob);
+    if (rc == 0)  return 0;
+    if (rc == -2) return -2;                    /* version mismatch */
+    return -3;                                  /* wrong secret / corrupt */
+#endif
+}
 
 char *ais_embed_display(void *handle, const char *value)
 {
@@ -257,6 +341,38 @@ char *ais_embed_recall(void *handle, const char *keys, int or_mode)
     return b.p;
 }
 
+/* ---- find: content search over values, captured from ais_find's stream ---- */
+/* Same "id|value\n" line format as recall, so the host reuses one parser; the
+ * capture goes through a portable tmpfile() (ISO C, so it works on Windows too,
+ * unlike open_memstream): let ais_find write to it, then read the file back. */
+char *ais_embed_find(void *handle, const char *needle)
+{
+    ais *a = handle;
+    FILE *tmp;
+    long size;
+    char *out;
+    size_t got;
+
+    if (a == NULL || needle == NULL)
+        return NULL;
+    tmp = tmpfile();
+    if (tmp == NULL)
+        return NULL;
+    if (ais_find(a, needle, tmp) != 0) { fclose(tmp); return NULL; }
+    if (fflush(tmp) != 0 || fseek(tmp, 0, SEEK_END) != 0 ||
+        (size = ftell(tmp)) < 0 || fseek(tmp, 0, SEEK_SET) != 0) {
+        fclose(tmp);
+        return NULL;
+    }
+    out = malloc((size_t)size + 1);         /* +1 for the NUL ("" when size == 0) */
+    if (out == NULL) { fclose(tmp); return NULL; }
+    got = fread(out, 1, (size_t)size, tmp);
+    fclose(tmp);
+    if (got != (size_t)size) { free(out); return NULL; }   /* short read */
+    out[size] = '\0';
+    return out;
+}
+
 /* Return an empty "" buffer instead of NULL so the host sees "no rows", not an
  * error; NULL is reserved for bad args / OOM. */
 static char *buf_finish(struct buf *b, int oom)
@@ -325,6 +441,62 @@ char *ais_embed_tags(void *handle)
         return NULL;
     ais_tags((ais *)handle, tag_emit, &c);
     return buf_finish(&b, c.oom);
+}
+
+/* ---- keys: a record's CURRENT (visible) keys, by id ---------------------- */
+/* The store line holds only the keys a record was CREATED with; ais_update
+ * attaches/detaches in the index (postings + ktomb), never rewriting the line
+ * until compaction. So the live key set can't be read off the store line --
+ * derive it the way recall does: a key belongs to id iff ais_get finds id
+ * under it. Enumerate candidate keys with ais_tags, membership-test each. */
+struct keys_member { long want; int found; };
+
+static int keys_hit(long id, void *vp)
+{
+    struct keys_member *m = vp;
+
+    if (id != m->want)
+        return 0;
+    m->found = 1;
+    return -1;                              /* id is under this key; stop */
+}
+
+struct keys_ctx { ais *a; long want; struct buf *b; int n, oom; };
+
+static int keys_tag(const char *key, long count, void *vp)
+{
+    struct keys_ctx *c = vp;
+    struct keys_member m;
+    char kbuf[AIS_LINE_MAX];
+    char *kv[1];
+
+    (void)count;
+    if (strlen(key) >= sizeof kbuf)
+        return 0;                           /* skip an absurdly long key */
+    strcpy(kbuf, key);                      /* ais_get tokenizes in place */
+    kv[0] = kbuf;
+    m.want = c->want; m.found = 0;
+    ais_get(c->a, kv, 1, AIS_AND, keys_hit, &m);
+    if (m.found) {
+        if ((c->n && buf_add(c->b, " ", 1) < 0) ||
+            buf_add(c->b, key, strlen(key)) < 0)
+            c->oom = 1;
+        else
+            c->n++;
+    }
+    return c->oom ? -1 : 0;
+}
+
+char *ais_embed_keys(void *handle, long id)
+{
+    struct buf b = { NULL, 0, 0 };
+    struct keys_ctx c;
+
+    if (handle == NULL)
+        return NULL;
+    c.a = (ais *)handle; c.want = id; c.b = &b; c.n = 0; c.oom = 0;
+    ais_tags((ais *)handle, keys_tag, &c);
+    return buf_finish(&b, c.oom);           /* "" if id has no visible keys */
 }
 
 /* Persist DIR as the saved default index (~/.ais/config), for a GUI's "change
