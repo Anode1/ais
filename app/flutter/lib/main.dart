@@ -197,7 +197,7 @@ class _RecallPageState extends State<RecallPage> {
   }
 
   void _recall() {
-    final keys = _q.text.trim();
+    final keys = _normKeys(_q.text);
     if (_ais == null || keys.isEmpty) return;
     final t0 = DateTime.now();
     // Exclude ids still inside their Undo window, so a live re-query can't
@@ -344,6 +344,12 @@ class _RecallPageState extends State<RecallPage> {
   }
 
   bool _isUrl(String v) => v.startsWith('http://') || v.startsWith('https://');
+
+  // Accept a comma as an optional key separator and ignore surplus whitespace,
+  // so "home, wifi" and "home   wifi" both resolve to the tags home + wifi. The
+  // engine tokenizes on spaces, so we just fold commas to spaces and collapse.
+  String _normKeys(String s) =>
+      s.replaceAll(',', ' ').trim().replaceAll(RegExp(r'\s+'), ' ');
 
   // A blob-backed value holds only an internal "blobs/<ts>.txt" path; the list
   // shows its resolved content via _display. In-place "Edit value" edits the raw
@@ -1964,7 +1970,7 @@ class _RecallPageState extends State<RecallPage> {
                   : () async {
                       final value = valCtrl.text.trim();
                       if (value.isEmpty || _ais == null) return;
-                      final keys = keysCtrl.text.trim();
+                      final keys = _normKeys(keysCtrl.text);
                       final messenger = ScaffoldMessenger.of(context);
                       final nav = Navigator.of(ctx);
                       if (encrypt) {
