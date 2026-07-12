@@ -137,7 +137,7 @@ class _RecallPageState extends State<RecallPage> {
       Directory(dir).createSync(recursive: true);
       _ais = AisEngine(dir);
       _dir = dir;
-      _status = 'Type keys, then Search. Tap Add to save.';
+      _status = 'Type tags, then Search. Tap Add to save.';
       _loadTimeline(); // open showing recent items, not a blank search pane
     } catch (e) {
       _status = 'cannot open index: $e';
@@ -265,7 +265,7 @@ class _RecallPageState extends State<RecallPage> {
         setState(() {
           _results = const [];
           _searched = false;
-          _status = 'Type keys, then Search.';
+          _status = 'Type tags, then Search.';
         });
       }
     } else if (v == 'timeline') {
@@ -380,11 +380,23 @@ class _RecallPageState extends State<RecallPage> {
   // the plain, verbatim rendering. Callers handle encrypted/blob cases first.
   Widget _valueLabel(String v, ColorScheme cs) {
     if (!_isUrl(v)) return SelectableText(_display(v));
-    return SelectableText.rich(TextSpan(
-      text: _display(v),
-      style: TextStyle(color: cs.primary),
-      recognizer: TapGestureRecognizer()..onTap = () => _openUrl(v),
-    ));
+    final shown = _display(v);
+    // A link needs more than colour (colour-blind users can't see it) and must
+    // be reachable by a screen reader / keyboard, which a bare TextSpan isn't.
+    // Underline it and wrap it in a real link semantic.
+    return Semantics(
+      link: true,
+      label: 'Link: $shown',
+      child: SelectableText.rich(TextSpan(
+        text: shown,
+        style: TextStyle(
+          color: cs.primary,
+          decoration: TextDecoration.underline,
+          decorationColor: cs.primary,
+        ),
+        recognizer: TapGestureRecognizer()..onTap = () => _openUrl(v),
+      )),
+    );
   }
 
   String _display(String v) {
@@ -895,7 +907,7 @@ class _RecallPageState extends State<RecallPage> {
                           style: Theme.of(context)
                               .textTheme
                               .bodySmall
-                              ?.copyWith(color: cs.outline),
+                              ?.copyWith(color: cs.onSurfaceVariant),
                         ),
                       // Config home: gathers the store/sync/theme/about actions
                       // that used to be sub-48dp header text-links. Standard
@@ -977,7 +989,7 @@ class _RecallPageState extends State<RecallPage> {
                                   _resultKeys = const {};
                                   _searched = false;
                                   _textSearch = false; // cleared query drops the fallback too
-                                  _status = 'Type keys, then Search.';
+                                  _status = 'Type tags, then Search.';
                                 });
                                 return;
                               }
@@ -999,6 +1011,7 @@ class _RecallPageState extends State<RecallPage> {
                                   (_voice || Platform.isAndroid || Platform.isIOS)
                                       ? IconButton(
                                           icon: const Icon(Icons.mic),
+                                          tooltip: 'Voice search',
                                           onPressed: _listen)
                                       : null,
                             ),
@@ -1065,7 +1078,7 @@ class _RecallPageState extends State<RecallPage> {
           NavigationDestination(
               icon: Icon(Icons.schedule_outlined),
               selectedIcon: Icon(Icons.schedule),
-              label: 'All'),
+              label: 'Recent'),
           NavigationDestination(
               icon: Icon(Icons.label_outline),
               selectedIcon: Icon(Icons.label),
@@ -1079,7 +1092,7 @@ class _RecallPageState extends State<RecallPage> {
   Widget _centerMsg(String msg, ColorScheme cs) => Center(
         child: Padding(
           padding: const EdgeInsets.all(24),
-          child: Text(msg, textAlign: TextAlign.center, style: TextStyle(color: cs.outline)),
+          child: Text(msg, textAlign: TextAlign.center, style: TextStyle(color: cs.onSurfaceVariant)),
         ),
       );
 
@@ -1481,7 +1494,7 @@ class _RecallPageState extends State<RecallPage> {
                       const SizedBox(width: 8),
                       Expanded(
                         child: Text('encrypted — tap Reveal to read',
-                            style: TextStyle(color: cs.outline)),
+                            style: TextStyle(color: cs.onSurfaceVariant)),
                       ),
                     ])
                   else
@@ -1506,7 +1519,7 @@ class _RecallPageState extends State<RecallPage> {
                           ?.copyWith(color: cs.primary)),
                   const SizedBox(height: 8),
                   if (tagList.isEmpty)
-                    Text('(no tags)', style: TextStyle(color: cs.outline))
+                    Text('(no tags)', style: TextStyle(color: cs.onSurfaceVariant))
                   else
                     Wrap(
                       spacing: 6,
@@ -1515,7 +1528,6 @@ class _RecallPageState extends State<RecallPage> {
                         for (final t in tagList)
                           ActionChip(
                             label: Text(t),
-                            visualDensity: VisualDensity.compact,
                             onPressed: () {
                               Navigator.of(ctx).pop();
                               _q.text = t;
@@ -1588,7 +1600,7 @@ class _RecallPageState extends State<RecallPage> {
                   ? Row(mainAxisSize: MainAxisSize.min, children: [
                       Icon(Icons.lock_outline, size: 16, color: cs.outline),
                       const SizedBox(width: 6),
-                      Text('encrypted', style: TextStyle(color: cs.outline)),
+                      Text('encrypted', style: TextStyle(color: cs.onSurfaceVariant)),
                     ])
                   : _valueLabel(v, cs),
             ),
@@ -1719,20 +1731,17 @@ class _RecallPageState extends State<RecallPage> {
       child: Row(children: [
         InputChip(
           label: Text(_tlFrom.isEmpty ? 'From' : 'From: $_tlFrom'),
-          visualDensity: VisualDensity.compact,
           onPressed: () => _pickDate(isFrom: true),
         ),
         const SizedBox(width: 8),
         InputChip(
           label: Text(_tlTo.isEmpty ? 'To' : 'To: $_tlTo'),
-          visualDensity: VisualDensity.compact,
           onPressed: () => _pickDate(isFrom: false),
         ),
         if (on)
           IconButton(
             icon: const Icon(Icons.clear, size: 18),
             tooltip: 'Clear range',
-            visualDensity: VisualDensity.compact,
             onPressed: _clearRange,
           ),
       ]),
@@ -1791,7 +1800,7 @@ class _RecallPageState extends State<RecallPage> {
           ),
           if (_notHere(r.value)) _notHereBadge(cs),
         ]),
-        subtitle: Text('$time${r.keys.isEmpty ? '(no keys)' : r.keys}',
+        subtitle: Text('$time${r.keys.isEmpty ? '(no tags)' : r.keys}',
             style: Theme.of(context)
                 .textTheme
                 .bodyMedium
@@ -1974,7 +1983,7 @@ class _RecallPageState extends State<RecallPage> {
                       _q.text = keys;
                       _recall(); // show what was just saved
                       messenger.showSnackBar(SnackBar(
-                          content: Text(keys.isEmpty ? 'Saved (no keys)' : 'Saved under: $keys')));
+                          content: Text(keys.isEmpty ? 'Saved (no tags)' : 'Saved under: $keys')));
                     },
             ),
           ],
