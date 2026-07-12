@@ -85,6 +85,11 @@ class _RecallPageState extends State<RecallPage> {
   // engine: they sit in their Undo window. A commit (snackbar closes without
   // Undo, or a second delete supersedes it) clears the id and calls del().
   final Set<int> _pendingDelete = {};
+  // The live "Deleted / UNDO" snackbar per pending id, so a commit can dismiss
+  // it -- once del() has run, UNDO would only fake-restore a row the engine no
+  // longer holds. Cleared when the snackbar closes.
+  final Map<int, ScaffoldFeatureController<SnackBar, SnackBarClosedReason>>
+      _delSnack = {};
   bool _voice = false;
   bool _searched = false;
   // Full-text fallback is SECONDARY: only shown after a key search finds nothing
@@ -195,7 +200,12 @@ class _RecallPageState extends State<RecallPage> {
     final keys = _q.text.trim();
     if (_ais == null || keys.isEmpty) return;
     final t0 = DateTime.now();
-    final r = _ais!.recall(keys, orMode: false);
+    // Exclude ids still inside their Undo window, so a live re-query can't
+    // resurrect a row the user just swiped away.
+    final r = _ais!
+        .recall(keys, orMode: false)
+        .where((h) => !_pendingDelete.contains(h.id))
+        .toList();
     final keysMap = {for (final h in r) h.id: _ais!.keysOf(h.id).trim()};
     setState(() {
       _query = keys;
@@ -207,6 +217,18 @@ class _RecallPageState extends State<RecallPage> {
     });
   }
 
+  // Live/submitted search from the persistent header field. That field shows on
+  // every tab, so typing must also bring the recall view forward -- otherwise
+  // _recall() fills _results while the body still shows the timeline and the
+  // header count desyncs from what's actually on screen.
+  void _recallLive() {
+    if (_view == 'recall') {
+      _recall();
+    } else {
+      _setView('recall'); // flushes pending deletes, then _recall() (query non-empty)
+    }
+  }
+
   // The SECONDARY full-text fallback. Reached ONLY by an explicit tap on
   // "Search note text instead" from the empty key-search state -- never on
   // typing, debounce, submit, or view change. AIS stays key-first; this is the
@@ -214,7 +236,10 @@ class _RecallPageState extends State<RecallPage> {
   void _findText() {
     if (_ais == null || _query.isEmpty) return;
     final t0 = DateTime.now();
-    final r = _ais!.find(_query);
+    final r = _ais!
+        .find(_query)
+        .where((h) => !_pendingDelete.contains(h.id))
+        .toList();
     final keysMap = {for (final h in r) h.id: _ais!.keysOf(h.id).trim()};
     setState(() {
       _searched = true;
@@ -255,7 +280,9 @@ class _RecallPageState extends State<RecallPage> {
   void _loadTimeline() {
     final page = _ais?.timeline(before: 0, count: _tlPage, from: _tlFrom, to: _tlTo) ?? const [];
     setState(() {
-      _tl = page;
+      // Hide ids inside their Undo window; take the cursor/more from the raw
+      // page so pagination stays correct.
+      _tl = page.where((r) => !_pendingDelete.contains(r.id)).toList();
       _tlBefore = page.isNotEmpty ? page.last.id : 0;
       _tlMore = page.length == _tlPage;
     });
@@ -317,6 +344,13 @@ class _RecallPageState extends State<RecallPage> {
   }
 
   bool _isUrl(String v) => v.startsWith('http://') || v.startsWith('https://');
+
+  // A blob-backed value holds only an internal "blobs/<ts>.txt" path; the list
+  // shows its resolved content via _display. In-place "Edit value" edits the raw
+  // stored string, so on a blob it would show the path and, on Save, replace the
+  // pointer with inline text -- orphaning the blob. So it's omitted for blobs,
+  // the same way encrypted/away rows are.
+  bool _isBlob(String v) => v.startsWith('blobs/');
 
   // A multi-line paste is stored out-of-line as a blob (blobs/<ts>.txt); the
   // record holds only that path, an internal detail. Blob resolution lives in
@@ -763,9 +797,13 @@ class _RecallPageState extends State<RecallPage> {
     );
     if (picked == null || picked.isEmpty || picked == _dir) return;
     try {
-      _ais?.close();
+      // Open the new index FIRST; only if that succeeds do we close the old one
+      // and swap. Otherwise a bad path would throw after close(), leaving _ais
+      // pointing at a closed handle -- every later call a use-after-close.
       Directory(picked).createSync(recursive: true);
-      _ais = AisEngine(picked);
+      final next = AisEngine(picked);
+      _ais?.close();
+      _ais = next;
       // Desktop: remember the choice the same way `ais --default` does, so the
       // next launch (and the CLI) opens it too. Mobile's index is fixed.
       if (!Platform.isAndroid && !Platform.isIOS) AisIndex.setDefault(picked);
@@ -927,7 +965,7 @@ class _RecallPageState extends State<RecallPage> {
                             controller: _q,
                             autofocus: true,
                             textInputAction: TextInputAction.search,
-                            onSubmitted: (_) => _recall(),
+                            onSubmitted: (_) => _recallLive(),
                             onChanged: (v) {
                               // Debounced live filter: reschedule on each
                               // keystroke, run _recall() once typing pauses.
@@ -944,7 +982,7 @@ class _RecallPageState extends State<RecallPage> {
                                 return;
                               }
                               _debounce = Timer(
-                                  const Duration(milliseconds: 280), _recall);
+                                  const Duration(milliseconds: 280), _recallLive);
                             },
                             decoration: InputDecoration(
                               hintText: 'type tags to filter',
@@ -1065,6 +1103,11 @@ class _RecallPageState extends State<RecallPage> {
   // depends on the snackbar's animated close alone.
   void _commitDelete(int id) {
     if (_pendingDelete.remove(id) && _ais != null) _ais!.del(id);
+    // A committed delete must not keep offering UNDO -- that would only
+    // fake-restore a record the engine no longer has. Dismiss its snackbar if
+    // it is still up. (When the commit comes from the snackbar's own .closed
+    // callback, the id is already off the map, so this is a no-op there.)
+    _delSnack.remove(id)?.close();
   }
 
   // Flush every pending delete now -- called before a new delete and before any
@@ -1083,39 +1126,51 @@ class _RecallPageState extends State<RecallPage> {
     final Hit? recallHit = recallIdx >= 0 ? _results[recallIdx] : null;
     final tlIdx = _tl.indexWhere((r) => r.id == id);
     final TlRow? tlRow = tlIdx >= 0 ? _tl[tlIdx] : null;
-    if (recallHit == null && tlRow == null) return;
+    if (recallHit == null && tlRow == null) {
+      // The id left both loaded lists during an async gap (e.g. an Edit-tags
+      // re-query dropped it before Detail -> Delete ran). Don't silently no-op:
+      // honor the delete outright. No snapshot to restore, so there's no Undo,
+      // just a plain confirmation.
+      if (_ais != null) _ais!.del(id);
+      messenger.showSnackBar(const SnackBar(content: Text('Deleted')));
+      return;
+    }
     _pendingDelete.add(id);
     setState(() {
       if (recallHit != null) _results = [..._results]..removeAt(recallIdx);
       if (tlRow != null) _tl = [..._tl]..removeAt(tlIdx);
     });
     var undone = false;
-    messenger
-        .showSnackBar(SnackBar(
-          content: const Text('Deleted'),
-          duration: const Duration(seconds: 4),
-          action: SnackBarAction(
-            label: 'UNDO',
-            onPressed: () {
-              undone = true;
-              _pendingDelete.remove(id);
-              setState(() {
-                if (recallHit != null) {
-                  final l = [..._results];
-                  l.insert(recallIdx.clamp(0, l.length), recallHit);
-                  _results = l;
-                }
-                if (tlRow != null) {
-                  final l = [..._tl];
-                  l.insert(tlIdx.clamp(0, l.length), tlRow);
-                  _tl = l;
-                }
-              });
-            },
-          ),
-        ))
-        .closed
-        .then((_) {
+    final ctl = messenger.showSnackBar(SnackBar(
+      content: const Text('Deleted'),
+      duration: const Duration(seconds: 4),
+      action: SnackBarAction(
+        label: 'UNDO',
+        onPressed: () {
+          // If the delete already committed (a later delete or a view change
+          // flushed it), the snackbar should be gone -- but guard anyway so
+          // UNDO can never fake-restore a record the engine no longer has.
+          if (!_pendingDelete.contains(id)) return;
+          undone = true;
+          _pendingDelete.remove(id);
+          setState(() {
+            if (recallHit != null) {
+              final l = [..._results];
+              l.insert(recallIdx.clamp(0, l.length), recallHit);
+              _results = l;
+            }
+            if (tlRow != null) {
+              final l = [..._tl];
+              l.insert(tlIdx.clamp(0, l.length), tlRow);
+              _tl = l;
+            }
+          });
+        },
+      ),
+    ));
+    _delSnack[id] = ctl;
+    ctl.closed.then((_) {
+      _delSnack.remove(id);
       // Closed for any reason other than an Undo tap: commit the delete. No-op if
       // it was already flushed by a later delete or a view change.
       if (undone) return;
@@ -1243,7 +1298,8 @@ class _RecallPageState extends State<RecallPage> {
       ScaffoldMessenger.of(context)
           .showSnackBar(const SnackBar(content: Text('Tags updated')));
     }
-    _recall();
+    _setView(_view); // refresh whichever view is showing (matches _editValue),
+    // not a blind _recall() that no-ops off the recall tab and leaves stale tags
   }
 
   // Fix a record's value in place: the engine keeps its id and timeline slot.
@@ -1404,8 +1460,8 @@ class _RecallPageState extends State<RecallPage> {
                       }
                     },
                     itemBuilder: (_) => [
-                      // plain values edit as raw text; encrypted/away rows omit this
-                      if (!isSecret && !away)
+                      // plain values edit as raw text; encrypted/away/blob rows omit this
+                      if (!isSecret && !away && !_isBlob(curValue))
                         const PopupMenuItem(
                             value: 'value', child: Text('Edit value')),
                       const PopupMenuItem(value: 'tags', child: Text('Edit tags')),
@@ -1582,8 +1638,8 @@ class _RecallPageState extends State<RecallPage> {
                   // sharing ciphertext / a missing blob is useless; gate like Edit value
                   if (!isSecret && !away)
                     const PopupMenuItem(value: 'share', child: Text('Share')),
-                  // plain values edit as raw text; encrypted/away rows omit this
-                  if (!isSecret && !away)
+                  // plain values edit as raw text; encrypted/away/blob rows omit this
+                  if (!isSecret && !away && !_isBlob(v))
                     const PopupMenuItem(value: 'value', child: Text('Edit value')),
                   const PopupMenuItem(value: 'edit', child: Text('Edit tags')),
                   const PopupMenuItem(value: 'delete', child: Text('Delete')),
@@ -1649,7 +1705,7 @@ class _RecallPageState extends State<RecallPage> {
     if (_ais == null) return;
     final page = _ais!.timeline(before: _tlBefore, count: _tlPage, from: _tlFrom, to: _tlTo);
     setState(() {
-      _tl = [..._tl, ...page];
+      _tl = [..._tl, ...page.where((r) => !_pendingDelete.contains(r.id))];
       if (page.isNotEmpty) _tlBefore = page.last.id;
       _tlMore = page.length == _tlPage;
     });
@@ -1766,8 +1822,8 @@ class _RecallPageState extends State<RecallPage> {
             // sharing ciphertext / a missing blob is useless; gate like Edit value
             if (!r.value.startsWith('aisc:') && !_notHere(r.value))
               const PopupMenuItem(value: 'share', child: Text('Share')),
-            // plain values edit as raw text; encrypted/away rows omit this
-            if (!r.value.startsWith('aisc:') && !_notHere(r.value))
+            // plain values edit as raw text; encrypted/away/blob rows omit this
+            if (!r.value.startsWith('aisc:') && !_notHere(r.value) && !_isBlob(r.value))
               const PopupMenuItem(value: 'value', child: Text('Edit value')),
             const PopupMenuItem(value: 'edit', child: Text('Edit tags')),
             const PopupMenuItem(value: 'delete', child: Text('Delete')),
