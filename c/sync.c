@@ -120,43 +120,58 @@ static int export_blobs(FILE *ms, const char *dir, size_t *total)
     return rc;
 }
 
-int sync_export_sealed(ais *a, const char *token, uint8_t **out, size_t *out_len)
+/* Assemble the raw (UNSEALED) bundle: version byte + blob sections + merge stream,
+ * the shared core both the file bundle (plaintext) and LAN sync (which seals this)
+ * use. Allocates *OUT (caller frees). Enforces the same size cap as the wire. */
+int sync_export_plain(ais *a, uint8_t **out, size_t *out_len)
 {
     char *buf = NULL;
     size_t blen = 0, total = 1;                /* the version byte counts toward the cap */
     FILE *ms;
-    uint8_t kseal[32];
     uint8_t ver = AIS_SYNC_PROTO;
-    int rc;
 
-    if (!a || !token || !out || !out_len)
+    if (!a || !out || !out_len)
         return -1;
     ms = open_memstream(&buf, &blen);          /* capture version + blobs + merge stream */
     if (ms == NULL)
         return -1;
     if (fwrite(&ver, 1, 1, ms) != 1) { fclose(ms); free(buf); return -1; }
     if (export_blobs(ms, a->dir, &total) != 0) {
-        fprintf(stderr, "sync: index too large to seal (blobs exceed %lu-byte cap)\n",
+        fprintf(stderr, "sync: index too large (blobs exceed %lu-byte cap)\n",
                 (unsigned long)AIS_SYNC_MAX_BLOB);
         fclose(ms);
-        if (blen) aisc_wipe(buf, blen);
         free(buf);
         return -1;
     }
     feed_export(a, ms);
     if (fclose(ms) != 0) { free(buf); return -1; }
-    if (blen > AIS_SYNC_MAX_BLOB) {            /* cap the seal side too (the pull side matches) */
-        fprintf(stderr, "sync: index too large to seal (%zu bytes > %lu-byte cap)\n",
+    if (blen > AIS_SYNC_MAX_BLOB) {            /* cap the plain side too (the import side matches) */
+        fprintf(stderr, "sync: index too large (%zu bytes > %lu-byte cap)\n",
                 blen, (unsigned long)AIS_SYNC_MAX_BLOB);
-        if (blen) aisc_wipe(buf, blen);
         free(buf);
         return -1;
     }
+    *out = (uint8_t *)buf;
+    *out_len = blen;
+    return 0;
+}
+
+int sync_export_sealed(ais *a, const char *token, uint8_t **out, size_t *out_len)
+{
+    uint8_t *buf = NULL;
+    size_t blen = 0;
+    uint8_t kseal[32];
+    int rc;
+
+    if (!a || !token || !out || !out_len)
+        return -1;
+    if (sync_export_plain(a, &buf, &blen) != 0)
+        return -1;
 
     /* seal under a SUBKEY of the token, not the token itself: the auth proof on the wire
      * never yields this key (domain-separated derivation). */
     aisc_subkey((const uint8_t *)token, strlen(token), "ais-sync-seal-v1", NULL, 0, kseal);
-    rc = aisc_seal_key(kseal, (const uint8_t *)buf, blen, out, out_len);
+    rc = aisc_seal_key(kseal, buf, blen, out, out_len);
     aisc_wipe(kseal, sizeof kseal);
     if (blen)
         aisc_wipe(buf, blen);                  /* the cleartext export held secrets */
@@ -310,40 +325,33 @@ static char *ren_rewrite(char *text, const struct renmap *m)
     return text;
 }
 
-int sync_import_sealed(ais *a, const char *token, const uint8_t *sealed, size_t len)
+/* Parse + merge a raw (UNSEALED) bundle DATA[0..len): version gate, blob-import
+ * loop, then feed the record text into the merge. The shared core both the file
+ * bundle (plaintext) and LAN sync (which unseals into this) use. DATA is owned by
+ * the caller (not freed/wiped here). Returns 0, -1 (bad args / malformed / I/O),
+ * or -2 (unrecognized version byte -- a LOUD failure, never a silent mis-parse). */
+int sync_import_plain(ais *a, const uint8_t *data, size_t len)
 {
-    uint8_t *plain = NULL;
-    size_t plen = 0;
-    uint8_t kseal[32];
-    int rc, ret = -1;
+    int ret = -1;
     FILE *mf;
     struct renmap map = { NULL, NULL, 0, 0 };
     size_t off;
     char *rectext = NULL;
 
-    if (!a || !token || !sealed)
-        return -1;
-    /* authenticate FIRST: a wrong token or any tampering fails here, before any merge */
-    aisc_subkey((const uint8_t *)token, strlen(token), "ais-sync-seal-v1", NULL, 0, kseal);
-    rc = aisc_unseal_key(kseal, sealed, len, &plain, &plen);
-    aisc_wipe(kseal, sizeof kseal);
-    if (rc != AISC_OK)
+    if (!a || !data)
         return -1;
 
     /* version gate: a byte we do not recognize is a LOUD failure (-2), never a
      * silent mis-parse of binary as records. */
-    if (plen < 1 || plain[0] != AIS_SYNC_PROTO) {
-        aisc_wipe(plain, plen);
-        free(plain);
+    if (len < 1 || data[0] != AIS_SYNC_PROTO)
         return -2;
-    }
     off = 1;                                    /* past the version byte */
 
     /* Blob section: each "B|relpath|size\n" header is followed by <size> raw
      * bytes. The first line that does not start with "B|" ends the section and
      * begins the record text (which runs to the end of the payload). */
-    while (off < plen) {
-        const uint8_t *line = plain + off;
+    while (off < len) {
+        const uint8_t *line = data + off;
         const uint8_t *nl;
         size_t linelen;
         char relpath[AIS_PATH_MAX];
@@ -351,9 +359,9 @@ int sync_import_sealed(ais *a, const char *token, const uint8_t *sealed, size_t 
         const char *bar1, *bar2;
         char hdr[AIS_PATH_MAX + 32];
 
-        if (!(plen - off >= 2 && line[0] == 'B' && line[1] == '|'))
+        if (!(len - off >= 2 && line[0] == 'B' && line[1] == '|'))
             break;                              /* not a blob header: records begin here */
-        nl = memchr(line, '\n', plen - off);
+        nl = memchr(line, '\n', len - off);
         if (nl == NULL) goto done;              /* truncated header */
         linelen = (size_t)(nl - line);
         if (linelen >= sizeof hdr) goto done;
@@ -369,30 +377,51 @@ int sync_import_sealed(ais *a, const char *token, const uint8_t *sealed, size_t 
         size = atol(bar1 + 1);
         if (size < 0) goto done;
         off += linelen + 1;                     /* consume the header + its '\n' */
-        if ((size_t)size > plen - off) goto done;  /* content runs past the buffer */
-        if (import_one_blob(a->dir, relpath, plain + off, (size_t)size, &map) != 0)
+        if ((size_t)size > len - off) goto done;  /* content runs past the buffer */
+        if (import_one_blob(a->dir, relpath, data + off, (size_t)size, &map) != 0)
             goto done;
         off += (size_t)size;                    /* past the raw content */
     }
 
     /* Record text = the rest of the payload, NUL-terminated so we can rewrite it. */
-    rectext = malloc(plen - off + 1);
+    rectext = malloc(len - off + 1);
     if (rectext == NULL) goto done;
-    memcpy(rectext, plain + off, plen - off);
-    rectext[plen - off] = '\0';
+    memcpy(rectext, data + off, len - off);
+    rectext[len - off] = '\0';
     if (map.n > 0)
         rectext = ren_rewrite(rectext, &map);   /* repoint collided blob values */
 
     mf = fmemopen(rectext, strlen(rectext), "r");
     if (mf == NULL) goto done;
-    feed_import_from(a, mf);                     /* unsealed record stream -> merge */
+    feed_import_from(a, mf);                     /* record stream -> merge */
     fclose(mf);
     ret = 0;
 
 done:
     ren_free(&map);
     if (rectext) free(rectext);
-    aisc_wipe(plain, plen);
+    return ret;
+}
+
+int sync_import_sealed(ais *a, const char *token, const uint8_t *sealed, size_t len)
+{
+    uint8_t *plain = NULL;
+    size_t plen = 0;
+    uint8_t kseal[32];
+    int rc, ret;
+
+    if (!a || !token || !sealed)
+        return -1;
+    /* authenticate FIRST: a wrong token or any tampering fails here, before any merge */
+    aisc_subkey((const uint8_t *)token, strlen(token), "ais-sync-seal-v1", NULL, 0, kseal);
+    rc = aisc_unseal_key(kseal, sealed, len, &plain, &plen);
+    aisc_wipe(kseal, sizeof kseal);
+    if (rc != AISC_OK)
+        return -1;
+
+    ret = sync_import_plain(a, plain, plen);    /* version gate + blob loop + merge */
+
+    aisc_wipe(plain, plen);                      /* the unsealed cleartext held secrets */
     free(plain);
     return ret;
 }
@@ -657,6 +686,16 @@ int sync_pull_url(ais *a, const char *url, const char *token, int timeout_s, int
 
 #else  /* no POSIX buffer streams or no crypto: transport unavailable */
 
+int sync_export_plain(ais *a, uint8_t **out, size_t *out_len)
+{
+    (void)a; (void)out; (void)out_len;
+    return -1;
+}
+int sync_import_plain(ais *a, const uint8_t *data, size_t len)
+{
+    (void)a; (void)data; (void)len;
+    return -1;
+}
 int sync_export_sealed(ais *a, const char *token, uint8_t **out, size_t *out_len)
 {
     (void)a; (void)token; (void)out; (void)out_len;

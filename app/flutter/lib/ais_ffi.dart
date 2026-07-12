@@ -31,8 +31,8 @@ typedef _PullC = Int32 Function(Pointer<Void>, Pointer<Utf8>, Pointer<Utf8>);
 typedef _PullD = int Function(Pointer<Void>, Pointer<Utf8>, Pointer<Utf8>);
 typedef _ServeC = Int32 Function(Pointer<Void>, Int32, Pointer<Utf8>);
 typedef _ServeD = int Function(Pointer<Void>, int, Pointer<Utf8>);
-typedef _BundleC = Int32 Function(Pointer<Void>, Pointer<Utf8>, Pointer<Utf8>);   // (handle, path, secret)
-typedef _BundleD = int Function(Pointer<Void>, Pointer<Utf8>, Pointer<Utf8>);
+typedef _BundleC = Int32 Function(Pointer<Void>, Pointer<Utf8>);   // (handle, path)
+typedef _BundleD = int Function(Pointer<Void>, Pointer<Utf8>);
 typedef _FreeC = Void Function(Pointer<Utf8>);
 typedef _FreeD = void Function(Pointer<Utf8>);
 typedef _CloseC = Void Function(Pointer<Void>);
@@ -357,29 +357,24 @@ class AisEngine {
     });
   }
 
-  /// Seal the WHOLE index under [secret] and write it to [path], for offline
-  /// sync (move the file by Drive / USB / email, import elsewhere). File I/O
-  /// only, no network. Returns the C int: 0 = written, -1 = bad args / seal /
-  /// write error.
-  int exportBundle(String path, String secret) {
+  /// Write the WHOLE index to [path] as a PLAINTEXT bundle (no passphrase), for
+  /// offline sync (save/move the file by Drive / USB / email, import elsewhere).
+  /// Encrypted values stay opaque (already ciphertext in the store). File I/O
+  /// only, no network. Returns the C int: 0 = written, -1 = bad args / write error.
+  int exportBundle(String path) {
     final p = path.toNativeUtf8();
-    final s = secret.toNativeUtf8();
-    final rc = _exportBundle(_h, p, s);
+    final rc = _exportBundle(_h, p);
     calloc.free(p);
-    calloc.free(s);
     return rc;
   }
 
-  /// Read the sealed bundle at [path], unseal under [secret], and merge it into
-  /// this index (same last-writer-wins as LAN sync). Returns the C int: 0 =
-  /// merged, -1 = I/O / bad args, -2 = version mismatch (old/newer file), -3 =
-  /// wrong secret or corrupt file.
-  int importBundle(String path, String secret) {
+  /// Read the plaintext bundle at [path] and merge it into this index (same
+  /// last-writer-wins as LAN sync). Returns the C int: 0 = merged, -1 = I/O /
+  /// bad args / malformed, -2 = version mismatch (old/newer file).
+  int importBundle(String path) {
     final p = path.toNativeUtf8();
-    final s = secret.toNativeUtf8();
-    final rc = _importBundle(_h, p, s);
+    final rc = _importBundle(_h, p);
     calloc.free(p);
-    calloc.free(s);
     return rc;
   }
 

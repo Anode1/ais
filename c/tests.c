@@ -1732,9 +1732,8 @@ static void test_embed_bundle_file(void)
 {
     const char *da = "/tmp/ais_ut_bundleA";
     const char *db = "/tmp/ais_ut_bundleB";
-    const char *dc = "/tmp/ais_ut_bundleC";
-    const char *path = "/tmp/ais_ut_bundle.seal";
-    void *hA, *hB, *hC;
+    const char *path = "/tmp/ais_ut_bundle.aisb";
+    void *hA, *hB;
     char *r;
     long a1, a2;
     FILE *f;
@@ -1742,7 +1741,6 @@ static void test_embed_bundle_file(void)
 
     scratch_rm(da);
     scratch_rm(db);
-    scratch_rm(dc);
     remove(path);
 
     hA = ais_embed_open(da);
@@ -1753,7 +1751,8 @@ static void test_embed_bundle_file(void)
     a2 = ais_embed_store(hA, "recipe pasta", "boil then toss");
     CHECK(a1 > 0 && a2 > 0, "embed-bundle: seed two records in A");
 
-    CHECK(ais_embed_export_bundle(hA, path, "correct horse") == 0,
+    /* plaintext export: no secret */
+    CHECK(ais_embed_export_bundle(hA, path) == 0,
           "embed-bundle: export_bundle -> 0");
     f = fopen(path, "rb");
     CHECK(f != NULL, "embed-bundle: the bundle file was written");
@@ -1763,12 +1762,12 @@ static void test_embed_bundle_file(void)
     }
     CHECK(fsize > 0, "embed-bundle: the bundle file is non-empty");
 
-    /* right secret into a fresh index -> both records merge in */
+    /* plaintext import into a fresh index -> both records merge in */
     hB = ais_embed_open(db);
     CHECK(hB != NULL, "embed-bundle: open empty index B");
     if (hB != NULL) {
-        CHECK(ais_embed_import_bundle(hB, path, "correct horse") == 0,
-              "embed-bundle: import with the right secret -> 0");
+        CHECK(ais_embed_import_bundle(hB, path) == 0,
+              "embed-bundle: import -> 0");
         r = ais_embed_recall(hB, "venice", 0);
         CHECK(r != NULL && strstr(r, "ex.org/v") != NULL,
               "embed-bundle: the first record merged into B");
@@ -1780,24 +1779,10 @@ static void test_embed_bundle_file(void)
         ais_embed_close(hB);
     }
 
-    /* wrong secret into a fresh index -> -3, nothing merged */
-    hC = ais_embed_open(dc);
-    CHECK(hC != NULL, "embed-bundle: open empty index C");
-    if (hC != NULL) {
-        CHECK(ais_embed_import_bundle(hC, path, "wrong secret") == -3,
-              "embed-bundle: import with a wrong secret -> -3");
-        r = ais_embed_recall(hC, "venice", 0);
-        CHECK(r != NULL && strstr(r, "ex.org/v") == NULL,
-              "embed-bundle: nothing merged into C on a wrong secret");
-        ais_embed_free(r);
-        ais_embed_close(hC);
-    }
-
     ais_embed_close(hA);
     remove(path);
     scratch_rm(da);
     scratch_rm(db);
-    scratch_rm(dc);
 }
 #endif
 

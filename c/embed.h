@@ -88,19 +88,19 @@ int   ais_embed_serve(void *handle, int port, const char *token);
 int   ais_embed_sync_pull(void *handle, const char *url, const char *token);
 int   ais_embed_sync_serve(void *handle, int port, const char *token);
 
-/* File bundle (offline sync): seal the WHOLE index under SECRET and write it to
- * PATH, for the user to move by any channel (Drive / USB / email) and import
- * elsewhere -- covering PC<->PC and Windows, which live LAN sync can't. Same
- * seal as sync; File I/O only, no sockets. SECRET is any passphrase (keyed via
- * the engine's subkey/KDF). Returns 0, or -1 (bad args / seal / write). */
-int   ais_embed_export_bundle(void *handle, const char *path, const char *secret);
+/* File bundle (offline sync): write the WHOLE index to PATH as a PLAINTEXT bundle
+ * (no passphrase, no AEAD), for the user to save/move by any channel (Drive / USB /
+ * email) and import elsewhere -- covering PC<->PC and Windows, which live LAN sync
+ * can't. Encrypted VALUES stay opaque (they are already "aisc:" ciphertext in the
+ * store, carried as-is). File I/O only, no sockets. Returns 0, or -1 (bad args /
+ * write). */
+int   ais_embed_export_bundle(void *handle, const char *path);
 
-/* Read the sealed bundle at PATH (capped at AIS_SYNC_MAX_BLOB), unseal under
- * SECRET, and merge it into the index -- the same tombstone-union last-writer-
- * wins as socket sync. Returns 0 (merged), -1 (I/O / bad args), -2 (version
- * mismatch: an older/newer bundle format), or -3 (wrong secret / corrupt: the
- * unseal failed), so a GUI can tell "wrong password" from "unreadable file". */
-int   ais_embed_import_bundle(void *handle, const char *path, const char *secret);
+/* Read the plaintext bundle at PATH (capped at AIS_SYNC_MAX_BLOB) and merge it into
+ * the index -- the same tombstone-union last-writer-wins as socket sync. Returns 0
+ * (merged), -1 (I/O / bad args / malformed), or -2 (version mismatch: an older/newer
+ * bundle format), so a GUI can tell "unreadable/wrong file" from "wrong format". */
+int   ais_embed_import_bundle(void *handle, const char *path);
 
 /* One timeline page as "id|ts|keys|value\n" lines: the COUNT records with id <
  * BEFORE_ID (BEFORE_ID <= 0 = from newest; COUNT <= 0 = default), newest first,

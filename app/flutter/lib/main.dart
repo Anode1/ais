@@ -449,7 +449,7 @@ class _RecallPageState extends State<RecallPage> {
             ListTile(
               leading: const Icon(Icons.save_alt),
               title: const Text('Export to a file'),
-              subtitle: const Text('Save an encrypted copy of the whole index'),
+              subtitle: const Text('Save a copy of the whole index to a file'),
               onTap: () => Navigator.pop(ctx, 'export'),
             ),
             ListTile(
@@ -490,61 +490,42 @@ class _RecallPageState extends State<RecallPage> {
         ),
       );
 
-  // Export the whole index to a single encrypted file (the "aisb" bundle) the
+  // Export the whole index to a single plaintext file (the "aisb" bundle) the
   // user can carry by any channel. No picker plugin in pubspec, so the save
   // location is a plain path field (defaults inside the current store). The
-  // seal is fast, so it runs inline; every outcome gets a SnackBar.
+  // write is fast, so it runs inline; every outcome gets a SnackBar.
   Future<void> _exportFile() async {
     if (_ais == null) return;
     final messenger = ScaffoldMessenger.of(context);
     final pathCtrl = TextEditingController(text: '$_dir/ais-export.aisb');
-    final passCtrl = TextEditingController();
-    bool showPass = false; // reveal toggle for the sealing passphrase
     final go = await showDialog<bool>(
       context: context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setLocal) => AlertDialog(
-          title: const Text('Export to a file'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: pathCtrl,
-                autofocus: true,
-                decoration: const InputDecoration(
-                    labelText: 'Save to', hintText: '/full/path/ais-export.aisb'),
-              ),
-              TextField(
-                controller: passCtrl,
-                obscureText: !showPass,
-                decoration: InputDecoration(
-                  labelText: 'Passphrase',
-                  suffixIcon: IconButton(
-                    icon: Icon(showPass ? Icons.visibility_off : Icons.visibility),
-                    tooltip: showPass ? 'Hide' : 'Show',
-                    onPressed: () => setLocal(() => showPass = !showPass),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                  'Writes an encrypted copy of the whole index. Keep the '
-                  'passphrase — you need it to import the file elsewhere.',
-                  style: Theme.of(ctx).textTheme.bodySmall),
-            ],
-          ),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
-            FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Export')),
+      builder: (ctx) => AlertDialog(
+        title: const Text('Export to a file'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: pathCtrl,
+              autofocus: true,
+              decoration: const InputDecoration(
+                  labelText: 'Save to', hintText: '/full/path/ais-export.aisb'),
+            ),
+            const SizedBox(height: 8),
+            Text('Writes a copy of the whole index to this file.',
+                style: Theme.of(ctx).textTheme.bodySmall),
           ],
         ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Export')),
+        ],
       ),
     );
     if (go != true || _ais == null) return;
     final path = pathCtrl.text.trim();
-    final secret = passCtrl.text;
-    if (path.isEmpty || secret.isEmpty) return;
-    final rc = _ais!.exportBundle(path, secret);
+    if (path.isEmpty) return;
+    final rc = _ais!.exportBundle(path);
     if (!mounted) return;
     messenger.showSnackBar(SnackBar(
         content: Text(rc == 0
@@ -552,14 +533,13 @@ class _RecallPageState extends State<RecallPage> {
             : 'Could not write the file. Check the folder path.')));
   }
 
-  // Import an encrypted bundle file and merge it into this index (same
+  // Import a plaintext bundle file and merge it into this index (same
   // tombstone-union LWW merge as live sync). Distinct from Join/scan: this
   // reads a file that reached this device by Drive / USB / email, no network.
   Future<void> _importFile() async {
     if (_ais == null) return;
     final messenger = ScaffoldMessenger.of(context);
     final pathCtrl = TextEditingController();
-    final passCtrl = TextEditingController();
     final go = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -573,15 +553,8 @@ class _RecallPageState extends State<RecallPage> {
               decoration: const InputDecoration(
                   labelText: 'File', hintText: '/full/path/ais-export.aisb'),
             ),
-            TextField(
-              controller: passCtrl,
-              obscureText: true,
-              decoration: const InputDecoration(labelText: 'Passphrase'),
-            ),
             const SizedBox(height: 8),
-            Text(
-                'Merges the file into this index. Use the passphrase it was '
-                'exported with.',
+            Text('Merges the file into this index.',
                 style: Theme.of(ctx).textTheme.bodySmall),
           ],
         ),
@@ -593,9 +566,8 @@ class _RecallPageState extends State<RecallPage> {
     );
     if (go != true || _ais == null) return;
     final path = pathCtrl.text.trim();
-    final secret = passCtrl.text;
-    if (path.isEmpty || secret.isEmpty) return;
-    final rc = _ais!.importBundle(path, secret);
+    if (path.isEmpty) return;
+    final rc = _ais!.importBundle(path);
     if (!mounted) return;
     final String msg;
     switch (rc) {
@@ -605,11 +577,8 @@ class _RecallPageState extends State<RecallPage> {
       case -2:
         msg = 'This file is from an incompatible version.';
         break;
-      case -3:
-        msg = 'Wrong passphrase or unreadable file.';
-        break;
       default:
-        msg = 'Could not read the file. Check the path.';
+        msg = 'Couldn’t read the file.';
     }
     messenger.showSnackBar(SnackBar(content: Text(msg)));
     if (rc == 0) _setView(_view); // refresh with merged records

@@ -170,18 +170,19 @@ int ais_embed_serve(void *handle, int port, const char *token)
 int ais_embed_sync_serve(void *handle, int port, const char *token)
 { return embed_serve(handle, port, token, 1); }
 
-/* ---- file bundle: seal the whole index to a FILE and merge one back -------
- * Same seal + merge as LAN sync (sync.c), but the sealed blob lands in a file
- * the user can move by any channel (Drive / USB / email) instead of a socket --
- * covering PC<->PC and cross-network transfer, which live sync can't. NOTE: sync.c
- * (the seal/merge) is not built on Windows, so both calls are #ifdef'd to a -1 stub
- * there, matching embed_pull/serve. SECRET is passed straight
- * to sync_export/import_sealed as the token: it is domain-separated through the
- * engine's subkey/KDF, so an arbitrary passphrase is fine (no entropy demand). */
-int ais_embed_export_bundle(void *handle, const char *path, const char *secret)
+/* ---- file bundle: write the whole index to a FILE and merge one back -------
+ * The same assembly + merge as LAN sync (sync.c), but PLAINTEXT: no AEAD, no
+ * passphrase, so there is no wrong-secret failure class. The bundle lands in a
+ * file the user can save/move by any channel (Drive / USB / email) instead of a
+ * socket -- covering PC<->PC and cross-network transfer, which live sync can't.
+ * Encrypted VALUES stay opaque: they are already "aisc:" ciphertext in the store,
+ * so the plaintext bundle carries them as-is (the bundle envelope is open, the
+ * secret values remain sealed). NOTE: sync.c is not built on Windows, so both
+ * calls are #ifdef'd to a -1 stub there, matching embed_pull/serve. */
+int ais_embed_export_bundle(void *handle, const char *path)
 {
 #ifdef _WIN32
-    (void)handle; (void)path; (void)secret;     /* sync.c (seal/merge) not built on Windows */
+    (void)handle; (void)path;                   /* sync.c (assemble/merge) not built on Windows */
     return -1;
 #else
     ais *a = handle;
@@ -189,24 +190,24 @@ int ais_embed_export_bundle(void *handle, const char *path, const char *secret)
     size_t blen = 0, wrote;
     FILE *f;
 
-    if (a == NULL || path == NULL || secret == NULL)
+    if (a == NULL || path == NULL)
         return -1;                              /* bad args */
-    if (sync_export_sealed(a, secret, &blob, &blen) != 0)
-        return -1;                              /* seal failed (or crypto/POSIX absent) */
+    if (sync_export_plain(a, &blob, &blen) != 0)
+        return -1;                              /* assembly failed (or crypto/POSIX absent) */
     f = fopen(path, "wb");
     if (f == NULL) { free(blob); return -1; }   /* destination not writable */
     wrote = fwrite(blob, 1, blen, f);
-    free(blob);                                 /* sealed ciphertext: no cleartext to wipe */
+    free(blob);
     if (wrote != blen) { fclose(f); return -1; }
     if (fclose(f) != 0) return -1;              /* flush/close error = incomplete file */
     return 0;
 #endif
 }
 
-int ais_embed_import_bundle(void *handle, const char *path, const char *secret)
+int ais_embed_import_bundle(void *handle, const char *path)
 {
 #ifdef _WIN32
-    (void)handle; (void)path; (void)secret;     /* sync.c (seal/merge) not built on Windows */
+    (void)handle; (void)path;                   /* sync.c (assemble/merge) not built on Windows */
     return -1;
 #else
     ais *a = handle;
@@ -216,7 +217,7 @@ int ais_embed_import_bundle(void *handle, const char *path, const char *secret)
     size_t got;
     int rc;
 
-    if (a == NULL || path == NULL || secret == NULL)
+    if (a == NULL || path == NULL)
         return -1;                              /* bad args */
     f = fopen(path, "rb");
     if (f == NULL)
@@ -231,15 +232,14 @@ int ais_embed_import_bundle(void *handle, const char *path, const char *secret)
     fclose(f);
     if (got != (size_t)size) { free(blob); return -1; }
 
-    /* Args are checked and the bytes are in hand, so sync_import_sealed's -1 can
-     * only be an unseal failure (wrong secret / tampered) -- map it to -3; its -2
-     * (an unrecognized version byte) passes through so the GUI can tell "wrong
-     * password" from "corrupt/old file". Merge is the same tombstone-union LWW. */
-    rc = sync_import_sealed(a, secret, blob, got);
+    /* Plaintext merge (the same tombstone-union LWW). -1 = I/O / bad args; -2 = an
+     * unrecognized version byte, so a GUI can say "old/newer bundle format" rather
+     * than mis-parsing. There is no wrong-secret (-3) case: the bundle is not sealed. */
+    rc = sync_import_plain(a, blob, got);
     free(blob);
     if (rc == 0)  return 0;
     if (rc == -2) return -2;                    /* version mismatch */
-    return -3;                                  /* wrong secret / corrupt */
+    return -1;                                  /* malformed / I/O */
 #endif
 }
 

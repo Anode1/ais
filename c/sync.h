@@ -16,6 +16,17 @@
 #define AIS_SYNC_PORT 8766       /* default LAN sync port (distinct from --serve's 8765 GUI) */
 #define AIS_SYNC_MAX_BLOB (64u * 1024u * 1024u)   /* cap on one sealed transfer, BOTH sides */
 
+/* Assemble A's raw (UNSEALED) bundle -- version byte + blob sections + merge stream --
+ * the shared core the file bundle (plaintext) and LAN sync (which seals this) both use.
+ * Allocates *OUT (caller frees). Enforces the same size cap as the wire. Returns 0, or -1
+ * (incl. when the build lacks POSIX buffer streams or the crypto module). */
+int sync_export_plain(ais *a, uint8_t **out, size_t *out_len);
+
+/* Parse + merge a raw (UNSEALED) bundle DATA[0..len): version gate, blob-import loop,
+ * then merge the record text (last-write-wins). DATA is owned by the caller. Returns 0,
+ * -1 (bad args / malformed / I/O), or -2 (unrecognized version byte -- a LOUD failure). */
+int sync_import_plain(ais *a, const uint8_t *data, size_t len);
+
 /* Produce A's merge stream (A|/D| lines) sealed under TOKEN, a high-entropy one-time
  * pairing secret. Allocates *OUT (caller frees; wipe with aisc_wipe). Returns 0, or -1
  * (incl. when the build lacks POSIX buffer streams or the crypto module). */
