@@ -3,31 +3,56 @@
 // (ais_ffi.dart); this is just the surface. The header is a translucent
 // (glassy) strip ABOVE the list -- never an overlay, so the list is always
 // visible.
+import 'dart:async';
 import 'dart:io';
 import 'dart:ui';
 import 'dart:math';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:qr_flutter/qr_flutter.dart';
+import 'package:share_plus/share_plus.dart';
 import 'package:speech_to_text/speech_to_text.dart';
 import 'ais_ffi.dart';
 
 void main() => runApp(const AisApp());
 
+// Session-only theme choice (System/Light/Dark). Lifted out of AisApp so the
+// overflow menu's Theme picker can drive it via ValueListenableBuilder without
+// a full app rebuild path. Not persisted -- resets to System on next launch.
+final ValueNotifier<ThemeMode> themeModeNotifier =
+    ValueNotifier(ThemeMode.system);
+
 class AisApp extends StatelessWidget {
   const AisApp({super.key});
   @override
-  Widget build(BuildContext context) => MaterialApp(
+  Widget build(BuildContext context) {
+    // One seed, two schemes: follow the system between light and dark. The
+    // scaffold background and every surface come from the ColorScheme now (no
+    // hardcoded light surfaces), so both themes read correctly.
+    const seed = Color(0xFF1A0DAB);
+    return ValueListenableBuilder<ThemeMode>(
+      valueListenable: themeModeNotifier,
+      builder: (context, mode, _) => MaterialApp(
         title: 'AIS',
         debugShowCheckedModeBanner: false,
         theme: ThemeData(
           useMaterial3: true,
-          colorSchemeSeed: const Color(0xFF1A0DAB),
-          scaffoldBackgroundColor: const Color(0xFFEFEFF6),
+          colorScheme: ColorScheme.fromSeed(
+              seedColor: seed, brightness: Brightness.light),
         ),
+        darkTheme: ThemeData(
+          useMaterial3: true,
+          colorScheme:
+              ColorScheme.fromSeed(seedColor: seed, brightness: Brightness.dark),
+        ),
+        themeMode: mode,
         home: const RecallPage(),
-      );
+      ),
+    );
+  }
 }
 
 class RecallPage extends StatefulWidget {
@@ -39,8 +64,15 @@ class RecallPage extends StatefulWidget {
 class _RecallPageState extends State<RecallPage> {
   final _q = TextEditingController();
   final _speech = SpeechToText();
+  // Live search: each keystroke reschedules this; _recall() fires once typing
+  // pauses, so the list filters as you type without pressing Search.
+  Timer? _debounce;
   AisEngine? _ais;
   List<Hit> _results = const [];
+  // Tags for the current recall/find results, keyed by record id. The recall Hit
+  // carries only id+value, so tags are fetched ONCE when results load (here, not
+  // in the itemBuilder, which reruns on scroll). Cleared whenever results reset.
+  Map<int, String> _resultKeys = const {};
   List<TlRow> _tl = const [];
   List<TagRow> _tags = const [];
   int _tlBefore = 0; // keyset cursor: last id of the loaded timeline page
@@ -48,10 +80,17 @@ class _RecallPageState extends State<RecallPage> {
   String _tlFrom = ''; // timeline date range, "YYYY-MM-DD" ('' = open)
   String _tlTo = '';
   static const int _tlPage = 100;
-  String _view = 'recall'; // recall | timeline | tags
-  bool _matchOr = false; // false = AND (default; engine relaxes to OR if empty); true = OR
+  String _view = 'timeline'; // recall | timeline | tags -- open on content, not a blank search
+  // Ids optimistically removed from the lists but not yet committed to the
+  // engine: they sit in their Undo window. A commit (snackbar closes without
+  // Undo, or a second delete supersedes it) clears the id and calls del().
+  final Set<int> _pendingDelete = {};
   bool _voice = false;
   bool _searched = false;
+  // Full-text fallback is SECONDARY: only shown after a key search finds nothing
+  // and the user explicitly taps "Search note text instead". True while find()
+  // results are on screen; reset on any new key search, clear, or view change.
+  bool _textSearch = false;
   String _status = 'opening index…';
   String _query = '';
   String _dir = '';
@@ -94,6 +133,7 @@ class _RecallPageState extends State<RecallPage> {
       _ais = AisEngine(dir);
       _dir = dir;
       _status = 'Type keys, then Search. Tap Add to save.';
+      _loadTimeline(); // open showing recent items, not a blank search pane
     } catch (e) {
       _status = 'cannot open index: $e';
     }
@@ -155,17 +195,43 @@ class _RecallPageState extends State<RecallPage> {
     final keys = _q.text.trim();
     if (_ais == null || keys.isEmpty) return;
     final t0 = DateTime.now();
-    final r = _ais!.recall(keys, orMode: _matchOr);
+    final r = _ais!.recall(keys, orMode: false);
+    final keysMap = {for (final h in r) h.id: _ais!.keysOf(h.id).trim()};
     setState(() {
       _query = keys;
       _searched = true;
+      _textSearch = false; // a fresh key search leaves the text-fallback mode
       _ms = DateTime.now().difference(t0).inMilliseconds;
       _results = r;
+      _resultKeys = keysMap;
+    });
+  }
+
+  // The SECONDARY full-text fallback. Reached ONLY by an explicit tap on
+  // "Search note text instead" from the empty key-search state -- never on
+  // typing, debounce, submit, or view change. AIS stays key-first; this is the
+  // "I forgot which tag I used" escape hatch, searching note VALUES via find().
+  void _findText() {
+    if (_ais == null || _query.isEmpty) return;
+    final t0 = DateTime.now();
+    final r = _ais!.find(_query);
+    final keysMap = {for (final h in r) h.id: _ais!.keysOf(h.id).trim()};
+    setState(() {
+      _searched = true;
+      _textSearch = true;
+      _ms = DateTime.now().difference(t0).inMilliseconds;
+      _results = r;
+      _resultKeys = keysMap;
     });
   }
 
   void _setView(String v) {
-    setState(() => _view = v);
+    _flushPendingDeletes(); // commit pending deletes so a re-query can't resurrect them
+    setState(() {
+      _view = v;
+      _textSearch = false; // leaving/returning to a view drops the text fallback
+      _resultKeys = const {}; // stale on any view change; _recall repopulates
+    });
     if (v == 'recall') {
       if (_q.text.trim().isNotEmpty) {
         _recall();
@@ -259,6 +325,34 @@ class _RecallPageState extends State<RecallPage> {
   // content by absolute path (blobs are immutable) to skip the FFI on rebuilds;
   // an absent blob resolves to its path (uncached), so _notHere still badges it.
   final Map<String, String> _blobCache = {};
+  // Open a URL value in the external browser. Guards against launch failure so a
+  // bad/unsupported link surfaces a hint instead of throwing.
+  Future<void> _openUrl(String v) async {
+    try {
+      final uri = Uri.parse(v);
+      if (!await canLaunchUrl(uri) ||
+          !await launchUrl(uri, mode: LaunchMode.externalApplication)) {
+        throw 'launch failed';
+      }
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Couldn't open the link")));
+    }
+  }
+
+  // Render a record's value. A URL is a tappable link (tap opens the external
+  // browser; long-press/drag still selects and copies). Everything else keeps
+  // the plain, verbatim rendering. Callers handle encrypted/blob cases first.
+  Widget _valueLabel(String v, ColorScheme cs) {
+    if (!_isUrl(v)) return SelectableText(_display(v));
+    return SelectableText.rich(TextSpan(
+      text: _display(v),
+      style: TextStyle(color: cs.primary),
+      recognizer: TapGestureRecognizer()..onTap = () => _openUrl(v),
+    ));
+  }
+
   String _display(String v) {
     if (!v.startsWith('blobs/')) return v; // inline value: no FFI, verbatim
     final e = _ais;
@@ -269,6 +363,20 @@ class _RecallPageState extends State<RecallPage> {
     final shown = e.display(v);
     if (shown != v) _blobCache[full] = shown; // don't cache an absent/unresolved blob
     return shown;
+  }
+
+  // Hand the record's shareable text to the OS share sheet. For a URL the value
+  // is the URL; otherwise it's the display text (same as Copy). Desktop/Linux
+  // has limited share_plus support, so a failure is a graceful no-op with a hint
+  // rather than a crash.
+  Future<void> _share(String v) async {
+    try {
+      await SharePlus.instance.share(ShareParams(text: _display(v)));
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Sharing isn't available here")));
+    }
   }
 
   // "Not here": the value points at a file that is absent on THIS device -- an
@@ -301,27 +409,210 @@ class _RecallPageState extends State<RecallPage> {
   // Sync (Receive): pull + merge from another device running `ais --export
   // --serve`. Off the UI isolate; every outcome gets a plain-language SnackBar.
   // The one-tap "Sync": pick a role, both devices converge (symmetric exchange).
+  //
+  // Two clearly-separated ways in, so they can't be confused:
+  //   * A NEARBY DEVICE, live over Wi-Fi (Host / Join+scan) -- QR/camera.
+  //   * A FILE you move by Drive / USB / email (Export / Import) -- no network.
   Future<void> _syncSheet() async {
     if (_ais == null) return;
-    final choice = await showDialog<String>(
+    final choice = await showModalBottomSheet<String>(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: Text('Sync with another device',
+                    style: Theme.of(ctx).textTheme.titleMedium),
+              ),
+            ),
+            // --- Live, over Wi-Fi: the camera/QR pairing path. ---
+            _syncGroupLabel(ctx, 'A nearby device — same Wi-Fi'),
+            ListTile(
+              leading: const Icon(Icons.wifi_tethering),
+              title: const Text('Host a sync'),
+              subtitle: const Text('Wait here; show a QR the other device scans'),
+              onTap: () => Navigator.pop(ctx, 'host'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.qr_code_scanner),
+              title: const Text('Join / scan a nearby device'),
+              subtitle: const Text('Scan its QR with the camera, or type its address'),
+              onTap: () => Navigator.pop(ctx, 'join'),
+            ),
+            const Divider(height: 24),
+            // --- A file: no network; move it by Drive / USB / email. ---
+            _syncGroupLabel(ctx, 'A file — move it by Drive, USB or email'),
+            ListTile(
+              leading: const Icon(Icons.save_alt),
+              title: const Text('Export to a file'),
+              subtitle: const Text('Save an encrypted copy of the whole index'),
+              onTap: () => Navigator.pop(ctx, 'export'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.folder_open),
+              title: const Text('Import from a file'),
+              subtitle: const Text('Merge in a file you exported on another device'),
+              onTap: () => Navigator.pop(ctx, 'import'),
+            ),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
+    switch (choice) {
+      case 'host':
+        await _syncHost();
+        break;
+      case 'join':
+        await _syncJoin();
+        break;
+      case 'export':
+        await _exportFile();
+        break;
+      case 'import':
+        await _importFile();
+        break;
+    }
+  }
+
+  // A small primary-tinted section label for the two sync groups above.
+  Widget _syncGroupLabel(BuildContext ctx, String text) => Padding(
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+        child: Align(
+          alignment: Alignment.centerLeft,
+          child: Text(text,
+              style: Theme.of(ctx).textTheme.labelMedium?.copyWith(
+                  color: Theme.of(ctx).colorScheme.primary)),
+        ),
+      );
+
+  // Export the whole index to a single encrypted file (the "aisb" bundle) the
+  // user can carry by any channel. No picker plugin in pubspec, so the save
+  // location is a plain path field (defaults inside the current store). The
+  // seal is fast, so it runs inline; every outcome gets a SnackBar.
+  Future<void> _exportFile() async {
+    if (_ais == null) return;
+    final messenger = ScaffoldMessenger.of(context);
+    final pathCtrl = TextEditingController(text: '$_dir/ais-export.aisb');
+    final passCtrl = TextEditingController();
+    bool showPass = false; // reveal toggle for the sealing passphrase
+    final go = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setLocal) => AlertDialog(
+          title: const Text('Export to a file'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: pathCtrl,
+                autofocus: true,
+                decoration: const InputDecoration(
+                    labelText: 'Save to', hintText: '/full/path/ais-export.aisb'),
+              ),
+              TextField(
+                controller: passCtrl,
+                obscureText: !showPass,
+                decoration: InputDecoration(
+                  labelText: 'Passphrase',
+                  suffixIcon: IconButton(
+                    icon: Icon(showPass ? Icons.visibility_off : Icons.visibility),
+                    tooltip: showPass ? 'Hide' : 'Show',
+                    onPressed: () => setLocal(() => showPass = !showPass),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                  'Writes an encrypted copy of the whole index. Keep the '
+                  'passphrase — you need it to import the file elsewhere.',
+                  style: Theme.of(ctx).textTheme.bodySmall),
+            ],
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+            FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Export')),
+          ],
+        ),
+      ),
+    );
+    if (go != true || _ais == null) return;
+    final path = pathCtrl.text.trim();
+    final secret = passCtrl.text;
+    if (path.isEmpty || secret.isEmpty) return;
+    final rc = _ais!.exportBundle(path, secret);
+    if (!mounted) return;
+    messenger.showSnackBar(SnackBar(
+        content: Text(rc == 0
+            ? 'Exported to $path'
+            : 'Could not write the file. Check the folder path.')));
+  }
+
+  // Import an encrypted bundle file and merge it into this index (same
+  // tombstone-union LWW merge as live sync). Distinct from Join/scan: this
+  // reads a file that reached this device by Drive / USB / email, no network.
+  Future<void> _importFile() async {
+    if (_ais == null) return;
+    final messenger = ScaffoldMessenger.of(context);
+    final pathCtrl = TextEditingController();
+    final passCtrl = TextEditingController();
+    final go = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Sync with another device'),
-        content: const Text(
-            'Both devices end up with the same records. One hosts and waits; the '
-            'other joins it. Same Wi-Fi.'),
+        title: const Text('Import from a file'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: pathCtrl,
+              autofocus: true,
+              decoration: const InputDecoration(
+                  labelText: 'File', hintText: '/full/path/ais-export.aisb'),
+            ),
+            TextField(
+              controller: passCtrl,
+              obscureText: true,
+              decoration: const InputDecoration(labelText: 'Passphrase'),
+            ),
+            const SizedBox(height: 8),
+            Text(
+                'Merges the file into this index. Use the passphrase it was '
+                'exported with.',
+                style: Theme.of(ctx).textTheme.bodySmall),
+          ],
+        ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
-          TextButton(onPressed: () => Navigator.pop(ctx, 'join'), child: const Text('Join')),
-          FilledButton(onPressed: () => Navigator.pop(ctx, 'host'), child: const Text('Host')),
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Import')),
         ],
       ),
     );
-    if (choice == 'host') {
-      await _syncHost();
-    } else if (choice == 'join') {
-      await _syncJoin();
+    if (go != true || _ais == null) return;
+    final path = pathCtrl.text.trim();
+    final secret = passCtrl.text;
+    if (path.isEmpty || secret.isEmpty) return;
+    final rc = _ais!.importBundle(path, secret);
+    if (!mounted) return;
+    final String msg;
+    switch (rc) {
+      case 0:
+        msg = 'Merged. This index now includes the file’s records.';
+        break;
+      case -2:
+        msg = 'This file is from an incompatible version.';
+        break;
+      case -3:
+        msg = 'Wrong passphrase or unreadable file.';
+        break;
+      default:
+        msg = 'Could not read the file. Check the path.';
     }
+    messenger.showSnackBar(SnackBar(content: Text(msg)));
+    if (rc == 0) _setView(_view); // refresh with merged records
   }
 
   // Join: connect to a device that is hosting; both converge (bidirectional).
@@ -346,10 +637,10 @@ class _RecallPageState extends State<RecallPage> {
               decoration: const InputDecoration(labelText: 'Token'),
             ),
             const SizedBox(height: 8),
-            const Text(
+            Text(
                 'On the other device: open Sync, choose Host, and read off its '
                 'address and token.',
-                style: TextStyle(fontSize: 12)),
+                style: Theme.of(ctx).textTheme.bodySmall),
           ],
         ),
         actions: [
@@ -489,11 +780,11 @@ class _RecallPageState extends State<RecallPage> {
     final picked = await showDialog<String>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Store (index folder)'),
+        title: const Text('Library'),
         content: TextField(
           controller: ctrl,
           autofocus: true,
-          decoration: const InputDecoration(hintText: 'full path to a .ais index folder'),
+          decoration: const InputDecoration(hintText: 'full path to a .ais Library folder'),
         ),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
@@ -512,6 +803,7 @@ class _RecallPageState extends State<RecallPage> {
       setState(() {
         _dir = picked;
         _results = const [];
+        _resultKeys = const {};
         _tl = const [];
         _tlBefore = 0;
         _tlMore = false;
@@ -520,12 +812,50 @@ class _RecallPageState extends State<RecallPage> {
         _tags = const [];
         _view = 'recall';
         _searched = false;
+        _textSearch = false;
         _query = '';
         _q.clear();
       });
     } catch (e) {
       setState(() => _status = 'cannot open: $e');
     }
+  }
+
+  // Session-only theme picker (System/Light/Dark) driven from the overflow menu.
+  // Feeds the module-level themeModeNotifier that AisApp listens on.
+  Future<void> _pickTheme() async {
+    final current = themeModeNotifier.value;
+    final picked = await showDialog<ThemeMode>(
+      context: context,
+      builder: (ctx) => SimpleDialog(
+        title: const Text('Theme'),
+        children: [
+          for (final o in const [
+            (ThemeMode.system, 'System'),
+            (ThemeMode.light, 'Light'),
+            (ThemeMode.dark, 'Dark'),
+          ])
+            ListTile(
+              title: Text(o.$2),
+              trailing:
+                  o.$1 == current ? const Icon(Icons.check) : null,
+              onTap: () => Navigator.pop(ctx, o.$1),
+            ),
+        ],
+      ),
+    );
+    if (picked != null) themeModeNotifier.value = picked;
+  }
+
+  // Simple About dialog: app name + the current store path.
+  void _showAbout() {
+    showAboutDialog(
+      context: context,
+      applicationName: 'AIS',
+      children: [
+        Text(_dir.isEmpty ? 'Library: (default)' : 'Library: $_dir'),
+      ],
+    );
   }
 
   @override
@@ -542,7 +872,9 @@ class _RecallPageState extends State<RecallPage> {
               filter: ImageFilter.blur(sigmaX: 14, sigmaY: 14),
               child: Container(
                 padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
-                color: Colors.white.withValues(alpha: 0.6),
+                // Translucent surface (not white) so the frosted strip reads in
+                // light AND dark; the blur behind it still shows the list.
+                color: cs.surface.withValues(alpha: 0.6),
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -553,8 +885,70 @@ class _RecallPageState extends State<RecallPage> {
                       if (_searched)
                         Text(
                           '${_results.length} result${_results.length == 1 ? '' : 's'} · $_ms ms',
-                          style: TextStyle(color: cs.outline, fontSize: 12),
+                          style: Theme.of(context)
+                              .textTheme
+                              .bodySmall
+                              ?.copyWith(color: cs.outline),
                         ),
+                      // Config home: gathers the store/sync/theme/about actions
+                      // that used to be sub-48dp header text-links. Standard
+                      // 48dp target, top-right where mainstream apps put it.
+                      PopupMenuButton<String>(
+                        icon: const Icon(Icons.more_vert),
+                        tooltip: 'Settings',
+                        onSelected: (a) async {
+                          switch (a) {
+                            case 'store':
+                              await _changeStore();
+                              break;
+                            case 'sync':
+                              await _syncSheet();
+                              break;
+                            case 'theme':
+                              await _pickTheme();
+                              break;
+                            case 'about':
+                              _showAbout();
+                              break;
+                          }
+                        },
+                        itemBuilder: (_) => [
+                          PopupMenuItem(
+                            value: 'store',
+                            enabled: _ais != null,
+                            child: const ListTile(
+                              contentPadding: EdgeInsets.zero,
+                              leading: Icon(Icons.folder_outlined),
+                              title: Text('Change Library'),
+                            ),
+                          ),
+                          PopupMenuItem(
+                            value: 'sync',
+                            enabled: _ais != null,
+                            child: const ListTile(
+                              contentPadding: EdgeInsets.zero,
+                              leading: Icon(Icons.sync),
+                              title: Text('Sync'),
+                            ),
+                          ),
+                          const PopupMenuItem(
+                            value: 'theme',
+                            child: ListTile(
+                              contentPadding: EdgeInsets.zero,
+                              leading: Icon(Icons.brightness_6_outlined),
+                              title: Text('Theme'),
+                            ),
+                          ),
+                          const PopupMenuItem(
+                            value: 'about',
+                            child: ListTile(
+                              contentPadding: EdgeInsets.zero,
+                              leading: Icon(Icons.info_outline),
+                              title: Text('About'),
+                            ),
+                          ),
+                        ],
+                      ),
                     ]),
                     const SizedBox(height: 8),
                     Row(
@@ -565,11 +959,30 @@ class _RecallPageState extends State<RecallPage> {
                             autofocus: true,
                             textInputAction: TextInputAction.search,
                             onSubmitted: (_) => _recall(),
+                            onChanged: (v) {
+                              // Debounced live filter: reschedule on each
+                              // keystroke, run _recall() once typing pauses.
+                              _debounce?.cancel();
+                              if (v.trim().isEmpty) {
+                                // cleared: fall back to the hint, don't search
+                                setState(() {
+                                  _results = const [];
+                                  _resultKeys = const {};
+                                  _searched = false;
+                                  _textSearch = false; // cleared query drops the fallback too
+                                  _status = 'Type keys, then Search.';
+                                });
+                                return;
+                              }
+                              _debounce = Timer(
+                                  const Duration(milliseconds: 280), _recall);
+                            },
                             decoration: InputDecoration(
-                              hintText: 'type keys, then Search',
+                              hintText: 'type tags to filter',
                               prefixIcon: const Icon(Icons.search),
                               filled: true,
-                              fillColor: Colors.white.withValues(alpha: 0.85),
+                              fillColor: cs.surfaceContainerHighest
+                                  .withValues(alpha: 0.85),
                               border: OutlineInputBorder(
                                 borderRadius: BorderRadius.circular(28),
                                 borderSide: BorderSide.none,
@@ -585,11 +998,9 @@ class _RecallPageState extends State<RecallPage> {
                           ),
                         ),
                         const SizedBox(width: 8),
-                        ElevatedButton(
+                        FilledButton(
                           onPressed: () => _setView('recall'),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: cs.primary,
-                            foregroundColor: cs.onPrimary,
+                          style: FilledButton.styleFrom(
                             padding: const EdgeInsets.symmetric(
                                 horizontal: 22, vertical: 18),
                             shape: RoundedRectangleBorder(
@@ -599,55 +1010,17 @@ class _RecallPageState extends State<RecallPage> {
                         ),
                       ],
                     ),
-                    Row(
-                      children: [
-                        Checkbox(
-                          value: _matchOr,
-                          visualDensity: VisualDensity.compact,
-                          materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                          onChanged: (v) {
-                            setState(() => _matchOr = v ?? false);
-                            if (_q.text.trim().isNotEmpty) _recall();
-                          },
-                        ),
-                        const Text('Match any key', style: TextStyle(fontSize: 13)),
-                      ],
-                    ),
                     const SizedBox(height: 4),
-                    Row(children: [
-                      Flexible(
-                        child: Text(
-                          _dir.isEmpty ? 'store: (default)' : 'store: $_dir',
-                          style: TextStyle(color: cs.outline, fontSize: 12),
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                      TextButton(
-                        onPressed: _ais == null ? null : _changeStore,
-                        style: TextButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(horizontal: 8),
-                          minimumSize: Size.zero,
-                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                        ),
-                        child: const Text('change'),
-                      ),
-                      Tooltip(
-                        message:
-                            'Copy records to/from another device on the same Wi-Fi. '
-                            'One device taps Host and shows its code; the other '
-                            'scans that code with its camera (or taps Join and types '
-                            'it in). Both then hold the same records.',
-                        child: TextButton(
-                          onPressed: _ais == null ? null : _syncSheet,
-                          style: TextButton.styleFrom(
-                            padding: const EdgeInsets.symmetric(horizontal: 8),
-                            minimumSize: Size.zero,
-                            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                          ),
-                          child: const Text('sync'),
-                        ),
-                      ),
-                    ]),
+                    // Store path stays visible as a NON-interactive muted label;
+                    // changing it (and sync) now live in the top-right menu.
+                    Text(
+                      _dir.isEmpty ? 'Library: (default)' : 'Library: $_dir',
+                      style: Theme.of(context)
+                          .textTheme
+                          .bodySmall
+                          ?.copyWith(color: cs.onSurfaceVariant),
+                      overflow: TextOverflow.ellipsis,
+                    ),
                   ],
                 ),
               ),
@@ -685,7 +1058,7 @@ class _RecallPageState extends State<RecallPage> {
           NavigationDestination(
               icon: Icon(Icons.schedule_outlined),
               selectedIcon: Icon(Icons.schedule),
-              label: 'Timeline'),
+              label: 'All'),
           NavigationDestination(
               icon: Icon(Icons.label_outline),
               selectedIcon: Icon(Icons.label),
@@ -714,46 +1087,233 @@ class _RecallPageState extends State<RecallPage> {
     }
   }
 
-  // Delete one record by id, after a confirm; then refresh the results.
-  Future<void> _deleteHit(Hit hit) async {
+  // The standard delete: pull the row from the visible list NOW and offer Undo
+  // in a SnackBar; only touch the engine if the window closes without an Undo
+  // tap. No engine-side undo needed -- del() is deferred, not reversed. Swipe
+  // and the ⋮ "Delete" menu both route here, so they behave identically.
+  // Commit a still-pending delete for real. Idempotent: only fires if the id is
+  // still pending (not undone, not already committed). Input-driven so it never
+  // depends on the snackbar's animated close alone.
+  void _commitDelete(int id) {
+    if (_pendingDelete.remove(id) && _ais != null) _ais!.del(id);
+  }
+
+  // Flush every pending delete now -- called before a new delete and before any
+  // view re-query, so a "deleted" row can never resurrect on refresh.
+  void _flushPendingDeletes() {
+    for (final id in _pendingDelete.toList()) {
+      _commitDelete(id);
+    }
+  }
+
+  void _deferDelete(int id) {
+    _flushPendingDeletes(); // a new delete commits any prior still-pending one
+    final messenger = ScaffoldMessenger.of(context);
+    // Snapshot from whichever list(s) hold the id, so Undo restores it in place.
+    final recallIdx = _results.indexWhere((h) => h.id == id);
+    final Hit? recallHit = recallIdx >= 0 ? _results[recallIdx] : null;
+    final tlIdx = _tl.indexWhere((r) => r.id == id);
+    final TlRow? tlRow = tlIdx >= 0 ? _tl[tlIdx] : null;
+    if (recallHit == null && tlRow == null) return;
+    _pendingDelete.add(id);
+    setState(() {
+      if (recallHit != null) _results = [..._results]..removeAt(recallIdx);
+      if (tlRow != null) _tl = [..._tl]..removeAt(tlIdx);
+    });
+    var undone = false;
+    messenger
+        .showSnackBar(SnackBar(
+          content: const Text('Deleted'),
+          duration: const Duration(seconds: 4),
+          action: SnackBarAction(
+            label: 'UNDO',
+            onPressed: () {
+              undone = true;
+              _pendingDelete.remove(id);
+              setState(() {
+                if (recallHit != null) {
+                  final l = [..._results];
+                  l.insert(recallIdx.clamp(0, l.length), recallHit);
+                  _results = l;
+                }
+                if (tlRow != null) {
+                  final l = [..._tl];
+                  l.insert(tlIdx.clamp(0, l.length), tlRow);
+                  _tl = l;
+                }
+              });
+            },
+          ),
+        ))
+        .closed
+        .then((_) {
+      // Closed for any reason other than an Undo tap: commit the delete. No-op if
+      // it was already flushed by a later delete or a view change.
+      if (undone) return;
+      _commitDelete(id);
+      // Re-sync the visible view now the delete is real. Guard on _pendingDelete
+      // so a re-query can't resurrect a row still inside its own Undo window.
+      if (_pendingDelete.isEmpty && mounted) _setView(_view);
+    });
+  }
+
+  // The red swipe-away background revealed under an endToStart Dismissible.
+  Widget _deleteBg(ColorScheme cs) => Container(
+        color: cs.error,
+        alignment: Alignment.centerRight,
+        padding: const EdgeInsets.only(right: 24),
+        child: Icon(Icons.delete, color: cs.onError),
+      );
+
+  // A friendly, actionable empty / first-run state: an icon, a line about what
+  // AIS is for, and a filled button that opens the same Add sheet as the FAB.
+  Widget _emptyState(ColorScheme cs,
+          {required IconData icon, required String line}) =>
+      Center(
+        child: Padding(
+          padding: const EdgeInsets.all(32),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon, size: 48, color: cs.outline),
+              const SizedBox(height: 16),
+              Text(line,
+                  textAlign: TextAlign.center,
+                  style: Theme.of(context)
+                      .textTheme
+                      .bodyLarge
+                      ?.copyWith(color: cs.onSurfaceVariant)),
+              const SizedBox(height: 20),
+              FilledButton.icon(
+                onPressed: _ais == null ? null : _showAdd,
+                icon: const Icon(Icons.add),
+                label: const Text('Add something'),
+              ),
+            ],
+          ),
+        ),
+      );
+
+  // Edit a record's tags as chips: each × detaches a tag, the field appends a
+  // new one; on Apply we send the minimal +tag/-tag delta to the engine.
+  Future<void> _editKeys(Hit hit) async {
+    if (_ais == null) return;
+    final original = _ais!.keysOf(hit.id).split(RegExp(r'\s+'))
+        .where((t) => t.isNotEmpty).toList();
+    final tags = [...original];
+    final ctrl = TextEditingController();
+    final focus = FocusNode();
+
+    void addToken(StateSetter setDlg, String raw) {
+      final t = raw.trim();
+      if (t.isEmpty || tags.contains(t)) return;
+      setDlg(() => tags.add(t));
+    }
+
     final ok = await showDialog<bool>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Delete this record?'),
-        content: SelectableText(_display(hit.value)),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
-          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Delete')),
-        ],
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDlg) => AlertDialog(
+          title: const Text('Edit tags'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (tags.isNotEmpty)
+                Wrap(
+                  spacing: 6,
+                  runSpacing: 4,
+                  children: [
+                    for (final t in tags)
+                      InputChip(
+                        label: Text(t),
+                        visualDensity: VisualDensity.compact,
+                        onDeleted: () => setDlg(() => tags.remove(t)),
+                      ),
+                  ],
+                ),
+              const SizedBox(height: 8),
+              TextField(
+                controller: ctrl,
+                focusNode: focus,
+                autofocus: true,
+                decoration: const InputDecoration(hintText: 'Add a tag'),
+                onChanged: (v) {
+                  // a space or comma commits the token in progress
+                  if (v.endsWith(' ') || v.endsWith(',')) {
+                    addToken(setDlg, v.substring(0, v.length - 1));
+                    ctrl.clear();
+                  }
+                },
+                onSubmitted: (v) {
+                  addToken(setDlg, v);
+                  ctrl.clear();
+                  focus.requestFocus();
+                },
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+            FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Apply')),
+          ],
+        ),
       ),
     );
     if (ok != true || _ais == null) return;
-    _ais!.del(hit.id);
+    // fold any token still sitting in the field into the final set
+    final tail = ctrl.text.trim();
+    if (tail.isNotEmpty && !tags.contains(tail)) tags.add(tail);
+    final delta = <String>[
+      for (final t in original) if (!tags.contains(t)) '-$t',
+      for (final t in tags) if (!original.contains(t)) t,
+    ].join(' ');
+    if (delta.isEmpty) return;
+    _ais!.update(hit.id, delta);
+    if (mounted) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('Tags updated')));
+    }
     _recall();
   }
 
-  // Edit a record's keys by id: a bare KEY attaches, a -KEY detaches.
-  Future<void> _editKeys(Hit hit) async {
-    final ctrl = TextEditingController();
-    final text = await showDialog<String>(
+  // Fix a record's value in place: the engine keeps its id and timeline slot.
+  // Only offered for plain (non-encrypted, here) values — the raw text edits
+  // safely. Encrypted/away rows omit the menu item instead.
+  // Returns the new value when it actually changed (so a caller — e.g. the
+  // detail page — can refresh its display), or null on cancel/no-op/failure.
+  Future<String?> _editValue(int id, String oldValue) async {
+    if (_ais == null) return null;
+    final messenger = ScaffoldMessenger.of(context);
+    final ctrl = TextEditingController(text: oldValue);
+    final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Edit keys'),
+        title: const Text('Edit value'),
         content: TextField(
           controller: ctrl,
           autofocus: true,
-          onSubmitted: (v) => Navigator.pop(ctx, v),
-          decoration: const InputDecoration(hintText: 'a KEY adds it, -KEY removes it'),
+          keyboardType: TextInputType.multiline,
+          minLines: 1,
+          maxLines: 8,
+          decoration: const InputDecoration(border: OutlineInputBorder()),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
-          FilledButton(onPressed: () => Navigator.pop(ctx, ctrl.text), child: const Text('Apply')),
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Save')),
         ],
       ),
     );
-    if (text == null || text.trim().isEmpty || _ais == null) return;
-    _ais!.update(hit.id, text.trim());
-    _recall();
+    if (ok != true || _ais == null) return null;
+    final newValue = ctrl.text;
+    // no-op on empty (after trim) or unchanged; don't trim into the stored value
+    if (newValue.trim().isEmpty || newValue == oldValue) return null;
+    final done = _ais!.setValue(id, oldValue, newValue);
+    if (!mounted) return null;
+    messenger.showSnackBar(SnackBar(
+        content: Text(done ? 'Value updated' : "Couldn't update the value")));
+    if (done) _setView(_view); // refresh whichever view is showing
+    return done ? newValue : null;
   }
 
   // Reveal an encrypted ("aisc:") hit: ask for the passphrase, decrypt
@@ -798,11 +1358,188 @@ class _RecallPageState extends State<RecallPage> {
     );
   }
 
+  // A full-screen detail/edit page for one record — the natural home for its
+  // actions. Opened by TAPPING a recall or timeline row (the row ⋮ menu stays
+  // as a secondary path). Reuses the same handlers the menu uses (_editValue /
+  // _editKeys / _share / _deferDelete) and refreshes its own value/tags after
+  // an in-place edit, so a change shows without going back. `ts` is the save
+  // time when known (timeline rows carry it; recall hits don't).
+  void _openDetail(int id, String value, {String ts = ''}) {
+    Navigator.of(context).push(MaterialPageRoute(
+      builder: (routeCtx) {
+        // Local, mutable copies so an in-place edit can refresh this page.
+        var curValue = value;
+        var keys = _ais?.keysOf(id).trim() ?? '';
+        return StatefulBuilder(
+          builder: (ctx, setLocal) {
+            final cs = Theme.of(ctx).colorScheme;
+            final isSecret = curValue.startsWith('aisc:');
+            final away = _notHere(curValue);
+            final tagList = keys
+                .split(RegExp(r'\s+'))
+                .where((t) => t.isNotEmpty)
+                .toList();
+            // Save time (local): date, plus HH:MM when the ts carries a clock.
+            String prettyTs() {
+              final dt = ts.isEmpty ? null : DateTime.tryParse(ts)?.toLocal();
+              if (dt == null) return '';
+              String p2(int n) => n.toString().padLeft(2, '0');
+              final d = '${dt.year}-${p2(dt.month)}-${p2(dt.day)}';
+              final t =
+                  ts.contains('T') ? ' · ${p2(dt.hour)}:${p2(dt.minute)}' : '';
+              return '${_fmtDay(d)}$t';
+            }
+
+            final when = prettyTs();
+            return Scaffold(
+              appBar: AppBar(
+                title: const Text('Details'),
+                actions: [
+                  if (isSecret)
+                    IconButton(
+                      icon: const Icon(Icons.lock_open),
+                      tooltip: 'Reveal',
+                      onPressed: () => _revealHit(Hit(id, curValue)),
+                    ),
+                  IconButton(
+                    icon: const Icon(Icons.copy_outlined),
+                    tooltip: 'Copy',
+                    onPressed: () {
+                      Clipboard.setData(ClipboardData(text: _display(curValue)));
+                      ScaffoldMessenger.of(ctx).showSnackBar(
+                          const SnackBar(content: Text('Copied')));
+                    },
+                  ),
+                  // sharing ciphertext / a missing blob is useless; gate like the row
+                  if (!isSecret && !away)
+                    IconButton(
+                      icon: const Icon(Icons.share_outlined),
+                      tooltip: 'Share',
+                      onPressed: () => _share(curValue),
+                    ),
+                  PopupMenuButton<String>(
+                    icon: const Icon(Icons.more_vert),
+                    tooltip: 'More',
+                    onSelected: (a) async {
+                      if (a == 'value') {
+                        // reuse the row's editor; refresh on a real change
+                        final nv = await _editValue(id, curValue);
+                        if (nv != null) setLocal(() => curValue = nv);
+                      } else if (a == 'tags') {
+                        await _editKeys(Hit(id, curValue));
+                        // re-read the tags so the chips reflect the edit
+                        setLocal(() => keys = _ais?.keysOf(id).trim() ?? '');
+                      } else if (a == 'delete') {
+                        Navigator.of(ctx).pop(); // back to the list first…
+                        _deferDelete(id); // …then remove it with an Undo snackbar
+                      }
+                    },
+                    itemBuilder: (_) => [
+                      // plain values edit as raw text; encrypted/away rows omit this
+                      if (!isSecret && !away)
+                        const PopupMenuItem(
+                            value: 'value', child: Text('Edit value')),
+                      const PopupMenuItem(value: 'tags', child: Text('Edit tags')),
+                      const PopupMenuItem(value: 'delete', child: Text('Delete')),
+                    ],
+                  ),
+                ],
+              ),
+              body: ListView(
+                padding: const EdgeInsets.all(20),
+                children: [
+                  // The value in full: selectable, tappable when a URL. Encrypted
+                  // and away rows keep the same treatment they have in the list.
+                  if (isSecret)
+                    Row(children: [
+                      Icon(Icons.lock_outline, size: 18, color: cs.outline),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text('encrypted — tap Reveal to read',
+                            style: TextStyle(color: cs.outline)),
+                      ),
+                    ])
+                  else
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Expanded(
+                          child: DefaultTextStyle.merge(
+                            style: Theme.of(ctx).textTheme.titleMedium,
+                            child: _valueLabel(curValue, cs),
+                          ),
+                        ),
+                        if (away) _notHereBadge(cs),
+                      ],
+                    ),
+                  const SizedBox(height: 24),
+                  // Tags as chips; tap one to recall everything filed under it.
+                  Text('Tags',
+                      style: Theme.of(ctx)
+                          .textTheme
+                          .labelMedium
+                          ?.copyWith(color: cs.primary)),
+                  const SizedBox(height: 8),
+                  if (tagList.isEmpty)
+                    Text('(no tags)', style: TextStyle(color: cs.outline))
+                  else
+                    Wrap(
+                      spacing: 6,
+                      runSpacing: 4,
+                      children: [
+                        for (final t in tagList)
+                          ActionChip(
+                            label: Text(t),
+                            visualDensity: VisualDensity.compact,
+                            onPressed: () {
+                              Navigator.of(ctx).pop();
+                              _q.text = t;
+                              _setView('recall');
+                            },
+                          ),
+                      ],
+                    ),
+                  if (when.isNotEmpty) ...[
+                    const SizedBox(height: 24),
+                    Text('Saved',
+                        style: Theme.of(ctx)
+                            .textTheme
+                            .labelMedium
+                            ?.copyWith(color: cs.primary)),
+                    const SizedBox(height: 4),
+                    Text(when,
+                        style: Theme.of(ctx)
+                            .textTheme
+                            .bodyMedium
+                            ?.copyWith(color: cs.onSurfaceVariant)),
+                  ],
+                ],
+              ),
+            );
+          },
+        );
+      },
+    ));
+  }
+
   Widget _recallBody(ColorScheme cs) {
     if (_results.isEmpty) {
-      return _centerMsg(_searched ? 'No results for "$_query"' : _status, cs);
+      // Text fallback already ran (via explicit tap) and also found nothing.
+      if (_textSearch) return _centerMsg('No text match either.', cs);
+      // Key search found nothing: offer the SECONDARY full-text fallback, not
+      // a dead end. This is the only place the offer appears.
+      if (_searched && _query.isNotEmpty) return _noTagMatch(cs);
+      if (_searched) return _centerMsg('No results for "$_query"', cs);
+      // First-run / not-yet-searched: an error keeps its plain message; a healthy
+      // engine shows the friendly, actionable empty state instead of a bare hint.
+      if (_ais == null) return _centerMsg(_status, cs);
+      return _emptyState(cs,
+          icon: Icons.note_add_outlined,
+          line: 'Save a link, a note, or a fact — then find it later by its tags.');
     }
-    return ListView.separated(
+    // find() results reuse the exact recall row builder; a quiet header above the
+    // list is the only thing marking them as TEXT matches rather than tag matches.
+    final list = ListView.separated(
       padding: const EdgeInsets.only(bottom: 88),
       itemCount: _results.length,
       separatorBuilder: (_, __) => const Divider(height: 1),
@@ -811,7 +1548,15 @@ class _RecallPageState extends State<RecallPage> {
         final v = hit.value;
         final isSecret = v.startsWith('aisc:');
         final away = _notHere(v);
-        return ListTile(
+        return Dismissible(
+          key: ValueKey(hit.id),
+          direction: DismissDirection.endToStart,
+          background: _deleteBg(cs),
+          onDismissed: (_) => _deferDelete(hit.id),
+          child: ListTile(
+          // Primary path: tap the row to open its detail/edit page (the ⋮ menu
+          // on the right stays as a quick secondary path).
+          onTap: () => _openDetail(hit.id, v),
           title: Row(mainAxisSize: MainAxisSize.min, children: [
             Flexible(
               child: isSecret
@@ -820,47 +1565,114 @@ class _RecallPageState extends State<RecallPage> {
                       const SizedBox(width: 6),
                       Text('encrypted', style: TextStyle(color: cs.outline)),
                     ])
-                  : SelectableText(_display(v),
-                      style: TextStyle(color: _isUrl(v) ? cs.primary : null)),
+                  : _valueLabel(v, cs),
             ),
             if (away) _notHereBadge(cs),
           ]),
+          // Show the record's tags (fetched once when results loaded), so a recall
+          // row reads the same as a timeline row rather than value-only.
+          subtitle: Text(
+            (_resultKeys[hit.id]?.isNotEmpty ?? false)
+                ? _resultKeys[hit.id]!
+                : '(no tags)',
+            style: Theme.of(context)
+                .textTheme
+                .bodyMedium
+                ?.copyWith(color: cs.onSurfaceVariant),
+          ),
           trailing: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
               if (isSecret)
                 IconButton(
-                  icon: const Icon(Icons.lock_open, size: 18),
+                  icon: const Icon(Icons.lock_open),
                   tooltip: 'Reveal',
                   onPressed: () => _revealHit(hit),
                 ),
               // copy / edit keys / delete behind one overflow -> clean rows
               PopupMenuButton<String>(
-                icon: const Icon(Icons.more_vert, size: 18),
+                icon: const Icon(Icons.more_vert),
                 tooltip: 'More',
                 onSelected: (a) {
                   if (a == 'copy') {
                     Clipboard.setData(ClipboardData(text: _display(v)));
                     ScaffoldMessenger.of(context)
                         .showSnackBar(const SnackBar(content: Text('Copied')));
+                  } else if (a == 'share') {
+                    _share(v);
+                  } else if (a == 'value') {
+                    _editValue(hit.id, v);
                   } else if (a == 'edit') {
                     _editKeys(hit);
                   } else if (a == 'delete') {
-                    _deleteHit(hit);
+                    _deferDelete(hit.id);
                   }
                 },
-                itemBuilder: (_) => const [
-                  PopupMenuItem(value: 'copy', child: Text('Copy')),
-                  PopupMenuItem(value: 'edit', child: Text('Edit keys')),
-                  PopupMenuItem(value: 'delete', child: Text('Delete')),
+                itemBuilder: (_) => [
+                  const PopupMenuItem(value: 'copy', child: Text('Copy')),
+                  // sharing ciphertext / a missing blob is useless; gate like Edit value
+                  if (!isSecret && !away)
+                    const PopupMenuItem(value: 'share', child: Text('Share')),
+                  // plain values edit as raw text; encrypted/away rows omit this
+                  if (!isSecret && !away)
+                    const PopupMenuItem(value: 'value', child: Text('Edit value')),
+                  const PopupMenuItem(value: 'edit', child: Text('Edit tags')),
+                  const PopupMenuItem(value: 'delete', child: Text('Delete')),
                 ],
               ),
             ],
           ),
+          ),
         );
       },
     );
+    if (_textSearch) {
+      return Column(children: [_textMatchHeader(cs), Expanded(child: list)]);
+    }
+    return list;
   }
+
+  // The empty key-search state: state plainly that no TAG matched, then offer the
+  // secondary full-text fallback as a quiet TextButton -- not a primary action.
+  Widget _noTagMatch(ColorScheme cs) => Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text('No tag match for "$_query".',
+                  textAlign: TextAlign.center,
+                  style: Theme.of(context)
+                      .textTheme
+                      .bodyLarge
+                      ?.copyWith(color: cs.onSurfaceVariant)),
+              const SizedBox(height: 12),
+              TextButton.icon(
+                onPressed: _findText,
+                icon: const Icon(Icons.search, size: 18),
+                label: const Text('Search note text instead'),
+              ),
+            ],
+          ),
+        ),
+      );
+
+  // A thin, quiet marker above find() results so the user knows these are note-
+  // TEXT matches, not tag matches -- the fallback, kept visually subordinate.
+  Widget _textMatchHeader(ColorScheme cs) => Padding(
+        padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+        child: Row(children: [
+          Icon(Icons.search, size: 14, color: cs.onSurfaceVariant),
+          const SizedBox(width: 6),
+          Expanded(
+            child: Text('Text matches for "$_query"',
+                style: Theme.of(context)
+                    .textTheme
+                    .bodySmall
+                    ?.copyWith(color: cs.onSurfaceVariant)),
+          ),
+        ]),
+      );
 
   // Page on with the keyset cursor: fetch the next page of records older than
   // the last id we hold, append it, and advance the cursor.
@@ -907,7 +1719,11 @@ class _RecallPageState extends State<RecallPage> {
     if (_tl.isEmpty) {
       return Column(children: [
         _rangeBar(cs),
-        Expanded(child: _centerMsg('Nothing saved yet.', cs)),
+        Expanded(
+          child: _emptyState(cs,
+              icon: Icons.note_add_outlined,
+              line: 'Nothing saved yet. Add your first note or link.'),
+        ),
       ]);
     }
     final items = <Widget>[];
@@ -922,11 +1738,22 @@ class _RecallPageState extends State<RecallPage> {
         items.add(Padding(
           padding: const EdgeInsets.fromLTRB(16, 18, 16, 4),
           child: Text(d.isEmpty ? '(undated)' : _fmtDay(d),
-              style: TextStyle(fontSize: 14, color: cs.onSurface, fontWeight: FontWeight.w700)),
+              style: Theme.of(context)
+                  .textTheme
+                  .titleSmall
+                  ?.copyWith(color: cs.onSurface)),
         ));
       }
       final time = (dt != null && r.ts.contains('T')) ? '${p2(dt.hour)}:${p2(dt.minute)} · ' : '';
-      items.add(ListTile(
+      items.add(Dismissible(
+        key: ValueKey(r.id),
+        direction: DismissDirection.endToStart,
+        background: _deleteBg(cs),
+        onDismissed: (_) => _deferDelete(r.id),
+        child: ListTile(
+        // Tap opens the detail/edit page; carry the ts so it can show the save
+        // time. The ⋮ menu stays as the secondary path.
+        onTap: () => _openDetail(r.id, r.value, ts: r.ts),
         title: Row(mainAxisSize: MainAxisSize.min, children: [
           Flexible(
             child: r.value.startsWith('aisc:')
@@ -935,13 +1762,49 @@ class _RecallPageState extends State<RecallPage> {
                     const SizedBox(width: 6),
                     Text('encrypted', style: TextStyle(color: cs.outline)),
                   ])
-                : SelectableText(_display(r.value),
-                    style: TextStyle(color: _isUrl(r.value) ? cs.primary : null)),
+                : _valueLabel(r.value, cs),
           ),
           if (_notHere(r.value)) _notHereBadge(cs),
         ]),
         subtitle: Text('$time${r.keys.isEmpty ? '(no keys)' : r.keys}',
-            style: TextStyle(color: cs.onSurfaceVariant, fontSize: 13)),
+            style: Theme.of(context)
+                .textTheme
+                .bodyMedium
+                ?.copyWith(color: cs.onSurfaceVariant)),
+        // same copy / edit tags / delete overflow as recall rows, so items
+        // found only in the timeline (e.g. a keyless add) stay actionable.
+        trailing: PopupMenuButton<String>(
+          icon: const Icon(Icons.more_vert),
+          tooltip: 'More',
+          onSelected: (a) {
+            final hit = Hit(r.id, r.value);
+            if (a == 'copy') {
+              Clipboard.setData(ClipboardData(text: _display(r.value)));
+              ScaffoldMessenger.of(context)
+                  .showSnackBar(const SnackBar(content: Text('Copied')));
+            } else if (a == 'share') {
+              _share(r.value);
+            } else if (a == 'value') {
+              _editValue(r.id, r.value);
+            } else if (a == 'edit') {
+              _editKeys(hit);
+            } else if (a == 'delete') {
+              _deferDelete(r.id);
+            }
+          },
+          itemBuilder: (_) => [
+            const PopupMenuItem(value: 'copy', child: Text('Copy')),
+            // sharing ciphertext / a missing blob is useless; gate like Edit value
+            if (!r.value.startsWith('aisc:') && !_notHere(r.value))
+              const PopupMenuItem(value: 'share', child: Text('Share')),
+            // plain values edit as raw text; encrypted/away rows omit this
+            if (!r.value.startsWith('aisc:') && !_notHere(r.value))
+              const PopupMenuItem(value: 'value', child: Text('Edit value')),
+            const PopupMenuItem(value: 'edit', child: Text('Edit tags')),
+            const PopupMenuItem(value: 'delete', child: Text('Delete')),
+          ],
+        ),
+      ),
       ));
     }
     if (_tlMore) {
@@ -992,6 +1855,7 @@ class _RecallPageState extends State<RecallPage> {
     final ppCtrl = TextEditingController();
     bool encrypt = false;                 // off by default
     bool saving = false;                  // true while the off-isolate encrypt runs
+    bool ppShow = false;                  // reveal toggle for the sealing passphrase
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -1005,13 +1869,13 @@ class _RecallPageState extends State<RecallPage> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            const Text('Add to your memory',
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600)),
+            Text('Add to your memory',
+                style: Theme.of(ctx).textTheme.titleMedium),
             const SizedBox(height: 14),
             TextField(
               controller: keysCtrl,
               decoration: const InputDecoration(
-                labelText: 'Keys (space-separated, optional)',
+                labelText: 'Tags (space-separated, optional)',
                 hintText: 'e.g. venice italy hotel',
                 border: OutlineInputBorder(),
               ),
@@ -1030,9 +1894,9 @@ class _RecallPageState extends State<RecallPage> {
             ),
             const SizedBox(height: 4),
             Row(children: [
-              Checkbox(
+              Switch(
                 value: encrypt,
-                onChanged: (b) => setSheet(() => encrypt = b ?? false),
+                onChanged: (b) => setSheet(() => encrypt = b),
               ),
               const Text('Encrypt'),
             ]),
@@ -1041,10 +1905,15 @@ class _RecallPageState extends State<RecallPage> {
                 padding: const EdgeInsets.only(bottom: 4),
                 child: TextField(
                   controller: ppCtrl,
-                  obscureText: true,
-                  decoration: const InputDecoration(
+                  obscureText: !ppShow,
+                  decoration: InputDecoration(
                     labelText: 'Passphrase',
-                    border: OutlineInputBorder(),
+                    border: const OutlineInputBorder(),
+                    suffixIcon: IconButton(
+                      icon: Icon(ppShow ? Icons.visibility_off : Icons.visibility),
+                      tooltip: ppShow ? 'Hide' : 'Show',
+                      onPressed: () => setSheet(() => ppShow = !ppShow),
+                    ),
                   ),
                 ),
               ),
@@ -1092,6 +1961,7 @@ class _RecallPageState extends State<RecallPage> {
 
   @override
   void dispose() {
+    _debounce?.cancel();
     _ais?.close();
     super.dispose();
   }
@@ -1156,15 +2026,18 @@ class _SyncWaitDialogState extends State<_SyncWaitDialog> {
                 ),
               ),
               const SizedBox(height: 8),
-              const Text("Scan with the other phone's camera to join.",
-                  style: TextStyle(fontSize: 12)),
+              Text("Scan with the other phone's camera to join.",
+                  style: Theme.of(context).textTheme.bodySmall),
               const SizedBox(height: 16),
             ],
             if (widget.command != null) ...[
               Text(widget.commandLabel ?? ''),
               const SizedBox(height: 8),
               SelectableText(widget.command!,
-                  style: const TextStyle(fontFamily: 'monospace', fontSize: 12)),
+                  style: Theme.of(context)
+                      .textTheme
+                      .bodySmall
+                      ?.copyWith(fontFamily: 'monospace')),
               const SizedBox(height: 16),
             ],
             Row(mainAxisSize: MainAxisSize.min, children: [
