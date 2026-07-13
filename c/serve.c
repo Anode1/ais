@@ -177,7 +177,13 @@ static const char PAGE[] =
 /* File transfer: no network -- export the whole index to a file, or merge one in
  * (move it by Drive / USB / email). Mirrors the app's Export / Import. */
 "<div id=syncfile><p class=muted style='margin:1rem 0 .5rem;font-size:.85rem'>Or a file &mdash; move it by Drive, USB or email:</p>"
-"<div class=actions style='justify-content:center'><button id=impbtn class=ghost>Import</button><button id=expbtn class=primary>Export</button></div></div>"
+"<div class=actions style='justify-content:center'><button id=impbtn class=ghost>Import</button><button id=expbtn class=primary>Export</button></div>"
+/* Auto-sync a shared folder (Syncthing / a cloud folder). One tap runs a pass; the
+ * path is remembered and a pass also runs on load and after each change. */
+"<p class=muted style='margin:1rem 0 .4rem;font-size:.85rem'>Or auto-sync a shared folder (Syncthing / cloud):</p>"
+"<div style='display:flex;gap:.5rem'><input id=syncfld placeholder='/path/to/shared/folder' autocomplete=off style='flex:1'>"
+"<button id=syncfldbtn class=getbtn>Sync</button></div>"
+"<p id=syncfldmsg class=muted style='margin:.4rem 0 0;font-size:.8rem'></p></div>"
 "<input id=fileimp type=file accept='.aisb' hidden>"
 /* Host pane: address + token to read off, a QR to scan, and a live status line. */
 "<div id=synchost hidden>"
@@ -331,7 +337,7 @@ static const char PAGE[] =
  * retry -- never leave a stuck, silent modal (an unhandled await used to). */
 "try{var r=await fetch('/api/put?keys='+encodeURIComponent(k)+(enc?'&enc=1':''),{method:'POST',body:enc?(pp+'\\n'+v):v});"
 "if(!r.ok)throw new Error('server '+r.status)}catch(e){alert('Save failed ('+e.message+'). Nothing was saved.');return}"
-"closeSheet();$('q').value=k;recall()}"
+"closeSheet();$('q').value=k;recall();if(syncFolderSaved())syncFolderRun(true)}"
 "$('q').addEventListener('keydown',function(e){if(e.key=='Enter')setView('recall')});"
 "$('seg-recall').onclick=function(){setView('recall')};"
 "[].forEach.call(document.querySelectorAll('#bnav button'),function(b){b.onclick=function(){setView(b.dataset.v)}});"
@@ -435,6 +441,14 @@ static const char PAGE[] =
 "function fileExport(){var a=document.createElement('a');a.href='/api/export-bundle';a.download='ais-export.aisb';document.body.appendChild(a);a.click();a.remove()}"
 "async function fileImport(f){var b=await f.arrayBuffer();var r=await fetch('/api/import-bundle',{method:'POST',body:b});"
 "if((await r.text()).trim()=='merged'){closeSync();setView(view);alert('Imported. Records merged.')}else{alert('Import failed. Is it an .aisb file from Export?')}}"
+/* folder auto-sync: remember the path, run a pass on demand + on load + after a save */
+"function syncFolderSaved(){return localStorage.getItem('aisSyncFolder')||''}"
+"async function syncFolderRun(silent){var p=($('syncfld').value||'').trim();"
+"if(!p){if(!silent)$('syncfldmsg').textContent='Enter a folder path.';return}"
+"localStorage.setItem('aisSyncFolder',p);if(!silent)$('syncfldmsg').textContent='Syncing...';"
+"try{var r=await fetch('/api/sync-folder',{method:'POST',body:p});var ok=(await r.text()).trim()=='synced';"
+"if(!silent){$('syncfldmsg').textContent=ok?'Synced.':'Sync failed (check the path).';if(ok)setView(view)}}"
+"catch(e){if(!silent)$('syncfldmsg').textContent='Sync failed.'}}"
 "async function syncJoinGo(){var url=$('jaddr').value.trim(),tok=$('jtok').value.trim();"
 "if(!url||!tok){$('joinstatus').textContent='Enter an address and a token.';return}"
 "$('joinstatus').textContent='Syncing...';"
@@ -446,6 +460,8 @@ static const char PAGE[] =
 "$('synchostbtn').onclick=syncHost;$('syncjoinbtn').onclick=syncJoinPane;$('jgo').onclick=syncJoinGo;"
 "$('expbtn').onclick=fileExport;$('impbtn').onclick=function(){$('fileimp').click()};"
 "$('fileimp').onchange=function(){if(this.files[0])fileImport(this.files[0]);this.value=''};"
+"$('syncfldbtn').onclick=function(){syncFolderRun(false)};"
+"if(syncFolderSaved()){$('syncfld').value=syncFolderSaved();syncFolderRun(true)}"
 "$('syncsheet').addEventListener('click',function(e){if(e.target==$('syncsheet'))closeSync()});"
 "</script>";
 
@@ -1067,6 +1083,24 @@ static void handle(ais *a, int fd)
         } else {
             static const char e[] = "HTTP/1.0 500 Internal Server Error\r\n"
                 "Connection: close\r\n\r\nexport failed\n";
+            write_all(fd, e, sizeof(e) - 1);
+        }
+    } else if (strcmp(method, "POST") == 0 && strcmp(path, "/api/sync-folder") == 0) {
+        /* One folder-sync pass: body = the shared folder path (a Syncthing / cloud
+         * folder). Import every peer bundle, (re)write our own. Local single-user. */
+        char *nd = body;
+        size_t bl;
+        while (*nd == ' ' || *nd == '\t') nd++;
+        bl = strlen(nd);
+        while (bl > 0 && (nd[bl-1] == '\r' || nd[bl-1] == '\n' ||
+                          nd[bl-1] == ' '  || nd[bl-1] == '\t'))
+            nd[--bl] = '\0';
+        if (nd[0] != '\0' && sync_folder_once(a, nd) == 0) {
+            send_head(fd, "text/plain");
+            write_all(fd, "synced\n", 7);
+        } else {
+            static const char e[] = "HTTP/1.0 400 Bad Request\r\n"
+                "Connection: close\r\n\r\nfolder sync failed\n";
             write_all(fd, e, sizeof(e) - 1);
         }
     } else if (strcmp(method, "POST") == 0 && strcmp(path, "/api/import-bundle") == 0) {
