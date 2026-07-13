@@ -106,10 +106,10 @@ class _RecallPageState extends State<RecallPage> {
   // shared engine handle mid-sync (data race). This gates every sync entry point.
   bool _syncBusy = false;
   // Folder auto-sync (a Syncthing / cloud folder keeps devices in sync). Path is
-  // remembered per-index in <dir>/syncfolder; a pass runs on launch, after a save,
-  // and on a timer while open. Empty = off.
+  // remembered per-index in <dir>/syncfolder. Purely user-driven: a pass runs on
+  // open, after a save/delete, and on the explicit "Sync now" control -- no
+  // background polling. Empty = off.
   String _syncFolder = '';
-  Timer? _syncTimer;
 
   // Custom-scheme deep links (ais://sync?...). The native side (MainActivity /
   // AppDelegate) pushes live links as 'onLink' and holds a cold-start link for
@@ -146,10 +146,7 @@ class _RecallPageState extends State<RecallPage> {
       _status = 'Type tags, then Search. Tap Add to save.';
       _syncFolder = _loadSyncFolder();
       _loadTimeline(); // open showing recent items, not a blank search pane
-      _runFolderSync(silent: true); // pull in any peer changes on launch
-      // while open, sync the shared folder every 20s so peers converge live
-      _syncTimer ??= Timer.periodic(
-          const Duration(seconds: 20), (_) => _runFolderSync(silent: true));
+      _runFolderSync(silent: true); // pull peer changes on open (opening is the user action)
     } catch (e) {
       _status = 'cannot open index: $e';
     }
@@ -531,13 +528,20 @@ class _RecallPageState extends State<RecallPage> {
             // --- A shared folder: a tool like Syncthing keeps devices in sync. ---
             _syncGroupLabel(ctx, 'A shared folder (Syncthing or cloud)'),
             ListTile(
-              leading: const Icon(Icons.sync),
+              leading: const Icon(Icons.folder_shared_outlined),
               title: Text(_syncFolder.isEmpty ? 'Set a sync folder' : 'Synced folder'),
               subtitle: Text(_syncFolder.isEmpty
                   ? 'Point at a folder that Syncthing or a cloud client keeps in sync'
                   : _syncFolder),
               onTap: () => Navigator.pop(ctx, 'folder'),
             ),
+            if (_syncFolder.isNotEmpty)
+              ListTile(
+                leading: const Icon(Icons.sync),
+                title: const Text('Sync now'),
+                subtitle: const Text('Pull peer changes and push yours'),
+                onTap: () => Navigator.pop(ctx, 'folder-sync'),
+              ),
             if (_syncFolder.isNotEmpty)
               ListTile(
                 leading: const Icon(Icons.sync_disabled),
@@ -564,6 +568,9 @@ class _RecallPageState extends State<RecallPage> {
         break;
       case 'folder':
         await _pickSyncFolder();
+        break;
+      case 'folder-sync':
+        _runFolderSync(silent: false); // explicit "Sync now"
         break;
       case 'folder-off':
         setState(() => _syncFolder = '');
@@ -1301,7 +1308,10 @@ class _RecallPageState extends State<RecallPage> {
       _commitDelete(id);
       // Re-sync the visible view now the delete is real. Guard on _pendingDelete
       // so a re-query can't resurrect a row still inside its own Undo window.
-      if (_pendingDelete.isEmpty && mounted) _setView(_view);
+      if (_pendingDelete.isEmpty && mounted) {
+        _setView(_view);
+        _runFolderSync(silent: true); // the delete settled: push it to peers
+      }
     });
   }
 
@@ -2113,7 +2123,6 @@ class _RecallPageState extends State<RecallPage> {
 
   @override
   void dispose() {
-    _syncTimer?.cancel();
     _debounce?.cancel();
     _ais?.close();
     super.dispose();

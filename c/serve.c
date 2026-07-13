@@ -255,7 +255,7 @@ static const char PAGE[] =
  * it -- never on Undo, which just re-shows the row (nothing was deleted). */
 "var delTimer=null,delRow=null,delCommit=null;"
 "function hideToast(){$('toast').hidden=true}"
-"function delFlush(){if(delTimer){clearTimeout(delTimer);delTimer=null}if(delCommit){var f=delCommit;delCommit=null;delRow=null;f()}hideToast()}"
+"function delFlush(){if(delTimer){clearTimeout(delTimer);delTimer=null}if(delCommit){var f=delCommit;delCommit=null;delRow=null;f();if(syncFolderSaved())syncFolderRun(true)}hideToast()}"
 "function delRec(id){delFlush();"                       /* commit any prior pending delete first */
 "var row=document.querySelector('.hit[data-id=\"'+id+'\"]');if(row)row.style.display='none';delRow=row;"
 "delCommit=function(){fetch('/api/del?id='+id,{method:'POST'})};"
