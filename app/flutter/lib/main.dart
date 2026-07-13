@@ -11,6 +11,7 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:file_selector/file_selector.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:share_plus/share_plus.dart';
@@ -543,45 +544,51 @@ class _RecallPageState extends State<RecallPage> {
       );
 
   // Export the whole index to a single plaintext file (the "aisb" bundle) the
-  // user can carry by any channel. No picker plugin in pubspec, so the save
-  // location is a plain path field (defaults inside the current store). The
-  // write is fast, so it runs inline; every outcome gets a SnackBar.
+  // user can carry by any channel. Desktop gets a native Save dialog defaulting
+  // to Downloads (a visible, shareable place -- not the .ais dotfolder); mobile
+  // has no browsable filesystem, so it writes a temp copy and hands it to the OS
+  // share sheet (Drive / email / Files). The write is fast, so it runs inline.
   Future<void> _exportFile() async {
     if (_ais == null) return;
     final messenger = ScaffoldMessenger.of(context);
-    final pathCtrl = TextEditingController(text: '$_dir/ais-export.aisb');
-    final go = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Export to a file'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: pathCtrl,
-              autofocus: true,
-              decoration: const InputDecoration(
-                  labelText: 'Save to', hintText: '/full/path/ais-export.aisb'),
-            ),
-            const SizedBox(height: 8),
-            Text('Writes a copy of the whole index to this file.',
-                style: Theme.of(ctx).textTheme.bodySmall),
-          ],
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
-          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Export')),
-        ],
-      ),
+
+    if (Platform.isAndroid || Platform.isIOS) {
+      final tmp = await getTemporaryDirectory();
+      final path = '${tmp.path}/ais-export.aisb';
+      final rc = _ais!.exportBundle(path);
+      if (!mounted) return;
+      if (rc != 0) {
+        messenger.showSnackBar(
+            const SnackBar(content: Text('Could not write the export file.')));
+        return;
+      }
+      try {
+        await SharePlus.instance.share(
+            ShareParams(files: [XFile(path)], text: 'AIS export'));
+      } catch (_) {
+        if (mounted) {
+          messenger.showSnackBar(
+              const SnackBar(content: Text("Sharing isn't available here")));
+        }
+      }
+      return;
+    }
+
+    // Desktop: a real Save dialog, defaulting to Downloads.
+    final downloads = await getDownloadsDirectory();
+    final location = await getSaveLocation(
+      acceptedTypeGroups: const [
+        XTypeGroup(label: 'AIS bundle', extensions: ['aisb'])
+      ],
+      suggestedName: 'ais-export.aisb',
+      initialDirectory: downloads?.path,
     );
-    if (go != true || _ais == null) return;
-    final path = pathCtrl.text.trim();
-    if (path.isEmpty) return;
-    final rc = _ais!.exportBundle(path);
+    if (location == null || _ais == null) return; // cancelled
+    final rc = _ais!.exportBundle(location.path);
     if (!mounted) return;
     messenger.showSnackBar(SnackBar(
         content: Text(rc == 0
-            ? 'Exported to $path'
+            ? 'Exported to ${location.path}'
             : 'Could not write the file. Check the folder path.')));
   }
 
@@ -591,35 +598,18 @@ class _RecallPageState extends State<RecallPage> {
   Future<void> _importFile() async {
     if (_ais == null) return;
     final messenger = ScaffoldMessenger.of(context);
-    final pathCtrl = TextEditingController();
-    final go = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Import from a file'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: pathCtrl,
-              autofocus: true,
-              decoration: const InputDecoration(
-                  labelText: 'File', hintText: '/full/path/ais-export.aisb'),
-            ),
-            const SizedBox(height: 8),
-            Text('Merges the file into this index.',
-                style: Theme.of(ctx).textTheme.bodySmall),
-          ],
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
-          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Import')),
-        ],
-      ),
+    // On mobile the SAF picker filters by MIME, and the custom .aisb extension
+    // maps to none -- so don't constrain the type group there, or the file
+    // becomes unselectable. Desktop filters to .aisb for a tidy dialog.
+    final mobile = Platform.isAndroid || Platform.isIOS;
+    final file = await openFile(
+      acceptedTypeGroups: mobile
+          ? const []
+          : const [XTypeGroup(label: 'AIS bundle', extensions: ['aisb'])],
+      initialDirectory: mobile ? null : (await getDownloadsDirectory())?.path,
     );
-    if (go != true || _ais == null) return;
-    final path = pathCtrl.text.trim();
-    if (path.isEmpty) return;
-    final rc = _ais!.importBundle(path);
+    if (file == null || _ais == null) return; // cancelled
+    final rc = _ais!.importBundle(file.path);
     if (!mounted) return;
     final String msg;
     switch (rc) {
