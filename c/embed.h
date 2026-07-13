@@ -102,6 +102,11 @@ int   ais_embed_export_bundle(void *handle, const char *path);
  * bundle format), so a GUI can tell "unreadable/wrong file" from "wrong format". */
 int   ais_embed_import_bundle(void *handle, const char *path);
 
+/* Folder auto-sync: one export+import pass over a shared FOLDER (a Syncthing / cloud
+ * folder). Each device owns a framed <id>.aisb; the merge is conflict-free and a
+ * torn/partial peer file is rejected. Returns 0, or -1 (bad args / not built). */
+int   ais_embed_sync_folder(void *handle, const char *folder);
+
 /* One timeline page as "id|ts|keys|value\n" lines: the COUNT records with id <
  * BEFORE_ID (BEFORE_ID <= 0 = from newest; COUNT <= 0 = default), newest first,
  * whose save date is within [FROM,TO] ("YYYY-MM-DD", inclusive; "" / NULL = open

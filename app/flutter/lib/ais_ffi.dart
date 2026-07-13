@@ -139,6 +139,8 @@ class AisEngine {
       _lib.lookupFunction<_BundleC, _BundleD>('ais_embed_export_bundle');
   late final _BundleD _importBundle =
       _lib.lookupFunction<_BundleC, _BundleD>('ais_embed_import_bundle');
+  late final _BundleD _syncFolder =
+      _lib.lookupFunction<_BundleC, _BundleD>('ais_embed_sync_folder');
 
   AisEngine(String indexDir) {
     final dir = indexDir.toNativeUtf8();
@@ -376,6 +378,16 @@ class AisEngine {
     final rc = _importBundle(_h, p);
     calloc.free(p);
     return rc;
+  }
+
+  /// One folder-sync pass over [folder] (a Syncthing / cloud folder): import every
+  /// peer's framed bundle, then (re)write our own; heals a device-id clone. Returns
+  /// true on success.
+  bool syncFolder(String folder) {
+    final p = folder.toNativeUtf8();
+    final rc = _syncFolder(_h, p);
+    calloc.free(p);
+    return rc == 0;
   }
 
   /// Delete record [id]. True on success.

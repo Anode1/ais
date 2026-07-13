@@ -105,6 +105,11 @@ class _RecallPageState extends State<RecallPage> {
   // through the barrier dialog, so it could otherwise start a second sync on the
   // shared engine handle mid-sync (data race). This gates every sync entry point.
   bool _syncBusy = false;
+  // Folder auto-sync (a Syncthing / cloud folder keeps devices in sync). Path is
+  // remembered per-index in <dir>/syncfolder; a pass runs on launch, after a save,
+  // and on a timer while open. Empty = off.
+  String _syncFolder = '';
+  Timer? _syncTimer;
 
   // Custom-scheme deep links (ais://sync?...). The native side (MainActivity /
   // AppDelegate) pushes live links as 'onLink' and holds a cold-start link for
@@ -139,7 +144,12 @@ class _RecallPageState extends State<RecallPage> {
       _ais = AisEngine(dir);
       _dir = dir;
       _status = 'Type tags, then Search. Tap Add to save.';
+      _syncFolder = _loadSyncFolder();
       _loadTimeline(); // open showing recent items, not a blank search pane
+      _runFolderSync(silent: true); // pull in any peer changes on launch
+      // while open, sync the shared folder every 20s so peers converge live
+      _syncTimer ??= Timer.periodic(
+          const Duration(seconds: 20), (_) => _runFolderSync(silent: true));
     } catch (e) {
       _status = 'cannot open index: $e';
     }
@@ -148,6 +158,7 @@ class _RecallPageState extends State<RecallPage> {
     if (mounted) setState(() {});
     _wireDeepLinks();
   }
+
 
   // Custom-scheme deep links (ais://sync?...): register the live-link handler and
   // check for a link that cold-started the app. No plugin; the native side is thin.
@@ -516,6 +527,23 @@ class _RecallPageState extends State<RecallPage> {
               subtitle: const Text('Merge in a file you exported on another device'),
               onTap: () => Navigator.pop(ctx, 'import'),
             ),
+            const Divider(height: 24),
+            // --- A shared folder: a tool like Syncthing keeps devices in sync. ---
+            _syncGroupLabel(ctx, 'A shared folder (Syncthing or cloud)'),
+            ListTile(
+              leading: const Icon(Icons.sync),
+              title: Text(_syncFolder.isEmpty ? 'Set a sync folder' : 'Synced folder'),
+              subtitle: Text(_syncFolder.isEmpty
+                  ? 'Point at a folder that Syncthing or a cloud client keeps in sync'
+                  : _syncFolder),
+              onTap: () => Navigator.pop(ctx, 'folder'),
+            ),
+            if (_syncFolder.isNotEmpty)
+              ListTile(
+                leading: const Icon(Icons.sync_disabled),
+                title: const Text('Stop folder sync'),
+                onTap: () => Navigator.pop(ctx, 'folder-off'),
+              ),
             const SizedBox(height: 8),
           ],
         ),
@@ -534,6 +562,65 @@ class _RecallPageState extends State<RecallPage> {
       case 'import':
         await _importFile();
         break;
+      case 'folder':
+        await _pickSyncFolder();
+        break;
+      case 'folder-off':
+        setState(() => _syncFolder = '');
+        await _saveSyncFolder('');
+        break;
+    }
+  }
+
+  // Read/persist the per-index sync-folder path (a plain file next to the store).
+  String _loadSyncFolder() {
+    try {
+      final f = File('$_dir/syncfolder');
+      if (f.existsSync()) return f.readAsStringSync().trim();
+    } catch (_) {}
+    return '';
+  }
+
+  Future<void> _saveSyncFolder(String path) async {
+    try {
+      await File('$_dir/syncfolder').writeAsString(path);
+    } catch (_) {}
+  }
+
+  // Pick a shared folder and run the first sync pass.
+  Future<void> _pickSyncFolder() async {
+    if (_ais == null) return;
+    final messenger = ScaffoldMessenger.of(context);
+    String? dir;
+    try {
+      dir = await getDirectoryPath(); // desktop; mobile has no arbitrary-folder picker
+    } catch (_) {
+      dir = null;
+    }
+    if (dir == null || !mounted) {
+      if (dir == null && mounted && (Platform.isAndroid || Platform.isIOS)) {
+        messenger.showSnackBar(const SnackBar(
+            content: Text('Folder sync is desktop-only for now.')));
+      }
+      return;
+    }
+    setState(() => _syncFolder = dir!);
+    await _saveSyncFolder(dir);
+    final ok = _ais!.syncFolder(dir);
+    if (!mounted) return;
+    messenger.showSnackBar(SnackBar(
+        content: Text(ok ? 'Syncing with $dir' : 'Could not sync to that folder')));
+    if (ok) _setView(_view);
+  }
+
+  // One folder-sync pass (fast, local file I/O). Refreshes the view on a merge.
+  void _runFolderSync({bool silent = true}) {
+    if (_ais == null || _syncFolder.isEmpty) return;
+    final ok = _ais!.syncFolder(_syncFolder);
+    if (ok && mounted) _setView(_view);
+    if (!silent && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(ok ? 'Folder synced' : 'Folder sync failed')));
     }
   }
 
@@ -844,6 +931,7 @@ class _RecallPageState extends State<RecallPage> {
       if (!Platform.isAndroid && !Platform.isIOS) AisIndex.setDefault(picked);
       setState(() {
         _dir = picked;
+        _syncFolder = _loadSyncFolder(); // sync-folder is per-index
         _results = const [];
         _resultKeys = const {};
         _tl = const [];
@@ -2011,6 +2099,7 @@ class _RecallPageState extends State<RecallPage> {
                       nav.pop();
                       _q.text = keys;
                       _recall(); // show what was just saved
+                      _runFolderSync(silent: true); // push the new record to peers
                       messenger.showSnackBar(SnackBar(
                           content: Text(keys.isEmpty ? 'Saved (no tags)' : 'Saved under: $keys')));
                     },
@@ -2024,6 +2113,7 @@ class _RecallPageState extends State<RecallPage> {
 
   @override
   void dispose() {
+    _syncTimer?.cancel();
     _debounce?.cancel();
     _ais?.close();
     super.dispose();

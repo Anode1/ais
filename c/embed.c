@@ -243,6 +243,19 @@ int ais_embed_import_bundle(void *handle, const char *path)
 #endif
 }
 
+int ais_embed_sync_folder(void *handle, const char *folder)
+{
+#ifdef _WIN32
+    (void)handle; (void)folder;                 /* sync.c (folder pass) not built on Windows */
+    return -1;
+#else
+    ais *a = handle;
+    if (a == NULL || folder == NULL)
+        return -1;
+    return sync_folder_once(a, folder);         /* import peers, (re)write own; clone-heal */
+#endif
+}
+
 char *ais_embed_display(void *handle, const char *value)
 {
     char *out;
