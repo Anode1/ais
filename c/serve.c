@@ -129,6 +129,8 @@ static const char PAGE[] =
 ".chip{display:inline-flex;align-items:center;gap:.35rem;background:var(--field);border:1px solid var(--line);border-radius:16px;padding:.25rem .7rem;font-size:.9rem}"
 ".chip button{border:0;background:none;color:var(--muted);cursor:pointer;font:inherit;font-size:1rem;line-height:1;padding:0}"
 ".chip button:hover{color:#c0392b}"
+"#toast{position:fixed;left:50%;bottom:82px;transform:translateX(-50%);z-index:20;display:flex;align-items:center;gap:1rem;background:#2b2b33;color:#fff;padding:.65rem 1.1rem;border-radius:10px;box-shadow:0 4px 16px rgba(0,0,0,.35)}"
+"#toast[hidden]{display:none}#toast button{color:#9db4ff;border:0;background:none;text-decoration:underline;cursor:pointer;font:inherit}"
 "</style>"
 "<header id=bar><div class=titlerow><span class=brand>AIS</span><span id=count class=muted></span></div>"
 "<div class=searchrow><input id=q type=search placeholder='type tags to filter' autocomplete=off autofocus>"
@@ -142,6 +144,7 @@ static const char PAGE[] =
 "<button id=tlclear class=link>clear</button></div></header>"
 "<main id=out><p class=empty>Loading...</p></main>"
 "<button id=addbtn class=fab>+ Add</button>"
+"<div id=toast hidden><span>Deleted</span><button id=toastundo>Undo</button></div>"
 "<nav id=bnav><button data-v=recall><span class=ic>&#128269;</span>Search</button>"
 "<button data-v=timeline class=on><span class=ic>&#128336;</span>Recent</button>"
 "<button data-v=tags><span class=ic>&#127991;</span>Tags</button></nav>"
@@ -229,7 +232,7 @@ static const char PAGE[] =
 "var o=$('out');o.innerHTML='';"
 "if(!L.length){o.textContent='No results for '+q;o.className='empty';return}o.className='';"
 "L.forEach(function(ln){var p=ln.indexOf('|'),id=p>=0?ln.slice(0,p):'',v=p>=0?ln.slice(p+1):ln,"
-"r=document.createElement('div');r.className='hit';"
+"r=document.createElement('div');r.className='hit';if(id)r.dataset.id=id;"
 "(v.indexOf('aisc:')==0?fillSecret(r,v):v.indexOf('aisdoc:')==0?fillDoc(r,v):fillVal(r,v));if(id)r.appendChild(rowActions(id,v));o.appendChild(r)})}"
 /* per-row edit (attach/detach keys by id) and delete; both refresh the view */
 "function rowActions(id,v){var d=document.createElement('div');d.className='act';"
@@ -241,8 +244,17 @@ static const char PAGE[] =
 "box.appendChild(e);box.appendChild(x);m.onclick=function(){box.hidden=!box.hidden};"
 "d.appendChild(m);d.appendChild(box);return d}"
 "async function copyText(t,btn){try{await navigator.clipboard.writeText(t);if(btn){var o=btn.textContent;btn.textContent='copied';setTimeout(function(){btn.textContent=o},1200)}}catch(e){alert('copy needs https or localhost')}}"
-"async function delRec(id){if(!confirm('Delete this record?'))return;"
-"await fetch('/api/del?id='+id,{method:'POST'});setView(view)}"
+/* Deferred delete + Undo (Flutter parity): hide the row and start a 5s window.
+ * The engine del() only fires when the window lapses OR another action flushes
+ * it -- never on Undo, which just re-shows the row (nothing was deleted). */
+"var delTimer=null,delRow=null,delCommit=null;"
+"function hideToast(){$('toast').hidden=true}"
+"function delFlush(){if(delTimer){clearTimeout(delTimer);delTimer=null}if(delCommit){var f=delCommit;delCommit=null;delRow=null;f()}hideToast()}"
+"function delRec(id){delFlush();"                       /* commit any prior pending delete first */
+"var row=document.querySelector('.hit[data-id=\"'+id+'\"]');if(row)row.style.display='none';delRow=row;"
+"delCommit=function(){fetch('/api/del?id='+id,{method:'POST'})};"
+"$('toast').hidden=false;delTimer=setTimeout(delFlush,5000)}"
+"function delUndo(){if(delTimer){clearTimeout(delTimer);delTimer=null}if(delRow)delRow.style.display='';delRow=null;delCommit=null;hideToast()}"
 /* Edit modal: value (when editable) + a chip tag editor, computing a minimal
  * +tag/-tag delta on save. Replaces the old -KEY grammar prompt. */
 "var edId=0,edTags=[],edOldVal='',edEdit=false;"
@@ -286,7 +298,7 @@ static const char PAGE[] =
 "L.forEach(function(ln){var r=parseTL(ln),lt=locDT(r.ts),d=lt?lt.day:'';"
 "if(d!==tlDay){tlDay=d;var h=document.createElement('div');h.className='daygroup';"
 "h.textContent=d?fmtDay(d):'(undated)';o.appendChild(h)}"
-"var row=document.createElement('div');row.className='hit';(r.value.indexOf('aisdoc:')==0?fillDoc(row,r.value):fillVal(row,r.value));"
+"var row=document.createElement('div');row.className='hit';if(r.id)row.dataset.id=r.id;(r.value.indexOf('aisdoc:')==0?fillDoc(row,r.value):fillVal(row,r.value));"
 "var m=document.createElement('div');m.className='meta';"
 "var tm=lt&&lt.time?lt.time+' - ':'';"
 "m.textContent=tm+(r.keys||'(no tags)');row.appendChild(m);"
@@ -304,7 +316,7 @@ static const char PAGE[] =
 "b.onclick=function(){$('q').value=k;setView('recall')};"
 "var n=document.createElement('span');n.className='tagcount';n.textContent=c;"
 "row.appendChild(b);row.appendChild(n);o.appendChild(row)})}"
-"function setView(v){view=v;"
+"function setView(v){delFlush();view=v;"
 "[].forEach.call(document.querySelectorAll('#bnav button'),function(b){b.className=(b.dataset.v==v)?'on':''});"
 "$('tlrange').style.display=(v=='timeline')?'flex':'none';"   /* date range only in Timeline */
 "if(v=='recall'){var q=$('q').value.trim();if(q)recall();"
@@ -326,6 +338,7 @@ static const char PAGE[] =
 "$('tlfrom').onchange=function(){loadTimeline()};$('tlto').onchange=function(){loadTimeline()};"
 "$('tlclear').onclick=function(){$('tlfrom').value='';$('tlto').value='';loadTimeline()};"
 "$('addbtn').onclick=openSheet;$('cancel').onclick=closeSheet;$('save').onclick=save;"
+"$('toastundo').onclick=delUndo;"
 "$('edcancel').onclick=function(){$('editsheet').hidden=true};$('edsave').onclick=edSave;"
 "$('edtag').addEventListener('keydown',function(e){if(e.key=='Enter'||e.key==','){e.preventDefault();edAdd()}});"
 "$('edtag').addEventListener('blur',edAdd);"
