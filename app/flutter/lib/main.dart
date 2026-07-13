@@ -671,19 +671,29 @@ class _RecallPageState extends State<RecallPage> {
   // Join dialog or parsed from a scanned ais:// link. Blocks the UI while the
   // sync isolate holds the shared engine handle (a data race otherwise).
   Future<void> _runJoin(String url, String token) async {
-    if (_ais == null || !mounted || _syncBusy) return;
-    _syncBusy = true;
+    if (_ais == null || !mounted) return;
     final messenger = ScaffoldMessenger.of(context);
+    if (_syncBusy) {
+      messenger.showSnackBar(const SnackBar(
+          content: Text('A sync is already running. Finish it first.')));
+      return;
+    }
+    _syncBusy = true;
     final fut = _ais!.pullAsync(url, token, bidir: true);
-    await showDialog<void>(
-      context: context,
-      barrierDismissible: false,
-      builder: (_) =>
-          _SyncWaitDialog(title: 'Join a sync', waiting: 'Syncing...', done: fut),
-    );
+    final hidden = await showDialog<bool>(
+          context: context,
+          barrierDismissible: false,
+          builder: (_) => _SyncWaitDialog(
+              title: 'Join a sync',
+              waiting: 'Syncing...',
+              note: 'You can hide this — syncing continues in the background.',
+              done: fut),
+        ) ??
+        false;
     final rc = await fut;
     _syncBusy = false;
     if (!mounted) return;
+    if (hidden && rc != 0) return; // don't surprise with a late failure snackbar
     final String msg;
     switch (rc) {
       case 0:
@@ -702,8 +712,13 @@ class _RecallPageState extends State<RecallPage> {
   // Host: wait for another device to join; both converge (bidirectional). The
   // address + token stay visible while waiting.
   Future<void> _syncHost() async {
-    if (_ais == null || _syncBusy) return;
+    if (_ais == null) return;
     final messenger = ScaffoldMessenger.of(context);
+    if (_syncBusy) {
+      messenger.showSnackBar(const SnackBar(
+          content: Text('A sync is already running. Finish it first.')));
+      return;
+    }
     final ip = await _lanIp();
     if (!mounted) return;
     if (ip == null) {
@@ -723,20 +738,25 @@ class _RecallPageState extends State<RecallPage> {
 
     _syncBusy = true;
     final fut = _ais!.serveAsync(port, token, bidir: true); // blocks up to ~120s
-    await showDialog<void>(
-      context: context,
-      barrierDismissible: false,
-      builder: (_) => _SyncWaitDialog(
-          title: 'Host a sync',
-          qrData: link,
-          commandLabel: 'Or type the address and token on the other device:',
-          command: detail,
-          waiting: 'Waiting for the other device...',
-          done: fut),
-    );
+    final hidden = await showDialog<bool>(
+          context: context,
+          barrierDismissible: false,
+          builder: (_) => _SyncWaitDialog(
+              title: 'Host a sync',
+              qrData: link,
+              commandLabel: 'Or type the address and token on the other device:',
+              command: detail,
+              waiting: 'Waiting for the other device...',
+              note: 'You can hide this — hosting keeps waiting in the background.',
+              done: fut),
+        ) ??
+        false;
     final rc = await fut;
     _syncBusy = false;
     if (!mounted) return;
+    // If the user hid the dialog and it then timed out, don't surprise them with
+    // a late failure snackbar ~2 min later; a success is still worth announcing.
+    if (hidden && rc != 0) return;
     final String msg;
     switch (rc) {
       case 0:
@@ -2007,6 +2027,7 @@ class _SyncWaitDialog extends StatefulWidget {
   final String? commandLabel; // line shown above the command (host); null hides it
   final String? command;      // shown on host; null on join
   final String waiting;
+  final String? note;         // honest caption: hiding does NOT stop the sync
   final Future<int> done;
   const _SyncWaitDialog(
       {required this.title,
@@ -2014,6 +2035,7 @@ class _SyncWaitDialog extends StatefulWidget {
       this.commandLabel,
       this.command,
       required this.waiting,
+      this.note,
       required this.done});
   @override
   State<_SyncWaitDialog> createState() => _SyncWaitDialogState();
@@ -2023,8 +2045,10 @@ class _SyncWaitDialogState extends State<_SyncWaitDialog> {
   @override
   void initState() {
     super.initState();
+    // Auto-close when the sync finishes; pop(false) marks "completed on its own"
+    // so the caller can tell it apart from the user hiding it (pop(true)).
     widget.done.whenComplete(() {
-      if (mounted) Navigator.of(context).pop();
+      if (mounted) Navigator.of(context).pop(false);
     });
   }
 
@@ -2078,12 +2102,23 @@ class _SyncWaitDialogState extends State<_SyncWaitDialog> {
               const SizedBox(width: 12),
               Flexible(child: Text(widget.waiting)),
             ]),
+            if (widget.note != null) ...[
+              const SizedBox(height: 12),
+              Text(widget.note!,
+                  style: Theme.of(context)
+                      .textTheme
+                      .bodySmall
+                      ?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant)),
+            ],
           ],
         )),
         actions: [
+          // "Hide", not "Cancel": an in-flight network sync can't be safely
+          // aborted mid-merge, so this only dismisses the dialog -- the sync
+          // keeps running (see note above) and the result arrives as a snackbar.
           TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Cancel')),
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('Hide')),
         ],
       );
 }
