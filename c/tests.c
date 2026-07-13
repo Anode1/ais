@@ -1226,13 +1226,14 @@ static void test_update(void)
     query(&a, AIS_AND, &v, 1, "rome"); { long w[1] = {1}; CHECK(ids_eq(&v, w, 1), "update: 'rome' finds it"); }
     CHECK(ais_update(&a, 999, "x") == -1, "update: unknown id -> -1");
 
-    /* a detach is durable through compaction: store line rewritten without the
-     * key, ktomb cleared, recall stays empty, posting stays gone */
+    /* a detach is durable through compaction: the store line is rewritten without the
+     * key and recall stays empty. The hash-bearing key-tombstone is RETAINED so the
+     * detach can still propagate to peers on a folder sync (I1). */
     CHECK(ais_update(&a, id, "-italy") == 0, "update: detach 'italy' before compact");
     CHECK(ais_compact(&a) == 0, "update: compact ok");
     query(&a, AIS_AND, &v, 1, "italy");  CHECK(v.n == 0, "update: 'italy' empty after compact");
     query(&a, AIS_AND, &v, 1, "venice"); { long w[1] = {1}; CHECK(ids_eq(&v, w, 1), "update: 'venice' survives compact"); }
-    CHECK(ktomb_active(&a) == 0, "update: ktomb cleared by compact");
+    CHECK(ktomb_contains(&a, id, "italy") == 1, "update: key-tombstone retained through compact (I1)");
     CHECK(read_posting(dir, "italy", vids, 16, &asc) == -1, "update: 'italy' posting gone after compact");
 
     /* a deleted record cannot be updated */
@@ -2107,6 +2108,43 @@ static void test_sync_clone_heal(void)
     scratch_rm(da); scratch_rm(db); scratch_rm(fld);
 }
 
+/* I1: a tag removed on one device must propagate (and NOT resurrect) on a peer that
+ * still has it, and the detach must survive compaction. Uses the merge stream directly
+ * (feed_export/import), the same core the folder bundle carries. */
+static void test_sync_tag_detach(void)
+{
+    ais A, B;
+    struct idvec v;
+    FILE *t;
+    const char *da = "/tmp/ais_ut_tdA", *db = "/tmp/ais_ut_tdB";
+
+    scratch_rm(da); scratch_rm(db);
+    ais_open(&A, da); ais_open(&B, db);
+    ais_put(&A, "home wifi", "the password");   /* A id 1: tags home, wifi */
+    ais_put(&B, "home wifi", "the password");   /* B independently holds both tags */
+
+    ais_update(&A, 1, "-wifi");                  /* A removes the 'wifi' tag */
+    query(&A, AIS_AND, &v, 1, "wifi"); CHECK(v.n == 0, "detach: 'wifi' gone locally in A");
+
+    t = tmpfile();                               /* A -> B: the detach must apply */
+    feed_export(&A, t); rewind(t); feed_import_from(&B, t); fclose(t);
+    query(&B, AIS_AND, &v, 1, "wifi"); CHECK(v.n == 0, "detach: tag removal propagated to B");
+    query(&B, AIS_AND, &v, 1, "home"); CHECK(v.n == 1, "detach: the other tag survived in B");
+
+    t = tmpfile();                               /* B -> A: must NOT re-attach 'wifi' */
+    feed_export(&B, t); rewind(t); feed_import_from(&A, t); fclose(t);
+    query(&A, AIS_AND, &v, 1, "wifi"); CHECK(v.n == 0, "detach: peer re-export does not resurrect the tag");
+
+    /* durable through compaction: A compacts, then B (re-attached-free) still stays put */
+    CHECK(ais_compact(&A) == 0, "detach: A compacts");
+    t = tmpfile();
+    feed_export(&A, t); rewind(t); feed_import_from(&B, t); fclose(t);
+    query(&B, AIS_AND, &v, 1, "wifi"); CHECK(v.n == 0, "detach: survives compaction, still gone in B");
+
+    ais_close(&A); ais_close(&B);
+    scratch_rm(da); scratch_rm(db);
+}
+
 #ifdef AIS_UT_HAVE_CRYPTO
 /* The FFI seam's sync (embed.h) -- the EXACT call path the mobile/desktop GUI
  * uses: ais_embed_pull (Receive) and ais_embed_serve (Send) over a forked
@@ -2632,6 +2670,8 @@ int main(void)
     test_sync_delete_survives_compact();
     printf("folder sync B1 (device-id clone healed):\n");
     test_sync_clone_heal();
+    printf("folder sync I1 (tag removal propagates + survives compaction):\n");
+    test_sync_tag_detach();
     printf("embed sync (FFI pull/serve over loopback):\n");
     test_embed_sync();
     printf("sync exchange (symmetric bidir, both converge):\n");

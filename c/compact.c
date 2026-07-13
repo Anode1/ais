@@ -178,24 +178,35 @@ int tomb_remove(const ais *a, long id)
     return 0;
 }
 
-/* Parse one "id|key" ktomb line IN PLACE: returns the id (>= 0), sets *KP to the
- * key (text after the first '|', newline trimmed), or -1 if the line has no '|'. */
-static long ktomb_parse(char *line, const char **kp)
+/* Parse a ktomb line IN PLACE: "id|ts|hash|key" (or legacy "id|key"). Returns the id
+ * (>= 0), sets the TSP/HP/KP out-pointers to the fields (ts/hash "" for a legacy line), or -1 if
+ * there is no key field. Keys never contain '|' (key_encode), nor do ts/hash. */
+static long ktomb_parse(char *line, const char **tsp, const char **hp, const char **kp)
 {
-    char *bar = strchr(line, '|');
-    char *e;
+    char *b1, *b2, *b3, *e;
 
-    if (bar == NULL)
+    *tsp = ""; *hp = "";
+    b1 = strchr(line, '|');
+    if (b1 == NULL)
         return -1;
-    *bar = '\0';
-    *kp = bar + 1;
-    e = bar + 1 + strlen(bar + 1);
-    while (e > bar + 1 && (e[-1] == '\n' || e[-1] == '\r'))
+    *b1 = '\0';
+    b2 = strchr(b1 + 1, '|');
+    if (b2 == NULL) {
+        *kp = b1 + 1;                        /* legacy "id|key" */
+    } else {
+        b3 = strchr(b2 + 1, '|');
+        if (b3 == NULL)
+            return -1;                       /* malformed "id|ts|hash" (no key) */
+        *b2 = '\0'; *b3 = '\0';
+        *tsp = b1 + 1; *hp = b2 + 1; *kp = b3 + 1;
+    }
+    e = (char *)*kp + strlen(*kp);
+    while (e > *kp && (e[-1] == '\n' || e[-1] == '\r'))
         *--e = '\0';
     return atol(line);
 }
 
-int ktomb_append(const ais *a, long id, const char *key)
+int ktomb_append(const ais *a, long id, const char *ts, const char *hash, const char *key)
 {
     char path[AIS_PATH_MAX];
     FILE *fp;
@@ -205,10 +216,34 @@ int ktomb_append(const ais *a, long id, const char *key)
     fp = fopen(path, "a");
     if (fp == NULL)
         return -1;
-    fprintf(fp, "%ld|%s\n", id, key);
+    fprintf(fp, "%ld|%s|%s|%s\n", id, ts ? ts : "", hash ? hash : "", key);
     if (fclose(fp) != 0)
         return -1;
     return 0;
+}
+
+int ktomb_each(const ais *a, ktomb_cb cb, void *ctx)
+{
+    char path[AIS_PATH_MAX], line[AIS_LINE_MAX];
+    FILE *fp;
+    int rc = 0;
+
+    if (compact_path(a, "ktomb", path, sizeof(path)) != 0)
+        return -1;
+    fp = fopen(path, "r");
+    if (fp == NULL)
+        return (errno == ENOENT) ? 0 : -1;
+    while (fgets(line, sizeof(line), fp) != NULL) {
+        const char *ts, *h, *k;
+        long id = ktomb_parse(line, &ts, &h, &k);
+        if (id < 0 || k == NULL)
+            continue;
+        rc = cb(id, ts, h, k, ctx);
+        if (rc != 0)
+            break;
+    }
+    fclose(fp);
+    return rc;
 }
 
 int ktomb_contains(const ais *a, long id, const char *key)
@@ -225,8 +260,8 @@ int ktomb_contains(const ais *a, long id, const char *key)
         return (errno == ENOENT) ? 0 : -1;
 
     while (fgets(line, sizeof(line), fp) != NULL) {
-        const char *k = NULL;
-        if (ktomb_parse(line, &k) == id && k != NULL && strcmp(k, key) == 0) {
+        const char *ts, *h, *k = NULL;
+        if (ktomb_parse(line, &ts, &h, &k) == id && k != NULL && strcmp(k, key) == 0) {
             found = 1;
             break;
         }
@@ -259,9 +294,9 @@ int ktomb_remove(const ais *a, long id, const char *key)
         return -1;
     }
     while (fgets(orig, sizeof(orig), in) != NULL) {
-        const char *k = NULL;
+        const char *ts, *h, *k = NULL;
         snprintf(work, sizeof(work), "%s", orig);   /* parse a copy; emit orig */
-        if (ktomb_parse(work, &k) == id && k != NULL && strcmp(k, key) == 0) {
+        if (ktomb_parse(work, &ts, &h, &k) == id && k != NULL && strcmp(k, key) == 0) {
             removed = 1;
             continue;                                /* drop this pair */
         }
@@ -486,6 +521,36 @@ static int tomb_keep_hashed(ais *a)
     return 0;
 }
 
+/* Folder-sync I1: compaction strips detached keys from the store lines, but must NOT
+ * drop the KEY tombstones that carry a hash -- else a peer still holding the key would
+ * re-attach it. Rewrite ktomb keeping only hash-bearing "id|ts|hash|key" entries (the
+ * exportable ones); legacy hash-less "id|key" entries drop (pre-sync, already stripped
+ * from the store above). Atomic. Returns 0, or -1. */
+static int ktomb_keep_hashed(ais *a)
+{
+    char path[AIS_PATH_MAX], tmp[AIS_PATH_MAX], line[AIS_LINE_MAX], work[AIS_LINE_MAX];
+    FILE *in, *out;
+
+    if (compact_path(a, "ktomb", path, sizeof path) != 0)
+        return -1;
+    in = fopen(path, "r");
+    if (in == NULL)
+        return (errno == ENOENT) ? 0 : -1;
+    if (snprintf(tmp, sizeof tmp, "%s.new", path) >= (int)sizeof tmp) { fclose(in); return -1; }
+    out = fopen(tmp, "w");
+    if (out == NULL) { fclose(in); return -1; }
+    while (fgets(line, sizeof line, in) != NULL) {
+        const char *ts, *h, *k;
+        snprintf(work, sizeof work, "%s", line);
+        if (ktomb_parse(work, &ts, &h, &k) >= 0 && k != NULL && h[0] != '\0')
+            fputs(line, out);                /* hash-bearing: retain verbatim */
+    }
+    if (fclose(in) != 0) { fclose(out); remove(tmp); return -1; }
+    if (fflush(out) != 0 || fclose(out) != 0) { remove(tmp); return -1; }
+    if (rename(tmp, path) != 0) { remove(tmp); return -1; }
+    return 0;
+}
+
 static int compact_locked(ais *a)
 {
     char storepath[AIS_PATH_MAX];
@@ -551,20 +616,13 @@ static int compact_locked(ais *a)
     if (rename(newpath, storepath) != 0)
         goto cleanup;
 
-    /* B3: RETAIN hash-bearing delete tombstones (so an offline peer can't resurrect a
-     * deleted record on the next folder sync). ktomb resets: detached keys are already
-     * stripped from the rewritten store above. */
-    {
-        char ktombpath[AIS_PATH_MAX];
-        FILE *t;
-        if (tomb_keep_hashed(a) != 0)
-            goto cleanup;
-        if (compact_path(a, "ktomb", ktombpath, sizeof(ktombpath)) == 0) {
-            t = fopen(ktombpath, "w");
-            if (t != NULL)
-                fclose(t);
-        }
-    }
+    /* B3 + I1: RETAIN hash-bearing delete AND key-detach tombstones (so an offline peer
+     * can't resurrect a deleted record or re-attach a removed tag on the next folder
+     * sync). Detached keys are already stripped from the rewritten store above. */
+    if (tomb_keep_hashed(a) != 0)
+        goto cleanup;
+    if (ktomb_keep_hashed(a) != 0)
+        goto cleanup;
 
     a->next_id = c.maxid + 1;
     if (store_save_next_id(a) != 0)

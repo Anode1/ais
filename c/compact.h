@@ -30,13 +30,20 @@ int tomb_lookup(const ais *a, long id, char *ts, size_t tsz);
 int tomb_remove(const ais *a, long id);
 
 /* Key-level tombstones (INDEX/ktomb): "record ID no longer carries KEY", the
- * append-only counterpart of the record tomb. Detach records the pair here and
- * drops the posting; dump/timeline hide the key; compaction strips it from the
- * store line and clears the log. Re-attaching the key removes the pair. */
-int ktomb_append(const ais *a, long id, const char *key);   /* add (id,key); 0/-1 */
+ * append-only counterpart of the record tomb. Detach records the pair here (with a
+ * ts + the record's value-hash, its cross-device identity) and drops the posting;
+ * dump/timeline hide the key; compaction strips it from the store line but RETAINS
+ * hash-bearing entries so the detach can propagate (folder sync I1). Line format:
+ * "id|ts|hash|key" (legacy "id|key" still reads). Re-attaching the key removes it. */
+int ktomb_append(const ais *a, long id, const char *ts, const char *hash, const char *key);
 int ktomb_remove(const ais *a, long id, const char *key);   /* drop (id,key); 0/-1 */
 int ktomb_contains(const ais *a, long id, const char *key); /* 1 yes / 0 no / -1 */
 int ktomb_active(const ais *a);   /* 1 if ktomb has entries, 0 if empty/absent, -1 */
+
+/* Stream each ktomb entry (id, ts, hash, key) through CB (ts/hash "" for a legacy
+ * entry). For the merge export of key-detaches. 0, the stop code, or -1. */
+typedef int (*ktomb_cb)(long id, const char *ts, const char *hash, const char *key, void *ctx);
+int ktomb_each(const ais *a, ktomb_cb cb, void *ctx);
 
 /* Streaming compaction. Returns 0 on success, -1 on error. */
 int ais_compact(ais *a);

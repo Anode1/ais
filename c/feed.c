@@ -5,6 +5,7 @@
  *
  * Front-end code: it may die() on error, the same as main.c (the engine
  * modules only return codes). */
+#define _POSIX_C_SOURCE 200809L      /* strtok_r */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -135,6 +136,17 @@ void feed_import_from(ais *a, FILE *in)
                 continue;
             }
         }
+        if (line[0] == 'K' && line[1] == '|') {        /* K|ts|hash|key (detach a tag) */
+            char *ts = line + 2, *h, *k;
+            h = strchr(ts, '|');
+            k = (h != NULL) ? strchr(h + 1, '|') : NULL;
+            if (h != NULL && k != NULL) {
+                *h++ = '\0';                           /* ts | */
+                *k++ = '\0';                           /* hash | key */
+                ais_merge_detach(a, h, k, ts);
+                continue;
+            }
+        }
 
         bar = strchr(line, '|');
         if (bar == NULL) {
@@ -171,12 +183,38 @@ void feed_import(ais *a) { feed_import_from(a, stdin); }
  * record, then D|ts|hash for every content-addressed tombstone. Adds precede deletes so
  * a delete in the same stream applies after its add. The inverse of merge-aware import;
  * this is what `ais --export` serves over the wire. */
-struct exp_ctx { ais *a; FILE *out; };
+struct exp_ctx { ais *a; FILE *out; int hasktomb; };
+/* Effective keys: drop any locally-detached (ktomb'd) key, so the export never carries
+ * a removed tag that a peer would re-attach. Only run when ktomb has entries. */
+static void exp_eff_keys(ais *a, long id, const char *keys, char *out, size_t outsz)
+{
+    char buf[AIS_LINE_MAX];
+    char *tok, *save;
+    size_t used = 0;
+    int n = snprintf(buf, sizeof buf, "%s", keys);
+    out[0] = '\0';
+    if (n < 0 || (size_t)n >= sizeof buf) { snprintf(out, outsz, "%s", keys); return; }
+    for (tok = strtok_r(buf, " \t", &save); tok != NULL; tok = strtok_r(NULL, " \t", &save)) {
+        if (ktomb_contains(a, id, tok) == 1)
+            continue;                    /* detached: not part of the effective record */
+        n = snprintf(out + used, outsz - used, "%s%s", used ? " " : "", tok);
+        if (n < 0 || used + (size_t)n >= outsz)
+            break;
+        used += (size_t)n;
+    }
+}
 static int exp_live(long id, const char *ts, const char *keys, const char *value, void *vp)
 {
     struct exp_ctx *E = vp;
-    if (tomb_contains(E->a, id) == 0)
+    if (tomb_contains(E->a, id) != 0)
+        return 0;
+    if (E->hasktomb) {
+        char eff[AIS_LINE_MAX];
+        exp_eff_keys(E->a, id, keys, eff, sizeof eff);
+        fprintf(E->out, "A|%s|%s|%s\n", ts, eff, value);
+    } else {
         fprintf(E->out, "A|%s|%s|%s\n", ts, keys, value);
+    }
     return 0;
 }
 static int exp_dead(long id, const char *ts, const char *hash, void *vp)
@@ -187,13 +225,23 @@ static int exp_dead(long id, const char *ts, const char *hash, void *vp)
         fprintf(E->out, "D|%s|%s\n", ts, hash);
     return 0;
 }
+static int exp_kdead(long id, const char *ts, const char *hash, const char *key, void *vp)
+{
+    struct exp_ctx *E = vp;
+    (void)id;
+    if (hash[0] != '\0' && key[0] != '\0')       /* only content-addressed detaches carry */
+        fprintf(E->out, "K|%s|%s|%s\n", ts, hash, key);
+    return 0;
+}
 void feed_export(ais *a, FILE *out)
 {
     struct exp_ctx E;
     E.a = a;
     E.out = out;
+    E.hasktomb = (ktomb_active(a) > 0);
     store_each_record(a, exp_live, &E);
     tomb_each(a, exp_dead, &E);
+    ktomb_each(a, exp_kdead, &E);            /* key-detaches propagate as K| lines (I1) */
 }
 
 /* CLI --doc: stream stdin (any size, bounded memory) into a blob, then put its

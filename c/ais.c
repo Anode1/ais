@@ -36,6 +36,9 @@ void ais_close(ais *a)
  * re-puts add nothing); a "-key" token is DETACHED -- the posting is removed and
  * the (id,key) pair recorded in ktomb, so the record keeps its id but loses the
  * key (re-attaching the same key clears the pair). Returns 0/-1. */
+/* forward: stamp a record's (ts, value-hash) -- shared by delete and key-detach. */
+static void del_stamp(ais *a, long id, char *ts, size_t tsz, char hash[17]);
+
 static int ais_post_keys(ais *a, const char *keys, long id)
 {
     char buf[AIS_LINE_MAX];
@@ -57,8 +60,14 @@ static int ais_post_keys(ais *a, const char *keys, long id)
                 return -1;
             if (post_remove(a, k, id) != 0)
                 return -1;
-            if (!had && ktomb_append(a, id, k) != 0)
-                return -1;
+            if (!had) {
+                /* stamp the detach with the record's (ts, value-hash) so it can
+                 * propagate as a K| key-tombstone in the merge stream (I1). */
+                char kts[AIS_TS_MAX], khash[17];
+                del_stamp(a, id, kts, sizeof kts, khash);
+                if (ktomb_append(a, id, kts, khash, k) != 0)
+                    return -1;
+            }
         } else {                                     /* attach */
             if (post_insert(a, tok, id) != 0)
                 return -1;
@@ -462,6 +471,31 @@ int ais_merge_del(ais *a, const char *hash, const char *ts)
         rc = tomb_append(a, M.id, ts, hash);
     store_wunlock(a);
     return rc;
+}
+
+/* Apply a remote key-detach (a K|ts|hash|key merge line): find the record by its
+ * value-hash and detach KEY iff the detach TS is at least as new as the record's add
+ * (record-granularity LWW, mirroring ais_merge_del). Idempotent. Returns 0. */
+int ais_merge_detach(ais *a, const char *hash, const char *key, const char *ts)
+{
+    struct mdel_ctx M;
+
+    if (a == NULL || hash == NULL || key == NULL)
+        return -1;
+    M.hash = hash;
+    M.id = 0;
+    M.add_ts[0] = '\0';
+    M.found = 0;
+    if (store_wlock(a) != 0)
+        return -1;
+    store_each_record(a, mdel_seek, &M);
+    if (M.found && tomb_contains(a, M.id) == 0 &&
+        strcmp(ts, M.add_ts) >= 0 && ktomb_contains(a, M.id, key) == 0) {
+        if (post_remove(a, key, M.id) == 0)
+            ktomb_append(a, M.id, ts, hash, key);   /* keep + re-propagate the detach */
+    }
+    store_wunlock(a);
+    return 0;
 }
 
 int ais_get(ais *a, char *const keys[], int nkeys, ais_mode mode,

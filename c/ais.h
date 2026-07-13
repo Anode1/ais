@@ -43,6 +43,10 @@ long ais_put_at(ais *a, const char *keys, const char *value, const char *ts);
  * new as that record's add-ts and it is not already deleted. No-op if absent. 0/-1. */
 int  ais_merge_del(ais *a, const char *hash, const char *ts);
 
+/* Apply a remote key-detach (K|ts|hash|key): find the record by value-hash and detach
+ * KEY under last-write-wins (folder sync I1). Idempotent. Returns 0, or -1 on bad args. */
+int  ais_merge_detach(ais *a, const char *hash, const char *key, const char *ts);
+
 /* Attach another value/link to an existing record (the multi-link case).
  * Returns 0 on success, -1 if `id` is unknown. */
 int  ais_add(ais *a, long id, const char *value);
