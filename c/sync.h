@@ -62,6 +62,30 @@ int sync_serve_lan(ais *a, int port, int timeout_s, int bidir);
  * 0 on success, -1 otherwise. */
 int sync_pull_url(ais *a, const char *url, const char *token, int timeout_s, int bidir);
 
+/* ----- folder auto-sync: a framed per-device bundle in a shared folder (Syncthing /
+ * cloud folder). The merge is conflict-free; these add the file-level protocol. ----- */
+
+/* Load (or generate+persist on first use) this device's sync identity from
+ * <index>/syncid. ID_HEX must hold >= 17 bytes (16 hex + NUL); NONCE is 16 bytes.
+ * 0 on success, -1 on error. sync_device_new forces a FRESH identity (clone heal). */
+int sync_device_id(ais *a, char *id_hex, size_t idsz, uint8_t nonce[16]);
+int sync_device_new(ais *a, char *id_hex, size_t idsz, uint8_t nonce[16]);
+
+/* Wrap sync_export_plain in a self-describing FILE frame (magic+ver+nonce+seq+len+crc32)
+ * so a torn/partial/corrupt read is rejected wholesale. Allocates *OUT (caller frees). */
+int sync_export_framed(ais *a, const uint8_t nonce[16], uint64_t seq,
+                       uint8_t **out, size_t *out_len);
+
+/* Verify a framed bundle and merge it. -1 = short/truncated/corrupt (REJECTED before
+ * any merge), -2 = unknown frame version, 0 = merged. NONCE_OUT / SEQ_OUT (optional)
+ * get the writer's nonce and write-sequence. DATA owned by caller. */
+int sync_import_framed(ais *a, const uint8_t *data, size_t len,
+                       uint8_t nonce_out[16], uint64_t *seq_out);
+
+/* One folder-sync pass: import every well-formed peer <id>.aisb in FOLDER, then write
+ * our own atomically; heals a device-id clone (nonce mismatch). 0 on success, -1 on error. */
+int sync_folder_once(ais *a, const char *folder);
+
 /* Parse a sync URL into HOST (bounded by HOSTSZ) and *PORT: "http(s)://host[:port][/path]"
  * or "host[:port]"; a missing or out-of-range port defaults to AIS_SYNC_PORT. Pure string
  * logic (no sockets/crypto), always compiled. 0 on success, -1 if the host is empty. */

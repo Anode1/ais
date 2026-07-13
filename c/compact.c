@@ -452,12 +452,45 @@ static int compact_line(long id, const char *ts, const char *keys,
     return 0;
 }
 
+/* Folder-sync B3: compaction drops dropped-record store lines, but must NOT drop the
+ * DELETE tombstones -- an offline peer would re-feed the deleted record and it would
+ * resurrect mesh-wide. Rewrite tomb keeping only hash-bearing (exportable) entries; the
+ * ids are now vestigial (their records are gone) but the D|ts|hash export keeps the
+ * delete propagating. Atomic (temp+rename). Returns 0, or -1. */
+static int tomb_keep_hashed(ais *a)
+{
+    char path[AIS_PATH_MAX], tmp[AIS_PATH_MAX], line[AIS_LINE_MAX], work[AIS_LINE_MAX];
+    FILE *in, *out;
+
+    if (compact_path(a, "tomb", path, sizeof path) != 0)
+        return -1;
+    in = fopen(path, "r");
+    if (in == NULL)
+        return (errno == ENOENT) ? 0 : -1;       /* no tomb: nothing to retain */
+    if (snprintf(tmp, sizeof tmp, "%s.new", path) >= (int)sizeof tmp) { fclose(in); return -1; }
+    out = fopen(tmp, "w");
+    if (out == NULL) { fclose(in); return -1; }
+    while (fgets(line, sizeof line, in) != NULL) {
+        char *t, *h, *nl;
+        snprintf(work, sizeof work, "%s", line);
+        nl = strchr(work, '\n'); if (nl != NULL) *nl = '\0';
+        t = strchr(work, '|');
+        h = NULL;
+        if (t != NULL) { h = strchr(t + 1, '|'); if (h != NULL) h++; }
+        if (h != NULL && h[0] != '\0')            /* hash-bearing: retain verbatim */
+            fputs(line, out);
+    }
+    if (fclose(in) != 0) { fclose(out); remove(tmp); return -1; }
+    if (fflush(out) != 0 || fclose(out) != 0) { remove(tmp); return -1; }
+    if (rename(tmp, path) != 0) { remove(tmp); return -1; }
+    return 0;
+}
+
 static int compact_locked(ais *a)
 {
     char storepath[AIS_PATH_MAX];
     char newpath[AIS_PATH_MAX];
     char idxpath[AIS_PATH_MAX];
-    char tombpath[AIS_PATH_MAX];
     struct compact_ctx c;
     int rc = -1;
 
@@ -474,8 +507,7 @@ static int compact_locked(ais *a)
 
     if (compact_path(a, "store", storepath, sizeof(storepath)) != 0 ||
         compact_path(a, "store.new", newpath, sizeof(newpath)) != 0 ||
-        compact_path(a, "idx", idxpath, sizeof(idxpath)) != 0 ||
-        compact_path(a, "tomb", tombpath, sizeof(tombpath)) != 0)
+        compact_path(a, "idx", idxpath, sizeof(idxpath)) != 0)
         return -1;
 
     /* drop the old index; compact_line rebuilds it as it streams */
@@ -519,13 +551,14 @@ static int compact_locked(ais *a)
     if (rename(newpath, storepath) != 0)
         goto cleanup;
 
-    /* clear the tombstone logs (truncate): detached keys are now stripped from
-     * the rewritten store, and dropped records are gone, so both logs reset. */
+    /* B3: RETAIN hash-bearing delete tombstones (so an offline peer can't resurrect a
+     * deleted record on the next folder sync). ktomb resets: detached keys are already
+     * stripped from the rewritten store above. */
     {
         char ktombpath[AIS_PATH_MAX];
-        FILE *t = fopen(tombpath, "w");
-        if (t != NULL)
-            fclose(t);
+        FILE *t;
+        if (tomb_keep_hashed(a) != 0)
+            goto cleanup;
         if (compact_path(a, "ktomb", ktombpath, sizeof(ktombpath)) == 0) {
             t = fopen(ktombpath, "w");
             if (t != NULL)

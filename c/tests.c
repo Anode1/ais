@@ -1974,6 +1974,139 @@ static void test_sync_socket(void)
     scratch_rm(db);
 }
 
+/* ---- folder auto-sync (spec v1): a framed bundle per device in a shared folder ---- */
+
+/* Two devices sync through a shared folder and converge (live records both ways, a
+ * delete propagates). No mover: the shared folder IS the (instant) transport. */
+static void test_sync_folder(void)
+{
+    ais A, B;
+    const char *da = "/tmp/ais_ut_fldA", *db = "/tmp/ais_ut_fldB";
+    const char *fld = "/tmp/ais_ut_fld_sync";
+
+    scratch_rm(da); scratch_rm(db); scratch_rm(fld);
+    ais_open(&A, da); ais_open(&B, db);
+    ais_put(&A, "venice", "Hotel Danieli");
+    ais_put(&A, "paris", "Cafe de Flore");     /* A id 2 */
+    ais_del(&A, 2);                             /* A deletes paris */
+    ais_put(&B, "rome", "Trattoria");
+
+    CHECK(sync_folder_once(&A, fld) == 0, "folder: A pass 1 (export A)");
+    CHECK(sync_folder_once(&B, fld) == 0, "folder: B pass 1 (import A, export B)");
+    CHECK(sync_folder_once(&A, fld) == 0, "folder: A pass 2 (import B)");
+
+    CHECK(value_present(&B, "Hotel Danieli") == 1, "folder: A's live record reached B");
+    CHECK(value_present(&B, "Cafe de Flore") == 0, "folder: A's deletion propagated to B");
+    CHECK(value_present(&A, "Trattoria") == 1,     "folder: B's record reached A");
+
+    ais_close(&A); ais_close(&B);
+    scratch_rm(da); scratch_rm(db); scratch_rm(fld);
+}
+
+/* B2: a torn / corrupt framed bundle is REJECTED wholesale (nothing merged), while a
+ * complete frame merges. This is the guarantee against a mover's mid-write read. */
+static void test_sync_frame_reject(void)
+{
+    ais A, B, C, D;
+    const char *da = "/tmp/ais_ut_frA", *db = "/tmp/ais_ut_frB";
+    const char *dc = "/tmp/ais_ut_frC", *dd = "/tmp/ais_ut_frD";
+    uint8_t *buf = NULL, nonce[16];
+    char id[17];
+    size_t len = 0;
+
+    scratch_rm(da); scratch_rm(db); scratch_rm(dc); scratch_rm(dd);
+    ais_open(&A, da); ais_open(&B, db); ais_open(&C, dc); ais_open(&D, dd);
+    ais_put(&A, "venice", "Hotel Danieli");
+    CHECK(sync_device_id(&A, id, sizeof id, nonce) == 0, "frame: device id");
+    CHECK(sync_export_framed(&A, nonce, 1, &buf, &len) == 0 && len > 41,
+          "frame: export produced a framed bundle");
+
+    CHECK(sync_import_framed(&B, buf, len, NULL, NULL) == 0, "frame: a full frame merges");
+    CHECK(value_present(&B, "Hotel Danieli") == 1, "frame: the record arrived");
+
+    CHECK(sync_import_framed(&C, buf, len - 5, NULL, NULL) == -1,
+          "frame: a TRUNCATED bundle is rejected");
+    CHECK(value_present(&C, "Hotel Danieli") == 0, "frame: nothing merged from the truncated bundle");
+
+    buf[len - 1] ^= 0xFF;                        /* corrupt a payload byte */
+    CHECK(sync_import_framed(&D, buf, len, NULL, NULL) == -1,
+          "frame: a CORRUPT bundle is rejected");
+    CHECK(value_present(&D, "Hotel Danieli") == 0, "frame: nothing merged from the corrupt bundle");
+
+    free(buf);
+    ais_close(&A); ais_close(&B); ais_close(&C); ais_close(&D);
+    scratch_rm(da); scratch_rm(db); scratch_rm(dc); scratch_rm(dd);
+}
+
+/* B3: a delete must survive compaction. A deletes+compacts (which used to GC the
+ * tombstone); a peer still holding the record must still learn of the delete, and its
+ * re-export must NOT resurrect the record in A. */
+static void test_sync_delete_survives_compact(void)
+{
+    ais A, B;
+    FILE *t;
+    const char *da = "/tmp/ais_ut_dcA", *db = "/tmp/ais_ut_dcB";
+
+    scratch_rm(da); scratch_rm(db);
+    ais_open(&A, da); ais_open(&B, db);
+    ais_put(&A, "shared", "gone soon");         /* A id 1 */
+    ais_put(&B, "shared", "gone soon");         /* B independently holds it */
+    ais_del(&A, 1);
+    CHECK(ais_compact(&A) == 0, "B3: A compacts (drops the record body)");
+    CHECK(value_present(&A, "gone soon") == 0, "B3: record is gone in A after delete+compact");
+
+    t = tmpfile();                              /* A -> B: the retained tombstone must apply */
+    feed_export(&A, t); rewind(t); feed_import_from(&B, t); fclose(t);
+    CHECK(value_present(&B, "gone soon") == 0, "B3: delete survives compaction and propagates to B");
+
+    t = tmpfile();                              /* B -> A: must NOT resurrect */
+    feed_export(&B, t); rewind(t); feed_import_from(&A, t); fclose(t);
+    CHECK(value_present(&A, "gone soon") == 0, "B3: peer re-export does not resurrect the record");
+
+    ais_close(&A); ais_close(&B);
+    scratch_rm(da); scratch_rm(db);
+}
+
+/* B1: a device-id clone (the same syncid copied to a second device) is detected and
+ * healed: one device regenerates a fresh id, so the two never clobber a shared file
+ * and both still converge. */
+static void test_sync_clone_heal(void)
+{
+    ais A, B;
+    const char *da = "/tmp/ais_ut_clA", *db = "/tmp/ais_ut_clB";
+    const char *fld = "/tmp/ais_ut_cl_fld";
+    char pa[AIS_PATH_MAX], pb[AIS_PATH_MAX], sid[160] = "";
+    char idAf[17] = "", idBf[17] = "";
+    FILE *f;
+    int i;
+
+    scratch_rm(da); scratch_rm(db); scratch_rm(fld);
+    ais_open(&A, da); ais_open(&B, db);
+    ais_put(&A, "ka", "from A");
+    ais_put(&B, "kb", "from B");
+
+    CHECK(sync_folder_once(&A, fld) == 0, "clone: A first pass creates its identity");
+    /* clone A's whole identity (id+nonce+seq) onto B */
+    snprintf(pa, sizeof pa, "%s/syncid", da);
+    snprintf(pb, sizeof pb, "%s/syncid", db);
+    f = fopen(pa, "r"); CHECK(f != NULL, "clone: read A's syncid");
+    if (f) { if (!fgets(sid, sizeof sid, f)) sid[0] = '\0'; fclose(f); }
+    f = fopen(pb, "w"); if (f) { fputs(sid, f); fclose(f); }
+
+    /* a few interleaved passes: the collision must heal to two distinct ids */
+    for (i = 0; i < 4; i++) { sync_folder_once(&B, fld); sync_folder_once(&A, fld); }
+
+    f = fopen(pa, "r"); if (f) { if (fscanf(f, "%16s", idAf) != 1) idAf[0] = '\0'; fclose(f); }
+    f = fopen(pb, "r"); if (f) { if (fscanf(f, "%16s", idBf) != 1) idBf[0] = '\0'; fclose(f); }
+    CHECK(idAf[0] && idBf[0] && strcmp(idAf, idBf) != 0,
+          "clone: the id collision healed to two distinct device-ids");
+    CHECK(value_present(&A, "from B") == 1, "clone: converged - B's record in A");
+    CHECK(value_present(&B, "from A") == 1, "clone: converged - A's record in B");
+
+    ais_close(&A); ais_close(&B);
+    scratch_rm(da); scratch_rm(db); scratch_rm(fld);
+}
+
 #ifdef AIS_UT_HAVE_CRYPTO
 /* The FFI seam's sync (embed.h) -- the EXACT call path the mobile/desktop GUI
  * uses: ais_embed_pull (Receive) and ais_embed_serve (Send) over a forked
@@ -2491,6 +2624,14 @@ int main(void)
     test_sync_sealed();
     printf("sync transport (socket, forked loopback):\n");
     test_sync_socket();
+    printf("folder sync (two devices converge through a shared folder):\n");
+    test_sync_folder();
+    printf("folder sync B2 (torn/corrupt frame rejected):\n");
+    test_sync_frame_reject();
+    printf("folder sync B3 (delete survives compaction):\n");
+    test_sync_delete_survives_compact();
+    printf("folder sync B1 (device-id clone healed):\n");
+    test_sync_clone_heal();
     printf("embed sync (FFI pull/serve over loopback):\n");
     test_embed_sync();
     printf("sync exchange (symmetric bidir, both converge):\n");

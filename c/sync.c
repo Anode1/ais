@@ -28,6 +28,7 @@
 #  include <sys/stat.h>
 #  include <sys/time.h>
 #  include <dirent.h>
+#  include <fcntl.h>
 #  include <time.h>
 #  include <unistd.h>
 #  include <errno.h>
@@ -684,6 +685,280 @@ int sync_pull_url(ais *a, const char *url, const char *token, int timeout_s, int
     return 0;
 }
 
+/* ===== folder auto-sync: a framed plaintext bundle per device in a shared folder,
+ * moved by an external tool (Syncthing / a cloud folder). The merge is already
+ * conflict-free; this adds the FILE-LEVEL protocol the design review found missing:
+ * a length+checksum frame so a torn/partial read is REJECTED (never merged), and a
+ * per-writer nonce so a cloned device-id is detected and healed. See spec v1. ===== */
+
+/* File frame (little-endian ints): "AISB" | ver(1) | nonce(16) | seq(8) |
+ * payload_len(8) | crc32(4) | payload. Payload = sync_export_plain's bytes.
+ * seq is a per-writer monotonic counter: a device that finds its own file
+ * advanced past its last-written seq knows an identical clone shares its id. */
+#define AIS_FRAME_HDR   41
+#define AIS_FRAME_VER   1
+
+static uint32_t crc32_of(const uint8_t *p, size_t n) {
+    uint32_t c = 0xFFFFFFFFu;
+    size_t i; int k;
+    for (i = 0; i < n; i++) {
+        c ^= p[i];
+        for (k = 0; k < 8; k++)
+            c = (c >> 1) ^ (0xEDB88320u & (uint32_t)(-(int32_t)(c & 1)));
+    }
+    return c ^ 0xFFFFFFFFu;
+}
+static void put_u64le(uint8_t *p, uint64_t v) { int i; for (i = 0; i < 8; i++) p[i] = (uint8_t)(v >> (8 * i)); }
+static uint64_t get_u64le(const uint8_t *p) { uint64_t v = 0; int i; for (i = 0; i < 8; i++) v |= (uint64_t)p[i] << (8 * i); return v; }
+static void put_u32le(uint8_t *p, uint32_t v) { int i; for (i = 0; i < 4; i++) p[i] = (uint8_t)(v >> (8 * i)); }
+static uint32_t get_u32le(const uint8_t *p) { uint32_t v = 0; int i; for (i = 0; i < 4; i++) v |= (uint32_t)p[i] << (8 * i); return v; }
+
+static int rand_bytes(uint8_t *p, size_t n) {
+    FILE *f = fopen("/dev/urandom", "rb");
+    size_t got;
+    if (f == NULL) return -1;
+    got = fread(p, 1, n, f);
+    fclose(f);
+    return got == n ? 0 : -1;
+}
+static void hexof(const uint8_t *p, size_t n, char *out) {
+    static const char h[] = "0123456789abcdef";
+    size_t i;
+    for (i = 0; i < n; i++) { out[2 * i] = h[p[i] >> 4]; out[2 * i + 1] = h[p[i] & 15]; }
+    out[2 * n] = '\0';
+}
+static int unhex(const char *s, uint8_t *p, size_t n) {
+    size_t i;
+    for (i = 0; i < 2 * n; i++) {
+        char c = s[i]; int v;
+        if (c >= '0' && c <= '9') v = c - '0';
+        else if (c >= 'a' && c <= 'f') v = c - 'a' + 10;
+        else return -1;
+        if (i & 1) p[i / 2] |= (uint8_t)v; else p[i / 2] = (uint8_t)(v << 4);
+    }
+    return 0;
+}
+
+/* A device-id filename is exactly 16 lowercase-hex chars + ".aisb" (21 chars). */
+static int is_bundle_name(const char *name) {
+    size_t i;
+    if (strlen(name) != 21) return 0;
+    for (i = 0; i < 16; i++)
+        if (!((name[i] >= '0' && name[i] <= '9') || (name[i] >= 'a' && name[i] <= 'f')))
+            return 0;
+    return strcmp(name + 16, ".aisb") == 0;
+}
+
+/* This device's sync identity, persisted in <index>/syncid as "id nonce seq". */
+struct sync_ident { char id[17]; uint8_t nonce[16]; uint64_t seq; };
+
+static int ident_save(ais *a, const struct sync_ident *s) {
+    char path[AIS_PATH_MAX], tmp[AIS_PATH_MAX], noncehex[33];
+    FILE *f;
+    hexof(s->nonce, 16, noncehex);
+    if (snprintf(path, sizeof path, "%s/syncid", a->dir) >= (int)sizeof path) return -1;
+    if (snprintf(tmp, sizeof tmp, "%s/syncid.tmp", a->dir) >= (int)sizeof tmp) return -1;
+    f = fopen(tmp, "w");
+    if (f == NULL) return -1;
+    fprintf(f, "%s %s %llu\n", s->id, noncehex, (unsigned long long)s->seq);
+    if (fclose(f) != 0) { remove(tmp); return -1; }
+    if (rename(tmp, path) != 0) { remove(tmp); return -1; }
+    return 0;
+}
+static int ident_new(ais *a, struct sync_ident *s) {
+    uint8_t idb[8];
+    if (rand_bytes(idb, 8) != 0 || rand_bytes(s->nonce, 16) != 0) return -1;
+    hexof(idb, 8, s->id);
+    s->seq = 0;
+    return ident_save(a, s);
+}
+static int ident_load(ais *a, struct sync_ident *s) {
+    char path[AIS_PATH_MAX], idbuf[32], noncehex[64];
+    unsigned long long seq = 0;
+    FILE *f;
+    if (snprintf(path, sizeof path, "%s/syncid", a->dir) >= (int)sizeof path) return -1;
+    f = fopen(path, "r");
+    if (f != NULL) {
+        int ok = (fscanf(f, "%31s %63s %llu", idbuf, noncehex, &seq) >= 2)
+                 && strlen(idbuf) == 16 && strlen(noncehex) == 32
+                 && unhex(noncehex, s->nonce, 16) == 0;
+        fclose(f);
+        if (ok) { memcpy(s->id, idbuf, 17); s->seq = (uint64_t)seq; return 0; }
+        /* malformed: regenerate below */
+    }
+    return ident_new(a, s);
+}
+
+/* Public thin wrappers (mainly for tests to inspect/force identity). */
+int sync_device_id(ais *a, char *id_hex, size_t idsz, uint8_t nonce[16]) {
+    struct sync_ident s;
+    if (!a || !id_hex || idsz < 17 || !nonce) return -1;
+    if (ident_load(a, &s) != 0) return -1;
+    memcpy(id_hex, s.id, 17);
+    memcpy(nonce, s.nonce, 16);
+    return 0;
+}
+int sync_device_new(ais *a, char *id_hex, size_t idsz, uint8_t nonce[16]) {
+    struct sync_ident s;
+    if (!a || !id_hex || idsz < 17 || !nonce) return -1;
+    if (ident_new(a, &s) != 0) return -1;
+    memcpy(id_hex, s.id, 17);
+    memcpy(nonce, s.nonce, 16);
+    return 0;
+}
+
+int sync_export_framed(ais *a, const uint8_t nonce[16], uint64_t seq,
+                       uint8_t **out, size_t *out_len) {
+    uint8_t *payload = NULL, *buf;
+    size_t plen = 0, total;
+    if (!a || !nonce || !out || !out_len) return -1;
+    if (sync_export_plain(a, &payload, &plen) != 0) return -1;
+    total = AIS_FRAME_HDR + plen;
+    buf = malloc(total);
+    if (buf == NULL) { free(payload); return -1; }
+    memcpy(buf, "AISB", 4);
+    buf[4] = AIS_FRAME_VER;
+    memcpy(buf + 5, nonce, 16);
+    put_u64le(buf + 21, seq);
+    put_u64le(buf + 29, (uint64_t)plen);
+    put_u32le(buf + 37, crc32_of(payload, plen));
+    memcpy(buf + AIS_FRAME_HDR, payload, plen);
+    free(payload);
+    *out = buf;
+    *out_len = total;
+    return 0;
+}
+
+/* Verify the frame and merge the payload. REJECTS (-1) a short/truncated/corrupt
+ * file wholesale before a byte reaches the merge (the core B2 guarantee). -2 on an
+ * unknown frame version. On success NONCE_OUT / SEQ_OUT (if given) get the writer's. */
+int sync_import_framed(ais *a, const uint8_t *data, size_t len,
+                       uint8_t nonce_out[16], uint64_t *seq_out) {
+    uint64_t plen;
+    if (!a || !data) return -1;
+    if (len < AIS_FRAME_HDR) return -1;                 /* too short to be a frame */
+    if (memcmp(data, "AISB", 4) != 0) return -1;        /* not our magic */
+    if (data[4] != AIS_FRAME_VER) return -2;            /* unknown frame version */
+    plen = get_u64le(data + 29);
+    if (plen != (uint64_t)(len - AIS_FRAME_HDR)) return -1;   /* truncated/partial */
+    if (crc32_of(data + AIS_FRAME_HDR, (size_t)plen) != get_u32le(data + 37))
+        return -1;                                       /* corrupt payload */
+    if (nonce_out) memcpy(nonce_out, data + 5, 16);
+    if (seq_out) *seq_out = get_u64le(data + 21);
+    return sync_import_plain(a, data + AIS_FRAME_HDR, (size_t)plen);
+}
+
+/* Read a whole file into a malloc'd buffer (caller frees). 0 on success. */
+static int read_file(const char *path, uint8_t **out, size_t *out_len) {
+    FILE *f = fopen(path, "rb");
+    long sz;
+    uint8_t *buf;
+    if (f == NULL) return -1;
+    if (fseek(f, 0, SEEK_END) != 0 || (sz = ftell(f)) < 0 || fseek(f, 0, SEEK_SET) != 0) { fclose(f); return -1; }
+    if ((size_t)sz > AIS_SYNC_MAX_BLOB + AIS_FRAME_HDR + 4096) { fclose(f); return -1; }
+    buf = malloc((size_t)sz ? (size_t)sz : 1);
+    if (buf == NULL) { fclose(f); return -1; }
+    if (fread(buf, 1, (size_t)sz, f) != (size_t)sz) { fclose(f); free(buf); return -1; }
+    fclose(f);
+    *out = buf;
+    *out_len = (size_t)sz;
+    return 0;
+}
+
+/* Read a bundle file's writer-nonce + seq from its header (for clone detection). 0 if
+ * a valid frame header was read, -1 otherwise (missing / not a frame). */
+static int read_frame_meta(const char *path, uint8_t nonce[16], uint64_t *seq) {
+    FILE *f = fopen(path, "rb");
+    uint8_t hdr[AIS_FRAME_HDR];
+    if (f == NULL) return -1;
+    if (fread(hdr, 1, AIS_FRAME_HDR, f) != AIS_FRAME_HDR) { fclose(f); return -1; }
+    fclose(f);
+    if (memcmp(hdr, "AISB", 4) != 0 || hdr[4] != AIS_FRAME_VER) return -1;
+    memcpy(nonce, hdr + 5, 16);
+    if (seq) *seq = get_u64le(hdr + 21);
+    return 0;
+}
+
+/* Atomically write DATA to PATH: tmp -> fsync -> rename -> fsync(dir). */
+static int atomic_write(const char *dir, const char *path, const uint8_t *data, size_t len) {
+    char tmp[AIS_PATH_MAX];
+    FILE *f;
+    int dfd;
+    if (snprintf(tmp, sizeof tmp, "%s.tmp", path) >= (int)sizeof tmp) return -1;
+    f = fopen(tmp, "wb");
+    if (f == NULL) return -1;
+    if (fwrite(data, 1, len, f) != len) { fclose(f); remove(tmp); return -1; }
+    if (fflush(f) != 0 || fsync(fileno(f)) != 0) { fclose(f); remove(tmp); return -1; }
+    if (fclose(f) != 0) { remove(tmp); return -1; }
+    if (rename(tmp, path) != 0) { remove(tmp); return -1; }
+    dfd = open(dir, O_RDONLY);
+    if (dfd >= 0) { fsync(dfd); close(dfd); }
+    return 0;
+}
+
+/* One folder-sync pass. Import every well-formed peer bundle, then (re)write our own
+ * <id>.aisb atomically. Heals a device-id clone: if our own file carries a nonce that
+ * isn't ours, a sibling device shares our id, so regenerate ours. Returns 0, or -1. */
+int sync_folder_once(ais *a, const char *folder) {
+    struct sync_ident s;
+    char own_name[32], own_path[AIS_PATH_MAX];
+    uint8_t fnonce[16];
+    uint64_t fseq = 0;
+    uint8_t *bundle = NULL;
+    size_t blen = 0;
+    DIR *d;
+    struct dirent *de;
+    int rc = -1;
+
+    if (!a || !folder) return -1;
+    if (mkdir(folder, 0777) != 0 && errno != EEXIST) return -1;
+    if (ident_load(a, &s) != 0) return -1;
+    snprintf(own_name, sizeof own_name, "%s.aisb", s.id);
+    snprintf(own_path, sizeof own_path, "%s/%s", folder, own_name);
+
+    /* Clone heal: our own file was written either by a DIFFERENT nonce (another device
+     * cloned our id after we diverged) or by our SAME nonce but advanced PAST our last
+     * write (a bit-identical clone that copied our whole identity). Either way a sibling
+     * shares our id and would clobber us: take a fresh identity. */
+    if (read_frame_meta(own_path, fnonce, &fseq) == 0) {
+        int diff_nonce = memcmp(fnonce, s.nonce, 16) != 0;
+        if (diff_nonce || fseq > s.seq) {
+            if (ident_new(a, &s) != 0) return -1;
+            snprintf(own_name, sizeof own_name, "%s.aisb", s.id);
+            snprintf(own_path, sizeof own_path, "%s/%s", folder, own_name);
+        }
+    }
+
+    /* Import pass: every well-formed peer bundle (skip our own; skip corrupt/partial). */
+    d = opendir(folder);
+    if (d == NULL) return -1;
+    while ((de = readdir(d)) != NULL) {
+        char path[AIS_PATH_MAX];
+        uint8_t *buf = NULL;
+        size_t n = 0;
+        struct stat st;
+        if (!is_bundle_name(de->d_name) || strcmp(de->d_name, own_name) == 0)
+            continue;
+        if (snprintf(path, sizeof path, "%s/%s", folder, de->d_name) >= (int)sizeof path)
+            continue;
+        if (lstat(path, &st) != 0 || !S_ISREG(st.st_mode))
+            continue;                              /* skip symlinks / non-regular */
+        if (read_file(path, &buf, &n) == 0) {
+            sync_import_framed(a, buf, n, NULL, NULL);  /* rc<0 (partial/corrupt): skip, retry */
+            free(buf);
+        }
+    }
+    closedir(d);
+
+    /* Export pass: bump our seq, write atomically, persist the advanced seq. */
+    s.seq += 1;
+    if (sync_export_framed(a, s.nonce, s.seq, &bundle, &blen) != 0) return -1;
+    rc = atomic_write(folder, own_path, bundle, blen);
+    free(bundle);
+    if (rc == 0) ident_save(a, &s);
+    return rc;
+}
+
 #else  /* no POSIX buffer streams or no crypto: transport unavailable */
 
 int sync_export_plain(ais *a, uint8_t **out, size_t *out_len)
@@ -728,5 +1003,15 @@ int sync_pull_url(ais *a, const char *url, const char *token, int timeout_s, int
     fprintf(stderr, "sync: this build lacks LAN sync support (needs POSIX + the crypto module)\n");
     return -1;
 }
+int sync_export_framed(ais *a, const uint8_t nonce[16], uint64_t seq, uint8_t **out, size_t *out_len)
+{ (void)a; (void)nonce; (void)seq; (void)out; (void)out_len; return -1; }
+int sync_import_framed(ais *a, const uint8_t *data, size_t len, uint8_t nonce_out[16], uint64_t *seq_out)
+{ (void)a; (void)data; (void)len; (void)nonce_out; (void)seq_out; return -1; }
+int sync_device_id(ais *a, char *id_hex, size_t idsz, uint8_t nonce[16])
+{ (void)a; (void)id_hex; (void)idsz; (void)nonce; return -1; }
+int sync_device_new(ais *a, char *id_hex, size_t idsz, uint8_t nonce[16])
+{ (void)a; (void)id_hex; (void)idsz; (void)nonce; return -1; }
+int sync_folder_once(ais *a, const char *folder)
+{ (void)a; (void)folder; fprintf(stderr, "sync: this build lacks folder sync (needs POSIX + crypto)\n"); return -1; }
 
 #endif
