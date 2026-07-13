@@ -171,6 +171,11 @@ static const char PAGE[] =
 "<p class=muted style='margin:.2rem 0 1rem;font-size:.9rem'>Both devices end up with the same records. One hosts and waits; the other joins it. Same Wi-Fi.</p>"
 "<div id=syncpick class=actions style='justify-content:center'>"
 "<button id=syncjoinbtn class=ghost>Join</button><button id=synchostbtn class=primary>Host</button></div>"
+/* File transfer: no network -- export the whole index to a file, or merge one in
+ * (move it by Drive / USB / email). Mirrors the app's Export / Import. */
+"<div id=syncfile><p class=muted style='margin:1rem 0 .5rem;font-size:.85rem'>Or a file &mdash; move it by Drive, USB or email:</p>"
+"<div class=actions style='justify-content:center'><button id=impbtn class=ghost>Import</button><button id=expbtn class=primary>Export</button></div></div>"
+"<input id=fileimp type=file accept='.aisb' hidden>"
 /* Host pane: address + token to read off, a QR to scan, and a live status line. */
 "<div id=synchost hidden>"
 "<p style='margin:.2rem 0 .6rem;font-size:.9rem'>Scan with the AIS app, or on the other device choose Join and enter:</p>"
@@ -398,9 +403,9 @@ static const char PAGE[] =
 /* the Sync sheet: a role picker, then a Host pane (address+token+QR, polling) or
  * a Join pane (address+token inputs). Both converge (the bidir exchange). */
 "var syncPoll=null;"
-"function openSync(){$('syncpick').style.display='flex';$('synchost').hidden=true;$('syncjoin').hidden=true;$('syncsheet').hidden=false}"
+"function openSync(){$('syncpick').style.display='flex';$('syncfile').style.display='block';$('synchost').hidden=true;$('syncjoin').hidden=true;$('syncsheet').hidden=false}"
 "function closeSync(){$('syncsheet').hidden=true;if(syncPoll){clearInterval(syncPoll);syncPoll=null}}"
-"async function syncHost(){$('syncpick').style.display='none';$('synchost').hidden=false;"
+"async function syncHost(){$('syncpick').style.display='none';$('syncfile').style.display='none';$('synchost').hidden=false;"
 "$('hoststatus').textContent='Starting...';"
 "var r=await fetch('/api/sync/host',{method:'POST'});"
 "if(!r.ok){$('hoststatus').textContent='Could not start host. Is one already running?';return}"
@@ -412,7 +417,11 @@ static const char PAGE[] =
 "syncPoll=setInterval(async function(){var s=(await(await fetch('/api/sync/status')).text()).trim();"
 "if(s=='synced'){clearInterval(syncPoll);syncPoll=null;$('hoststatus').textContent='Synced. Both devices now have the same records.';setView(view)}"
 "else if(s=='timeout'){clearInterval(syncPoll);syncPoll=null;$('hoststatus').textContent='No device joined in time. Try again.'}},1500)}"
-"function syncJoinPane(){$('syncpick').style.display='none';$('syncjoin').hidden=false;$('joinstatus').textContent='';$('jaddr').focus()}"
+"function syncJoinPane(){$('syncpick').style.display='none';$('syncfile').style.display='none';$('syncjoin').hidden=false;$('joinstatus').textContent='';$('jaddr').focus()}"
+/* file export/import: no network -- carry the whole index as one .aisb file */
+"function fileExport(){var a=document.createElement('a');a.href='/api/export-bundle';a.download='ais-export.aisb';document.body.appendChild(a);a.click();a.remove()}"
+"async function fileImport(f){var b=await f.arrayBuffer();var r=await fetch('/api/import-bundle',{method:'POST',body:b});"
+"if((await r.text()).trim()=='merged'){closeSync();setView(view);alert('Imported. Records merged.')}else{alert('Import failed. Is it an .aisb file from Export?')}}"
 "async function syncJoinGo(){var url=$('jaddr').value.trim(),tok=$('jtok').value.trim();"
 "if(!url||!tok){$('joinstatus').textContent='Enter an address and a token.';return}"
 "$('joinstatus').textContent='Syncing...';"
@@ -422,6 +431,8 @@ static const char PAGE[] =
 "else $('joinstatus').textContent='Could not sync. Same Wi-Fi? Check the host is waiting and the token is right.'}"
 "$('syncbtn').onclick=openSync;$('synccancel').onclick=closeSync;"
 "$('synchostbtn').onclick=syncHost;$('syncjoinbtn').onclick=syncJoinPane;$('jgo').onclick=syncJoinGo;"
+"$('expbtn').onclick=fileExport;$('impbtn').onclick=function(){$('fileimp').click()};"
+"$('fileimp').onchange=function(){if(this.files[0])fileImport(this.files[0]);this.value=''};"
 "$('syncsheet').addEventListener('click',function(e){if(e.target==$('syncsheet'))closeSync()});"
 "</script>";
 
@@ -840,6 +851,7 @@ static void handle(ais *a, int fd)
     int enc = 0;                          /* ?enc=1 -> encrypt the value before storing */
     long reqid = 0;                       /* ?id= for /api/del and /api/update      */
     long before = 0;                      /* ?before= cursor for /api/timeline paging */
+    long body_len = 0;                    /* Content-Length, for a big POST body      */
     int  count = 0;                       /* ?count= page size (0 => engine default)  */
     char *tlfrom = nokeys, *tlto = nokeys; /* ?from= ?to= date range (YYYY-MM-DD)      */
 
@@ -847,6 +859,20 @@ static void handle(ais *a, int fd)
     if (n <= 0)
         return;
     buf[n] = '\0';
+
+    /* Content-Length up front, from the header block only, before the request
+     * line is tokenized in place (which plants NULs that would cut a later
+     * strstr short). Needed for a big POST body like /api/import-bundle. */
+    {
+        char *he = strstr(buf, "\r\n\r\n");
+        char keep = '\0';
+        char *cl;
+        if (he != NULL) { keep = *he; *he = '\0'; }
+        cl = strstr(buf, "Content-Length:");
+        if (cl == NULL) cl = strstr(buf, "content-length:");
+        if (cl != NULL) body_len = atol(cl + 15);
+        if (he != NULL) *he = keep;
+    }
 
     body = strstr(buf, "\r\n\r\n");       /* split headers from body first... */
     if (body != NULL) { *body = '\0'; body += 4; }
@@ -1008,6 +1034,63 @@ static void handle(ais *a, int fd)
         sync_status(fd);                       /* poll: waiting / synced / timeout */
     } else if (strcmp(method, "POST") == 0 && strcmp(path, "/api/sync/join") == 0) {
         sync_join(a, body, fd);                /* pull + merge from a host's url+token */
+    } else if (strcmp(method, "GET") == 0 && strcmp(path, "/api/export-bundle") == 0) {
+        /* Download the WHOLE index as one plaintext .aisb bundle (no passphrase):
+         * carry it by Drive / USB / email and Import it elsewhere. Same format the
+         * mobile/desktop app writes. */
+        uint8_t *out = NULL;
+        size_t len = 0;
+        if (sync_export_plain(a, &out, &len) == 0) {
+            char hdr[192];
+            int h = snprintf(hdr, sizeof hdr,
+                "HTTP/1.0 200 OK\r\nConnection: close\r\n"
+                "Content-Type: application/octet-stream\r\n"
+                "Content-Disposition: attachment; filename=\"ais-export.aisb\"\r\n"
+                "Content-Length: %zu\r\n\r\n", len);
+            if (h > 0)
+                write_all(fd, hdr, (size_t)h);
+            write_all(fd, (char *)out, len);
+            free(out);
+        } else {
+            static const char e[] = "HTTP/1.0 500 Internal Server Error\r\n"
+                "Connection: close\r\n\r\nexport failed\n";
+            write_all(fd, e, sizeof(e) - 1);
+        }
+    } else if (strcmp(method, "POST") == 0 && strcmp(path, "/api/import-bundle") == 0) {
+        /* Upload a plaintext .aisb bundle and merge it (same tombstone-union LWW
+         * merge as live sync). The body can exceed the initial read buffer, so
+         * read the full Content-Length. */
+        long clen = body_len;
+        if (clen <= 0 || clen > 64L * 1024 * 1024) {
+            static const char e[] = "HTTP/1.0 400 Bad Request\r\n"
+                "Connection: close\r\n\r\nbad upload\n";
+            write_all(fd, e, sizeof(e) - 1);
+        } else {
+            uint8_t *data = malloc((size_t)clen);
+            if (data == NULL) {
+                static const char e[] = "HTTP/1.0 500 Internal Server Error\r\n"
+                    "Connection: close\r\n\r\nout of memory\n";
+                write_all(fd, e, sizeof(e) - 1);
+            } else {
+                size_t have = (size_t)(n - (body - buf));   /* body bytes already read */
+                size_t got = have < (size_t)clen ? have : (size_t)clen;
+                memcpy(data, body, got);
+                while (got < (size_t)clen) {
+                    ssize_t k = SOCK_READ(fd, (char *)data + got, (size_t)clen - got);
+                    if (k <= 0) break;
+                    got += (size_t)k;
+                }
+                if (got == (size_t)clen && sync_import_plain(a, data, (size_t)clen) == 0) {
+                    send_head(fd, "text/plain");
+                    write_all(fd, "merged\n", 7);
+                } else {
+                    static const char e[] = "HTTP/1.0 400 Bad Request\r\n"
+                        "Connection: close\r\n\r\nimport failed\n";
+                    write_all(fd, e, sizeof(e) - 1);
+                }
+                free(data);
+            }
+        }
 #endif
     } else if (strcmp(method, "GET") == 0) {
         /* an external asset (e.g. /style.css) if gui/web has it; the root falls
