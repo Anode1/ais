@@ -385,8 +385,10 @@ class _RecallPageState extends State<RecallPage> {
   // Render a record's value. A URL is a tappable link (tap opens the external
   // browser; long-press/drag still selects and copies). Everything else keeps
   // the plain, verbatim rendering. Callers handle encrypted/blob cases first.
-  Widget _valueLabel(String v, ColorScheme cs) {
-    if (!_isUrl(v)) return SelectableText(_display(v));
+  // [maxLines] bounds a list row so a huge single-line paste can't blow up its
+  // height; the detail page passes null to show the value in full.
+  Widget _valueLabel(String v, ColorScheme cs, {int? maxLines}) {
+    if (!_isUrl(v)) return SelectableText(_display(v), maxLines: maxLines);
     final shown = _display(v);
     // A link needs more than colour (colour-blind users can't see it) and must
     // be reachable by a screen reader / keyboard, which a bare TextSpan isn't.
@@ -394,15 +396,18 @@ class _RecallPageState extends State<RecallPage> {
     return Semantics(
       link: true,
       label: 'Link: $shown',
-      child: SelectableText.rich(TextSpan(
-        text: shown,
-        style: TextStyle(
-          color: cs.primary,
-          decoration: TextDecoration.underline,
-          decorationColor: cs.primary,
+      child: SelectableText.rich(
+        TextSpan(
+          text: shown,
+          style: TextStyle(
+            color: cs.primary,
+            decoration: TextDecoration.underline,
+            decorationColor: cs.primary,
+          ),
+          recognizer: TapGestureRecognizer()..onTap = () => _openUrl(v),
         ),
-        recognizer: TapGestureRecognizer()..onTap = () => _openUrl(v),
-      )),
+        maxLines: maxLines,
+      ),
     );
   }
 
@@ -645,6 +650,7 @@ class _RecallPageState extends State<RecallPage> {
             ),
             TextField(
               controller: tokCtrl,
+              onSubmitted: (_) => Navigator.pop(ctx, true), // Enter = Sync
               decoration: const InputDecoration(labelText: 'Token'),
             ),
             const SizedBox(height: 8),
@@ -815,6 +821,7 @@ class _RecallPageState extends State<RecallPage> {
         content: TextField(
           controller: ctrl,
           autofocus: true,
+          onSubmitted: (v) => Navigator.pop(ctx, v.trim()), // Enter = Open
           decoration: const InputDecoration(hintText: 'full path to a .ais Library folder'),
         ),
         actions: [
@@ -1257,10 +1264,15 @@ class _RecallPageState extends State<RecallPage> {
     final ctrl = TextEditingController();
     final focus = FocusNode();
 
+    // Split on spaces/commas so a pasted (or submitted) multi-word string
+    // becomes one chip PER tag -- matching how the engine tokenizes on update,
+    // so the chips never disagree with what gets stored.
     void addToken(StateSetter setDlg, String raw) {
-      final t = raw.trim();
-      if (t.isEmpty || tags.contains(t)) return;
-      setDlg(() => tags.add(t));
+      final parts =
+          raw.split(RegExp(r'[,\s]+')).where((p) => p.isNotEmpty).toList();
+      final fresh = parts.where((p) => !tags.contains(p)).toList();
+      if (fresh.isEmpty) return;
+      setDlg(() => tags.addAll(fresh));
     }
 
     final ok = await showDialog<bool>(
@@ -1314,9 +1326,10 @@ class _RecallPageState extends State<RecallPage> {
       ),
     );
     if (ok != true || _ais == null) return;
-    // fold any token still sitting in the field into the final set
-    final tail = ctrl.text.trim();
-    if (tail.isNotEmpty && !tags.contains(tail)) tags.add(tail);
+    // fold any token(s) still sitting in the field into the final set
+    for (final p in ctrl.text.split(RegExp(r'[,\s]+')).where((p) => p.isNotEmpty)) {
+      if (!tags.contains(p)) tags.add(p);
+    }
     final delta = <String>[
       for (final t in original) if (!tags.contains(t)) '-$t',
       for (final t in tags) if (!original.contains(t)) t,
@@ -1618,7 +1631,7 @@ class _RecallPageState extends State<RecallPage> {
                       const SizedBox(width: 6),
                       Text('encrypted', style: TextStyle(color: cs.onSurfaceVariant)),
                     ])
-                  : _valueLabel(v, cs),
+                  : _valueLabel(v, cs, maxLines: 3),
             ),
             if (away) _notHereBadge(cs),
           ]),
@@ -1812,7 +1825,7 @@ class _RecallPageState extends State<RecallPage> {
                     const SizedBox(width: 6),
                     Text('encrypted', style: TextStyle(color: cs.outline)),
                   ])
-                : _valueLabel(r.value, cs),
+                : _valueLabel(r.value, cs, maxLines: 3),
           ),
           if (_notHere(r.value)) _notHereBadge(cs),
         ]),
