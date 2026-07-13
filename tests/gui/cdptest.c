@@ -31,7 +31,11 @@ int main(int argc, char **argv) {
     ok("navigate to --serve page", cdp_navigate(c, url) == 0);
     ok("page loaded (#q present)", cdp_wait_bool(c, "!!document.getElementById('q')", 5000) == 0);
 
+    /* The page now OPENS on Recent (which lists every record), so switch to the
+     * empty Search view first to establish the "absent until queried" baseline. */
+    cdp_eval_bool(c, "(function(){setView('recall');return true})()", &(int){0});
     int before = -1;
+    cdp_wait_bool(c, "!" HIT, 3000);            /* let the recall view settle empty */
     cdp_eval_bool(c, HIT, &before);
     ok("record absent before query (control)", before == 0);
 
