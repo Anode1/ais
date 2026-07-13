@@ -98,8 +98,8 @@ static const char PAGE[] =
 "#bnav{position:fixed;left:0;right:0;bottom:0;z-index:6;display:flex;background:var(--card);border-top:1px solid var(--line);box-shadow:0 -2px 12px rgba(0,0,0,.05)}"
 "#bnav button{flex:1;border:0;background:none;padding:.5rem 0 .62rem;font:inherit;font-size:.72rem;color:var(--muted);cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:.12rem}"
 "#bnav button .ic{font-size:1.3rem;line-height:1}#bnav button.on{color:var(--accent)}"
-"#sheet{position:fixed;inset:0;z-index:10;background:rgba(0,0,0,.35);display:flex;align-items:center;justify-content:center}"
-"#sheet[hidden]{display:none}"
+"#sheet,#syncsheet,#editsheet{position:fixed;inset:0;z-index:10;background:rgba(0,0,0,.35);display:flex;align-items:center;justify-content:center}"
+"#sheet[hidden],#syncsheet[hidden],#editsheet[hidden]{display:none}"
 ".card{width:100%;max-width:560px;background:var(--card);border-radius:18px;padding:1.2rem;margin:1rem}"
 ".card h2{margin:0 0 1rem;font-size:1.15rem}"
 ".card textarea,.card input{width:100%;font:inherit;padding:.7rem .8rem;border:1px solid var(--line);"
@@ -125,6 +125,10 @@ static const char PAGE[] =
 ".actbtn.del:hover{color:#c0392b}"
 ".loadmore{display:block;width:100%;margin:1rem 0;padding:.6rem;border:1px solid var(--line);background:var(--card);color:var(--accent);border-radius:8px;cursor:pointer;font:inherit}"
 ".loadmore:hover{background:var(--field)}"
+".chips{display:flex;flex-wrap:wrap;gap:.4rem;margin:.2rem 0 .7rem}"
+".chip{display:inline-flex;align-items:center;gap:.35rem;background:var(--field);border:1px solid var(--line);border-radius:16px;padding:.25rem .7rem;font-size:.9rem}"
+".chip button{border:0;background:none;color:var(--muted);cursor:pointer;font:inherit;font-size:1rem;line-height:1;padding:0}"
+".chip button:hover{color:#c0392b}"
 "</style>"
 "<header id=bar><div class=titlerow><span class=brand>AIS</span><span id=count class=muted></span></div>"
 "<div class=searchrow><input id=q type=search placeholder='type tags to filter' autocomplete=off autofocus>"
@@ -149,6 +153,16 @@ static const char PAGE[] =
 "<input id=enc type=checkbox style='width:auto'> Encrypt</label>"
 "<input id=pp type=password placeholder='Passphrase' hidden style='flex:1'></div>"
 "<div class=actions><button id=cancel class=ghost>Cancel</button><button id=save class=primary>Save</button></div>"
+"</div></div>"
+/* Edit modal: in-place value edit + a chip tag editor (Flutter parity, and it
+ * replaces the old -key prompt). The value box is hidden for encrypted/blob rows. */
+"<div id=editsheet hidden><div class=card><h2>Edit</h2>"
+"<div id=edvalwrap><label class=muted style='font-size:.8rem'>Value</label>"
+"<textarea id=edval rows=3></textarea></div>"
+"<label class=muted style='font-size:.8rem'>Tags</label>"
+"<div id=edchips class=chips></div>"
+"<input id=edtag placeholder='Add a tag (space or comma to add)'>"
+"<div class=actions><button id=edcancel class=ghost>Cancel</button><button id=edsave class=primary>Save</button></div>"
 "</div></div>"
 /* Sync sheet: mirrors the mobile Sync (Host / Join). One device Hosts and waits;
  * the other Joins with its address + token. Both converge (bidirectional). */
@@ -217,16 +231,31 @@ static const char PAGE[] =
 "var m=document.createElement('button');m.className='actbtn';m.textContent='\\u22EE';m.title='more';"
 "var box=document.createElement('span');box.className='actmenu';box.hidden=true;"
 "if(v.indexOf('aisc:')!=0){var c=document.createElement('button');c.className='actbtn';c.textContent='copy';c.onclick=function(){copyText(v.indexOf('aisdoc:')==0?docText(v):v,c)};box.appendChild(c)}"
-"var e=document.createElement('button');e.className='actbtn';e.textContent='edit tags';e.onclick=function(){editRec(id)};"
+"var e=document.createElement('button');e.className='actbtn';e.textContent='edit';e.onclick=function(){openEdit(id,v)};"
 "var x=document.createElement('button');x.className='actbtn del';x.textContent='\\u2715 delete';x.onclick=function(){delRec(id)};"
 "box.appendChild(e);box.appendChild(x);m.onclick=function(){box.hidden=!box.hidden};"
 "d.appendChild(m);d.appendChild(box);return d}"
 "async function copyText(t,btn){try{await navigator.clipboard.writeText(t);if(btn){var o=btn.textContent;btn.textContent='copied';setTimeout(function(){btn.textContent=o},1200)}}catch(e){alert('copy needs https or localhost')}}"
 "async function delRec(id){if(!confirm('Delete this record?'))return;"
 "await fetch('/api/del?id='+id,{method:'POST'});setView(view)}"
-"async function editRec(id){var s=prompt('Edit keys: a KEY adds it, -KEY removes it (space-separated)');"
-"if(s===null||!s.trim())return;"
-"await fetch('/api/update?id='+id+'&keys='+encodeURIComponent(s.trim()),{method:'POST'});setView(view)}"
+/* Edit modal: value (when editable) + a chip tag editor, computing a minimal
+ * +tag/-tag delta on save. Replaces the old -KEY grammar prompt. */
+"var edId=0,edTags=[],edOldVal='',edEdit=false;"
+"function edChips(){var c=$('edchips');c.innerHTML='';edTags.forEach(function(t){"
+"var s=document.createElement('span');s.className='chip';s.textContent=t;"
+"var b=document.createElement('button');b.textContent='\\u00d7';b.onclick=function(){edTags=edTags.filter(function(x){return x!=t});edChips()};"
+"s.appendChild(b);c.appendChild(s)})}"
+"function edAdd(){normkeys($('edtag').value).split(' ').forEach(function(t){if(t&&edTags.indexOf(t)<0)edTags.push(t)});$('edtag').value='';edChips()}"
+"async function openEdit(id,v){edId=id;edOldVal=v;edEdit=(v.indexOf('aisc:')!=0&&v.indexOf('aisdoc:')!=0);"
+"$('edvalwrap').style.display=edEdit?'block':'none';if(edEdit)$('edval').value=v;"
+"var t=(await(await fetch('/api/keys?id='+id)).text()).trim();edTags=t?t.split(/\\s+/):[];edChips();"
+"$('edtag').value='';$('editsheet').hidden=false}"
+"async function edSave(){edAdd();"
+"if(edEdit){var nv=$('edval').value.replace(/\\r?\\n/g,' ').trim();if(nv&&nv!=edOldVal)await fetch('/api/setvalue?id='+edId,{method:'POST',body:edOldVal+'\\n'+nv})}"
+"var o=(await(await fetch('/api/keys?id='+edId)).text()).trim(),oa=o?o.split(/\\s+/):[],dl=[];"
+"oa.forEach(function(t){if(edTags.indexOf(t)<0)dl.push('-'+t)});edTags.forEach(function(t){if(oa.indexOf(t)<0)dl.push(t)});"
+"if(dl.length)await fetch('/api/update?id='+edId+'&keys='+encodeURIComponent(dl.join(' ')),{method:'POST'});"
+"$('editsheet').hidden=true;setView(view)}"
 "async function recall(){var q=normkeys($('q').value);if(!q)return;var t0=performance.now();"
 "var oo=$('anyk')&&$('anyk').checked?'&or=1':'';"
 "var t=await(await fetch('/api/get?keys='+encodeURIComponent(q)+oo)).text();render(t,q,performance.now()-t0)}"
@@ -292,6 +321,10 @@ static const char PAGE[] =
 "$('tlfrom').onchange=function(){loadTimeline()};$('tlto').onchange=function(){loadTimeline()};"
 "$('tlclear').onclick=function(){$('tlfrom').value='';$('tlto').value='';loadTimeline()};"
 "$('addbtn').onclick=openSheet;$('cancel').onclick=closeSheet;$('save').onclick=save;"
+"$('edcancel').onclick=function(){$('editsheet').hidden=true};$('edsave').onclick=edSave;"
+"$('edtag').addEventListener('keydown',function(e){if(e.key=='Enter'||e.key==','){e.preventDefault();edAdd()}});"
+"$('edtag').addEventListener('blur',edAdd);"
+"$('editsheet').addEventListener('click',function(e){if(e.target==$('editsheet'))$('editsheet').hidden=true});"
 "$('enc').onchange=function(){$('pp').hidden=!$('enc').checked;if($('enc').checked)$('pp').focus()};"
 "$('sheet').addEventListener('click',function(e){if(e.target==$('sheet'))closeSheet()});"
 "async function loadStore(){$('store').textContent='Library: '+await(await fetch('/api/where')).text()}"
@@ -499,6 +532,39 @@ static void do_get(ais *a, char *keys, int want_or, int fd)
     s.a = a; s.fd = fd;
     if (nkeys > 0)
         ais_get(a, kv, nkeys, want_or ? AIS_OR : AIS_AND, on_id, &s);
+}
+
+/* keys-of-id: which visible tags is record ID filed under? Mirrors the embed
+ * layer's keysOf -- walk the tags, and for each ask ais_get whether ID is a
+ * member. O(tags), but the web edit dialog needs the current tag set to show
+ * its chips. Emits the matching tags space-separated. */
+struct keyhit { long want; int found; };
+static int keyhit_cb(long id, void *vp)
+{
+    struct keyhit *k = vp;
+    if (id == k->want) { k->found = 1; return 1; }   /* found: stop the scan */
+    return 0;
+}
+struct keysof { ais *a; long want; int fd; int n; };
+static int keysof_tag(const char *key, long count, void *vp)
+{
+    struct keysof *c = vp;
+    char kbuf[AIS_LINE_MAX];
+    char *kv[1];
+    struct keyhit m;
+    (void)count;
+    if (strlen(key) >= sizeof kbuf)
+        return 0;                              /* skip an absurdly long key */
+    strcpy(kbuf, key);                         /* ais_get tokenizes in place */
+    kv[0] = kbuf;
+    m.want = c->want; m.found = 0;
+    ais_get(c->a, kv, 1, AIS_AND, keyhit_cb, &m);
+    if (m.found) {
+        if (c->n) write_all(c->fd, " ", 1);
+        write_all(c->fd, key, strlen(key));
+        c->n++;
+    }
+    return 0;
 }
 
 /* ---- put: the WHOLE body is one record ----------------------------------
@@ -867,6 +933,33 @@ static void handle(ais *a, int fd)
         } else {
             static const char e[] = "HTTP/1.0 400 Bad Request\r\n"
                 "Connection: close\r\n\r\ncannot update\n";
+            write_all(fd, e, sizeof(e) - 1);
+        }
+    } else if (strcmp(method, "GET") == 0 && strcmp(path, "/api/keys") == 0) {
+        /* the visible tags of record ?id=N (for the edit dialog's chips) */
+        struct keysof c;
+        c.a = a; c.want = reqid; c.fd = fd; c.n = 0;
+        send_head(fd, "text/plain");
+        if (reqid > 0)
+            ais_tags(a, keysof_tag, &c);
+    } else if (strcmp(method, "POST") == 0 && strcmp(path, "/api/setvalue") == 0) {
+        /* body = "oldvalue\nnewvalue": rewrite record ?id=N's value in place,
+         * keeping its id + timeline slot. Single-line values only (a multi-line
+         * value lives out-of-line as a blob, which the UI won't offer to edit). */
+        char *nv = (body != NULL) ? strchr(body, '\n') : NULL;
+        if (reqid > 0 && nv != NULL) {
+            *nv++ = '\0';
+            if (ais_set_value(a, reqid, body, nv) == 0) {
+                send_head(fd, "text/plain");
+                write_all(fd, "updated\n", 8);
+            } else {
+                static const char e[] = "HTTP/1.0 400 Bad Request\r\n"
+                    "Connection: close\r\n\r\ncannot update value\n";
+                write_all(fd, e, sizeof(e) - 1);
+            }
+        } else {
+            static const char e[] = "HTTP/1.0 400 Bad Request\r\n"
+                "Connection: close\r\n\r\ncannot update value\n";
             write_all(fd, e, sizeof(e) - 1);
         }
     } else if (strcmp(method, "GET") == 0 && strcmp(path, "/api/timeline") == 0) {
