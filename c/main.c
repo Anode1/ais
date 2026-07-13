@@ -285,7 +285,7 @@ int main(int argc, char **argv)
            CMD_FIND, CMD_ADD, CMD_DEL, CMD_DELKEY, CMD_DUMP, CMD_KEYS, CMD_STATS,
            CMD_COMPACT, CMD_INIT, CMD_IMPORT, CMD_IMPORTI, CMD_WHERE, CMD_SERVE, CMD_PROJECT,
            CMD_DOC, CMD_TIMELINE, CMD_TAGS, CMD_DEFAULT, CMD_UPDATE,
-           CMD_SWITCH, CMD_INDEXES, CMD_FORGET, CMD_EXPORT, CMD_SYNC };
+           CMD_SWITCH, CMD_INDEXES, CMD_FORGET, CMD_EXPORT, CMD_SYNC, CMD_SYNCFOLDER };
     static const struct option longopts[] = {
         { "index",       required_argument, NULL, 'f' },
         { "or",          no_argument,       NULL, 'o' },
@@ -318,6 +318,7 @@ int main(int argc, char **argv)
         { "import-interactively", no_argument, NULL, CMD_IMPORTI },
         { "export",      no_argument,       NULL, CMD_EXPORT },
         { "sync",        no_argument,       NULL, CMD_SYNC },
+        { "sync-folder", no_argument,       NULL, CMD_SYNCFOLDER },
         { "where",       no_argument,       NULL, CMD_WHERE },
         { "serve",       no_argument,       NULL, CMD_SERVE },
         { "token",       required_argument, NULL, OPT_TOKEN },
@@ -365,6 +366,7 @@ int main(int argc, char **argv)
         case CMD_PROJECT: case CMD_DOC: case CMD_TIMELINE: case CMD_TAGS:
         case CMD_DEFAULT: case CMD_UPDATE:
         case CMD_SWITCH: case CMD_INDEXES: case CMD_FORGET: case CMD_SYNC:
+        case CMD_SYNCFOLDER:
             if (cmd != 0) die("only one command at a time");
             cmd = c;
             break;
@@ -442,6 +444,12 @@ int main(int argc, char **argv)
             } else {
                 die("usage: ais --sync --serve [PORT]  |  ais --sync <url> --token TOKEN");
             }
+            break;
+        case CMD_SYNCFOLDER:                      /* one export+import pass over a shared folder */
+            if (optind >= argc)
+                die("usage: ais --sync-folder FOLDER  (a folder a mover like Syncthing keeps in sync)");
+            if (sync_folder_once(&a, argv[optind]) != 0) { ais_close(&a); die("folder sync failed"); }
+            printf("synced folder: %s\n", argv[optind]);
             break;
         case CMD_FIND:
             if (optind >= argc) die("--find needs TEXT");

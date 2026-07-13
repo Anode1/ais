@@ -125,6 +125,11 @@ long ais_put_at(ais *a, const char *keys, const char *value, const char *ts)
             if (ts != NULL) {
                 char del_ts[AIS_TS_MAX];
                 tomb_lookup(a, id, del_ts, sizeof del_ts);
+                /* STRICTLY newer to resurrect, so a tie keeps the delete: deletes are
+                 * sticky. Folder-sync I2 caveat: LWW here is wall-clock UTC, so a peer
+                 * with a fast clock could stamp an add ahead of a genuinely-later delete
+                 * and resurrect it. Bounded by inter-device skew; a hybrid logical clock
+                 * is the post-v0 fix. Documented, not silently wrong. */
                 win = (strcmp(ts, del_ts) > 0);
             }
             if (!win) { rc = id; goto out; }            /* the delete is newer: stay deleted */
