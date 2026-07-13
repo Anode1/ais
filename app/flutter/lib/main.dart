@@ -629,9 +629,23 @@ class _RecallPageState extends State<RecallPage> {
     if (ok) _setView(_view);
   }
 
+  // A LAN Host/Join sync runs on a BACKGROUND isolate holding the SAME engine handle;
+  // flock on the shared fd does not exclude it, so a concurrent UI-isolate write would
+  // race the store. Block a mutating action while any sync (even a hidden one) is in
+  // flight; reads/browsing stay available. Returns true (and warns) if blocked.
+  bool _syncBlocks() {
+    if (!_syncBusy) return false;
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('A sync is running. Finish it first.')));
+    }
+    return true;
+  }
+
   // One folder-sync pass (fast, local file I/O). Refreshes the view on a merge.
+  // Skipped while a LAN sync holds the handle (avoids the same cross-isolate race).
   void _runFolderSync({bool silent = true}) {
-    if (_ais == null || _syncFolder.isEmpty) return;
+    if (_ais == null || _syncFolder.isEmpty || _syncBusy) return;
     final ok = _ais!.syncFolder(_syncFolder);
     if (ok && mounted) _setView(_view);
     if (!silent && mounted) {
@@ -787,6 +801,7 @@ class _RecallPageState extends State<RecallPage> {
           content: Text('A sync is already running. Finish it first.')));
       return;
     }
+    _flushPendingDeletes(); // commit any in-flight delete BEFORE the sync isolate starts
     _syncBusy = true;
     final fut = _ais!.pullAsync(url, token, bidir: true);
     final hidden = await showDialog<bool>(
@@ -845,6 +860,7 @@ class _RecallPageState extends State<RecallPage> {
     final detail = 'http://$ip:$port\ntoken: $token\n\n'
         'desktop:  ais --sync http://$ip:$port --token $token';
 
+    _flushPendingDeletes(); // commit any in-flight delete BEFORE the sync isolate starts
     _syncBusy = true;
     final fut = _ais!.serveAsync(port, token, bidir: true); // blocks up to ~120s
     final hidden = await showDialog<bool>(
@@ -934,6 +950,10 @@ class _RecallPageState extends State<RecallPage> {
       ),
     );
     if (picked == null || picked.isEmpty || picked == _dir) return;
+    // Commit any in-flight swipe-delete against the CURRENT library BEFORE swapping.
+    // Otherwise its deferred snackbar-close would fire del(id) on the NEW library and
+    // silently delete an unrelated same-numbered record there.
+    _flushPendingDeletes();
     try {
       // Open the new index FIRST; only if that succeeds do we close the old one
       // and swap. Otherwise a bad path would throw after close(), leaving _ais
@@ -1259,6 +1279,10 @@ class _RecallPageState extends State<RecallPage> {
   }
 
   void _deferDelete(int id) {
+    if (_syncBlocks()) {
+      if (mounted) _setView(_view); // restore a swipe-dismissed row (nothing was deleted)
+      return;
+    }
     _flushPendingDeletes(); // a new delete commits any prior still-pending one
     final messenger = ScaffoldMessenger.of(context);
     // Snapshot from whichever list(s) hold the id, so Undo restores it in place.
@@ -1365,6 +1389,7 @@ class _RecallPageState extends State<RecallPage> {
   // new one; on Apply we send the minimal +tag/-tag delta to the engine.
   Future<void> _editKeys(Hit hit) async {
     if (_ais == null) return;
+    if (_syncBlocks()) return; // don't write while a sync holds the handle
     final original = _ais!.keysOf(hit.id).split(RegExp(r'\s+'))
         .where((t) => t.isNotEmpty).toList();
     final tags = [...original];
@@ -1458,6 +1483,7 @@ class _RecallPageState extends State<RecallPage> {
   // detail page — can refresh its display), or null on cancel/no-op/failure.
   Future<String?> _editValue(int id, String oldValue) async {
     if (_ais == null) return null;
+    if (_syncBlocks()) return null; // don't write while a sync holds the handle
     final messenger = ScaffoldMessenger.of(context);
     final ctrl = TextEditingController(text: oldValue);
     final ok = await showDialog<bool>(
@@ -2100,6 +2126,7 @@ class _RecallPageState extends State<RecallPage> {
                   : () async {
                       final value = valCtrl.text.trim();
                       if (value.isEmpty || _ais == null) return;
+                      if (_syncBlocks()) return; // don't write while a sync holds the handle
                       final keys = _normKeys(keysCtrl.text);
                       final messenger = ScaffoldMessenger.of(context);
                       final nav = Navigator.of(ctx);
@@ -2117,7 +2144,15 @@ class _RecallPageState extends State<RecallPage> {
                       if (!mounted) return;
                       nav.pop();
                       _q.text = keys;
-                      _recall(); // show what was just saved
+                      // Actually SHOW what was just saved: switch to the recall view
+                      // under its tags, or to Recent for a keyless save (it lives only
+                      // in the timeline). Bare _recall() would fill results without
+                      // leaving the current tab -> the saved item stays invisible.
+                      if (keys.isEmpty) {
+                        _setView('timeline');
+                      } else {
+                        _setView('recall');
+                      }
                       _runFolderSync(silent: true); // push the new record to peers
                       messenger.showSnackBar(SnackBar(
                           content: Text(keys.isEmpty ? 'Saved (no tags)' : 'Saved under: $keys')));
