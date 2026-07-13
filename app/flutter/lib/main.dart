@@ -466,7 +466,7 @@ class _RecallPageState extends State<RecallPage> {
   Widget _notHereBadge(ColorScheme cs) => Padding(
         padding: const EdgeInsets.only(left: 6),
         child: Tooltip(
-          message: 'Not on this device — open it on the desktop, or mount that disk.',
+          message: 'Not on this device. Open it on the desktop, or mount that disk.',
           child: Icon(Icons.cloud_off, size: 16, color: cs.outline),
         ),
       );
@@ -483,8 +483,10 @@ class _RecallPageState extends State<RecallPage> {
     if (_ais == null) return;
     final choice = await showModalBottomSheet<String>(
       context: context,
+      isScrollControlled: true, // the sheet can be tall (nearby + file + folder); let it scroll
       builder: (ctx) => SafeArea(
-        child: Column(
+        child: SingleChildScrollView(
+          child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             Padding(
@@ -496,7 +498,7 @@ class _RecallPageState extends State<RecallPage> {
               ),
             ),
             // --- Live, over Wi-Fi: the camera/QR pairing path. ---
-            _syncGroupLabel(ctx, 'A nearby device — same Wi-Fi'),
+            _syncGroupLabel(ctx, 'A nearby device (same Wi-Fi)'),
             ListTile(
               leading: const Icon(Icons.wifi_tethering),
               title: const Text('Host a sync'),
@@ -511,7 +513,7 @@ class _RecallPageState extends State<RecallPage> {
             ),
             const Divider(height: 24),
             // --- A file: no network; move it by Drive / USB / email. ---
-            _syncGroupLabel(ctx, 'A file — move it by Drive, USB or email'),
+            _syncGroupLabel(ctx, 'A file (move it by Drive, USB, or email)'),
             ListTile(
               leading: const Icon(Icons.save_alt),
               title: const Text('Export to a file'),
@@ -531,7 +533,9 @@ class _RecallPageState extends State<RecallPage> {
               leading: const Icon(Icons.folder_shared_outlined),
               title: Text(_syncFolder.isEmpty ? 'Set a sync folder' : 'Synced folder'),
               subtitle: Text(_syncFolder.isEmpty
-                  ? 'Point at a folder that Syncthing or a cloud client keeps in sync'
+                  // I5: a versioning cloud keeps old plaintext copies, which can
+                  // defeat tombstones (a delete reappears); Syncthing does not.
+                  ? 'Best with Syncthing. A versioning cloud (e.g. Dropbox) may keep deleted items.'
                   : _syncFolder),
               onTap: () => Navigator.pop(ctx, 'folder'),
             ),
@@ -550,6 +554,7 @@ class _RecallPageState extends State<RecallPage> {
               ),
             const SizedBox(height: 8),
           ],
+        ),
         ),
       ),
     );
@@ -594,7 +599,11 @@ class _RecallPageState extends State<RecallPage> {
     } catch (_) {}
   }
 
-  // Pick a shared folder and run the first sync pass.
+  // Pick a shared folder and run the first sync pass. Desktop only for now: mobile
+  // has no arbitrary-folder picker (Android's SAF returns a content:// URI, not a
+  // POSIX path the C engine can open with opendir/fopen, and shared-storage paths
+  // are gated by scoped storage). A device with Syncthing would need a real path;
+  // wiring that safely is future work, so mobile says so plainly rather than half-fail.
   Future<void> _pickSyncFolder() async {
     if (_ais == null) return;
     final messenger = ScaffoldMessenger.of(context);
@@ -786,7 +795,7 @@ class _RecallPageState extends State<RecallPage> {
           builder: (_) => _SyncWaitDialog(
               title: 'Join a sync',
               waiting: 'Syncing...',
-              note: 'You can hide this — syncing continues in the background.',
+              note: 'You can hide this; syncing continues in the background.',
               done: fut),
         ) ??
         false;
@@ -847,7 +856,7 @@ class _RecallPageState extends State<RecallPage> {
               commandLabel: 'Or type the address and token on the other device:',
               command: detail,
               waiting: 'Waiting for the other device...',
-              note: 'You can hide this — hosting keeps waiting in the background.',
+              note: 'You can hide this; hosting keeps waiting in the background.',
               done: fut),
         ) ??
         false;
@@ -1620,7 +1629,7 @@ class _RecallPageState extends State<RecallPage> {
                       Icon(Icons.lock_outline, size: 18, color: cs.outline),
                       const SizedBox(width: 8),
                       Expanded(
-                        child: Text('encrypted — tap Reveal to read',
+                        child: Text('encrypted, tap Reveal to read',
                             style: TextStyle(color: cs.onSurfaceVariant)),
                       ),
                     ])
@@ -1699,7 +1708,7 @@ class _RecallPageState extends State<RecallPage> {
       if (_ais == null) return _centerMsg(_status, cs);
       return _emptyState(cs,
           icon: Icons.note_add_outlined,
-          line: 'Save a link, a note, or a fact — then find it later by its tags.');
+          line: 'Save a link, a note, or a fact, then find it later by its tags.');
     }
     // find() results reuse the exact recall row builder; a quiet header above the
     // list is the only thing marking them as TEXT matches rather than tag matches.

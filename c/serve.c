@@ -180,7 +180,7 @@ static const char PAGE[] =
 "<div class=actions style='justify-content:center'><button id=impbtn class=ghost>Import</button><button id=expbtn class=primary>Export</button></div>"
 /* Auto-sync a shared folder (Syncthing / a cloud folder). One tap runs a pass; the
  * path is remembered and a pass also runs on load and after each change. */
-"<p class=muted style='margin:1rem 0 .4rem;font-size:.85rem'>Or auto-sync a shared folder (Syncthing / cloud):</p>"
+"<p class=muted style='margin:1rem 0 .4rem;font-size:.85rem'>Or auto-sync a shared folder. Best with Syncthing; a versioning cloud may keep deleted items:</p>"
 "<div style='display:flex;gap:.5rem'><input id=syncfld placeholder='/path/to/shared/folder' autocomplete=off style='flex:1'>"
 "<button id=syncfldbtn class=getbtn>Sync</button></div>"
 "<p id=syncfldmsg class=muted style='margin:.4rem 0 0;font-size:.8rem'></p></div>"
