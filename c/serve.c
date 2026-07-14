@@ -243,13 +243,25 @@ static const char PAGE[] =
  * the base64 as UTF-8 bytes and show it verbatim (newlines preserved). */
 "function docText(v){try{var s=atob(v.slice(7)),b=new Uint8Array(s.length),i;for(i=0;i<s.length;i++)b[i]=s.charCodeAt(i);return new TextDecoder().decode(b)}catch(e){return v}}"
 "function fillDoc(node,v){var d=document.createElement('div');d.style.whiteSpace='pre-wrap';d.textContent=docText(v);node.appendChild(d)}"
+/* 'not on this device' (Flutter parity): a doc blob that is present arrives as
+ * aisdoc:<content>; one whose file is absent falls through as the raw 'blobs/'
+ * path. A file:// or absolute-path reference isn't reachable from a browser
+ * either. Badge those, so a synced-but-not-downloaded record reads the same as
+ * in the app. */
+"function notHere(v){var p=v;if(p.indexOf('aisc:@')==0)p=p.slice(6);"
+"if(p.indexOf('blobs/')==0)return true;"
+"if(p.indexOf('file://')==0)return true;"
+"if(p.charAt(0)=='/')return true;return false}"
+"function awayBadge(){var s=document.createElement('span');s.textContent=' \\u2601';"
+"s.title='Not on this device: open it on the desktop, or mount that disk.';"
+"s.style.color='var(--muted)';s.style.marginLeft='.3rem';return s}"
 "function render(t,q,ms){var L=t.split('\\n').filter(function(s){return s.length});"
 "$('count').textContent=L.length+' result'+(L.length==1?'':'s')+' - '+ms.toFixed(0)+' ms';"
 "var o=$('out');o.innerHTML='';"
 "if(!L.length){o.textContent='No results for '+q;o.className='empty';return}o.className='';"
 "L.forEach(function(ln){var p=ln.indexOf('|'),id=p>=0?ln.slice(0,p):'',v=p>=0?ln.slice(p+1):ln,"
 "r=document.createElement('div');r.className='hit';if(id)r.dataset.id=id;"
-"(v.indexOf('aisc:')==0?fillSecret(r,v):v.indexOf('aisdoc:')==0?fillDoc(r,v):fillVal(r,v));if(id)r.appendChild(rowActions(id,v));o.appendChild(r)})}"
+"(v.indexOf('aisc:')==0?fillSecret(r,v):v.indexOf('aisdoc:')==0?fillDoc(r,v):fillVal(r,v));if(notHere(v))r.appendChild(awayBadge());if(id)r.appendChild(rowActions(id,v));o.appendChild(r)})}"
 /* per-row edit (attach/detach keys by id) and delete; both refresh the view */
 "function rowActions(id,v){var d=document.createElement('div');d.className='act';"
 "var m=document.createElement('button');m.className='actbtn';m.textContent='\\u22EE';m.title='more';"
@@ -314,7 +326,7 @@ static const char PAGE[] =
 "L.forEach(function(ln){var r=parseTL(ln),lt=locDT(r.ts),d=lt?lt.day:'';"
 "if(d!==tlDay){tlDay=d;var h=document.createElement('div');h.className='daygroup';"
 "h.textContent=d?fmtDay(d):'(undated)';o.appendChild(h)}"
-"var row=document.createElement('div');row.className='hit';if(r.id)row.dataset.id=r.id;(r.value.indexOf('aisc:')==0?fillSecret(row,r.value):r.value.indexOf('aisdoc:')==0?fillDoc(row,r.value):fillVal(row,r.value));"
+"var row=document.createElement('div');row.className='hit';if(r.id)row.dataset.id=r.id;(r.value.indexOf('aisc:')==0?fillSecret(row,r.value):r.value.indexOf('aisdoc:')==0?fillDoc(row,r.value):fillVal(row,r.value));if(notHere(r.value))row.appendChild(awayBadge());"
 "var m=document.createElement('div');m.className='meta';"
 "var tm=lt&&lt.time?lt.time+' - ':'';"
 "m.textContent=tm+(r.keys||'(no tags)');row.appendChild(m);"
