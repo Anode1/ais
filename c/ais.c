@@ -100,6 +100,17 @@ static int keys_attach_only(const char *keys, char *out, size_t outsz)
             return -1;
         used += (size_t)n;
     }
+    /* Keys share the store line's '|' field delimiter, and are matched by their
+     * key_encode() path form, which folds '|' and control bytes to '_'. Do the
+     * same to the STORED keys so a key like "a|b" can't shift the value into the
+     * wrong field on readback (silent corruption), and so the store line agrees
+     * with the index. Spaces (the token separators) are left intact. */
+    {
+        char *p;
+        for (p = out; *p != '\0'; p++)
+            if (*p == '|' || (unsigned char)*p < 0x20)
+                *p = '_';
+    }
     return 0;
 }
 

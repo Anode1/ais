@@ -313,6 +313,15 @@ int store_append(const ais *a, long id, const char *ts,
     FILE *fp;
     int need;
 
+    /* A record is ONE line: an embedded newline would end the fgets on read and
+     * drop everything after it (silent, unrecoverable data loss). Keys are already
+     * '|'/control-sanitized upstream; refuse a multi-line value here and point at
+     * --doc, mirroring the too-long guard below. */
+    if (strpbrk(value, "\r\n") != NULL || strpbrk(keys, "\r\n") != NULL) {
+        fprintf(stderr, "ais: value spans multiple lines -- use --doc for multi-line/large values\n");
+        return -1;
+    }
+
     /* The whole record must round-trip through one AIS_LINE_MAX fgets on read; refuse one
      * that would not (large content belongs in a --doc blob, not inline). */
     need = (ts != NULL && ts[0] != '\0')

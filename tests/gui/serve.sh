@@ -38,6 +38,81 @@ if ! curl -s -o /dev/null "$B/"; then echo "  FAIL server did not start on $PORT
 ok "put (plain)"   "saved 1"      "$(printf 'hello venice' | curl -s -X POST --data-binary @- "$B/api/put?keys=venice")"
 ok "get (plain)"   "hello venice" "$(curl -s "$B/api/get?keys=venice")"
 
+# --- Regression: split-packet POST -----------------------------------------
+# A browser's fetch() sends the POST body in a SEPARATE TCP segment from the
+# headers. curl (above) coalesces them, so a server that reads once and assumes
+# the whole request arrived together passes curl but RESETS a real browser
+# ("failed to fetch", nothing saved). These force the split with a pause between
+# writes -- the reproduction the old suite lacked. SKIP if python3 is absent.
+if command -v python3 >/dev/null 2>&1; then
+  split_post() {   # split_post PATH BODY  ->  response body
+    python3 - "$PORT" "$1" "$2" <<'PY'
+import socket,sys,time
+port,path,body=int(sys.argv[1]),sys.argv[2],sys.argv[3].encode()
+s=socket.create_connection(('127.0.0.1',port))
+s.sendall(("POST %s HTTP/1.1\r\nHost: x\r\nContent-Length: %d\r\nConnection: close\r\n\r\n"
+           %(path,len(body))).encode())
+time.sleep(0.25)                 # the body lands in a LATER packet
+s.sendall(body)
+r=b""
+while True:
+    d=s.recv(4096)
+    if not d: break
+    r+=d
+sys.stdout.write(r.decode('utf-8','replace').split('\r\n\r\n',1)[-1])
+PY
+  }
+  ok "put  (split-packet body drained)"    "saved 1"      "$(split_post '/api/put?keys=split' 'delayed body')"
+  ok "get  (split-packet value persisted)" "delayed body" "$(curl -s "$B/api/get?keys=split")"
+  IDX2=$(mktemp -d); "$AIS" -f "$IDX2" --init >/dev/null 2>&1
+  split_post '/api/store' "$IDX2" >/dev/null
+  ok "store (split-packet path -> switched library)" "$IDX2" "$(curl -s "$B/api/where")"
+  split_post '/api/store' "$IDX" >/dev/null     # switch back for the cases below
+  rm -rf "$IDX2"
+else
+  echo "  note python3 absent -- SKIP split-packet regression"
+fi
+
+# --- Regression: oversized POST body -> 413, never a truncated silent save ----
+# A body past the ~64KB request buffer used to be read up to the buffer, the
+# TRUNCATED value persisted while the route still returned "saved 1", and the
+# unread tail RST the socket ("failed to fetch") on close. Now the server drains
+# the remainder and returns 413, storing nothing. curl-only (no python needed).
+BIGF=$(mktemp)
+if command -v python3 >/dev/null 2>&1; then python3 -c "open('$BIGF','w').write('A'*100000)"
+else awk 'BEGIN{for(i=0;i<100000;i++)printf "A"}' > "$BIGF"; fi
+CODE=$(curl -s -o /dev/null -w '%{http_code}' -m 6 --data-binary @"$BIGF" "$B/api/put?keys=huge")
+ok    "oversized body rejected (413, not a truncated save)" "413" "$CODE"
+empty "oversized body stored nothing"                       "$(curl -s "$B/api/get?keys=huge")"
+rm -f "$BIGF"
+
+# --- Regression: header block split across TCP segments ------------------------
+# Content-Length used to be parsed only from the first read; a request whose
+# headers arrived in >1 packet left body_len=0, skipped the drain, and silently
+# saved nothing ("saved 0"). Now the server reads until the header terminator.
+if command -v python3 >/dev/null 2>&1; then
+  split_header() {  # split_header PATH BODY  ->  response body
+    python3 - "$PORT" "$1" "$2" <<'PY'
+import socket,sys,time
+port,path,body=int(sys.argv[1]),sys.argv[2],sys.argv[3].encode()
+req=("POST %s HTTP/1.1\r\nHost: x\r\nContent-Length: %d\r\nConnection: close\r\n\r\n"
+     %(path,len(body))).encode()+body
+s=socket.create_connection(('127.0.0.1',port))
+s.sendall(req[:15]); time.sleep(0.25); s.sendall(req[15:])   # split INSIDE the headers
+r=b""
+while True:
+    d=s.recv(4096)
+    if not d: break
+    r+=d
+sys.stdout.write(r.decode('utf-8','replace').split('\r\n\r\n',1)[-1])
+PY
+  }
+  ok "put  (split-header block reassembled)"  "saved 1"    "$(split_header '/api/put?keys=hsplit' 'headerbody')"
+  ok "get  (split-header value persisted)"    "headerbody" "$(curl -s "$B/api/get?keys=hsplit")"
+else
+  echo "  note python3 absent -- SKIP split-header regression"
+fi
+
 # encrypt save: body is "passphrase\nvalue", ?enc=1
 ok "put (encrypted)" "saved 1"    "$(printf 'pw123\ns3cr3t-token' | curl -s -X POST --data-binary @- "$B/api/put?keys=gmail&enc=1")"
 MARKED=$(curl -s "$B/api/get?keys=gmail" | sed 's/^[0-9]*|//')
@@ -55,6 +130,16 @@ ok "page: sync sheet title"  "Sync with another device"  "$PAGE"
 ok "page: host label"        "synchostbtn"               "$PAGE"
 ok "page: join label"        "syncjoinbtn"               "$PAGE"
 ok "page: QR encoder (pure JS, no server dep)" "function qrGen" "$PAGE"
+# Regression: actually RUN the encoder and compare to a golden that decodes. The
+# old check above only greps for the string -- a malformed QR (wrong Reed-Solomon
+# ECC) passes it but no phone can scan it. Needs node to run the shipped JS.
+if command -v node >/dev/null 2>&1; then
+  printf '%s' "$PAGE" > "$IDX/_page.html"
+  ok "QR encoder output matches decodable golden" "MATCH" \
+     "$(node "$(dirname "$0")/qr-check.js" "$IDX/_page.html" "$(dirname "$0")/qr.golden" 2>&1)"
+else
+  echo "  note node absent -- SKIP QR golden decode check"
+fi
 
 # Join: a malformed address is rejected as "bad url" (no network touched).
 ok "join (bad url)" "bad url" "$(printf 'notaurl' | curl -s -X POST --data-binary @- "$B/api/sync/join")"

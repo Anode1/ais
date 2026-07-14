@@ -27,6 +27,7 @@
 #ifndef _WIN32
 #include <netinet/in.h>
 #include <sys/socket.h>
+#include <sys/time.h>      /* struct timeval, for the per-client recv timeout */
 #include <unistd.h>
 #endif
 
@@ -138,6 +139,7 @@ static const char PAGE[] =
 "<label class=allk style='display:flex;align-items:center;gap:.4rem;font-size:.85rem;color:var(--muted);margin-top:.5rem'><input id=anyk type=checkbox style='width:auto'> Match any tag</label>"
 "<div class=storerow><span id=store class=muted></span><span style='flex:1'></span>"
 "<button id=syncbtn class=link>sync</button><button id=storebtn class=link>change</button></div>"
+"<div id=storeedit class=storerow style='display:none;margin-top:.4rem'><input id=storepath placeholder='Library folder (full path)' autocomplete=off style='flex:1;font:inherit'><button id=storeok class=link>open</button><button id=storecancel class=link>cancel</button></div>"
 "<div id=tlrange style='display:none;gap:.4rem;align-items:center;margin-top:.5rem;font-size:.85rem;color:var(--muted)'>"
 "<span>from</span><input id=tlfrom type=date style='font:inherit'>"
 "<span>to</span><input id=tlto type=date style='font:inherit'>"
@@ -352,24 +354,35 @@ static const char PAGE[] =
 "$('enc').onchange=function(){$('pp').hidden=!$('enc').checked;if($('enc').checked)$('pp').focus()};"
 "$('sheet').addEventListener('click',function(e){if(e.target==$('sheet'))closeSheet()});"
 "async function loadStore(){$('store').textContent='Library: '+await(await fetch('/api/where')).text()}"
+/* inline field, not prompt(): prompt() is silently disabled in installed-PWA
+ * and app windows, so the old "change" button did nothing there. */
 "async function changeStore(){var cur=await(await fetch('/api/where')).text();"
-"var d=prompt('Library folder (full path):',cur);if(!d||d==cur)return;"
+"$('storepath').value=cur;$('storeedit').style.display='flex';$('storepath').focus()}"
+"async function storeApply(){var d=$('storepath').value.trim();$('storeedit').style.display='none';if(!d)return;"
 "var r=await fetch('/api/store',{method:'POST',body:d});"
 "if(r.ok){$('q').value='';$('out').innerHTML='';$('count').textContent='';loadStore()}"
 "else{alert('Could not open that index')}}"
-"$('storebtn').onclick=changeStore;loadStore();"
+"$('storebtn').onclick=changeStore;$('storeok').onclick=storeApply;"
+"$('storecancel').onclick=function(){$('storeedit').style.display='none'};"
+"$('storepath').onkeydown=function(e){if(e.key==='Enter')storeApply();else if(e.key==='Escape')$('storeedit').style.display='none'};"
+"loadStore();"
 "setView('timeline');"   /* open on content (Recent), not a blank search */
 /* ---- Sync (Host / Join), mirroring the mobile Sync feature ---------------
  * qrGen: a small pure-JS byte-mode QR encoder (ECC level L, mask 0, versions
- * 1-10) so a phone can scan the url+token with no server-side or network
- * dependency. Returns a matrix of 0/1 modules. */
+ * 1-5) so a phone can scan the url+token with no server-side or network
+ * dependency. Returns a matrix of 0/1 modules. Capped at v5 (<=106 bytes): v6+
+ * needs multi-block ECC interleaving and version-info bits, which this encoder
+ * does not implement -- rather than paint a silently-unscannable code, a larger
+ * payload throws and qrDraw shows "(QR unavailable)" (the pane still prints the
+ * url+token as selectable text to type in). The pairing payload is ~78 bytes
+ * max (dotted-quad host + 32-hex token), well within v5. */
 "function qrGen(s){var EXP=new Array(512),LOG=new Array(256),x=1,i;"
 "for(i=0;i<255;i++){EXP[i]=x;LOG[x]=i;x<<=1;if(x&256)x^=285}"
 "for(i=255;i<512;i++)EXP[i]=EXP[i-255];"
 "function mul(a,b){return(a===0||b===0)?0:EXP[LOG[a]+LOG[b]]}"
 "function rsGen(n){var g=[1],j;for(i=0;i<n;i++){var ng=new Array(g.length+1).fill(0);"
 "for(j=0;j<g.length;j++){ng[j]^=mul(g[j],EXP[i]);ng[j+1]^=g[j]}g=ng}return g}"
-"var CAP=[[19,7],[34,10],[55,15],[80,20],[108,26],[136,18],[156,20],[194,24],[232,30],[274,18]];"
+"var CAP=[[19,7],[34,10],[55,15],[80,20],[108,26]];"
 "var bytes=[];for(i=0;i<s.length;i++)bytes.push(s.charCodeAt(i)&255);"
 "var ver=-1,dataCW=0,eccCW=0;"
 "for(i=0;i<CAP.length;i++){var cw=CAP[i][0];"
@@ -383,7 +396,7 @@ static const char PAGE[] =
 "var pad=[236,17],pi=0;while(data.length<dataCW){data.push(pad[pi&1]);pi++}"
 "var gen=rsGen(eccCW),ecc=new Array(eccCW).fill(0);"
 "for(i=0;i<data.length;i++){var f=data[i]^ecc[0];ecc.shift();ecc.push(0);"
-"if(f!==0)for(var j=0;j<eccCW;j++)ecc[j]^=mul(gen[j+1],f)}"
+"if(f!==0)for(var j=0;j<eccCW;j++)ecc[j]^=mul(gen[eccCW-1-j],f)}"
 "var all=data.concat(ecc);"
 "var size=17+4*ver,m=[],used=[];for(i=0;i<size;i++){m.push(new Array(size).fill(0));used.push(new Array(size).fill(0))}"
 "function set(r,c,v){m[r][c]=v?1:0;used[r][c]=1}"
@@ -884,10 +897,24 @@ static void handle(ais *a, int fd)
     int  count = 0;                       /* ?count= page size (0 => engine default)  */
     char *tlfrom = nokeys, *tlto = nokeys; /* ?from= ?to= date range (YYYY-MM-DD)      */
 
-    n = SOCK_READ(fd, buf, sizeof(buf) - 1);   /* assume the request fits (a sketch) */
+    n = SOCK_READ(fd, buf, sizeof(buf) - 1);   /* first read: usually the whole request */
     if (n <= 0)
         return;
     buf[n] = '\0';
+
+    /* The header block itself can arrive split across TCP segments (a slow link,
+     * a proxy, or a client writing the headers in pieces). Read until the blank
+     * line that ends the headers is in hand, so Content-Length is parsed from the
+     * COMPLETE header block and a header-fragmented request is not misparsed as an
+     * empty POST (which silently saved nothing). Bounded by buf; the per-socket
+     * recv timeout (ais_serve) caps the wait. */
+    while (strstr(buf, "\r\n\r\n") == NULL && (size_t)n < sizeof(buf) - 1) {
+        ssize_t k = SOCK_READ(fd, buf + n, sizeof(buf) - 1 - (size_t)n);
+        if (k <= 0)
+            break;
+        n += k;
+        buf[n] = '\0';
+    }
 
     /* Content-Length up front, from the header block only, before the request
      * line is tokenized in place (which plants NULs that would cut a later
@@ -906,6 +933,44 @@ static void handle(ais *a, int fd)
     body = strstr(buf, "\r\n\r\n");       /* split headers from body first... */
     if (body != NULL) { *body = '\0'; body += 4; }
     else              { body = buf + n; }
+
+    /* The reads above can hold only the headers: a browser's fetch() routinely
+     * sends the POST body in a later packet. Read until the whole body is in.
+     * Otherwise we parse an empty value and, worse, close the socket with the
+     * body still unread, which resets the connection: the client sees "failed to
+     * fetch" and nothing is saved. Bounded by buf. */
+    if (body_len > 0) {
+        ssize_t have = n - (body - buf);
+        while (have < body_len && (size_t)n < sizeof(buf) - 1) {
+            ssize_t k = SOCK_READ(fd, buf + n, sizeof(buf) - 1 - (size_t)n);
+            if (k <= 0) break;
+            n += k;
+            have += k;
+        }
+        buf[n] = '\0';
+
+        /* The body did not fit the request buffer. Reading only what fits would
+         * silently TRUNCATE the value, and leaving the tail unread would RST the
+         * peer ("failed to fetch") on close -- after a bogus "saved". Drain the
+         * remainder off the socket and refuse with 413 instead. The one large-body
+         * route, /api/import-bundle, streams its own body (reads Content-Length
+         * directly), so exempt it; its path is still intact in the header block. */
+        if (have < body_len && strstr(buf, "/api/import-bundle") == NULL) {
+            char sink[4096];
+            while (have < body_len) {
+                ssize_t k = SOCK_READ(fd, sink, sizeof(sink));
+                if (k <= 0) break;
+                have += k;
+            }
+            {
+                static const char e[] = "HTTP/1.0 413 Payload Too Large\r\n"
+                    "Connection: close\r\n\r\nvalue too large for one request "
+                    "(~64 KB max) -- split it, or use a document/import\n";
+                write_all(fd, e, sizeof(e) - 1);
+            }
+            return;
+        }
+    }
 
     method = buf;                         /* ...then parse the request line   */
     path = strchr(buf, ' ');
@@ -1212,6 +1277,30 @@ int ais_serve(ais *a, int port)
         cfd = accept(sfd, NULL, NULL);
         if (cfd < 0)
             continue;
+        /* Bound every recv on this connection. The loop is single-threaded (a
+         * localhost sketch: one client at a time), so one accepted client that
+         * sends nothing -- a browser's speculative/preconnect socket, or a peer
+         * that announces a Content-Length then withholds the body -- would park
+         * the sole thread in recv() forever and wedge the whole GUI for everyone.
+         * A timed-out read returns <=0, which handle() treats as a dropped
+         * client, so the loop recovers and serves the next request. This bounds
+         * the stall; it does not make handling concurrent (sync Host state lives
+         * in this process's globals, so per-connection forking is out). Localhost
+         * requests arrive in milliseconds, so 5s is far above any real client. */
+#ifdef _WIN32
+        {
+            DWORD tv = 5000;   /* ms */
+            setsockopt((SOCKET)cfd, SOL_SOCKET, SO_RCVTIMEO,
+                       (const char *)&tv, sizeof(tv));
+        }
+#else
+        {
+            struct timeval tv;
+            tv.tv_sec = 5;
+            tv.tv_usec = 0;
+            setsockopt(cfd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+        }
+#endif
         handle(a, cfd);
         SOCK_CLOSE(cfd);
     }

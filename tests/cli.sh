@@ -307,5 +307,38 @@ case "$bdump" in
 esac
 rm -rf "$EA" "$EB"
 
+# --- Regression: store integrity (found by exercising the binary, not reading) --
+# The three below all SILENTLY corrupted or lost data while reporting success,
+# and every one is proven to bite: revert its fix and the assertion fails.
+
+# (1) `ais --dump | ais --import` is the documented backup/upgrade path, but
+#     import took dump's "id|keys|value" as "keys|value", making the id the key
+#     and folding the real keys into the value -- every record corrupted.
+DI=$(mktemp -d "${TMPDIR:-/tmp}/ais_di.XXXXXX") || exit 2
+DJ=$(mktemp -d "${TMPDIR:-/tmp}/ais_dj.XXXXXX") || exit 2
+"$AIS" -f "$DI" -v 'hello world' foo bar >/dev/null
+"$AIS" -f "$DI" --dump | "$AIS" -f "$DJ" --import >/dev/null 2>&1
+ok      "dump|import: value round-trips"       "hello world" "$("$AIS" -f "$DJ" foo)"
+ok      "dump|import: key 'bar' preserved"     "hello world" "$("$AIS" -f "$DJ" bar)"
+# the id itself must NOT survive as a key (the corruption signature)
+okempty "dump|import: id not stored as a key"  "$("$AIS" -f "$DJ" 1)"
+rm -rf "$DI" "$DJ"
+
+# (2) A '|' in a key is the store's field delimiter: stored raw, it shifted the
+#     value into the wrong field, so recall returned a corrupted value.
+PK=$(mktemp -d "${TMPDIR:-/tmp}/ais_pk.XXXXXX") || exit 2
+"$AIS" -f "$PK" -v PAYDAY 'money|bank' >/dev/null
+okeq    "pipe-in-key: value is exactly PAYDAY, not corrupted" \
+        "PAYDAY" "$("$AIS" -f "$PK" 'money|bank' | sed 's/^[0-9]*|//')"
+rm -rf "$PK"
+
+# (3) An embedded newline made the value multi-line: fgets stopped at the '\n' on
+#     readback and dropped the tail (silent, unrecoverable). Must be REFUSED now.
+NL=$(mktemp -d "${TMPDIR:-/tmp}/ais_nl.XXXXXX") || exit 2
+nlout=$("$AIS" -f "$NL" -v "$(printf 'part_A\npart_B')" note 2>&1)
+ok      "newline-value: refused with a clear message" "multiple lines" "$nlout"
+okempty "newline-value: nothing was stored"           "$("$AIS" -f "$NL" --dump 2>/dev/null)"
+rm -rf "$NL"
+
 echo "---- $pass passed, $fail failed"
 [ "$fail" -eq 0 ]

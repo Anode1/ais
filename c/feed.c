@@ -41,6 +41,25 @@ static void chomp(char *s)
         s[--n] = '\0';
 }
 
+/* A `--dump` line is "id|keys|value"; the id (and ts) are reassigned on import,
+ * so drop a leading all-digits id field IN PLACE when a keys|value pair remains.
+ * This makes the documented `ais --dump | ais --import` round-trip -- previously
+ * the id was mistaken for the key and every record was corrupted. A hand-edited
+ * "keys|value" line is untouched: its first field is not a bare integer, or it
+ * has just one '|'. Only the plain add form calls this; A|/D|/K| merge lines
+ * (field 1 is a letter) are handled before it. */
+static void strip_dump_id(char *line)
+{
+    char *b1 = strchr(line, '|'), *d;
+
+    if (b1 == NULL || b1 == line || strchr(b1 + 1, '|') == NULL)
+        return;                          /* need "<field1>|<...>|<...>" */
+    for (d = line; d < b1; d++)
+        if (*d < '0' || *d > '9')
+            return;                      /* field 1 is not a bare integer id */
+    memmove(line, b1 + 1, strlen(b1 + 1) + 1);   /* drop the "id|" prefix */
+}
+
 void feed_interactive(ais *a, const char *base)
 {
     const char *ttypath = getenv("AIS_TTY");   /* a file overrides the terminal */
@@ -148,6 +167,7 @@ void feed_import_from(ais *a, FILE *in)
             }
         }
 
+        strip_dump_id(line);                   /* "id|keys|value" (a --dump line) -> "keys|value" */
         bar = strchr(line, '|');
         if (bar == NULL) {
             fprintf(stderr, "import: no '|', skipped: %s\n", line);
@@ -306,6 +326,7 @@ void feed_import_interactive(ais *a)
         chomp(line);
         if (line[0] == '\0' || line[0] == '#')
             continue;
+        strip_dump_id(line);                   /* "id|keys|value" (a --dump line) -> "keys|value" */
         bar = strchr(line, '|');
         if (bar == NULL) {
             fprintf(stderr, "import: no '|', skipped: %s\n", line);

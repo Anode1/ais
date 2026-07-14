@@ -17,6 +17,7 @@ import 'package:qr_flutter/qr_flutter.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:speech_to_text/speech_to_text.dart';
 import 'ais_ffi.dart';
+import 'add_validation.dart';
 
 void main() => runApp(const AisApp());
 
@@ -1388,8 +1389,16 @@ class _RecallPageState extends State<RecallPage> {
   // Edit a record's tags as chips: each × detaches a tag, the field appends a
   // new one; on Apply we send the minimal +tag/-tag delta to the engine.
   Future<void> _editKeys(Hit hit) async {
-    if (_ais == null) return;
-    if (_syncBlocks()) return; // don't write while a sync holds the handle
+    if (_ais == null) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Library is still opening. Try again in a moment.')));
+      return;
+    }
+    if (_syncBlocks()) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('A sync is running. Try again in a moment.')));
+      return; // don't write while a sync holds the handle
+    }
     final original = _ais!.keysOf(hit.id).split(RegExp(r'\s+'))
         .where((t) => t.isNotEmpty).toList();
     final tags = [...original];
@@ -1466,14 +1475,24 @@ class _RecallPageState extends State<RecallPage> {
       for (final t in original) if (!tags.contains(t)) '-$t',
       for (final t in tags) if (!original.contains(t)) t,
     ].join(' ');
-    if (delta.isEmpty) return;
-    _ais!.update(hit.id, delta);
+    if (delta.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(const SnackBar(content: Text('No changes')));
+      }
+      return;
+    }
+    // update() returns false when the engine rejected the change (unknown or
+    // deleted record); don't claim "Tags updated" in that case.
+    final updated = _ais!.update(hit.id, delta);
     if (mounted) {
       ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text('Tags updated')));
+          .showSnackBar(SnackBar(content: Text(tagsUpdateMessage(updated))));
     }
-    _setView(_view); // refresh whichever view is showing (matches _editValue),
-    // not a blind _recall() that no-ops off the recall tab and leaves stale tags
+    if (updated) {
+      _setView(_view); // refresh whichever view is showing (matches _editValue),
+      // not a blind _recall() that no-ops off the recall tab and leaves stale tags
+    }
   }
 
   // Fix a record's value in place: the engine keeps its id and timeline slot.
@@ -1482,9 +1501,17 @@ class _RecallPageState extends State<RecallPage> {
   // Returns the new value when it actually changed (so a caller — e.g. the
   // detail page — can refresh its display), or null on cancel/no-op/failure.
   Future<String?> _editValue(int id, String oldValue) async {
-    if (_ais == null) return null;
-    if (_syncBlocks()) return null; // don't write while a sync holds the handle
     final messenger = ScaffoldMessenger.of(context);
+    if (_ais == null) {
+      messenger.showSnackBar(const SnackBar(
+          content: Text('Library is still opening. Try again in a moment.')));
+      return null;
+    }
+    if (_syncBlocks()) {
+      messenger.showSnackBar(const SnackBar(
+          content: Text('A sync is running. Try again in a moment.')));
+      return null; // don't write while a sync holds the handle
+    }
     final ctrl = TextEditingController(text: oldValue);
     final ok = await showDialog<bool>(
       context: context,
@@ -1506,8 +1533,14 @@ class _RecallPageState extends State<RecallPage> {
     );
     if (ok != true || _ais == null) return null;
     final newValue = ctrl.text;
-    // no-op on empty (after trim) or unchanged; don't trim into the stored value
-    if (newValue.trim().isEmpty || newValue == oldValue) return null;
+    // Empty value: say so instead of silently closing the dialog (the Add
+    // sheet's empty-value bug, here on the edit path). An unchanged value is a
+    // genuine no-op and stays quiet. Don't trim into the stored value.
+    if (newValue.trim().isEmpty) {
+      messenger.showSnackBar(const SnackBar(content: Text("Value can't be empty")));
+      return null;
+    }
+    if (newValue == oldValue) return null;
     final done = _ais!.setValue(id, oldValue, newValue);
     if (!mounted) return null;
     messenger.showSnackBar(SnackBar(
@@ -2052,6 +2085,7 @@ class _RecallPageState extends State<RecallPage> {
     bool encrypt = false;                 // off by default
     bool saving = false;                  // true while the off-isolate encrypt runs
     bool ppShow = false;                  // reveal toggle for the sealing passphrase
+    String? error;                        // in-sheet feedback so a save never fails silently
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -2113,6 +2147,12 @@ class _RecallPageState extends State<RecallPage> {
                   ),
                 ),
               ),
+            if (error != null)
+              Padding(
+                padding: const EdgeInsets.only(top: 2, bottom: 6),
+                child: Text(error!,
+                    style: TextStyle(color: Theme.of(ctx).colorScheme.error)),
+              ),
             const SizedBox(height: 16),
             FilledButton.icon(
               icon: saving
@@ -2125,21 +2165,39 @@ class _RecallPageState extends State<RecallPage> {
                   ? null
                   : () async {
                       final value = valCtrl.text.trim();
-                      if (value.isEmpty || _ais == null) return;
-                      if (_syncBlocks()) return; // don't write while a sync holds the handle
+                      final err = addSaveError(
+                          value: value,
+                          engineReady: _ais != null,
+                          syncing: _syncBlocks(),
+                          encrypt: encrypt,
+                          passphrase: ppCtrl.text);
+                      if (err != null) {
+                        setSheet(() => error = err);
+                        return;
+                      }
+                      if (_ais == null) return;
+                      setSheet(() => error = null);
                       final keys = _normKeys(keysCtrl.text);
                       final messenger = ScaffoldMessenger.of(context);
                       final nav = Navigator.of(ctx);
-                      if (encrypt) {
-                        if (ppCtrl.text.isEmpty) {
-                          messenger.showSnackBar(const SnackBar(
-                              content: Text('Enter a passphrase to encrypt')));
-                          return;
+                      int id = -1;
+                      try {
+                        if (encrypt) {
+                          setSheet(() => saving = true);
+                          id = await _ais!.storeEncryptedAsync(keys, value, ppCtrl.text);
+                        } else {
+                          id = _ais!.store(keys, value);
                         }
-                        setSheet(() => saving = true);
-                        await _ais!.storeEncryptedAsync(keys, value, ppCtrl.text);
-                      } else {
-                        _ais!.store(keys, value);
+                      } catch (e) {
+                        setSheet(() { saving = false; error = 'Could not save: $e'; });
+                        return;
+                      }
+                      // The engine returns -1 when nothing was stored (bad args,
+                      // blob write failure, crypto not built). Don't pop the sheet
+                      // and announce "Saved" -- surface it, like the guards above.
+                      if (!saveSucceeded(id)) {
+                        setSheet(() { saving = false; error = saveOutcomeMessage(id, keys); });
+                        return;
                       }
                       if (!mounted) return;
                       nav.pop();
@@ -2155,7 +2213,7 @@ class _RecallPageState extends State<RecallPage> {
                       }
                       _runFolderSync(silent: true); // push the new record to peers
                       messenger.showSnackBar(SnackBar(
-                          content: Text(keys.isEmpty ? 'Saved (no tags)' : 'Saved under: $keys')));
+                          content: Text(saveOutcomeMessage(id, keys))));
                     },
             ),
           ],
