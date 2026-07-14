@@ -359,7 +359,7 @@ static const char PAGE[] =
  * retry -- never leave a stuck, silent modal (an unhandled await used to). */
 "try{var r=await fetch('/api/put?keys='+encodeURIComponent(k)+(enc?'&enc=1':''),{method:'POST',body:enc?(pp+'\\n'+v):v});"
 "if(!r.ok)throw new Error('server '+r.status)}catch(e){alert('Save failed ('+e.message+'). Nothing was saved.');return}"
-"closeSheet();$('q').value=k;recall();if(syncFolderSaved())syncFolderRun(true)}"
+"closeSheet();setView('timeline');if(syncFolderSaved())syncFolderRun(true)}"
 "$('q').addEventListener('keydown',function(e){if(e.key=='Enter')setView('recall')});"
 "$('seg-recall').onclick=function(){setView('recall')};"
 "[].forEach.call(document.querySelectorAll('#bnav button'),function(b){b.onclick=function(){setView(b.dataset.v)}});"

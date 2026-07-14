@@ -191,19 +191,11 @@ class _RecallPageState extends State<RecallPage> {
           content: Text('A sync is already running. Finish it first.')));
       return;
     }
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Sync with this device?'),
-        content: Text('Scanned $host.\n\nBoth devices will end up with the same '
-            'records. Continue only if you just started Host on that device.'),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
-          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Sync')),
-        ],
-      ),
-    );
-    if (ok == true) await _runJoin('http://$host', token);
+    // The scan can arrive while a sheet/dialog is already open (e.g. an empty Join
+    // the user opened first) -- dismiss it so the confirm isn't lost behind it, then
+    // open Join with the scanned host + token FILLED IN for the user to confirm.
+    Navigator.of(context).popUntil((r) => r.isFirst);
+    await _syncJoin(prefillUrl: 'http://$host', prefillToken: token);
   }
 
   void _recall() {
@@ -750,9 +742,13 @@ class _RecallPageState extends State<RecallPage> {
   }
 
   // Join: connect to a device that is hosting; both converge (bidirectional).
-  Future<void> _syncJoin() async {
-    final urlCtrl = TextEditingController(text: 'http://');
-    final tokCtrl = TextEditingController();
+  // Prefill (URL, token) arrives from a scanned ais:// QR (see _handleLink); with no
+  // in-app camera, the phone's own camera scans the host's QR and the OS routes the
+  // link here, which opens this dialog with the fields already filled.
+  Future<void> _syncJoin({String? prefillUrl, String? prefillToken}) async {
+    final scanned = prefillUrl != null && prefillToken != null;
+    final urlCtrl = TextEditingController(text: prefillUrl ?? 'http://');
+    final tokCtrl = TextEditingController(text: prefillToken ?? '');
     final go = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -762,7 +758,7 @@ class _RecallPageState extends State<RecallPage> {
           children: [
             TextField(
               controller: urlCtrl,
-              autofocus: true,
+              autofocus: !scanned, // don't pop the keyboard when it's already filled
               decoration: const InputDecoration(
                   labelText: 'Address', hintText: 'http://192.168.1.5:8766'),
             ),
@@ -773,8 +769,10 @@ class _RecallPageState extends State<RecallPage> {
             ),
             const SizedBox(height: 8),
             Text(
-                'On the other device: open Sync, choose Host, and read off its '
-                'address and token.',
+                scanned
+                    ? 'Scanned from the other device. Tap Sync to connect.'
+                    : "Scan the other device's QR with your phone camera to fill this "
+                        "in, or type its address and token (open Sync, choose Host there).",
                 style: Theme.of(ctx).textTheme.bodySmall),
           ],
         ),
@@ -2201,16 +2199,10 @@ class _RecallPageState extends State<RecallPage> {
                       }
                       if (!mounted) return;
                       nav.pop();
-                      _q.text = keys;
-                      // Actually SHOW what was just saved: switch to the recall view
-                      // under its tags, or to Recent for a keyless save (it lives only
-                      // in the timeline). Bare _recall() would fill results without
-                      // leaving the current tab -> the saved item stays invisible.
-                      if (keys.isEmpty) {
-                        _setView('timeline');
-                      } else {
-                        _setView('recall');
-                      }
+                      // After saving, show the new record at the top of Recent (it is
+                      // the newest). Saving is not a query: don't drop into a search for
+                      // it, and don't leave its tags stuck in the search box.
+                      _setView('timeline');
                       _runFolderSync(silent: true); // push the new record to peers
                       messenger.showSnackBar(SnackBar(
                           content: Text(saveOutcomeMessage(id, keys))));
