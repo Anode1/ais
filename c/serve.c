@@ -314,7 +314,7 @@ static const char PAGE[] =
 "L.forEach(function(ln){var r=parseTL(ln),lt=locDT(r.ts),d=lt?lt.day:'';"
 "if(d!==tlDay){tlDay=d;var h=document.createElement('div');h.className='daygroup';"
 "h.textContent=d?fmtDay(d):'(undated)';o.appendChild(h)}"
-"var row=document.createElement('div');row.className='hit';if(r.id)row.dataset.id=r.id;(r.value.indexOf('aisdoc:')==0?fillDoc(row,r.value):fillVal(row,r.value));"
+"var row=document.createElement('div');row.className='hit';if(r.id)row.dataset.id=r.id;(r.value.indexOf('aisc:')==0?fillSecret(row,r.value):r.value.indexOf('aisdoc:')==0?fillDoc(row,r.value):fillVal(row,r.value));"
 "var m=document.createElement('div');m.className='meta';"
 "var tm=lt&&lt.time?lt.time+' - ':'';"
 "m.textContent=tm+(r.keys||'(no tags)');row.appendChild(m);"
