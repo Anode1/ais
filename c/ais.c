@@ -536,6 +536,36 @@ cleanup:
     return rc;
 }
 
+/* Keyset page over ais_get, so a GUI scrolls a large result set instead of
+ * loading every match at once. ais_get emits ascending, so the cursor is just
+ * the last id shown: skip ids <= AFTER, forward the next COUNT to the caller,
+ * then stop the merge. Memory stays O(nkeys) -- the page bound is a counter,
+ * not a buffer. */
+struct getpage_ctx { long after; int limit, n; ais_id_cb cb; void *ctx; };
+static int getpage_cb(long id, void *vp)
+{
+    struct getpage_ctx *g = vp;
+    int rc;
+    if (id <= g->after)               /* on/before the cursor: already delivered */
+        return 0;
+    rc = g->cb(id, g->ctx);           /* hand this row to the caller */
+    if (rc != 0)
+        return rc;                    /* caller stopped early: propagate */
+    return (++g->n >= g->limit) ? 1 : 0;   /* page full: stop the merge */
+}
+
+int ais_get_page(ais *a, char *const keys[], int nkeys, ais_mode mode,
+                 long after, int count, ais_id_cb cb, void *ctx)
+{
+    struct getpage_ctx g;
+    int rc;
+    if (count <= 0)                   /* unbounded == plain ais_get */
+        return ais_get(a, keys, nkeys, mode, cb, ctx);
+    g.after = after; g.limit = count; g.n = 0; g.cb = cb; g.ctx = ctx;
+    rc = ais_get(a, keys, nkeys, mode, getpage_cb, &g);
+    return (rc < 0) ? rc : 0;         /* our page-full stop (1) is a normal finish */
+}
+
 /* Context for ais_record: forward callback only for the matching id. */
 struct record_ctx {
     long        id;
@@ -960,11 +990,12 @@ static int tag_cmp(const void *pa, const void *pb)
     return strcmp(a->key, b->key);               /* ties: key ascending */
 }
 
-int ais_tags(ais *a, ais_tag_cb cb, void *ctx)
+int ais_tags_page(ais *a, long after_count, const char *after_key, int count,
+                  ais_tag_cb cb, void *ctx)
 {
     char idxdir[AIS_PATH_MAX];
     struct tag_entry *tags = NULL;
-    int ntags = 0, cap = AIS_KEYS_LIST_MAX, i, rc = 0;
+    int ntags = 0, cap = AIS_KEYS_LIST_MAX, i, rc = 0, emitted = 0;
     DIR *idx;
     struct dirent *pe;
 
@@ -1011,8 +1042,19 @@ int ais_tags(ais *a, ais_tag_cb cb, void *ctx)
 
     qsort(tags, (size_t)ntags, sizeof(tags[0]), tag_cmp);
     for (i = 0; i < ntags; i++) {
+        /* Keyset cursor over the (count desc, key asc) order: skip everything
+         * on or before the (AFTER_COUNT, AFTER_KEY) row from the prior page. */
+        if (after_key != NULL) {
+            long c = tags[i].count;
+            if (c > after_count)
+                continue;
+            if (c == after_count && strcmp(tags[i].key, after_key) <= 0)
+                continue;
+        }
         rc = cb(tags[i].key, tags[i].count, ctx);
         if (rc != 0)
+            break;
+        if (count > 0 && ++emitted >= count)   /* page full */
             break;
     }
 
@@ -1020,4 +1062,9 @@ cleanup:
     free(tags);
     closedir(idx);
     return rc;
+}
+
+int ais_tags(ais *a, ais_tag_cb cb, void *ctx)
+{
+    return ais_tags_page(a, 0, NULL, 0, cb, ctx);   /* whole cloud, no cursor */
 }

@@ -90,6 +90,14 @@ typedef int (*ais_id_cb)(long id, void *ctx);
 int  ais_get(ais *a, char *const keys[], int nkeys, ais_mode mode,
              ais_id_cb cb, void *ctx);
 
+/* Keyset page of ais_get, for GUIs that scroll a large match set instead of
+ * loading it whole: up to COUNT ids with id > AFTER, ascending (same order and
+ * filtering as ais_get). AFTER <= 0 starts from the first match; COUNT <= 0 is
+ * unbounded (== ais_get). The next page's AFTER is the last id emitted. Memory
+ * stays O(nkeys). Returns 0, or -1 on error. */
+int  ais_get_page(ais *a, char *const keys[], int nkeys, ais_mode mode,
+                  long after, int count, ais_id_cb cb, void *ctx);
+
 /* Callback for ais_record(): receives each value/link of one record. */
 typedef int (*ais_val_cb)(long id, const char *value, void *ctx);
 
@@ -136,6 +144,14 @@ typedef int (*ais_tag_cb)(const char *key, long count, void *ctx);
  * deleted-but-not-yet-compacted record still counts until ais_compact runs.
  * Returns 0, the callback's stop code, or -1 on error. */
 int ais_tags(ais *a, ais_tag_cb cb, void *ctx);
+
+/* Keyset page of ais_tags, for scrolling a large tag cloud. Emits up to COUNT
+ * tags that fall strictly after the (AFTER_COUNT, AFTER_KEY) cursor in the
+ * busiest-first order. Pass AFTER_KEY == NULL for the first page; the next
+ * page's cursor is the last (count, key) shown. COUNT <= 0 is unbounded.
+ * Returns 0, the callback's stop code, or -1 on error. */
+int ais_tags_page(ais *a, long after_count, const char *after_key, int count,
+                  ais_tag_cb cb, void *ctx);
 
 /* Reclaim space: streaming rewrite of the store dropping tombstoned records,
  * rebuild the posting index, clear the tombstone log. Returns 0 on success. */

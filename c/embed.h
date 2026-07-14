@@ -28,6 +28,14 @@ void *ais_embed_open(const char *dir);
  * string if no matches); free with ais_embed_free(). NULL on bad args / OOM. */
 char *ais_embed_recall(void *handle, const char *keys, int or_mode);
 
+/* Keyset page of ais_embed_recall, for scrolling a large match set: emit the
+ * COUNT records with id > AFTER (AFTER <= 0 from the first, COUNT <= 0 = whole
+ * set). Ids ascend, so the host reads the largest id in the page and passes it
+ * back as AFTER for the next page. Same "id|value\n" format; free with
+ * ais_embed_free(). NULL on bad args / OOM. */
+char *ais_embed_recall_page(void *handle, const char *keys, int or_mode,
+                            long after, int count);
+
 /* Content search: recall records whose VALUE contains NEEDLE (a plain, case-
  * sensitive substring), for a "forgot the key" fallback. Same "id|value\n" line
  * format as ais_embed_recall, so the host reuses one parser. Returns a newly
@@ -118,6 +126,14 @@ char *ais_embed_timeline(void *handle, long before_id, int count,
 /* Every distinct key as "count|key\n" lines, busiest first. Free with
  * ais_embed_free(). NULL only on bad args / allocation failure. */
 char *ais_embed_tags(void *handle);
+
+/* Keyset page of ais_embed_tags, for scrolling a large tag cloud. Emit up to
+ * COUNT tags after the (AFTER_COUNT, AFTER_KEY) cursor in busiest-first order.
+ * AFTER_KEY "" (or NULL) is the first page; the host reads the last "count|key"
+ * row and passes both back for the next page. COUNT <= 0 = whole cloud. Free
+ * with ais_embed_free(). NULL only on bad args / allocation failure. */
+char *ais_embed_tags_page(void *handle, long after_count, const char *after_key,
+                          int count);
 
 /* Record ID's keys as one space-separated string (the same KEYS field the
  * timeline emits), for a GUI's "edit keys" chip editor. Free with

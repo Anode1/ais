@@ -298,6 +298,8 @@ static int buf_add(struct buf *b, const char *s, size_t n)
 
 struct rec_ctx { ais *a; struct buf *b; int oom; };
 
+static char *buf_finish(struct buf *b, int oom);   /* defined below */
+
 static int on_value(long id, const char *value, void *vp)
 {
     struct rec_ctx *c = vp;
@@ -318,7 +320,8 @@ static int on_id(long id, void *vp)
     return c->oom ? -1 : 0;
 }
 
-char *ais_embed_recall(void *handle, const char *keys, int or_mode)
+char *ais_embed_recall_page(void *handle, const char *keys, int or_mode,
+                            long after, int count)
 {
     ais *a = handle;
     char kbuf[AIS_LINE_MAX];
@@ -338,20 +341,19 @@ char *ais_embed_recall(void *handle, const char *keys, int or_mode)
 
     c.a = a; c.b = &b; c.oom = 0;
     /* or_mode is the mode switch: 0 = AND (intersection), 1 = OR (union). The
-     * GUI's "Match any key" box picks it; no automatic relaxation. */
+     * GUI's "Match any key" box picks it; no automatic relaxation. AFTER/COUNT
+     * page it: emit the COUNT records with id > AFTER (0/0 = the whole set). The
+     * host reads the largest id in the page and passes it back as AFTER to scroll. */
     if (nkeys > 0)
-        ais_get(a, kv, nkeys, or_mode ? AIS_OR : AIS_AND, on_id, &c);
+        ais_get_page(a, kv, nkeys, or_mode ? AIS_OR : AIS_AND,
+                     after, count, on_id, &c);
 
-    if (c.oom) {
-        free(b.p);
-        return NULL;
-    }
-    if (b.p == NULL) {                  /* no matches: an empty string, not NULL */
-        b.p = malloc(1);
-        if (b.p != NULL)
-            b.p[0] = '\0';
-    }
-    return b.p;
+    return buf_finish(&b, c.oom);
+}
+
+char *ais_embed_recall(void *handle, const char *keys, int or_mode)
+{
+    return ais_embed_recall_page(handle, keys, or_mode, 0, 0);   /* whole set */
 }
 
 /* ---- find: content search over values, captured from ais_find's stream ---- */
@@ -445,15 +447,25 @@ char *ais_embed_timeline(void *handle, long before_id, int count,
     return buf_finish(&b, c.oom);
 }
 
-char *ais_embed_tags(void *handle)
+char *ais_embed_tags_page(void *handle, long after_count, const char *after_key,
+                          int count)
 {
     struct buf b = { NULL, 0, 0 };
     struct emit_ctx c = { &b, 0 };
 
     if (handle == NULL)
         return NULL;
-    ais_tags((ais *)handle, tag_emit, &c);
+    /* after_key "" (or NULL) means the first page: no cursor. Each row is
+     * "count|key", so the host reads the last row to seed the next call. */
+    ais_tags_page((ais *)handle, after_count,
+                  (after_key && after_key[0]) ? after_key : NULL,
+                  count, tag_emit, &c);
     return buf_finish(&b, c.oom);
+}
+
+char *ais_embed_tags(void *handle)
+{
+    return ais_embed_tags_page(handle, 0, NULL, 0);   /* whole cloud */
 }
 
 /* ---- keys: a record's CURRENT (visible) keys, by id ---------------------- */

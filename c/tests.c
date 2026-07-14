@@ -945,6 +945,84 @@ static void test_tags(void)
     scratch_rm(dir);
 }
 
+/* ---- ais_get_page: keyset page over a match set (GUI infinite scroll) ---- */
+static void test_get_page(void)
+{
+    const char *dir = "/tmp/ais_ut_getpage";
+    ais a;
+    struct idvec v;
+    char *k[1];
+    int i;
+
+    scratch_rm(dir);
+    ais_open(&a, dir);
+    for (i = 0; i < 5; i++) {             /* ids 1..5 all under key "k" */
+        char val[8];
+        snprintf(val, sizeof val, "v%d", i);   /* distinct values: 5 records */
+        ais_put(&a, "k", val);
+    }
+    k[0] = "k";
+
+    /* pages of 2, cursor = the last id of the previous page (ids ascend) */
+    v.n = 0; ais_get_page(&a, k, 1, AIS_AND, 0, 2, collect_id, &v);
+    CHECK(v.n == 2 && v.ids[0] == 1 && v.ids[1] == 2, "get_page: page 1 = {1,2}");
+    v.n = 0; ais_get_page(&a, k, 1, AIS_AND, 2, 2, collect_id, &v);
+    CHECK(v.n == 2 && v.ids[0] == 3 && v.ids[1] == 4, "get_page: page 2 (after 2) = {3,4}");
+    v.n = 0; ais_get_page(&a, k, 1, AIS_AND, 4, 2, collect_id, &v);
+    CHECK(v.n == 1 && v.ids[0] == 5, "get_page: page 3 (after 4) = {5}");
+    v.n = 0; ais_get_page(&a, k, 1, AIS_AND, 5, 2, collect_id, &v);
+    CHECK(v.n == 0, "get_page: page 4 (after 5) = {} (no more)");
+
+    /* count <= 0 is unbounded == plain ais_get */
+    v.n = 0; ais_get_page(&a, k, 1, AIS_AND, 0, 0, collect_id, &v);
+    CHECK(v.n == 5 && v.ids[0] == 1 && v.ids[4] == 5, "get_page: count 0 = whole set");
+
+    ais_close(&a);
+    scratch_rm(dir);
+}
+
+/* ---- ais_tags_page: keyset page over the busiest-first tag cloud --------- */
+static void test_tags_page(void)
+{
+    const char *dir = "/tmp/ais_ut_tagspage";
+    ais a;
+    struct tagvec full, paged;
+    long ac;
+    const char *ak;
+    int rounds;
+
+    build_fixture(&a, dir);
+
+    full.n = 0;
+    ais_tags(&a, collect_tag, &full);       /* the whole cloud, single shot */
+
+    /* walk it in pages of 5; the concatenation must equal FULL, same order */
+    paged.n = 0; ac = 0; ak = NULL;
+    for (rounds = 0; rounds < 100; rounds++) {
+        struct tagvec pg; int i;
+        pg.n = 0;
+        ais_tags_page(&a, ac, ak, 5, collect_tag, &pg);
+        if (pg.n == 0)
+            break;
+        for (i = 0; i < pg.n && paged.n < 64; i++)
+            paged.t[paged.n++] = pg.t[i];
+        ac = pg.t[pg.n - 1].count;          /* cursor = last row of this page */
+        ak = paged.t[paged.n - 1].key;
+    }
+
+    CHECK(paged.n == full.n, "tags_page: pages cover every tag, no gap or dup");
+    {
+        int i, same = (paged.n == full.n);
+        for (i = 0; same && i < full.n; i++)
+            same = (paged.t[i].count == full.t[i].count &&
+                    strcmp(paged.t[i].key, full.t[i].key) == 0);
+        CHECK(same, "tags_page: paged order matches the single-shot order");
+    }
+
+    ais_close(&a);
+    scratch_rm(dir);
+}
+
 static void test_embed(void)
 {
     const char *dir = "/tmp/ais_ut_embed";
@@ -2630,6 +2708,9 @@ int main(void)
     test_timeline_dates();
     printf("tags:\n");
     test_tags();
+    printf("keyset pages (get_page / tags_page):\n");
+    test_get_page();
+    test_tags_page();
     printf("put_value (one paste -> one record):\n");
     test_put_value();
     printf("doc_display (blob -> content, shared by web + Flutter):\n");
