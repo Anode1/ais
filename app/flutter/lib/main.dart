@@ -82,6 +82,17 @@ class _RecallPageState extends State<RecallPage> {
   String _tlFrom = ''; // timeline date range, "YYYY-MM-DD" ('' = open)
   String _tlTo = '';
   static const int _tlPage = 100;
+  // Recall is keyset-paged too: a million-hit query loads one page, then scrolls.
+  // Cursor is the largest id shown (recall emits ascending). find() is unpaged.
+  static const int _recallPage = 100;
+  int _recallBefore = 0;
+  bool _recallMore = false;
+  // Tags likewise: the cursor is the (count, key) of the last row, in the
+  // busiest-first order the engine emits.
+  static const int _tagsPage = 100;
+  int _tagsAfterCount = 0;
+  String _tagsAfterKey = '';
+  bool _tagsMore = false;
   String _view = 'timeline'; // recall | timeline | tags -- open on content, not a blank search
   // Ids optimistically removed from the lists but not yet committed to the
   // engine: they sit in their Undo window. A commit (snackbar closes without
@@ -202,12 +213,13 @@ class _RecallPageState extends State<RecallPage> {
     final keys = _normKeys(_q.text);
     if (_ais == null || keys.isEmpty) return;
     final t0 = DateTime.now();
+    // Page one only: a huge match set scrolls in, it does not load whole. The
+    // cursor/more come from the RAW page so the Undo-window filter below can't
+    // make the page look short and stop pagination early.
+    final page = _ais!.recallPage(keys, orMode: false, after: 0, count: _recallPage);
     // Exclude ids still inside their Undo window, so a live re-query can't
     // resurrect a row the user just swiped away.
-    final r = _ais!
-        .recall(keys, orMode: false)
-        .where((h) => !_pendingDelete.contains(h.id))
-        .toList();
+    final r = page.where((h) => !_pendingDelete.contains(h.id)).toList();
     final keysMap = {for (final h in r) h.id: _ais!.keysOf(h.id).trim()};
     setState(() {
       _query = keys;
@@ -216,6 +228,24 @@ class _RecallPageState extends State<RecallPage> {
       _ms = DateTime.now().difference(t0).inMilliseconds;
       _results = r;
       _resultKeys = keysMap;
+      _recallBefore = page.isNotEmpty ? page.last.id : 0;
+      _recallMore = page.length == _recallPage;
+    });
+  }
+
+  // Page on with the recall cursor: fetch the next page of matches with a larger
+  // id than the last we hold, append it, and advance the cursor. No-op for the
+  // find() text fallback (unpaged) and when the last page was short.
+  void _loadMoreRecall() {
+    if (_ais == null || !_recallMore || _textSearch || _query.isEmpty) return;
+    final page = _ais!.recallPage(_query, orMode: false, after: _recallBefore, count: _recallPage);
+    final fresh = page.where((h) => !_pendingDelete.contains(h.id)).toList();
+    final keysMap = {for (final h in fresh) h.id: _ais!.keysOf(h.id).trim()};
+    setState(() {
+      _results = [..._results, ...fresh];
+      _resultKeys = {..._resultKeys, ...keysMap};
+      if (page.isNotEmpty) _recallBefore = page.last.id;
+      _recallMore = page.length == _recallPage;
     });
   }
 
@@ -249,6 +279,7 @@ class _RecallPageState extends State<RecallPage> {
       _ms = DateTime.now().difference(t0).inMilliseconds;
       _results = r;
       _resultKeys = keysMap;
+      _recallMore = false; // find() returns the whole set: nothing to page
     });
   }
 
@@ -267,14 +298,44 @@ class _RecallPageState extends State<RecallPage> {
         setState(() {
           _results = const [];
           _searched = false;
+          _recallMore = false;
           _status = 'Type tags, then Search.';
         });
       }
     } else if (v == 'timeline') {
       _loadTimeline();
     } else {
-      setState(() => _tags = _ais?.tags() ?? const []);
+      _loadTags();
     }
+  }
+
+  // Fresh tag-cloud load: page one from the busiest, resetting the cursor.
+  void _loadTags() {
+    final page = _ais?.tagsPage(afterCount: 0, afterKey: '', count: _tagsPage) ?? const [];
+    setState(() {
+      _tags = page;
+      if (page.isNotEmpty) {
+        _tagsAfterCount = page.last.count;
+        _tagsAfterKey = page.last.key;
+      }
+      _tagsMore = page.length == _tagsPage;
+    });
+  }
+
+  // Page on with the tag cursor: the next slice after the last (count, key) we
+  // hold, in busiest-first order.
+  void _loadMoreTags() {
+    if (_ais == null || !_tagsMore) return;
+    final page = _ais!.tagsPage(
+        afterCount: _tagsAfterCount, afterKey: _tagsAfterKey, count: _tagsPage);
+    setState(() {
+      _tags = [..._tags, ...page];
+      if (page.isNotEmpty) {
+        _tagsAfterCount = page.last.count;
+        _tagsAfterKey = page.last.key;
+      }
+      _tagsMore = page.length == _tagsPage;
+    });
   }
 
   // Fresh timeline load: reset the cursor and pull page one from the newest,
@@ -974,7 +1035,12 @@ class _RecallPageState extends State<RecallPage> {
         _tlMore = false;
         _tlFrom = '';
         _tlTo = '';
+        _recallBefore = 0;
+        _recallMore = false;
         _tags = const [];
+        _tagsAfterCount = 0;
+        _tagsAfterKey = '';
+        _tagsMore = false;
         _view = 'recall';
         _searched = false;
         _textSearch = false;
@@ -1769,11 +1835,18 @@ class _RecallPageState extends State<RecallPage> {
     }
     // find() results reuse the exact recall row builder; a quiet header above the
     // list is the only thing marking them as TEXT matches rather than tag matches.
-    final list = ListView.separated(
+    final list = NotificationListener<ScrollNotification>(
+      onNotification: (n) {
+        if (_recallMore && _nearBottom(n)) _loadMoreRecall();
+        return false;
+      },
+      child: ListView.separated(
       padding: const EdgeInsets.only(bottom: 88),
-      itemCount: _results.length,
+      // one trailing row while more pages exist: a slim "loading" footer
+      itemCount: _results.length + (_recallMore ? 1 : 0),
       separatorBuilder: (_, __) => const Divider(height: 1),
       itemBuilder: (_, i) {
+        if (i >= _results.length) return _loadingFooter();
         final hit = _results[i];
         final v = hit.value;
         final isSecret = v.startsWith('aisc:');
@@ -1855,12 +1928,27 @@ class _RecallPageState extends State<RecallPage> {
           ),
         );
       },
+    ),
     );
     if (_textSearch) {
       return Column(children: [_textMatchHeader(cs), Expanded(child: list)]);
     }
     return list;
   }
+
+  // A slim centered spinner used as the trailing row of a paged list while the
+  // next keyset page loads (infinite scroll). Kept tiny so it reads as "more
+  // coming", not as a blocking state.
+  Widget _loadingFooter() => const Padding(
+        padding: EdgeInsets.symmetric(vertical: 16),
+        child: Center(
+          child: SizedBox(
+            width: 20,
+            height: 20,
+            child: CircularProgressIndicator(strokeWidth: 2),
+          ),
+        ),
+      );
 
   // The empty key-search state: state plainly that no TAG matched, then offer the
   // secondary full-text fallback as a quiet TextButton -- not a primary action.
@@ -1903,6 +1991,13 @@ class _RecallPageState extends State<RecallPage> {
           ),
         ]),
       );
+
+  // Infinite scroll: true when the view is scrolled to within a page of the
+  // bottom, so the next keyset page should be fetched. One threshold for every
+  // list (recall / timeline / tags), so they page in the same, modern way.
+  bool _nearBottom(ScrollNotification n) =>
+      n.metrics.axis == Axis.vertical &&
+      n.metrics.pixels >= n.metrics.maxScrollExtent - 600;
 
   // Page on with the keyset cursor: fetch the next page of records older than
   // the last id we hold, append it, and advance the cursor.
@@ -2035,6 +2130,7 @@ class _RecallPageState extends State<RecallPage> {
       ));
     }
     if (_tlMore) {
+      // Infinite scroll pages this in; the button stays as an explicit fallback.
       items.add(Padding(
         padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
         child: Center(
@@ -2048,7 +2144,19 @@ class _RecallPageState extends State<RecallPage> {
     return Column(children: [
       _rangeBar(cs),
       Expanded(
-        child: ListView(padding: const EdgeInsets.only(bottom: 88), children: items),
+        // builder so only the on-screen rows of a large loaded range mount, and
+        // a scroll near the bottom pulls the next keyset page automatically.
+        child: NotificationListener<ScrollNotification>(
+          onNotification: (n) {
+            if (_tlMore && _nearBottom(n)) _loadMoreTimeline();
+            return false;
+          },
+          child: ListView.builder(
+            padding: const EdgeInsets.only(bottom: 88),
+            itemCount: items.length,
+            itemBuilder: (_, i) => items[i],
+          ),
+        ),
       ),
     ]);
   }
@@ -2056,11 +2164,17 @@ class _RecallPageState extends State<RecallPage> {
   // Tags: every key with its count, busiest first; tap a key to recall it.
   Widget _tagsBody(ColorScheme cs) {
     if (_tags.isEmpty) return _centerMsg('No tags yet.', cs);
-    return ListView.separated(
+    return NotificationListener<ScrollNotification>(
+      onNotification: (n) {
+        if (_tagsMore && _nearBottom(n)) _loadMoreTags();
+        return false;
+      },
+      child: ListView.separated(
       padding: const EdgeInsets.only(bottom: 88),
-      itemCount: _tags.length,
+      itemCount: _tags.length + (_tagsMore ? 1 : 0),
       separatorBuilder: (_, __) => const Divider(height: 1),
       itemBuilder: (_, i) {
+        if (i >= _tags.length) return _loadingFooter();
         final t = _tags[i];
         return ListTile(
           title: Text(t.key, style: TextStyle(color: cs.primary)),
@@ -2071,6 +2185,7 @@ class _RecallPageState extends State<RecallPage> {
           },
         );
       },
+    ),
     );
   }
 

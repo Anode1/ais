@@ -9,8 +9,9 @@ import 'package:ffi/ffi.dart';
 // --- C signatures (native) and their Dart shapes -------------------------
 typedef _OpenC = Pointer<Void> Function(Pointer<Utf8>);
 typedef _OpenD = Pointer<Void> Function(Pointer<Utf8>);
-typedef _RecallC = Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>, Int32);
-typedef _RecallD = Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>, int);
+// (handle, keys, or_mode, after_id, count) -- keyset page for infinite scroll
+typedef _RecallPageC = Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>, Int32, Int64, Int32);
+typedef _RecallPageD = Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>, int, int, int);
 typedef _FindC = Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>);
 typedef _FindD = Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>);
 typedef _StoreC = Int64 Function(Pointer<Void>, Pointer<Utf8>, Pointer<Utf8>);
@@ -39,8 +40,9 @@ typedef _CloseC = Void Function(Pointer<Void>);
 typedef _CloseD = void Function(Pointer<Void>);
 typedef _TimelineC = Pointer<Utf8> Function(Pointer<Void>, Int64, Int32, Pointer<Utf8>, Pointer<Utf8>);
 typedef _TimelineD = Pointer<Utf8> Function(Pointer<Void>, int, int, Pointer<Utf8>, Pointer<Utf8>);
-typedef _TagsC = Pointer<Utf8> Function(Pointer<Void>);
-typedef _TagsD = Pointer<Utf8> Function(Pointer<Void>);
+// (handle, after_count, after_key, count) -- keyset page over the tag cloud
+typedef _TagsPageC = Pointer<Utf8> Function(Pointer<Void>, Int64, Pointer<Utf8>, Int32);
+typedef _TagsPageD = Pointer<Utf8> Function(Pointer<Void>, int, Pointer<Utf8>, int);
 typedef _KeysC = Pointer<Utf8> Function(Pointer<Void>, Int64);
 typedef _KeysD = Pointer<Utf8> Function(Pointer<Void>, int);
 typedef _DefaultSetC = Int32 Function(Pointer<Utf8>);
@@ -116,7 +118,10 @@ class AisEngine {
   final DynamicLibrary _lib = _load();
   late final Pointer<Void> _h;
   late final _OpenD _open = _lib.lookupFunction<_OpenC, _OpenD>('ais_embed_open');
-  late final _RecallD _recall = _lib.lookupFunction<_RecallC, _RecallD>('ais_embed_recall');
+  // recall()/tags() go through the paged entry points (after 0, count 0 = the
+  // whole set), so only the *_page C symbols are bound here.
+  late final _RecallPageD _recallPage =
+      _lib.lookupFunction<_RecallPageC, _RecallPageD>('ais_embed_recall_page');
   late final _FindD _find = _lib.lookupFunction<_FindC, _FindD>('ais_embed_find');
   late final _StoreD _store = _lib.lookupFunction<_StoreC, _StoreD>('ais_embed_store');
   late final _StoreEncD _storeEnc =
@@ -129,7 +134,8 @@ class AisEngine {
   late final _CloseD _close = _lib.lookupFunction<_CloseC, _CloseD>('ais_embed_close');
   late final _TimelineD _timelineFn =
       _lib.lookupFunction<_TimelineC, _TimelineD>('ais_embed_timeline');
-  late final _TagsD _tagsFn = _lib.lookupFunction<_TagsC, _TagsD>('ais_embed_tags');
+  late final _TagsPageD _tagsPageFn =
+      _lib.lookupFunction<_TagsPageC, _TagsPageD>('ais_embed_tags_page');
   late final _KeysD _keysFn = _lib.lookupFunction<_KeysC, _KeysD>('ais_embed_keys');
   late final _DelD _del = _lib.lookupFunction<_DelC, _DelD>('ais_embed_del');
   late final _UpdateD _update = _lib.lookupFunction<_UpdateC, _UpdateD>('ais_embed_update');
@@ -151,9 +157,17 @@ class AisEngine {
 
   /// Recall the records filed under [keys]. orMode false = AND, true = OR.
   /// Each hit keeps its id (the handle for [del]/[update]) and value.
-  List<Hit> recall(String keys, {bool orMode = false}) {
+  List<Hit> recall(String keys, {bool orMode = false}) =>
+      recallPage(keys, orMode: orMode); // whole set (after 0, count 0)
+
+  /// A recall page: the [count] records under [keys] with id > [after], ids
+  /// ascending. after <= 0 starts from the first; pass the largest id shown to
+  /// page on. A page shorter than [count] means there are no more. count <= 0
+  /// returns the whole match set (what [recall] does). This is the keyset cursor
+  /// the search view scrolls, so a million-hit query never loads whole.
+  List<Hit> recallPage(String keys, {bool orMode = false, int after = 0, int count = 0}) {
     final k = keys.toNativeUtf8();
-    final p = _recall(_h, k, orMode ? 1 : 0);
+    final p = _recallPage(_h, k, orMode ? 1 : 0, after, count);
     calloc.free(k);
     if (p == nullptr) return const [];
     final text = p.toDartString();
@@ -214,8 +228,16 @@ class AisEngine {
   }
 
   /// Every distinct key with its record count, busiest first.
-  List<TagRow> tags() {
-    final p = _tagsFn(_h);
+  List<TagRow> tags() => tagsPage(); // whole cloud, no cursor
+
+  /// A tag page: up to [count] tags after the ([afterCount], [afterKey]) cursor
+  /// in busiest-first order. afterKey '' is the first page; pass the last row's
+  /// count+key to page on. count <= 0 returns the whole cloud (what [tags]
+  /// does). Lets the Tags view scroll a large cloud instead of building it whole.
+  List<TagRow> tagsPage({int afterCount = 0, String afterKey = '', int count = 0}) {
+    final ak = afterKey.toNativeUtf8();
+    final p = _tagsPageFn(_h, afterCount, ak, count);
+    calloc.free(ak);
     if (p == nullptr) return const [];
     final text = p.toDartString();
     _free(p);
