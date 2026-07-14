@@ -227,9 +227,17 @@ static const char PAGE[] =
 "function fillSecret(node,v){var s=document.createElement('span');s.textContent='\\uD83D\\uDD12 encrypted ';s.style.color='var(--muted)';"
 "var b=document.createElement('button');b.className='actbtn';b.textContent='Reveal';"
 "b.onclick=function(){revealSecret(node,v)};node.appendChild(s);node.appendChild(b)}"
-"async function revealSecret(node,v){var pp=prompt('Passphrase:');if(!pp)return;"
+/* inline password field, not prompt(): prompt() is silently disabled in an
+ * installed PWA / app window, so the passphrase reveal did nothing there. */
+"async function revealSecret(node,v){node.innerHTML='';"
+"var i=document.createElement('input');i.type='password';i.placeholder='Passphrase';i.autocomplete='off';i.style.cssText='font:inherit;padding:.2rem .4rem';"
+"var b=document.createElement('button');b.className='actbtn';b.textContent='Show';b.style.marginLeft='.4rem';"
+"var x=document.createElement('button');x.className='actbtn';x.textContent='cancel';x.style.marginLeft='.4rem';x.onclick=function(){node.innerHTML='';fillSecret(node,v)};"
+"async function go(){var pp=i.value;if(!pp)return;"
 "var r=await fetch('/api/reveal',{method:'POST',body:pp+'\\n'+v});var t=await r.text();"
 "node.innerHTML='';if(t){fillVal(node,t);var c=document.createElement('button');c.className='actbtn';c.textContent='copy';c.style.marginLeft='.5rem';c.onclick=function(){copyText(t,c)};node.appendChild(c)}else{node.textContent='(cannot decrypt)'}}"
+"b.onclick=go;i.onkeydown=function(e){if(e.key==='Enter')go();else if(e.key==='Escape'){node.innerHTML='';fillSecret(node,v)}};"
+"node.appendChild(i);node.appendChild(b);node.appendChild(x);i.focus()}"
 /* A document blob comes over the wire as "aisdoc:<base64 of the content>", so
  * the (possibly multi-line) content survives the line-based record split. Decode
  * the base64 as UTF-8 bytes and show it verbatim (newlines preserved). */
