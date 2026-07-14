@@ -25,6 +25,8 @@ ok()    { case "$3" in *"$2"*) pass=$((pass+1)); echo "  ok   $1";;
                        *) fail=$((fail+1)); echo "  FAIL $1 (want '$2', got '$3')";; esac; }
 empty() { if [ -z "$2" ]; then pass=$((pass+1)); echo "  ok   $1";
           else fail=$((fail+1)); echo "  FAIL $1 (expected empty, got '$2')"; fi; }
+no()    { case "$3" in *"$2"*) fail=$((fail+1)); echo "  FAIL $1 (did not want '$2', got '$3')";;
+                       *) pass=$((pass+1)); echo "  ok   $1";; esac; }
 
 "$AIS" -f "$IDX" --init >/dev/null 2>&1
 AIS_NO_OPEN=1 "$AIS" -f "$IDX" --serve "$PORT" >/dev/null 2>&1 &
@@ -37,6 +39,29 @@ if ! curl -s -o /dev/null "$B/"; then echo "  FAIL server did not start on $PORT
 # plain put + get
 ok "put (plain)"   "saved 1"      "$(printf 'hello venice' | curl -s -X POST --data-binary @- "$B/api/put?keys=venice")"
 ok "get (plain)"   "hello venice" "$(curl -s "$B/api/get?keys=venice")"
+
+# --- keyset paging: /api/get and /api/tags page a large set with a cursor ---
+# venice is id 1; seed three more under pgk (ids 2,3,4), ascending.
+printf 'p one'   | curl -s -X POST --data-binary @- "$B/api/put?keys=pgk" >/dev/null
+printf 'p two'   | curl -s -X POST --data-binary @- "$B/api/put?keys=pgk" >/dev/null
+printf 'p three' | curl -s -X POST --data-binary @- "$B/api/put?keys=pgk" >/dev/null
+GP1=$(curl -s "$B/api/get?keys=pgk&count=2")           # first page: ids 2,3
+ok "get page 1 (count=2) has row one" "p one" "$GP1"
+ok "get page 1 (count=2) has row two" "p two" "$GP1"
+no "get page 1 stops at the page size" "p three" "$GP1"
+GLAST=$(printf '%s\n' "$GP1" | sed '/^$/d' | tail -1 | cut -d'|' -f1)
+GP2=$(curl -s "$B/api/get?keys=pgk&count=2&after=$GLAST")  # page 2: from the cursor
+ok "get page 2 (after cursor) continues"   "p three" "$GP2"
+no "get page 2 does not repeat page 1"     "p one"   "$GP2"
+# tags: busiest first -> pgk (3) before venice (1); the cursor pages past pgk.
+TG1=$(curl -s "$B/api/tags?count=1")
+ok "tags page 1 (busiest first)"     "3|pgk"    "$TG1"
+TG2=$(curl -s "$B/api/tags?count=1&afterc=3&afterk=pgk")
+ok "tags page 2 (next after cursor)" "1|venice" "$TG2"
+no "tags page 2 excludes page 1 key" "pgk"      "$TG2"
+# clean the paging fixtures so later id/tag-count assertions stay as written
+curl -s "$B/api/get?keys=pgk" | cut -d'|' -f1 | while read -r pid; do
+  [ -n "$pid" ] && curl -s -X POST "$B/api/del?id=$pid" >/dev/null; done
 
 # --- Regression: split-packet POST -----------------------------------------
 # A browser's fetch() sends the POST body in a SEPARATE TCP segment from the

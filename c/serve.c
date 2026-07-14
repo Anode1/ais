@@ -212,6 +212,9 @@ static const char PAGE[] =
  * \"home, wifi\" and \"home   wifi\" both mean the tags home + wifi (Flutter parity) */
 "function normkeys(s){return s.replace(/,/g,' ').trim().replace(/\\s+/g,' ')}"
 "var tlBefore=0,tlDay=null,tlN=0,tlPage=100;"   /* timeline keyset paging state */
+"var rcAfter=0,rcN=0,rcMore=false,rcQ='',rcOr='',rcT0=0;"   /* recall keyset paging */
+"var tgAfterc=0,tgAfterk='',tgN=0,tgMore=false;"           /* tags keyset paging */
+"var loadingMore=false;"                        /* one page fetch at a time (infinite scroll) */
 /* fillVal: append V to NODE, turning every embedded http(s) URL into a real
  * link -- not only values that are wholly a URL (a "Title - https://..." value
  * gets its URL linked, with the title left as text). */
@@ -255,13 +258,21 @@ static const char PAGE[] =
 "function awayBadge(){var s=document.createElement('span');s.textContent=' \\u2601';"
 "s.title='Not on this device: open it on the desktop, or mount that disk.';"
 "s.style.color='var(--muted)';s.style.marginLeft='.3rem';return s}"
-"function render(t,q,ms){var L=t.split('\\n').filter(function(s){return s.length});"
-"$('count').textContent=L.length+' result'+(L.length==1?'':'s')+' - '+ms.toFixed(0)+' ms';"
-"var o=$('out');o.innerHTML='';"
-"if(!L.length){o.textContent='No results for '+q;o.className='empty';return}o.className='';"
-"L.forEach(function(ln){var p=ln.indexOf('|'),id=p>=0?ln.slice(0,p):'',v=p>=0?ln.slice(p+1):ln,"
-"r=document.createElement('div');r.className='hit';if(id)r.dataset.id=id;"
-"(v.indexOf('aisc:')==0?fillSecret(r,v):v.indexOf('aisdoc:')==0?fillDoc(r,v):fillVal(r,v));if(notHere(v))r.appendChild(awayBadge());if(id)r.appendChild(rowActions(id,v));o.appendChild(r)})}"
+/* Recall is keyset-paged like the timeline: `more` appends the next page (id >
+ * rcAfter) instead of reloading, so a million-hit query scrolls in one page at a
+ * time. Recall emits ascending, so rcAfter tracks the largest id shown. */
+"async function recall(more){var o=$('out');var qq=normkeys($('q').value);"
+"if(!more){if(!qq)return;rcAfter=0;rcN=0;rcQ=qq;rcOr=($('anyk')&&$('anyk').checked)?'&or=1':'';rcT0=performance.now();o.className='';o.innerHTML=''}"
+"if(!rcQ)return;"
+"var u='/api/get?keys='+encodeURIComponent(rcQ)+rcOr+'&count='+tlPage+(rcAfter>0?'&after='+rcAfter:'');"
+"var L=(await(await fetch(u)).text()).split('\\n').filter(function(s){return s.length});"
+"var mb=$('rcmore');if(mb)mb.remove();"
+"if(!rcN&&!L.length){o.textContent='No results for '+rcQ;o.className='empty';$('count').textContent='0 results';rcMore=false;return}o.className='';"
+"L.forEach(function(ln){var p=ln.indexOf('|'),id=p>=0?ln.slice(0,p):'',v=p>=0?ln.slice(p+1):ln;"
+"var r=document.createElement('div');r.className='hit';if(id)r.dataset.id=id;"
+"(v.indexOf('aisc:')==0?fillSecret(r,v):v.indexOf('aisdoc:')==0?fillDoc(r,v):fillVal(r,v));if(notHere(v))r.appendChild(awayBadge());if(id){r.appendChild(rowActions(id,v));rcAfter=+id}o.appendChild(r)});"
+"rcN+=L.length;$('count').textContent=rcN+' result'+(rcN==1?'':'s')+' - '+(performance.now()-rcT0).toFixed(0)+' ms';"
+"if(L.length==tlPage){rcMore=true;var b=document.createElement('button');b.id='rcmore';b.className='loadmore';b.textContent='Load more';b.onclick=pageMore;o.appendChild(b)}else rcMore=false}"
 /* per-row edit (attach/detach keys by id) and delete; both refresh the view */
 "function rowActions(id,v){var d=document.createElement('div');d.className='act';"
 "var m=document.createElement('button');m.className='actbtn';m.textContent='\\u22EE';m.title='more';"
@@ -301,9 +312,6 @@ static const char PAGE[] =
 "oa.forEach(function(t){if(edTags.indexOf(t)<0)dl.push('-'+t)});edTags.forEach(function(t){if(oa.indexOf(t)<0)dl.push(t)});"
 "if(dl.length)await fetch('/api/update?id='+edId+'&keys='+encodeURIComponent(dl.join(' ')),{method:'POST'});"
 "$('editsheet').hidden=true;setView(view)}"
-"async function recall(){var q=normkeys($('q').value);if(!q)return;var t0=performance.now();"
-"var oo=$('anyk')&&$('anyk').checked?'&or=1':'';"
-"var t=await(await fetch('/api/get?keys='+encodeURIComponent(q)+oo)).text();render(t,q,performance.now()-t0)}"
 "function parseTL(ln){var a=ln.indexOf('|'),b=ln.indexOf('|',a+1),c=ln.indexOf('|',b+1);"
 "return{id:ln.slice(0,a),ts:ln.slice(a+1,b),keys:ln.slice(b+1,c),value:ln.slice(c+1)}}"
 "function fmtDay(d){var p=d.split('-'),M=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];"
@@ -333,17 +341,31 @@ static const char PAGE[] =
 "if(r.id){row.appendChild(rowActions(r.id,r.value));tlBefore=r.id}o.appendChild(row)});"
 "tlN+=L.length;$('count').textContent=tlN+' record'+(tlN==1?'':'s');"
 "if(L.length==tlPage){var b=document.createElement('button');b.id='tlmore';b.className='loadmore';"
-"b.textContent='Load more';b.onclick=function(){loadTimeline(true)};o.appendChild(b)}}"
-"async function loadTags(){var t=await(await fetch('/api/tags')).text();"
-"var L=t.split('\\n').filter(function(s){return s.length}),o=$('out');o.className='';o.innerHTML='';"
-"$('count').textContent=L.length+' tag'+(L.length==1?'':'s');"
-"if(!L.length){o.innerHTML='<p class=empty>No tags yet.</p>';return}"
+"b.textContent='Load more';b.onclick=pageMore;o.appendChild(b)}}"
+/* Tags keyset-paged too: the cursor is the (count, key) of the last row, in the
+ * busiest-first order the engine emits; `more` appends the next slice. */
+"async function loadTags(more){var o=$('out');"
+"if(!more){tgAfterc=0;tgAfterk='';tgN=0;o.className='';o.innerHTML=''}"
+"var u='/api/tags?count='+tlPage+(tgAfterk?'&afterc='+tgAfterc+'&afterk='+encodeURIComponent(tgAfterk):'');"
+"var L=(await(await fetch(u)).text()).split('\\n').filter(function(s){return s.length});"
+"var mb=$('tgmore');if(mb)mb.remove();"
+"if(!tgN&&!L.length){o.innerHTML='<p class=empty>No tags yet.</p>';$('count').textContent='';tgMore=false;return}"
 "L.forEach(function(ln){var p=ln.indexOf('|'),c=ln.slice(0,p),k=ln.slice(p+1);"
 "var row=document.createElement('div');row.className='tagrow';"
 "var b=document.createElement('button');b.className='taglink';b.textContent=k;"
 "b.onclick=function(){$('q').value=k;setView('recall')};"
 "var n=document.createElement('span');n.className='tagcount';n.textContent=c;"
-"row.appendChild(b);row.appendChild(n);o.appendChild(row)})}"
+"row.appendChild(b);row.appendChild(n);o.appendChild(row);tgAfterc=+c;tgAfterk=k});"
+"tgN+=L.length;$('count').textContent=tgN+' tag'+(tgN==1?'':'s');"
+"if(L.length==tlPage){tgMore=true;var mo=document.createElement('button');mo.id='tgmore';mo.className='loadmore';mo.textContent='Load more';mo.onclick=pageMore;o.appendChild(mo)}else tgMore=false}"
+/* Infinite scroll: near the bottom, pull the next page for whatever view is up.
+ * loadingMore serializes fetches so a scroll burst can't double-load a page. */
+"function pageMore(){if(loadingMore)return;loadingMore=true;"
+"var p=view=='timeline'?loadTimeline(true):view=='recall'?recall(true):loadTags(true);"
+"Promise.resolve(p).catch(function(){}).then(function(){loadingMore=false})}"
+"window.addEventListener('scroll',function(){"
+"if(window.innerHeight+window.scrollY<document.body.scrollHeight-600)return;"
+"if(document.querySelector('.loadmore'))pageMore()});"
 "function setView(v){delFlush();view=v;"
 "[].forEach.call(document.querySelectorAll('#bnav button'),function(b){b.className=(b.dataset.v==v)?'on':''});"
 "$('tlrange').style.display=(v=='timeline')?'flex':'none';"   /* date range only in Timeline */
@@ -591,7 +613,7 @@ static int on_id(long id, void *vp)
 /* Get records under the keys: AND (intersection) by default, OR (union) when
  * want_or is set (the "Match any key" box). The user toggles it -- if AND finds
  * nothing they check the box and Get again. No automatic relaxation. */
-static void do_get(ais *a, char *keys, int want_or, int fd)
+static void do_get(ais *a, char *keys, int want_or, long after, int count, int fd)
 {
     char *kv[AIS_KEYS_MAX];
     int nkeys = 0;
@@ -603,8 +625,10 @@ static void do_get(ais *a, char *keys, int want_or, int fd)
         kv[nkeys++] = tok;
 
     s.a = a; s.fd = fd;
+    /* Keyset page: emit COUNT matches with id > AFTER (0/0 = the whole set), so
+     * the page infinite-scrolls a large result instead of loading it whole. */
     if (nkeys > 0)
-        ais_get(a, kv, nkeys, want_or ? AIS_OR : AIS_AND, on_id, &s);
+        ais_get_page(a, kv, nkeys, want_or ? AIS_OR : AIS_AND, after, count, on_id, &s);
 }
 
 /* keys-of-id: which visible tags is record ID filed under? Mirrors the embed
@@ -913,6 +937,9 @@ static void handle(ais *a, int fd)
     int enc = 0;                          /* ?enc=1 -> encrypt the value before storing */
     long reqid = 0;                       /* ?id= for /api/del and /api/update      */
     long before = 0;                      /* ?before= cursor for /api/timeline paging */
+    long after = 0;                       /* ?after= id cursor for /api/get paging    */
+    long afterc = 0;                      /* ?afterc= count cursor for /api/tags paging */
+    char *afterk = nokeys;                /* ?afterk= key cursor for /api/tags paging */
     long body_len = 0;                    /* Content-Length, for a big POST body      */
     int  count = 0;                       /* ?count= page size (0 => engine default)  */
     char *tlfrom = nokeys, *tlto = nokeys; /* ?from= ?to= date range (YYYY-MM-DD)      */
@@ -1016,6 +1043,13 @@ static void handle(ais *a, int fd)
             reqid = atol(query + 3);
         } else if (strncmp(query, "before=", 7) == 0) {
             before = atol(query + 7);
+        } else if (strncmp(query, "after=", 6) == 0) {
+            after = atol(query + 6);
+        } else if (strncmp(query, "afterc=", 7) == 0) {
+            afterc = atol(query + 7);
+        } else if (strncmp(query, "afterk=", 7) == 0) {
+            afterk = query + 7;
+            url_decode(afterk);
         } else if (strncmp(query, "count=", 6) == 0) {
             count = atoi(query + 6);
         } else if (strncmp(query, "from=", 5) == 0) {
@@ -1030,7 +1064,7 @@ static void handle(ais *a, int fd)
 
     if (strcmp(method, "GET") == 0 && strcmp(path, "/api/get") == 0) {
         send_head(fd, "text/plain");
-        do_get(a, keys, want_or, fd);
+        do_get(a, keys, want_or, after, count, fd);
     } else if (strcmp(method, "POST") == 0 && strcmp(path, "/api/put") == 0) {
         char msg[64];
         long c = enc ? do_put_enc(a, keys, body) : do_put(a, keys, body);
@@ -1111,7 +1145,8 @@ static void handle(ais *a, int fd)
         struct sink s;
         s.a = a; s.fd = fd;
         send_head(fd, "text/plain");
-        ais_tags(a, tag_sink, &s);
+        /* keyset page over the busiest-first cloud: afterk "" = the first page */
+        ais_tags_page(a, afterc, afterk[0] ? afterk : NULL, count, tag_sink, &s);
     } else if (strcmp(method, "GET") == 0 && strcmp(path, "/api/where") == 0) {
         send_head(fd, "text/plain");          /* the current store (index dir) */
         write_all(fd, a->dir, strlen(a->dir));
