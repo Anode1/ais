@@ -63,6 +63,22 @@ no "tags page 2 excludes page 1 key" "pgk"      "$TG2"
 curl -s "$B/api/get?keys=pgk" | cut -d'|' -f1 | while read -r pid; do
   [ -n "$pid" ] && curl -s -X POST "$B/api/del?id=$pid" >/dev/null; done
 
+# --- CSRF: cross-origin browser calls to the API are refused ----------------
+# A malicious page's fetch carries Sec-Fetch-Site: cross-site (browsers always
+# send it); the GUI's own fetch carries same-origin; a bare curl sends neither.
+ok "csrf: cross-site GET refused"  "cross-origin request refused" \
+   "$(curl -s -H 'Sec-Fetch-Site: cross-site' "$B/api/get?keys=venice")"
+ok "csrf: cross-site sync/join refused (exfil vector)" "cross-origin request refused" \
+   "$(printf 'http://x\nt' | curl -s -H 'Sec-Fetch-Site: cross-site' -X POST --data-binary @- "$B/api/sync/join")"
+ok "csrf: cross-origin Origin refused" "cross-origin request refused" \
+   "$(curl -s -H 'Origin: http://evil.example' "$B/api/get?keys=venice")"
+ok "csrf: same-origin GET allowed"  "hello venice" \
+   "$(curl -s -H 'Sec-Fetch-Site: same-origin' "$B/api/get?keys=venice")"
+ok "csrf: direct-nav (none) allowed" "hello venice" \
+   "$(curl -s -H 'Sec-Fetch-Site: none' "$B/api/get?keys=venice")"
+no "csrf: the page itself is not gated" "refused" \
+   "$(curl -s -H 'Sec-Fetch-Site: cross-site' "$B/")"
+
 # --- Regression: split-packet POST -----------------------------------------
 # A browser's fetch() sends the POST body in a SEPARATE TCP segment from the
 # headers. curl (above) coalesces them, so a server that reads once and assumes

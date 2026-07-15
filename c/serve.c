@@ -24,6 +24,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>       /* strncasecmp: case-insensitive HTTP header match */
 #ifndef _WIN32
 #include <netinet/in.h>
 #include <sys/socket.h>
@@ -567,6 +568,38 @@ static void url_decode(char *s)
     *o = '\0';
 }
 
+/* Copy the value of header NAME (case-insensitive) out of the NUL-terminated
+ * header block HDRS into OUT (front-trimmed, truncated to fit). Returns 1 if
+ * the header is present. Used for the CSRF origin check. */
+static int http_header(const char *hdrs, const char *name, char *out, size_t outsz)
+{
+    size_t nlen = strlen(name);
+    const char *p = hdrs;
+
+    if (outsz == 0)
+        return 0;
+    out[0] = '\0';
+    while (*p != '\0') {
+        if (strncasecmp(p, name, nlen) == 0 && p[nlen] == ':') {
+            const char *v = p + nlen + 1;
+            size_t i = 0;
+            while (*v == ' ' || *v == '\t')
+                v++;
+            while (v[i] != '\0' && v[i] != '\r' && v[i] != '\n' && i + 1 < outsz) {
+                out[i] = v[i];
+                i++;
+            }
+            out[i] = '\0';
+            return 1;
+        }
+        p = strchr(p, '\n');            /* next header line */
+        if (p == NULL)
+            break;
+        p++;
+    }
+    return 0;
+}
+
 /* ---- get: stream each matching record's values to the socket ------------ */
 struct sink { ais *a; int fd; };
 
@@ -943,6 +976,7 @@ static void handle(ais *a, int fd)
     long body_len = 0;                    /* Content-Length, for a big POST body      */
     int  count = 0;                       /* ?count= page size (0 => engine default)  */
     char *tlfrom = nokeys, *tlto = nokeys; /* ?from= ?to= date range (YYYY-MM-DD)      */
+    int  cross_site = 0;                  /* CSRF: request from another web origin    */
 
     n = SOCK_READ(fd, buf, sizeof(buf) - 1);   /* first read: usually the whole request */
     if (n <= 0)
@@ -974,6 +1008,26 @@ static void handle(ais *a, int fd)
         cl = strstr(buf, "Content-Length:");
         if (cl == NULL) cl = strstr(buf, "content-length:");
         if (cl != NULL) body_len = atol(cl + 15);
+
+        /* CSRF guard: a browser tags every request with Sec-Fetch-Site. The GUI's
+         * own fetches are "same-origin"; a direct address-bar hit is "none". Any
+         * other value ("cross-site"/"same-site") is a DIFFERENT web page driving
+         * our localhost API with the user's ambient authority -- which could push
+         * the whole index to an attacker (via /api/sync/join) or inject/delete
+         * records. Refuse those on the API. Older clients without the header fall
+         * back to an Origin check; non-browser callers (curl, the CLI, the test
+         * suite) send neither and are unaffected. */
+        {
+            char hv[64];
+            if (http_header(buf, "Sec-Fetch-Site", hv, sizeof hv)) {
+                if (strcmp(hv, "same-origin") != 0 && strcmp(hv, "none") != 0)
+                    cross_site = 1;
+            } else if (http_header(buf, "Origin", hv, sizeof hv)) {
+                if (strncmp(hv, "http://127.0.0.1", 16) != 0 &&
+                    strncmp(hv, "http://localhost", 16) != 0)
+                    cross_site = 1;
+            }
+        }
         if (he != NULL) *he = keep;
     }
 
@@ -1028,6 +1082,15 @@ static void handle(ais *a, int fd)
     if (sp != NULL) *sp = '\0';
     query = strchr(path, '?');
     if (query != NULL) *query++ = '\0';
+
+    /* CSRF: refuse cross-origin browser calls to the API surface (see the header
+     * parse above). The page + assets stay reachable (direct nav is "none"). */
+    if (cross_site && strncmp(path, "/api/", 5) == 0) {
+        static const char e[] = "HTTP/1.0 403 Forbidden\r\n"
+            "Connection: close\r\n\r\ncross-origin request refused\n";
+        write_all(fd, e, sizeof(e) - 1);
+        return;
+    }
 
     while (query != NULL && *query != '\0') {   /* params: keys=... & optional all=1 */
         char *amp = strchr(query, '&');
