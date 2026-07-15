@@ -1125,7 +1125,10 @@ class _RecallPageState extends State<RecallPage> {
                     Row(children: [
                       Text('AIS', style: Theme.of(context).textTheme.titleLarge),
                       const Spacer(),
-                      if (_searched)
+                      // The count is a SEARCH-result count, so show it only on the
+                      // Search view -- otherwise it lingers as a wrong number over
+                      // the Recent/Tags lists (which carry their own content).
+                      if (_view == 'recall' && _searched)
                         Text(
                           '${_results.length} result${_results.length == 1 ? '' : 's'} · $_ms ms',
                           style: Theme.of(context)
@@ -1213,6 +1216,8 @@ class _RecallPageState extends State<RecallPage> {
                                   _resultKeys = const {};
                                   _searched = false;
                                   _textSearch = false; // cleared query drops the fallback too
+                                  _query = '';         // and its paging cursor state
+                                  _recallMore = false;
                                   _status = 'Type tags, then Search.';
                                 });
                                 return;
