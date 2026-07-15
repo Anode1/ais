@@ -131,7 +131,7 @@ None of this is invented here; the parts are canonical, only the assembly is our
 
 ## Testing
 
-- `make codeut` runs the unit tests. `tests/INDEX/store` is both fixture and a worked example of the format.
+- `make ut` runs the tests (the whole suite; `make codeut` runs just the C engine unit tests). `tests/INDEX/store` is both fixture and a worked example of the format.
 
 ---
 
