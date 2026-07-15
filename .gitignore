@@ -69,3 +69,11 @@ tests/INDEX/lock
 # WASM PWA build output (emcc); built in CI, not committed
 /app/engine/
 .claude/worktrees/
+
+# Android release signing secrets -- NEVER commit
+app/flutter/android/key.properties
+*.jks
+*.keystore
+
+# stray dev log
+err.log

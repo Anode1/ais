@@ -82,5 +82,9 @@
 	</array>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>AIS syncs your index directly between your own devices over the local network. Nothing leaves your network.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>AIS uses the microphone only while you tap the mic to dictate a search. Audio is not recorded or sent anywhere.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>AIS transcribes your dictated search on-device so you can find notes by voice. The transcript is used only to fill the search box.</string>
 </dict>
 </plist>
