@@ -93,6 +93,10 @@ class _RecallPageState extends State<RecallPage> {
   int _tagsAfterCount = 0;
   String _tagsAfterKey = '';
   bool _tagsMore = false;
+  // Multi-tag search mode: false = AND (records under EVERY tag), true = OR
+  // (records under ANY tag). Mirrors the web "Match any tag" box; the engine
+  // and FFI already carry the orMode flag, this just exposes it.
+  bool _matchAny = false;
   String _view = 'timeline'; // recall | timeline | tags -- open on content, not a blank search
   // Ids optimistically removed from the lists but not yet committed to the
   // engine: they sit in their Undo window. A commit (snackbar closes without
@@ -216,7 +220,7 @@ class _RecallPageState extends State<RecallPage> {
     // Page one only: a huge match set scrolls in, it does not load whole. The
     // cursor/more come from the RAW page so the Undo-window filter below can't
     // make the page look short and stop pagination early.
-    final page = _ais!.recallPage(keys, orMode: false, after: 0, count: _recallPage);
+    final page = _ais!.recallPage(keys, orMode: _matchAny, after: 0, count: _recallPage);
     // Exclude ids still inside their Undo window, so a live re-query can't
     // resurrect a row the user just swiped away.
     final r = page.where((h) => !_pendingDelete.contains(h.id)).toList();
@@ -233,12 +237,20 @@ class _RecallPageState extends State<RecallPage> {
     });
   }
 
+  // Flip AND/OR match mode. Re-run the current key search from page one so the
+  // result set widens/narrows immediately (a no-op off the recall view or with
+  // an empty query -- the new mode simply applies to the next search).
+  void _setMatchAny(bool v) {
+    setState(() => _matchAny = v);
+    if (_view == 'recall' && !_textSearch && _q.text.trim().isNotEmpty) _recall();
+  }
+
   // Page on with the recall cursor: fetch the next page of matches with a larger
   // id than the last we hold, append it, and advance the cursor. No-op for the
   // find() text fallback (unpaged) and when the last page was short.
   void _loadMoreRecall() {
     if (_ais == null || !_recallMore || _textSearch || _query.isEmpty) return;
-    final page = _ais!.recallPage(_query, orMode: false, after: _recallBefore, count: _recallPage);
+    final page = _ais!.recallPage(_query, orMode: _matchAny, after: _recallBefore, count: _recallPage);
     final fresh = page.where((h) => !_pendingDelete.contains(h.id)).toList();
     final keysMap = {for (final h in fresh) h.id: _ais!.keysOf(h.id).trim()};
     setState(() {
@@ -1241,6 +1253,30 @@ class _RecallPageState extends State<RecallPage> {
                           child: const Text('Search'),
                         ),
                       ],
+                    ),
+                    // "Match any tag" (OR): off = records under EVERY tag,
+                    // on = records under ANY tag. Toggling re-runs the live
+                    // search so results update at once. Mirrors the web box.
+                    InkWell(
+                      onTap: () => _setMatchAny(!_matchAny),
+                      borderRadius: BorderRadius.circular(6),
+                      child: Row(mainAxisSize: MainAxisSize.min, children: [
+                        SizedBox(
+                          width: 30,
+                          height: 30,
+                          child: Checkbox(
+                            value: _matchAny,
+                            onChanged: (b) => _setMatchAny(b ?? false),
+                            visualDensity: VisualDensity.compact,
+                          ),
+                        ),
+                        const SizedBox(width: 6),
+                        Text('Match any tag',
+                            style: Theme.of(context)
+                                .textTheme
+                                .bodySmall
+                                ?.copyWith(color: cs.onSurfaceVariant)),
+                      ]),
                     ),
                     const SizedBox(height: 4),
                     // Store path stays visible as a NON-interactive muted label;
