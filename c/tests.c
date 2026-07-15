@@ -508,6 +508,86 @@ static void test_compact(void)
     scratch_rm(dir);
 }
 
+/* ---- compact must not regress next_id below a RETAINED tombstone ----------
+ * Deleting the HIGHEST id then compacting used to set next_id = maxid+1 (live
+ * ids only), colliding a fresh record's id with the retained hash-tombstone --
+ * the new record was born suppressed (invisible everywhere) and erased by the
+ * next compaction. Regression guard for that silent total-loss bug. */
+static void test_compact_next_id_no_reuse(void)
+{
+    ais a;
+    struct idvec v;
+    const char *dir = "/tmp/ais_ut_compact_reuse";
+    long newid;
+
+    scratch_rm(dir);
+    ais_open(&a, dir);
+    ais_put(&a, "alpha", "first");        /* id 1 */
+    ais_put(&a, "beta",  "second");       /* id 2 */
+    ais_put(&a, "gamma", "third");        /* id 3 (the HIGHEST) */
+    ais_del(&a, 3);                       /* delete the highest id */
+    CHECK(ais_compact(&a) == 0, "compact-reuse: compact -> 0");
+    CHECK(a.next_id > 3, "compact-reuse: next_id not regressed below the retained tomb");
+
+    newid = ais_put(&a, "knew", "DELTA_NEW");   /* must get a FRESH id past the tomb */
+    CHECK(newid > 3, "compact-reuse: new record gets a fresh id, not the tomb's");
+
+    query(&a, AIS_AND, &v, 1, "knew");
+    CHECK(v.n == 1 && v.ids[0] == newid,
+          "compact-reuse: the new record is VISIBLE, not born dead");
+
+    CHECK(ais_compact(&a) == 0, "compact-reuse: second compact -> 0");
+    query(&a, AIS_AND, &v, 1, "knew");
+    CHECK(v.n == 1 && v.ids[0] == newid,
+          "compact-reuse: still visible after a second compact (not erased)");
+
+    ais_close(&a);
+    scratch_rm(dir);
+}
+
+/* ---- a key-detach survives an unaware peer's stale re-attach (LWW) ---------
+ * The merge path (A|ts| lines) must not let a peer that never heard about a
+ * detach silently revert it: a re-attach wins only if its ts is NEWER than the
+ * detach. Regression guard for the order-dependent divergence bug. */
+static void test_detach_lww(void)
+{
+    ais a;
+    struct idvec v;
+    const char *dir = "/tmp/ais_ut_detach_lww";
+    long id;
+
+    scratch_rm(dir);
+    ais_open(&a, dir);
+    id = ais_put(&a, "foo bar", "danieli");   /* filed under foo + bar */
+    ais_update(&a, id, "-bar");               /* detach bar, stamped now */
+    query(&a, AIS_AND, &v, 1, "bar");
+    CHECK(v.n == 0, "detach-lww: bar detached locally");
+
+    /* unaware peer re-adds the same value with bar, stamped BEFORE the detach */
+    ais_put_at(&a, "foo bar", "danieli", "2000-01-01T00:00:00Z");
+    query(&a, AIS_AND, &v, 1, "bar");
+    CHECK(v.n == 0, "detach-lww: a stale re-attach does NOT revert a newer detach");
+
+    /* idempotent: importing the stale line again is still a no-op */
+    ais_put_at(&a, "foo bar", "danieli", "2000-01-01T00:00:00Z");
+    query(&a, AIS_AND, &v, 1, "bar");
+    CHECK(v.n == 0, "detach-lww: idempotent under repeated stale import");
+
+    /* a LOCAL re-attach (now) is authoritative and wins */
+    ais_update(&a, id, "bar");
+    query(&a, AIS_AND, &v, 1, "bar");
+    CHECK(v.n == 1 && v.ids[0] == id, "detach-lww: local re-attach wins");
+
+    /* and a peer whose attach is genuinely NEWER than the detach also wins */
+    ais_update(&a, id, "-bar");                          /* detach again, now */
+    ais_put_at(&a, "foo bar", "danieli", "2999-01-01T00:00:00Z");   /* future attach */
+    query(&a, AIS_AND, &v, 1, "bar");
+    CHECK(v.n == 1 && v.ids[0] == id, "detach-lww: a genuinely-newer attach wins");
+
+    ais_close(&a);
+    scratch_rm(dir);
+}
+
 /* ---- next_id recovery: delete next_id, reopen, new ids continue max+1 ---- */
 static void test_next_id_recovery(void)
 {
@@ -2695,6 +2775,8 @@ int main(void)
     test_record_fastpath();
     printf("compact:\n");
     test_compact();
+    test_compact_next_id_no_reuse();
+    test_detach_lww();
     printf("recovery:\n");
     test_next_id_recovery();
     printf("rebuild-from-store:\n");

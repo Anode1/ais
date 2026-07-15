@@ -38,6 +38,7 @@ int tomb_remove(const ais *a, long id);
 int ktomb_append(const ais *a, long id, const char *ts, const char *hash, const char *key);
 int ktomb_remove(const ais *a, long id, const char *key);   /* drop (id,key); 0/-1 */
 int ktomb_contains(const ais *a, long id, const char *key); /* 1 yes / 0 no / -1 */
+int ktomb_lookup(const ais *a, long id, const char *key, char *ts, size_t tsz); /* +ts */
 int ktomb_active(const ais *a);   /* 1 if ktomb has entries, 0 if empty/absent, -1 */
 
 /* Stream each ktomb entry (id, ts, hash, key) through CB (ts/hash "" for a legacy

@@ -39,7 +39,12 @@ void ais_close(ais *a)
 /* forward: stamp a record's (ts, value-hash) -- shared by delete and key-detach. */
 static void del_stamp(ais *a, long id, char *ts, size_t tsz, char hash[17]);
 
-static int ais_post_keys(ais *a, const char *keys, long id)
+/* Attach/detach KEYS on record ID. ATTACH_TS is the timestamp an implicit
+ * re-attach LWW-competes against a prior detach with: NULL = a LOCAL edit (now,
+ * always wins, clears the detach); on the merge/import path it is the record's
+ * add-ts, so a key detached AT OR AFTER it (a genuine later user edit on some
+ * device) survives an unaware peer's stale A| line instead of being reverted. */
+static int ais_post_keys(ais *a, const char *keys, long id, const char *attach_ts)
 {
     char buf[AIS_LINE_MAX];
     char *tok, *save;
@@ -69,10 +74,23 @@ static int ais_post_keys(ais *a, const char *keys, long id)
                     return -1;
             }
         } else {                                     /* attach */
+            /* Don't let an implicit re-attach silently revert a NEWER detach. On
+             * the merge path attach_ts is the record's add-ts; a detach stamped
+             * at or after it wins (deletes/detaches are sticky on ties), so leave
+             * the posting removed and the ktomb intact -- skip this token. A local
+             * edit passes attach_ts == NULL and always wins. */
+            if (attach_ts != NULL && active) {
+                char kts[AIS_TS_MAX];
+                int kt = ktomb_lookup(a, id, tok, kts, sizeof kts);
+                if (kt < 0)
+                    return -1;
+                if (kt == 1 && kts[0] != '\0' && strcmp(kts, attach_ts) >= 0)
+                    continue;                        /* the detach is newer: keep it */
+            }
             if (post_insert(a, tok, id) != 0)
                 return -1;
             if (active && ktomb_remove(a, id, tok) != 0)
-                return -1;                           /* clear any prior detach */
+                return -1;                           /* clear any prior (older) detach */
         }
     }
     return 0;
@@ -155,7 +173,7 @@ long ais_put_at(ais *a, const char *keys, const char *value, const char *ts)
             if (!win) { rc = id; goto out; }            /* the delete is newer: stay deleted */
             if (tomb_remove(a, id) != 0) { rc = -1; goto out; }   /* resurrect */
         }
-        rc = (ais_post_keys(a, clean, id) != 0) ? -1 : id;
+        rc = (ais_post_keys(a, clean, id, ts) != 0) ? -1 : id;  /* ts: LWW vs a detach */
         goto out;
     }
 
@@ -172,7 +190,7 @@ long ais_put_at(ais *a, const char *keys, const char *value, const char *ts)
         if (store_append(a, id, use_ts, clean, value) != 0) { rc = -1; goto out; }
         if (ok && off_append(a, off) != 0)                  { rc = -1; goto out; }  /* keep "off" in lockstep */
     }
-    if (ais_post_keys(a, clean, id) != 0) { rc = -1; goto out; }
+    if (ais_post_keys(a, clean, id, ts) != 0) { rc = -1; goto out; }  /* new record: no prior detach */
     a->next_id = id + 1;
     if (store_save_next_id(a) != 0) { rc = -1; goto out; }
     debug("put: new id=%ld", id);
@@ -270,7 +288,7 @@ int ais_update(ais *a, long id, const char *keys)
     if (!L.found)                       /* no such id */
         goto out;
 
-    rc = (ais_post_keys(a, keys, id) != 0) ? -1 : 0;
+    rc = (ais_post_keys(a, keys, id, NULL) != 0) ? -1 : 0;   /* local edit: now, always wins */
 out:
     store_wunlock(a);
     if (rc == 0)

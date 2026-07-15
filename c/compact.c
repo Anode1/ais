@@ -270,6 +270,38 @@ int ktomb_contains(const ais *a, long id, const char *key)
     return found;
 }
 
+/* Like ktomb_contains, but also copies the detach-ts of (ID,KEY) into TS (the
+ * LAST matching entry = latest append; "" for a legacy no-ts entry). Returns 1
+ * if detached, 0 if not, -1 on error. Lets a re-attach LWW against the detach. */
+int ktomb_lookup(const ais *a, long id, const char *key, char *ts, size_t tsz)
+{
+    char path[AIS_PATH_MAX];
+    char line[AIS_LINE_MAX];
+    FILE *fp;
+    int found = 0;
+
+    if (ts != NULL && tsz > 0)
+        ts[0] = '\0';
+    if (compact_path(a, "ktomb", path, sizeof(path)) != 0)
+        return -1;
+    fp = fopen(path, "r");
+    if (fp == NULL)
+        return (errno == ENOENT) ? 0 : -1;
+
+    while (fgets(line, sizeof(line), fp) != NULL) {
+        const char *kts, *h, *k = NULL;
+        if (ktomb_parse(line, &kts, &h, &k) == id && k != NULL && strcmp(k, key) == 0) {
+            found = 1;                        /* keep scanning: last wins */
+            if (ts != NULL && tsz > 0 && kts != NULL) {
+                strncpy(ts, kts, tsz - 1);
+                ts[tsz - 1] = '\0';
+            }
+        }
+    }
+    fclose(fp);
+    return found;
+}
+
 int ktomb_remove(const ais *a, long id, const char *key)
 {
     char path[AIS_PATH_MAX], tmp[AIS_PATH_MAX];
@@ -624,7 +656,16 @@ static int compact_locked(ais *a)
     if (ktomb_keep_hashed(a) != 0)
         goto cleanup;
 
-    a->next_id = c.maxid + 1;
+    /* next_id must NEVER regress. Ids are permanent per-device handles, and the
+     * retained hash-bearing tombstones above still name deleted ids -- so if the
+     * highest id(s) were deleted, c.maxid (live ids only) can fall below a
+     * retained tombstone's id. Reusing that id would make the next fresh record
+     * collide with the tombstone and be born suppressed (invisible everywhere,
+     * then erased by the following compaction: silent total loss). The
+     * pre-compaction next_id is always past every id ever issued, so keep the
+     * larger of it and one-past-the-highest-live-id. */
+    if (c.maxid + 1 > a->next_id)
+        a->next_id = c.maxid + 1;
     if (store_save_next_id(a) != 0)
         goto cleanup;
 
