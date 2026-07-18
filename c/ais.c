@@ -187,12 +187,16 @@ long ais_put_at(ais *a, const char *keys, const char *value, const char *ts)
             store_now(now, sizeof now);     /* "" if the clock is unreadable */
             use_ts = now;
         }
+        /* Reserve the id by persisting next_id BEFORE the record is written. A
+         * crash or ENOSPC after this point only SKIPS id (a harmless gap);
+         * persisting next_id after the durable append would instead let the
+         * next put reuse a live id and collide two records. */
+        a->next_id = id + 1;
+        if (store_save_next_id(a) != 0) { a->next_id = id; rc = -1; goto out; }
         if (store_append(a, id, use_ts, clean, value) != 0) { rc = -1; goto out; }
         if (ok && off_append(a, off) != 0)                  { rc = -1; goto out; }  /* keep "off" in lockstep */
     }
     if (ais_post_keys(a, clean, id, ts) != 0) { rc = -1; goto out; }  /* new record: no prior detach */
-    a->next_id = id + 1;
-    if (store_save_next_id(a) != 0) { rc = -1; goto out; }
     debug("put: new id=%ld", id);
     rc = id;
 
@@ -248,14 +252,19 @@ int ais_add(ais *a, long id, const char *value)
     /* continuation line: same id, same keys field, the new value, stamped with
      * its own (later) save time. Keys are already posted to this id, so no
      * re-post. */
+    /* Mark id multi-line BEFORE appending the continuation. A "multi" entry only
+     * ever forces ais_record onto the full-scan path (which returns every line),
+     * so a mark with no matching second line is harmless; the reverse -- a second
+     * line the multi set does not know about -- makes the fast path return only
+     * the first value and hide the just-added one. Order it safe-side-first. */
+    if (multi_append(a, id) != 0)           /* id now has >1 line */
+        goto out;
     {
         char ts[AIS_TS_MAX];
         store_now(ts, sizeof(ts));
         if (store_append(a, id, ts, L.keys, value) != 0)
             goto out;
     }
-    if (multi_append(a, id) != 0)           /* id now has >1 line */
-        goto out;
     debug("add: appended link to id=%ld", id);
     rc = 0;
 out:

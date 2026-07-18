@@ -268,10 +268,14 @@ static int config_set(const char *key, const char *value)
             if (v != NULL && strcmp(kbuf, key) == 0)
                 continue;
             ll = strlen(line);
-            if (klen + ll < sizeof keep) {
-                memcpy(keep + klen, line, ll);
-                klen += ll;
+            if (klen + ll >= sizeof keep) {   /* would overflow the rewrite buffer: refuse
+                                               * rather than silently drop registry lines,
+                                               * which would lose named indexes on --switch. */
+                fclose(f);
+                return -1;
             }
+            memcpy(keep + klen, line, ll);
+            klen += ll;
         }
         fclose(f);
     }

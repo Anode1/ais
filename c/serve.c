@@ -738,8 +738,18 @@ static int tl_sink(long id, const char *ts, const char *keys,
     char line[AIS_LINE_MAX];
     const char *v = show_value(s->a, value, vbuf, sizeof vbuf);   /* document blob -> content */
     int n = snprintf(line, sizeof(line), "%ld|%s|%s|%s\n", id, ts, keys, v);
-    if (n > 0)
-        write_all(s->fd, line, (size_t)n);
+    if (n < 0)
+        return 0;
+    if (n >= (int)sizeof(line)) {        /* a blob-expanded value + big keys can exceed the
+                                          * buffer; snprintf returns the untruncated length,
+                                          * so writing n bytes would over-read the stack past
+                                          * `line`. Clamp to what was written and keep the row
+                                          * newline-framed so the client's line parser stays
+                                          * in sync (the row is truncated, never a leak). */
+        n = (int)sizeof(line) - 1;
+        line[n - 1] = '\n';
+    }
+    write_all(s->fd, line, (size_t)n);
     return 0;
 }
 
@@ -1023,8 +1033,14 @@ static void handle(ais *a, int fd)
                 if (strcmp(hv, "same-origin") != 0 && strcmp(hv, "none") != 0)
                     cross_site = 1;
             } else if (http_header(buf, "Origin", hv, sizeof hv)) {
-                if (strncmp(hv, "http://127.0.0.1", 16) != 0 &&
-                    strncmp(hv, "http://localhost", 16) != 0)
+                /* Match the WHOLE host, not a 16-char prefix: a bare strncmp would
+                 * accept http://localhost.evil.example (an attacker-controlled host)
+                 * as same-origin. The literal must be followed by end-of-string or a
+                 * ':' port, nothing else. */
+                int local = (strncmp(hv, "http://127.0.0.1", 16) == 0 ||
+                             strncmp(hv, "http://localhost", 16) == 0) &&
+                            (hv[16] == '\0' || hv[16] == ':');
+                if (!local)
                     cross_site = 1;
             }
         }

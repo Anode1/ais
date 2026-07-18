@@ -545,6 +545,66 @@ static void test_compact_next_id_no_reuse(void)
     scratch_rm(dir);
 }
 
+/* ---- compact rollback: a mid-compaction failure must NOT destroy the index --
+ * get() reads idx/ with no store fallback, so the pre-fix compaction (which
+ * rmtree'd idx/ up front and rebuilt it in place) left every keyed read empty if
+ * anything failed mid-stream. The fix stages idx/ aside and rolls it back. We
+ * force a failure by planting a DIRECTORY where store.new must be a file, so
+ * fopen(store.new,"w") fails after the index has been staged. */
+static void test_compact_rollback(void)
+{
+    ais a;
+    struct idvec v;
+    char sn[AIS_PATH_MAX];
+    const char *dir = "/tmp/ais_ut_compact_rollback";
+
+    build_fixture(&a, dir);                  /* ids 1..6, idx built */
+
+    snprintf(sn, sizeof(sn), "%s/store.new", dir);
+    CHECK(mkdir(sn, 0777) == 0, "rollback: planted store.new dir to force failure");
+    CHECK(ais_compact(&a) != 0, "rollback: compaction fails as injected");
+
+    /* the index must be intact (rolled back), not emptied */
+    query(&a, AIS_AND, &v, 2, "linux", "network");
+    { long w[2] = {1, 2}; CHECK(ids_eq(&v, w, 2), "rollback: idx intact (linux network) after failed compact"); }
+    query(&a, AIS_AND, &v, 2, "memory", "archive");
+    { long w[2] = {5, 6}; CHECK(ids_eq(&v, w, 2), "rollback: idx intact (memory archive) after failed compact"); }
+
+    /* remove the blocker; a normal compaction now succeeds and still answers */
+    rmdir(sn);
+    CHECK(ais_compact(&a) == 0, "rollback: compaction succeeds once unblocked");
+    query(&a, AIS_AND, &v, 1, "samba");
+    { long w[1] = {1}; CHECK(ids_eq(&v, w, 1), "rollback: query works after the recovery compact"); }
+
+    ais_close(&a);
+    scratch_rm(dir);
+}
+
+/* ---- compact recovery: a stale idx.bak from a crashed run is cleaned up ----
+ * If a compaction crashed after staging idx/ into idx.bak, the next run must not
+ * choke on the leftover backup: it rebuilds idx/ from the store (the source of
+ * truth) and discards the debris. */
+static void test_compact_recover_debris(void)
+{
+    ais a;
+    struct idvec v;
+    struct stat st;
+    char bak[AIS_PATH_MAX];
+    const char *dir = "/tmp/ais_ut_compact_debris";
+
+    build_fixture(&a, dir);
+    snprintf(bak, sizeof(bak), "%s/idx.bak", dir);
+    CHECK(mkdir(bak, 0777) == 0, "debris: planted a stale idx.bak");
+
+    CHECK(ais_compact(&a) == 0, "debris: compaction succeeds despite stale idx.bak");
+    CHECK(stat(bak, &st) != 0, "debris: stale idx.bak cleaned up");
+    query(&a, AIS_AND, &v, 2, "c", "ansi");
+    { long w[2] = {3, 4}; CHECK(ids_eq(&v, w, 2), "debris: reads correct after recovery"); }
+
+    ais_close(&a);
+    scratch_rm(dir);
+}
+
 /* ---- a key-detach survives an unaware peer's stale re-attach (LWW) ---------
  * The merge path (A|ts| lines) must not let a peer that never heard about a
  * detach silently revert it: a re-attach wins only if its ts is NEWER than the
@@ -607,6 +667,41 @@ static void test_next_id_recovery(void)
     CHECK(a.next_id == 7, "recovered next_id == max(id)+1 (7)");
     id = ais_put(&a, "fresh key", "brand-new-value");
     CHECK(id == 7, "new id continues from max+1 (no reuse)");
+    ais_close(&a);
+    scratch_rm(dir);
+}
+
+/* ---- next_id: a present-but-corrupt cache must recover, not reset to 1 -----
+ * A put interrupted by a crash or ENOSPC can leave INDEX/next_id present but
+ * 0-length or unparseable. Recovery used to fire only when the file was ABSENT,
+ * so a corrupt cache silently reset next_id to 1 and reissued live ids, colliding
+ * two records under one id. Guard: a corrupt/garbage cache recovers max(id)+1. */
+static void test_next_id_corrupt_cache(void)
+{
+    ais a;
+    char path[AIS_PATH_MAX];
+    FILE *fp;
+    const char *dir = "/tmp/ais_ut_nextid_corrupt";
+
+    /* case 1: 0-length cache (an interrupted fopen("w",...) truncation) */
+    build_fixture(&a, dir);     /* ids 1..6, next_id 7 */
+    ais_close(&a);
+    snprintf(path, sizeof(path), "%s/next_id", dir);
+    fp = fopen(path, "w");
+    if (fp != NULL) fclose(fp);                 /* leave it empty */
+    ais_open(&a, dir);
+    CHECK(a.next_id == 7, "empty cache: next_id recovered to max(id)+1 (7), not 1");
+    CHECK(ais_put(&a, "fresh", "brand-new") == 7, "empty cache: new id 7, no live-id collision");
+    ais_close(&a);
+    scratch_rm(dir);
+
+    /* case 2: garbage (non-numeric) cache */
+    build_fixture(&a, dir);
+    ais_close(&a);
+    fp = fopen(path, "w");
+    if (fp != NULL) { fputs("garbage\n", fp); fclose(fp); }
+    ais_open(&a, dir);
+    CHECK(a.next_id == 7, "garbage cache: next_id recovered to 7, not 1");
     ais_close(&a);
     scratch_rm(dir);
 }
@@ -2776,9 +2871,12 @@ int main(void)
     printf("compact:\n");
     test_compact();
     test_compact_next_id_no_reuse();
+    test_compact_rollback();
+    test_compact_recover_debris();
     test_detach_lww();
     printf("recovery:\n");
     test_next_id_recovery();
+    test_next_id_corrupt_cache();
     printf("rebuild-from-store:\n");
     test_rebuild_from_store();
     printf("timestamp:\n");

@@ -588,7 +588,10 @@ static int compact_locked(ais *a)
     char storepath[AIS_PATH_MAX];
     char newpath[AIS_PATH_MAX];
     char idxpath[AIS_PATH_MAX];
+    char idxbak[AIS_PATH_MAX];
     struct compact_ctx c;
+    struct stat st;
+    int staged = 0;                          /* 1 while the old idx sits in idx.bak */
     int rc = -1;
 
     c.a = a;
@@ -604,16 +607,35 @@ static int compact_locked(ais *a)
 
     if (compact_path(a, "store", storepath, sizeof(storepath)) != 0 ||
         compact_path(a, "store.new", newpath, sizeof(newpath)) != 0 ||
-        compact_path(a, "idx", idxpath, sizeof(idxpath)) != 0)
+        compact_path(a, "idx", idxpath, sizeof(idxpath)) != 0 ||
+        compact_path(a, "idx.bak", idxbak, sizeof(idxbak)) != 0)
         return -1;
 
-    /* drop the old index; compact_line rebuilds it as it streams */
-    if (compact_rmtree(idxpath) != 0)
+    /* Stage the old posting tree aside instead of destroying it up front. get()
+     * reads idx/ with NO store fallback, so if a mid-stream error (ENOSPC, a
+     * failed post_append) left idx/ half-built or empty -- as the pre-fix code
+     * did -- every keyed lookup would silently return nothing. Here compact_line
+     * rebuilds a FRESH idx/ (post_append appends, so it must start empty) while
+     * the working copy waits in idx.bak; the cleanup path rolls it back on any
+     * failure before the store is committed.
+     *
+     * off/multi keep their in-place truncate-and-rebuild: they are pure
+     * accelerators that store_value_at re-checks, so a stale/partial one only
+     * forces a scan, never a wrong answer -- no atomicity needed. */
+    if (compact_rmtree(idxbak) != 0)         /* clear debris from a prior crashed run:
+                                              * this pass rebuilds idx/ from the store
+                                              * regardless, so a stale backup is never
+                                              * needed and only blocks the rename below */
         return -1;
+    if (lstat(idxpath, &st) == 0) {
+        if (rename(idxpath, idxbak) != 0)
+            return -1;
+        staged = 1;
+    }
 
     c.out = fopen(newpath, "w");
     if (c.out == NULL)
-        return -1;
+        goto cleanup;
 
     {
         char offp[AIS_PATH_MAX], multip[AIS_PATH_MAX];
@@ -645,8 +667,12 @@ static int compact_locked(ais *a)
     }
     c.multi_out = NULL;
 
-    if (rename(newpath, storepath) != 0)
+    if (rename(newpath, storepath) != 0)     /* commit: the store's linearization point */
         goto cleanup;
+    staged = 0;                              /* committed: the fresh idx/ is now authoritative,
+                                              * never roll back to the old index past here */
+    compact_rmtree(idxbak);                  /* best-effort: a leftover idx.bak only costs the
+                                              * next compaction one rebuild-from-store pass */
 
     /* B3 + I1: RETAIN hash-bearing delete AND key-detach tombstones (so an offline peer
      * can't resurrect a deleted record or re-attach a removed tag on the next folder
@@ -669,18 +695,25 @@ static int compact_locked(ais *a)
     if (store_save_next_id(a) != 0)
         goto cleanup;
 
-    store_write_version(a);   /* refresh the format stamp to the current version */
+    if (store_write_version(a) != 0)   /* refresh the format stamp to the current version */
+        goto cleanup;
     rc = 0;
 
 cleanup:
-    if (c.out != NULL) {
+    if (c.out != NULL)
         fclose(c.out);
-        unlink(newpath);
-    }
     if (c.off_out != NULL)
         fclose(c.off_out);
     if (c.multi_out != NULL)
         fclose(c.multi_out);
+    if (rc != 0) {
+        unlink(newpath);                 /* drop store.new if it was not committed */
+        if (staged) {                    /* pre-commit failure: restore the original index
+                                          * so a failed compaction leaves keyed reads working */
+            compact_rmtree(idxpath);     /* discard the half-built fresh idx/ */
+            rename(idxbak, idxpath);     /* put the working copy back */
+        }
+    }
     return rc;
 }
 

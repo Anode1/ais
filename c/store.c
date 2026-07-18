@@ -188,6 +188,7 @@ int store_load_next_id(ais *a)
 {
     char nidpath[AIS_PATH_MAX];
     FILE *fp;
+    long cached = 0;
 
     a->next_id = 1;
     if (store_path(a, "next_id", nidpath, sizeof(nidpath)) != 0)
@@ -195,13 +196,22 @@ int store_load_next_id(ais *a)
     fp = fopen(nidpath, "r");
     if (fp != NULL) {
         char buf[64];
-        if (fgets(buf, sizeof(buf), fp) != NULL && atol(buf) > 0)
-            a->next_id = atol(buf);
+        if (fgets(buf, sizeof(buf), fp) != NULL)
+            cached = atol(buf);
         fclose(fp);
+    }
+    if (cached > 0) {                       /* good cache: the O(1) fast path */
+        a->next_id = cached;
         return 0;
     }
+    /* The cache is absent OR present-but-unusable (0-length / unparseable -- a
+     * write interrupted by a crash or ENOSPC leaves it so). Trusting it here
+     * would reset ids to 1 and reissue live ids, colliding records silently, so
+     * fall back to the store, which is the source of truth: max(id)+1 is never
+     * below any id that was durably assigned (store_append predates the cache
+     * write). */
     {
-        long nid = store_recover_next_id(a);    /* file absent: rebuild from store */
+        long nid = store_recover_next_id(a);
         if (nid < 0)
             return -1;
         a->next_id = nid;
@@ -442,7 +452,15 @@ long store_bytes(const ais *a)
 
 void off_write(FILE *fp, long offset)
 {
-    fprintf(fp, "%011ld\n", (offset < 0) ? 0L : offset + 1);   /* +1: 0 = absent */
+    long v = (offset < 0) ? 0L : offset + 1;   /* +1: 0 = absent */
+    if (v >= 100000000000L)                    /* 11 digits (~90 GB); a larger value would
+                                                * print 12 digits and break the fixed
+                                                * AIS_OFF_WIDTH stride, misaligning every later
+                                                * entry. Emit the absent sentinel instead so
+                                                * off_get falls back to a scan (still correct),
+                                                * rather than silently returning wrong offsets. */
+        v = 0;
+    fprintf(fp, "%011ld\n", v);
 }
 
 int off_append(const ais *a, long offset)
