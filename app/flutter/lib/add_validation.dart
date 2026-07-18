@@ -4,6 +4,14 @@
 // a missing passphrase, leaving the dialog open with no feedback ("nothing
 // happens, very confusing"). Every non-proceed path now yields a message.
 
+// Engine limits (see c/common.h). One encoded key (a path component) is bounded
+// by AIS_KEY_MAX; one whole store line (id|ts|keys|value) by AIS_LINE_MAX. We
+// bound the value by AIS_LINE_MAX as a coarse guard -- the engine enforces the
+// exact line budget -- so an over-long paste gets a length-specific message
+// instead of being silently truncated behind the generic "Could not save".
+const int kAisKeyMax = 512;
+const int kAisLineMax = 65536;
+
 /// The message to show when Save is tapped, or null if the save may proceed.
 String? addSaveError({
   required String value,
@@ -11,11 +19,34 @@ String? addSaveError({
   required bool syncing,
   required bool encrypt,
   required String passphrase,
+  String keys = '',
 }) {
   if (!engineReady) return null; // the Add button is disabled; nothing to report
-  if (value.isEmpty) return 'Type something to remember first.';
+  if (value.trim().isEmpty) return 'Type something to remember first.';
   if (syncing) return 'A sync is running. Try again in a moment.';
   if (encrypt && passphrase.isEmpty) return 'Enter a passphrase to encrypt.';
+  final content = contentError(value: value, keys: keys);
+  if (content != null) return content;
+  return null;
+}
+
+/// A length/character problem the engine would silently swallow, or null when
+/// [value] and [keys] are within the engine's limits. A NUL byte truncates the
+/// record at the C-string boundary; an over-long key or value is dropped or
+/// truncated. Surface WHY rather than let a save look like it worked and lose
+/// text. [keys] is the normalized, space-separated tag string.
+String? contentError({required String value, required String keys}) {
+  if (value.contains('\u0000') || keys.contains('\u0000')) {
+    return 'Remove the special (null) character before saving.';
+  }
+  for (final k in keys.split(RegExp(r'\s+')).where((k) => k.isNotEmpty)) {
+    if (k.length > kAisKeyMax) {
+      return 'One of your tags is too long (max $kAisKeyMax characters).';
+    }
+  }
+  if (value.length > kAisLineMax) {
+    return 'That note is too long to save (max $kAisLineMax characters).';
+  }
   return null;
 }
 

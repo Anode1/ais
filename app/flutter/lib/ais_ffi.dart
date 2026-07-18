@@ -166,42 +166,52 @@ class AisEngine {
   /// returns the whole match set (what [recall] does). This is the keyset cursor
   /// the search view scrolls, so a million-hit query never loads whole.
   List<Hit> recallPage(String keys, {bool orMode = false, int after = 0, int count = 0}) {
-    final k = keys.toNativeUtf8();
-    final p = _recallPage(_h, k, orMode ? 1 : 0, after, count);
-    calloc.free(k);
-    if (p == nullptr) return const [];
-    final text = p.toDartString();
-    _free(p);
-    return text
-        .split('\n')
-        .where((l) => l.isNotEmpty)
-        .map((l) {
-          final i = l.indexOf('|'); // split the "id|value" line (value may hold '|')
-          if (i < 0) return Hit(0, l);
-          return Hit(int.tryParse(l.substring(0, i)) ?? 0, l.substring(i + 1));
-        })
-        .toList();
+    // try/finally so the input AND the engine's result buffer are freed even if
+    // toDartString() throws on invalid UTF-8 (both would otherwise leak).
+    Pointer<Utf8> k = nullptr, p = nullptr;
+    try {
+      k = keys.toNativeUtf8();
+      p = _recallPage(_h, k, orMode ? 1 : 0, after, count);
+      if (p == nullptr) return const [];
+      return p
+          .toDartString()
+          .split('\n')
+          .where((l) => l.isNotEmpty)
+          .map((l) {
+            final i = l.indexOf('|'); // split the "id|value" line (value may hold '|')
+            if (i < 0) return Hit(0, l);
+            return Hit(int.tryParse(l.substring(0, i)) ?? 0, l.substring(i + 1));
+          })
+          .toList();
+    } finally {
+      if (k != nullptr) calloc.free(k);
+      if (p != nullptr) _free(p);
+    }
   }
 
   /// Content search: the records whose VALUE contains [needle] (a plain, case-
   /// sensitive substring), for a "forgot the key" fallback. Each hit keeps its
   /// id and value, exactly like [recall].
   List<Hit> find(String needle) {
-    final n = needle.toNativeUtf8();
-    final p = _find(_h, n);
-    calloc.free(n);
-    if (p == nullptr) return const [];
-    final text = p.toDartString();
-    _free(p);
-    return text
-        .split('\n')
-        .where((l) => l.isNotEmpty)
-        .map((l) {
-          final i = l.indexOf('|'); // split the "id|value" line (value may hold '|')
-          if (i < 0) return Hit(0, l);
-          return Hit(int.tryParse(l.substring(0, i)) ?? 0, l.substring(i + 1));
-        })
-        .toList();
+    Pointer<Utf8> n = nullptr, p = nullptr;
+    try {
+      n = needle.toNativeUtf8();
+      p = _find(_h, n);
+      if (p == nullptr) return const [];
+      return p
+          .toDartString()
+          .split('\n')
+          .where((l) => l.isNotEmpty)
+          .map((l) {
+            final i = l.indexOf('|'); // split the "id|value" line (value may hold '|')
+            if (i < 0) return Hit(0, l);
+            return Hit(int.tryParse(l.substring(0, i)) ?? 0, l.substring(i + 1));
+          })
+          .toList();
+    } finally {
+      if (n != nullptr) calloc.free(n);
+      if (p != nullptr) _free(p);
+    }
   }
 
   /// A timeline page: the [count] records with id < [before], newest id first.
@@ -210,21 +220,24 @@ class AisEngine {
   /// "YYYY-MM-DD" bounds (inclusive; '' = open); a bounded range drops dateless
   /// records. The range is held constant while paging on [before].
   List<TlRow> timeline({int before = 0, int count = 0, String from = '', String to = ''}) {
-    final f = from.toNativeUtf8();
-    final t = to.toNativeUtf8();
-    final p = _timelineFn(_h, before, count, f, t);
-    calloc.free(f);
-    calloc.free(t);
-    if (p == nullptr) return const [];
-    final text = p.toDartString();
-    _free(p);
-    return text.split('\n').where((l) => l.isNotEmpty).map((l) {
-      final a = l.indexOf('|'),
-          b = l.indexOf('|', a + 1),
-          c = l.indexOf('|', b + 1); // value may contain '|', so take the rest
-      return TlRow(int.tryParse(l.substring(0, a)) ?? 0,
-          l.substring(a + 1, b), l.substring(b + 1, c), l.substring(c + 1));
-    }).toList();
+    Pointer<Utf8> f = nullptr, t = nullptr, p = nullptr;
+    try {
+      f = from.toNativeUtf8();
+      t = to.toNativeUtf8();
+      p = _timelineFn(_h, before, count, f, t);
+      if (p == nullptr) return const [];
+      return p.toDartString().split('\n').where((l) => l.isNotEmpty).map((l) {
+        final a = l.indexOf('|'),
+            b = l.indexOf('|', a + 1),
+            c = l.indexOf('|', b + 1); // value may contain '|', so take the rest
+        return TlRow(int.tryParse(l.substring(0, a)) ?? 0,
+            l.substring(a + 1, b), l.substring(b + 1, c), l.substring(c + 1));
+      }).toList();
+    } finally {
+      if (f != nullptr) calloc.free(f);
+      if (t != nullptr) calloc.free(t);
+      if (p != nullptr) _free(p);
+    }
   }
 
   /// Every distinct key with its record count, busiest first.
@@ -235,16 +248,19 @@ class AisEngine {
   /// count+key to page on. count <= 0 returns the whole cloud (what [tags]
   /// does). Lets the Tags view scroll a large cloud instead of building it whole.
   List<TagRow> tagsPage({int afterCount = 0, String afterKey = '', int count = 0}) {
-    final ak = afterKey.toNativeUtf8();
-    final p = _tagsPageFn(_h, afterCount, ak, count);
-    calloc.free(ak);
-    if (p == nullptr) return const [];
-    final text = p.toDartString();
-    _free(p);
-    return text.split('\n').where((l) => l.isNotEmpty).map((l) {
-      final i = l.indexOf('|');
-      return TagRow(l.substring(i + 1), int.tryParse(l.substring(0, i)) ?? 0);
-    }).toList();
+    Pointer<Utf8> ak = nullptr, p = nullptr;
+    try {
+      ak = afterKey.toNativeUtf8();
+      p = _tagsPageFn(_h, afterCount, ak, count);
+      if (p == nullptr) return const [];
+      return p.toDartString().split('\n').where((l) => l.isNotEmpty).map((l) {
+        final i = l.indexOf('|');
+        return TagRow(l.substring(i + 1), int.tryParse(l.substring(0, i)) ?? 0);
+      }).toList();
+    } finally {
+      if (ak != nullptr) calloc.free(ak);
+      if (p != nullptr) _free(p);
+    }
   }
 
   /// Record [id]'s keys as one space-separated string (the same KEYS the
@@ -253,59 +269,73 @@ class AisEngine {
   String keysOf(int id) {
     final p = _keysFn(_h, id);
     if (p == nullptr) return '';
-    final s = p.toDartString();
-    _free(p);
-    return s;
+    try {
+      return p.toDartString();
+    } finally {
+      _free(p);
+    }
   }
 
   /// Store [value] under [keys]; returns the record id, or -1 on error.
   int store(String keys, String value) {
-    final k = keys.toNativeUtf8();
-    final v = value.toNativeUtf8();
-    final id = _store(_h, k, v);
-    calloc.free(k);
-    calloc.free(v);
-    return id;
+    Pointer<Utf8> k = nullptr, v = nullptr;
+    try {
+      k = keys.toNativeUtf8();
+      v = value.toNativeUtf8();
+      return _store(_h, k, v);
+    } finally {
+      if (k != nullptr) calloc.free(k);
+      if (v != nullptr) calloc.free(v);
+    }
   }
 
   /// Store [value] under [keys], ENCRYPTED under [passphrase] (the "aisc:"
   /// marker). Returns the record id, or -1 (error, or crypto not built).
   int storeEncrypted(String keys, String value, String passphrase) {
-    final k = keys.toNativeUtf8();
-    final v = value.toNativeUtf8();
-    final p = passphrase.toNativeUtf8();
-    final id = _storeEnc(_h, k, v, p);
-    calloc.free(k);
-    calloc.free(v);
-    calloc.free(p);
-    return id;
+    Pointer<Utf8> k = nullptr, v = nullptr, p = nullptr;
+    try {
+      k = keys.toNativeUtf8();
+      v = value.toNativeUtf8();
+      p = passphrase.toNativeUtf8();
+      return _storeEnc(_h, k, v, p);
+    } finally {
+      if (k != nullptr) calloc.free(k);
+      if (v != nullptr) calloc.free(v);
+      if (p != nullptr) calloc.free(p);
+    }
   }
 
   /// Decrypt a marked ("aisc:") [value] under [passphrase]; returns the
   /// cleartext, or null (wrong passphrase, or not an inline secret).
   String? reveal(String value, String passphrase) {
-    final v = value.toNativeUtf8();
-    final p = passphrase.toNativeUtf8();
-    final r = _reveal(v, p);
-    calloc.free(v);
-    calloc.free(p);
-    if (r == nullptr) return null;
-    final s = r.toDartString();
-    _free(r);
-    return s;
+    Pointer<Utf8> v = nullptr, p = nullptr, r = nullptr;
+    try {
+      v = value.toNativeUtf8();
+      p = passphrase.toNativeUtf8();
+      r = _reveal(v, p);
+      if (r == nullptr) return null;
+      return r.toDartString();
+    } finally {
+      if (v != nullptr) calloc.free(v);
+      if (p != nullptr) calloc.free(p);
+      if (r != nullptr) _free(r);
+    }
   }
 
   /// Resolve [value] to the text to SHOW: a document blob's content (bounded),
   /// else [value] verbatim. Blob resolution lives in the C engine (shared with
   /// the CLI and `ais serve`), so the app never reads blob files itself.
   String display(String value) {
-    final v = value.toNativeUtf8();
-    final p = _displayFn(_h, v);
-    calloc.free(v);
-    if (p == nullptr) return value;
-    final s = p.toDartString();
-    _free(p);
-    return s;
+    Pointer<Utf8> v = nullptr, p = nullptr;
+    try {
+      v = value.toNativeUtf8();
+      p = _displayFn(_h, v);
+      if (p == nullptr) return value;
+      return p.toDartString();
+    } finally {
+      if (v != nullptr) calloc.free(v);
+      if (p != nullptr) _free(p);
+    }
   }
 
   /// [storeEncrypted] off the UI isolate: the Argon2 KDF is ~1s, so run it in a
@@ -317,14 +347,17 @@ class AisEngine {
       final lib = _load();
       final fn =
           lib.lookupFunction<_StoreEncC, _StoreEncD>('ais_embed_store_encrypted');
-      final k = keys.toNativeUtf8();
-      final v = value.toNativeUtf8();
-      final p = passphrase.toNativeUtf8();
-      final id = fn(Pointer<Void>.fromAddress(addr), k, v, p);
-      calloc.free(k);
-      calloc.free(v);
-      calloc.free(p);
-      return id;
+      Pointer<Utf8> k = nullptr, v = nullptr, p = nullptr;
+      try {
+        k = keys.toNativeUtf8();
+        v = value.toNativeUtf8();
+        p = passphrase.toNativeUtf8();
+        return fn(Pointer<Void>.fromAddress(addr), k, v, p);
+      } finally {
+        if (k != nullptr) calloc.free(k);
+        if (v != nullptr) calloc.free(v);
+        if (p != nullptr) calloc.free(p);
+      }
     });
   }
 
@@ -334,15 +367,18 @@ class AisEngine {
       final lib = _load();
       final fn = lib.lookupFunction<_RevealC, _RevealD>('ais_embed_reveal');
       final freeFn = lib.lookupFunction<_FreeC, _FreeD>('ais_embed_free');
-      final v = value.toNativeUtf8();
-      final p = passphrase.toNativeUtf8();
-      final r = fn(v, p);
-      calloc.free(v);
-      calloc.free(p);
-      if (r == nullptr) return null;
-      final s = r.toDartString();
-      freeFn(r);
-      return s;
+      Pointer<Utf8> v = nullptr, p = nullptr, r = nullptr;
+      try {
+        v = value.toNativeUtf8();
+        p = passphrase.toNativeUtf8();
+        r = fn(v, p);
+        if (r == nullptr) return null;
+        return r.toDartString();
+      } finally {
+        if (v != nullptr) calloc.free(v);
+        if (p != nullptr) calloc.free(p);
+        if (r != nullptr) freeFn(r);
+      }
     });
   }
 
@@ -355,29 +391,35 @@ class AisEngine {
     return Isolate.run(() {
       final lib = _load();
       final fn = lib.lookupFunction<_PullC, _PullD>(name);
-      final u = url.toNativeUtf8();
-      final t = token.toNativeUtf8();
-      final rc = fn(Pointer<Void>.fromAddress(addr), u, t);
-      calloc.free(u);
-      calloc.free(t);
-      return rc;
+      Pointer<Utf8> u = nullptr, t = nullptr;
+      try {
+        u = url.toNativeUtf8();
+        t = token.toNativeUtf8();
+        return fn(Pointer<Void>.fromAddress(addr), u, t);
+      } finally {
+        if (u != nullptr) calloc.free(u);
+        if (t != nullptr) calloc.free(t);
+      }
     });
   }
 
   /// Serve this index to one LAN peer that pulls with `ais --import` (sync:
   /// Send). Blocks up to ~120s for one peer, so run it off the UI isolate.
   /// Returns 0 = a peer pulled and merged, -1 = bad args, -2 = no peer
-  /// completed (timeout / wrong token / error).
+  /// completed (timeout / wrong token / error), -3 = the port is already in use.
   Future<int> serveAsync(int port, String token, {bool bidir = false}) {
     final addr = _h.address;
     final name = bidir ? 'ais_embed_sync_serve' : 'ais_embed_serve';
     return Isolate.run(() {
       final lib = _load();
       final fn = lib.lookupFunction<_ServeC, _ServeD>(name);
-      final t = token.toNativeUtf8();
-      final rc = fn(Pointer<Void>.fromAddress(addr), port, t);
-      calloc.free(t);
-      return rc;
+      Pointer<Utf8> t = nullptr;
+      try {
+        t = token.toNativeUtf8();
+        return fn(Pointer<Void>.fromAddress(addr), port, t);
+      } finally {
+        if (t != nullptr) calloc.free(t);
+      }
     });
   }
 
@@ -387,9 +429,11 @@ class AisEngine {
   /// only, no network. Returns the C int: 0 = written, -1 = bad args / write error.
   int exportBundle(String path) {
     final p = path.toNativeUtf8();
-    final rc = _exportBundle(_h, p);
-    calloc.free(p);
-    return rc;
+    try {
+      return _exportBundle(_h, p);
+    } finally {
+      calloc.free(p);
+    }
   }
 
   /// Read the plaintext bundle at [path] and merge it into this index (same
@@ -397,9 +441,11 @@ class AisEngine {
   /// bad args / malformed, -2 = version mismatch (old/newer file).
   int importBundle(String path) {
     final p = path.toNativeUtf8();
-    final rc = _importBundle(_h, p);
-    calloc.free(p);
-    return rc;
+    try {
+      return _importBundle(_h, p);
+    } finally {
+      calloc.free(p);
+    }
   }
 
   /// One folder-sync pass over [folder] (a Syncthing / cloud folder): import every
@@ -407,9 +453,11 @@ class AisEngine {
   /// true on success.
   bool syncFolder(String folder) {
     final p = folder.toNativeUtf8();
-    final rc = _syncFolder(_h, p);
-    calloc.free(p);
-    return rc == 0;
+    try {
+      return _syncFolder(_h, p) == 0;
+    } finally {
+      calloc.free(p);
+    }
   }
 
   /// Delete record [id]. True on success.
@@ -419,9 +467,11 @@ class AisEngine {
   /// True on success (false if id unknown/deleted).
   bool update(int id, String keys) {
     final k = keys.toNativeUtf8();
-    final rc = _update(_h, id, k);
-    calloc.free(k);
-    return rc == 0;
+    try {
+      return _update(_h, id, k) == 0;
+    } finally {
+      calloc.free(k);
+    }
   }
 
   /// Replace record [id]'s value ([oldValue] -> [newValue]), preserving its id,
@@ -429,12 +479,15 @@ class AisEngine {
   /// record's exact stored value. True on success (false if id unknown or the
   /// value did not match, leaving the store untouched).
   bool setValue(int id, String oldValue, String newValue) {
-    final o = oldValue.toNativeUtf8();
-    final n = newValue.toNativeUtf8();
-    final rc = _setValue(_h, id, o, n);
-    calloc.free(o);
-    calloc.free(n);
-    return rc == 0;
+    Pointer<Utf8> o = nullptr, n = nullptr;
+    try {
+      o = oldValue.toNativeUtf8();
+      n = newValue.toNativeUtf8();
+      return _setValue(_h, id, o, n) == 0;
+    } finally {
+      if (o != nullptr) calloc.free(o);
+      if (n != nullptr) calloc.free(n);
+    }
   }
 
   void close() => _close(_h);

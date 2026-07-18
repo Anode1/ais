@@ -31,6 +31,42 @@ void main() {
         addSaveError(value: 'x', engineReady: true, syncing: false, encrypt: true, passphrase: 'pw'),
         isNull);
     });
+    test('whitespace-only value is treated as empty', () {
+      expect(
+        addSaveError(value: '   ', engineReady: true, syncing: false, encrypt: false, passphrase: ''),
+        'Type something to remember first.');
+    });
+  });
+
+  // Regression: an over-long or NUL-bearing key/value used to be silently
+  // truncated by the engine behind a generic "Could not save"; now it gets a
+  // specific, up-front message.
+  group('contentError / engine limits', () {
+    test('a value within limits is fine (null)', () {
+      expect(contentError(value: 'a note', keys: 'home wifi'), isNull);
+    });
+    test('a NUL in the value is rejected with a specific message', () {
+      expect(contentError(value: 'a\u0000b', keys: ''),
+          'Remove the special (null) character before saving.');
+    });
+    test('an over-long tag is rejected by length', () {
+      final longKey = 'k' * (kAisKeyMax + 1);
+      expect(contentError(value: 'x', keys: longKey),
+          'One of your tags is too long (max $kAisKeyMax characters).');
+    });
+    test('a tag at the limit is allowed', () {
+      expect(contentError(value: 'x', keys: 'k' * kAisKeyMax), isNull);
+    });
+    test('an over-long value is rejected by length', () {
+      expect(contentError(value: 'v' * (kAisLineMax + 1), keys: ''),
+          'That note is too long to save (max $kAisLineMax characters).');
+    });
+    test('addSaveError surfaces a content problem too', () {
+      final longKey = 'k' * (kAisKeyMax + 1);
+      expect(
+        addSaveError(value: 'x', engineReady: true, syncing: false, encrypt: false, passphrase: '', keys: longKey),
+        'One of your tags is too long (max $kAisKeyMax characters).');
+    });
   });
 
   // Regression: the handler used to pop the sheet and show "Saved" even when

@@ -301,6 +301,7 @@ class _RecallPageState extends State<RecallPage> {
       _view = v;
       _textSearch = false; // leaving/returning to a view drops the text fallback
       _resultKeys = const {}; // stale on any view change; _recall repopulates
+      _notHereCache.clear(); // re-check file presence after a reload (a sync may have landed a blob)
     });
     if (v == 'recall') {
       if (_q.text.trim().isNotEmpty) {
@@ -514,7 +515,15 @@ class _RecallPageState extends State<RecallPage> {
   // "Not here": the value points at a file that is absent on THIS device -- an
   // AIS blob not yet synced down, or a local-file reference added elsewhere.
   // http(s) URLs and inline text always resolve, so never a badge. Display-only.
-  bool _notHere(String v) {
+  //
+  // Cached per value: the row builders call this for every visible row on every
+  // rebuild, and a bare File.existsSync() there stats the disk per frame while
+  // scrolling (jank). Presence only changes when a blob syncs down or the library
+  // switches, so the cache is cleared on every view reload (_setView) and on a
+  // library change (_changeStore).
+  final Map<String, bool> _notHereCache = {};
+  bool _notHere(String v) => _notHereCache[v] ??= _notHereCompute(v);
+  bool _notHereCompute(String v) {
     try {
       var p = v;
       if (p.startsWith('aisc:@blobs/')) p = p.substring(6); // strip 'aisc:@'
@@ -855,9 +864,12 @@ class _RecallPageState extends State<RecallPage> {
         ],
       ),
     );
-    if (go != true || _ais == null) return;
+    // Read the fields, then dispose the controllers (the dialog is gone now).
     final url = urlCtrl.text.trim();
     final token = tokCtrl.text.trim();
+    urlCtrl.dispose();
+    tokCtrl.dispose();
+    if (go != true || _ais == null) return;
     if (url.isEmpty || token.isEmpty) return;
     await _runJoin(url, token);
   }
@@ -1004,24 +1016,38 @@ class _RecallPageState extends State<RecallPage> {
   }
 
   Future<void> _changeStore() async {
+    // A background LAN sync still holds the CURRENT engine handle by address;
+    // close()ing (freeing) it below would be a use-after-free in that isolate.
+    // Refuse while any sync is in flight, like every other mutating action.
+    if (_syncBlocks()) return;
     final ctrl = TextEditingController(text: _dir);
-    final picked = await showDialog<String>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Library'),
-        content: TextField(
-          controller: ctrl,
-          autofocus: true,
-          onSubmitted: (v) => Navigator.pop(ctx, v.trim()), // Enter = Open
-          decoration: const InputDecoration(hintText: 'full path to a .ais Library folder'),
+    final String? picked;
+    try {
+      picked = await showDialog<String>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Library'),
+          content: TextField(
+            controller: ctrl,
+            autofocus: true,
+            onSubmitted: (v) => Navigator.pop(ctx, v.trim()), // Enter = Open
+            decoration: const InputDecoration(hintText: 'full path to a .ais Library folder'),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+            FilledButton(onPressed: () => Navigator.pop(ctx, ctrl.text.trim()), child: const Text('Open')),
+          ],
         ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
-          FilledButton(onPressed: () => Navigator.pop(ctx, ctrl.text.trim()), child: const Text('Open')),
-        ],
-      ),
-    );
+      );
+    } finally {
+      ctrl.dispose();
+    }
     if (picked == null || picked.isEmpty || picked == _dir) return;
+    final chosen = picked; // non-null from here (a setState closure below can't promote picked)
+    // A sync can start while the dialog is open (a scanned deep link arrives off
+    // the platform channel, not through the barrier), so re-check before we free
+    // the old handle -- otherwise the swap races the sync isolate.
+    if (_syncBlocks()) return;
     // Commit any in-flight swipe-delete against the CURRENT library BEFORE swapping.
     // Otherwise its deferred snackbar-close would fire del(id) on the NEW library and
     // silently delete an unrelated same-numbered record there.
@@ -1030,16 +1056,20 @@ class _RecallPageState extends State<RecallPage> {
       // Open the new index FIRST; only if that succeeds do we close the old one
       // and swap. Otherwise a bad path would throw after close(), leaving _ais
       // pointing at a closed handle -- every later call a use-after-close.
-      Directory(picked).createSync(recursive: true);
-      final next = AisEngine(picked);
+      Directory(chosen).createSync(recursive: true);
+      final next = AisEngine(chosen);
       _ais?.close();
       _ais = next;
       // Desktop: remember the choice the same way `ais --default` does, so the
       // next launch (and the CLI) opens it too. Mobile's index is fixed.
-      if (!Platform.isAndroid && !Platform.isIOS) AisIndex.setDefault(picked);
+      if (!Platform.isAndroid && !Platform.isIOS) AisIndex.setDefault(chosen);
       setState(() {
-        _dir = picked;
+        _dir = chosen;
         _syncFolder = _loadSyncFolder(); // sync-folder is per-index
+        // Blob content and file-presence are keyed per library; drop them so the
+        // new library doesn't show the old one's resolved/absent answers.
+        _blobCache.clear();
+        _notHereCache.clear();
         _results = const [];
         _resultKeys = const {};
         _tl = const [];
@@ -1202,7 +1232,10 @@ class _RecallPageState extends State<RecallPage> {
                         Expanded(
                           child: TextField(
                             controller: _q,
-                            autofocus: true,
+                            // The app opens on the timeline, not search; autofocus
+                            // here would pop the soft keyboard on every launch on
+                            // mobile. Keep it only on desktop (no soft keyboard).
+                            autofocus: !Platform.isAndroid && !Platform.isIOS,
                             textInputAction: TextInputAction.search,
                             onSubmitted: (_) => _recallLive(),
                             onChanged: (v) {
@@ -1266,13 +1299,14 @@ class _RecallPageState extends State<RecallPage> {
                       onTap: () => _setMatchAny(!_matchAny),
                       borderRadius: BorderRadius.circular(6),
                       child: Row(mainAxisSize: MainAxisSize.min, children: [
+                        // A full 48dp touch target (the row's InkWell also toggles
+                        // it, but the box itself must meet the minimum on its own).
                         SizedBox(
-                          width: 30,
-                          height: 30,
+                          width: 48,
+                          height: 48,
                           child: Checkbox(
                             value: _matchAny,
                             onChanged: (b) => _setMatchAny(b ?? false),
-                            visualDensity: VisualDensity.compact,
                           ),
                         ),
                         const SizedBox(width: 6),
@@ -1349,6 +1383,49 @@ class _RecallPageState extends State<RecallPage> {
         ),
       );
 
+  // Re-run the engine open after a failure (the Retry button on the gate below).
+  void _retryOpen() {
+    setState(() => _status = 'opening index…');
+    _init();
+  }
+
+  // Whether the engine can answer for an empty list yet. Returns a spinner while
+  // it is still OPENING, or the real error + Retry if the open FAILED; null once
+  // the engine is live (the caller then shows its genuine empty state). Keeps a
+  // slow/failed open from reading as "nothing saved yet".
+  Widget? _engineGate(ColorScheme cs) {
+    if (_ais != null) return null;
+    if (_status.startsWith('cannot open') || _status.startsWith('cannot resolve')) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.error_outline, size: 48, color: cs.error),
+              const SizedBox(height: 16),
+              Text(_status,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: cs.onSurfaceVariant)),
+              const SizedBox(height: 20),
+              FilledButton.icon(
+                onPressed: _retryOpen,
+                icon: const Icon(Icons.refresh),
+                label: const Text('Retry'),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+    return const Center(
+      child: Padding(
+        padding: EdgeInsets.all(24),
+        child: CircularProgressIndicator(),
+      ),
+    );
+  }
+
   Widget _body(ColorScheme cs) {
     switch (_view) {
       case 'timeline':
@@ -1368,7 +1445,17 @@ class _RecallPageState extends State<RecallPage> {
   // still pending (not undone, not already committed). Input-driven so it never
   // depends on the snackbar's animated close alone.
   void _commitDelete(int id) {
-    if (_pendingDelete.remove(id) && _ais != null) _ais!.del(id);
+    if (_pendingDelete.remove(id) && _ais != null) {
+      // del() returns false when the engine kept the record (unknown/already-gone
+      // id, or a write error). The row was optimistically hidden already, so don't
+      // leave a false "Deleted" standing: say it failed and re-sync so the row
+      // reappears instead of silently vanishing.
+      if (!_ais!.del(id) && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text("Couldn't delete that item")));
+        _setView(_view);
+      }
+    }
     // A committed delete must not keep offering UNDO -- that would only
     // fake-restore a record the engine no longer has. Dismiss its snackbar if
     // it is still up. (When the commit comes from the snackbar's own .closed
@@ -1400,9 +1487,10 @@ class _RecallPageState extends State<RecallPage> {
       // The id left both loaded lists during an async gap (e.g. an Edit-tags
       // re-query dropped it before Detail -> Delete ran). Don't silently no-op:
       // honor the delete outright. No snapshot to restore, so there's no Undo,
-      // just a plain confirmation.
-      if (_ais != null) _ais!.del(id);
-      messenger.showSnackBar(const SnackBar(content: Text('Deleted')));
+      // just a plain confirmation -- or an honest failure if the engine refused.
+      final ok = _ais?.del(id) ?? false;
+      messenger.showSnackBar(SnackBar(
+          content: Text(ok ? 'Deleted' : "Couldn't delete that item")));
       return;
     }
     _pendingDelete.add(id);
@@ -1571,9 +1659,14 @@ class _RecallPageState extends State<RecallPage> {
         ),
       ),
     );
+    // Capture any token still sitting in the field, then dispose the controller
+    // and focus node (the dialog is gone now).
+    final trailing = ctrl.text;
+    ctrl.dispose();
+    focus.dispose();
     if (ok != true || _ais == null) return;
     // fold any token(s) still sitting in the field into the final set
-    for (final p in ctrl.text.split(RegExp(r'[,\s]+')).where((p) => p.isNotEmpty)) {
+    for (final p in trailing.split(RegExp(r'[,\s]+')).where((p) => p.isNotEmpty)) {
       if (!tags.contains(p)) tags.add(p);
     }
     final delta = <String>[
@@ -1584,6 +1677,16 @@ class _RecallPageState extends State<RecallPage> {
       if (mounted) {
         ScaffoldMessenger.of(context)
             .showSnackBar(const SnackBar(content: Text('No changes')));
+      }
+      return;
+    }
+    // A NUL or an over-long tag would be silently dropped by the engine; surface
+    // it with a specific message instead (A6/B6).
+    final content = contentError(value: '', keys: tags.join(' '));
+    if (content != null) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(content)));
       }
       return;
     }
@@ -1636,8 +1739,9 @@ class _RecallPageState extends State<RecallPage> {
         ],
       ),
     );
-    if (ok != true || _ais == null) return null;
     final newValue = ctrl.text;
+    ctrl.dispose(); // dialog is gone; free the controller
+    if (ok != true || _ais == null) return null;
     // Empty value: say so instead of silently closing the dialog (the Add
     // sheet's empty-value bug, here on the edit path). An unchanged value is a
     // genuine no-op and stays quiet. Don't trim into the stored value.
@@ -1646,6 +1750,13 @@ class _RecallPageState extends State<RecallPage> {
       return null;
     }
     if (newValue == oldValue) return null;
+    // A NUL or an over-long value would be silently truncated by the engine; give
+    // a length-specific message instead (A6/B6).
+    final content = contentError(value: newValue, keys: '');
+    if (content != null) {
+      messenger.showSnackBar(SnackBar(content: Text(content)));
+      return null;
+    }
     final done = _ais!.setValue(id, oldValue, newValue);
     if (!mounted) return null;
     messenger.showSnackBar(SnackBar(
@@ -1676,6 +1787,7 @@ class _RecallPageState extends State<RecallPage> {
         ],
       ),
     );
+    ctrl.dispose(); // dialog is gone; free the controller
     if (pass == null || pass.isEmpty || _ais == null) return;
     final clear = await _ais!.revealAsync(hit.value, pass);   // off the UI isolate
     if (!mounted) return;
@@ -2079,6 +2191,10 @@ class _RecallPageState extends State<RecallPage> {
 
   // Timeline: dateless rows surface first, then newest; grouped by day.
   Widget _timelineBody(ColorScheme cs) {
+    // Opening (spinner) or open-failed (error + Retry) must not read as an empty
+    // timeline; only show the "nothing saved yet" state once the engine is live.
+    final gate = _engineGate(cs);
+    if (gate != null) return gate;
     if (_tl.isEmpty) {
       return Column(children: [
         _rangeBar(cs),
@@ -2318,22 +2434,31 @@ class _RecallPageState extends State<RecallPage> {
               onPressed: saving
                   ? null
                   : () async {
-                      final value = valCtrl.text.trim();
+                      // Store the value verbatim (no trim), matching the in-place
+                      // edit path; addSaveError treats a whitespace-only value as
+                      // empty for the "type something" guard.
+                      final value = valCtrl.text;
+                      final keys = _normKeys(keysCtrl.text);
                       final err = addSaveError(
                           value: value,
                           engineReady: _ais != null,
                           syncing: _syncBlocks(),
                           encrypt: encrypt,
-                          passphrase: ppCtrl.text);
+                          passphrase: ppCtrl.text,
+                          keys: keys);
                       if (err != null) {
                         setSheet(() => error = err);
                         return;
                       }
                       if (_ais == null) return;
                       setSheet(() => error = null);
-                      final keys = _normKeys(keysCtrl.text);
                       final messenger = ScaffoldMessenger.of(context);
                       final nav = Navigator.of(ctx);
+                      // Commit any armed swipe-delete BEFORE a background encrypt so a
+                      // UI-isolate del() can't run on the shared handle concurrently
+                      // with the off-isolate ais_put (a cross-isolate write race). The
+                      // sheet is modal, so no new delete can be armed during the write.
+                      _flushPendingDeletes();
                       int id = -1;
                       try {
                         if (encrypt) {
@@ -2343,18 +2468,21 @@ class _RecallPageState extends State<RecallPage> {
                           id = _ais!.store(keys, value);
                         }
                       } catch (e) {
-                        setSheet(() { saving = false; error = 'Could not save: $e'; });
+                        // The sheet is swipe-dismissible during "Encrypting…"; only
+                        // touch its state if it's still up (setSheet on a disposed
+                        // element throws -- the mounted check below is the wrong one).
+                        if (ctx.mounted) setSheet(() { saving = false; error = 'Could not save: $e'; });
                         return;
                       }
                       // The engine returns -1 when nothing was stored (bad args,
                       // blob write failure, crypto not built). Don't pop the sheet
                       // and announce "Saved" -- surface it, like the guards above.
                       if (!saveSucceeded(id)) {
-                        setSheet(() { saving = false; error = saveOutcomeMessage(id, keys); });
+                        if (ctx.mounted) setSheet(() { saving = false; error = saveOutcomeMessage(id, keys); });
                         return;
                       }
                       if (!mounted) return;
-                      nav.pop();
+                      if (ctx.mounted) nav.pop(); // only pop if the sheet is still open
                       // After saving, show the new record at the top of Recent (it is
                       // the newest). Saving is not a query: don't drop into a search for
                       // it, and don't leave its tags stuck in the search box.
@@ -2368,13 +2496,23 @@ class _RecallPageState extends State<RecallPage> {
         ),
       ),
       ),
-    );
+    ).whenComplete(() {
+      // The sheet closed (saved, cancelled, or swipe-dismissed): free its fields.
+      valCtrl.dispose();
+      keysCtrl.dispose();
+      ppCtrl.dispose();
+    });
   }
 
   @override
   void dispose() {
     _debounce?.cancel();
-    _ais?.close();
+    _speech.cancel(); // stop any active recognizer session
+    // A background LAN sync may still hold this handle by address; close()ing
+    // (freeing) it now would be a use-after-free in that isolate. This is the
+    // top-level page, so a dispose means the app is going away -- let the OS
+    // reclaim the handle rather than free it out from under an in-flight sync.
+    if (!_syncBusy) _ais?.close();
     super.dispose();
   }
 }
