@@ -102,13 +102,23 @@ the blob's contents.)
 
 
 ---- editable batch format (--dump / --import) -------------------------------
-`ais --dump` emits <record> lines. `ais --import` reads <import_line> (a <record>
-with the leading "<id> |" dropped), skipping blanks and "#" comments. Round-trip:
+`ais --dump` emits <record> lines. `ais --import` (feed.c:feed_import_from) reads
+<import_line>, skipping blanks and "#" comments. An import line is EITHER a merge
+line (the prefixed export-wire forms `A|`/`D|`/`K|` that `--export` emits) OR the
+plain hand-editable form (a <record> with the leading "<id> |" dropped). The parser
+tries the merge forms FIRST and falls back to the plain form, so a merge line whose
+prefix is present but whose fields are malformed is re-read as plain. Round-trip:
    ais --dump | sed 's/^[0-9]*|//' | ais --import
 Keys are "|"-free (key_encode), so import splits on the FIRST "|"; a value that
 itself contains "|" therefore round-trips dump -> import unchanged.
 <import_input> ::= ( <import_line> "\n" )*
-<import_line>  ::= <comment_line> | "" | <keys> "|" <value>
+<import_line>  ::= <comment_line> | "" | <merge_line> | <plain_line>
+<merge_line>   ::= <add_line> | <del_line> | <detach_line>
+<add_line>     ::= "A|" ( <ts> )? "|" <keys> "|" <value>   ? add; empty <ts> = oldest ?
+<del_line>     ::= "D|" <ts> "|" <hash>                     ? record tombstone ?
+<detach_line>  ::= "K|" <ts> "|" <hash> "|" <key>           ? per-key detach (ktomb) ?
+<plain_line>   ::= <keys> "|" <value>                        ? legacy dump / hand-edit ?
+<hash>         ::= [:xdigit:]+   ? FNV-1a 64-bit hex of the record's <value> (MERGE.md) ?
 <comment_line> ::= "#" <value_char>*
 
 

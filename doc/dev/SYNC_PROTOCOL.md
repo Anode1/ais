@@ -16,7 +16,8 @@ URL); `ais --import <url> --token T` pulls and merges. Blob transfer is done (be
 
     device A                                            device B
       store ──feed_export──► A|ts|keys|value  (live records)
-                             D|ts|hash         (tombstones)
+                             D|ts|hash         (record tombstones)
+                             K|ts|hash|key     (key-detaches)
                              │
                        aisc_seal_key(k_seal)    k_seal = subkey(token,"seal");
                              │                  the token itself is NEVER sent
@@ -32,8 +33,9 @@ URL); `ais --import <url> --token T` pulls and merges. Blob transfer is done (be
                                                           deletions propagate, last-write-wins by ts
 
 1. **Engine: tombstone-union merge** (`doc/dev/MERGE.md`) — **DONE**. `--import` is merge-aware;
-   timestamped content-addressed tombstones; last-write-wins; record-level (v1), `ktomb`
-   (key-level) deferred.
+   timestamped content-addressed tombstones; last-write-wins; BOTH record-level (`tomb`) and
+   key-level (`ktomb`) -- a key-detach travels as a `K|<ts>|<hash>|<key>` line (`ais_merge_detach`)
+   and stays removed after sync.
 2. **Transport: `sync.c`** — **DONE**. `sync_export_sealed`/`sync_import_sealed` (seal / merge a
    stream), `sync_serve`/`sync_pull` (ephemeral single-client TCP, token auth, timeouts),
    `aisc_seal`/`aisc_unseal`/`aisc_token` (crypto). Forked-loopback test green.
@@ -42,7 +44,7 @@ URL); `ais --import <url> --token T` pulls and merges. Blob transfer is done (be
    `sync_pull`); `--token` flag added; `ais --export` to stdout unchanged.
 4. **GUI: a "Sync" surface** — later. Phone (scan QR -> import) and the desktop GUIs.
 
-Owner: the sync/engine track. All decisions locked (`ktomb` deferred).
+Owner: the sync/engine track. All decisions locked; `ktomb` key-detach shipped (merges via the `K|` line).
 
 ## Non-goals (this is where the weight lives, kept out on purpose)
 - No auto-discovery (no mDNS/multicast). Pairing is manual: IP:port + token, shown as text and a QR.
@@ -95,7 +97,7 @@ is NEVER sent; the client proves knowledge by answering a fresh challenge:
     server verifies the proof in constant time; on a mismatch it serves nothing and closes
       (no error body, so it does not reveal whether data exists).
     server -> client:   [4-byte big-endian length][sealed blob]
-       sealed = aisc_seal_key(k_seal, the full A|/D| stream), k_seal = BLAKE2b-keyed(token,
+       sealed = aisc_seal_key(k_seal, the full A|/D|/K| stream), k_seal = BLAKE2b-keyed(token,
        "ais-sync-seal-v1") -- a DIFFERENT subkey than the proof.
     client reads length + blob, aisc_unseal_key(k_seal, ...), then feed_import_from.
 
@@ -119,7 +121,7 @@ Inside the sealed blob, the *plaintext* is versioned and self-describing:
     blob section  zero or more  B|blobs/<name>|<size>\n  headers, each followed by <size> raw
                   bytes: the doc blob FILES themselves. The section ends at the first line
                   that does not start with "B|".
-    record stream the A|/D| feed_export text (records + tombstones), from there to end of
+    record stream the A|/D|/K| feed_export text (records + tombstones + key-detaches), from there to end of
                   payload -- unchanged from the one-way format, so this byte-0 gate is the
                   only thing an older peer would trip on.
 
@@ -140,9 +142,11 @@ app's one "Sync" button (Host / Join) runs the same exchange. One-way `--export`
 
 ## Merge / convergence
 Reconcile is the content-keyed, ts-resolved tombstone-union merge (see `MERGE.md`).
-`--export` emits both adds (`A|ts|keys|value`) and tombstones (`D|ts|hash`); `--import`
-replays them through `feed_import_from`, where `put` is idempotent (dedup by content)
-and `ais_merge_del` unions the tombstones. **Additions and deletions both converge**,
+`--export` emits adds (`A|ts|keys|value`), record tombstones (`D|ts|hash`), and per-key
+detaches (`K|ts|hash|key`); `--import` replays them through `feed_import_from`, where `put`
+is idempotent (dedup by content), `ais_merge_del` unions the record tombstones, and
+`ais_merge_detach` unions the key-detaches (so a removed tag stays removed after sync).
+**Additions and deletions both converge**,
 last-write-wins by the store's `ts` column (delete-after-add wins; re-add-after-delete
 wins), deterministic for one user across their own devices. One-way by nature: after A
 imports B, A holds A+B and B is unchanged; full convergence is both sides importing from

@@ -8,8 +8,10 @@ Status: built and tested in `c/` (`content_hash`, tomb v2 `id|ts|hash`, `feed_ex
 merge-aware `feed_import`, `ais_put_at`, `ais_merge_del`; round-trip test in `tests.c`).
 As-built refinements vs the original draft: record identity is the **value** (not
 keys+value); the content hash is **FNV-1a** of the value (not blake2b); **no migration**
-(v1 `id`-only tomb lines coexist with v2). Deferred follow-ups: multi-value (`ais_add`)
-grouping across a merge, and key-level (`ktomb`) removals.
+(v1 `id`-only tomb lines coexist with v2). Key-level (`ktomb`) removals now merge too --
+built and shipped: they export/import as `K|<ts>|<hash>|<key>` lines (feed.c `exp_kdead` /
+`ktomb_each`, `ais_merge_detach`), so a detached tag propagates and stays removed after sync.
+Deferred follow-up: multi-value (`ais_add`) grouping across a merge.
 
 ## The core problem: ids are device-local
 `store` ids are monotonic PER INDEX. Device A's id 5 and device B's id 5 are different
@@ -51,10 +53,10 @@ record's add-ts so a re-add after a delete reappears.
 There are **two** delete mechanisms today, both id-keyed and untimestamped:
 - `tomb` — whole-record deletion (`del`, `del-key` cascade).
 - `ktomb` — per-key removal (`del_key` strips one key from a record that otherwise stays).
-Record-level (`tomb`) is the common case and covers v1. Key-level (`ktomb`) needs the same
-content-addressing + ts treatment: a portable fact `<ts>|<record-hash>|<key>`. DECISION:
-`ktomb` is a **follow-up**; v1 ships record-level merge only, key-removals get the same
-content-addressed treatment next.
+Record-level (`tomb`) is the common case and covers v1. Key-level (`ktomb`) gets the same
+content-addressing + ts treatment: a portable fact `<ts>|<record-hash>|<key>`, emitted on the
+wire as `K|<ts>|<hash>|<key>` and merged via `ais_merge_detach`. SHIPPED -- both tombstone
+types now merge, so a per-key removal propagates and does not reappear after sync.
 
 ## Merge algorithm (content-keyed, ts-resolved)
 Given local index A and incoming index B:
@@ -77,10 +79,18 @@ and `--import <url>` consumes), NOT `--dump` output:
 
     A|<ts>|<keys>|<value>      # add  (a live record)
     D|<ts>|<hash>              # delete (a content-addressed tombstone)
+    K|<ts>|<hash>|<key>        # key-detach (a content-addressed per-key removal)
 
-`--import` applies `A` lines via `put` and `D` lines via the tomb/suppress path, both under
-last-write-wins. A plain (unprefixed) line fed to `--import` from a file/stdin is treated as
-an `A` line with ts unknown (oldest), so a hand-edited or legacy dump still imports as adds.
+The `K|` line carries a per-key detach: `<hash>` is the record's content hash and `<key>` is
+the single (encoded) key to strip, removed at `<ts>`. Like `D|` it is a portable, content-addressed
+fact (the `ktomb` tombstone) that MUST propagate so a tag a user removed on one device does not
+reappear the next time that device syncs -- the removal wins by last-write-wins the same way a
+whole-record delete does, but scoped to one key, leaving the record and its other keys intact.
+
+`--import` applies `A` lines via `put`, `D` lines via the tomb/suppress path, and `K` lines via
+`ais_merge_detach` (the `ktomb`/key-suppress path), all under last-write-wins. A plain (unprefixed)
+line fed to `--import` from a file/stdin is treated as an `A` line with ts unknown (oldest), so a
+hand-edited or legacy dump still imports as adds.
 
 ## Migration
 None. v1 (`id`) and v2 (`ts|hash`) tombstones coexist, so old indexes keep working without a
@@ -98,7 +108,8 @@ rewrite v1 tombstones to `0|hash` on open was not taken.
   boundary (content is already content-addressed). Confirm width in review.
 
 ## Open questions
-1. RESOLVED: `ktomb` (key-level) is a follow-up; v1 = record-level only.
+1. RESOLVED: `ktomb` (key-level) merge is SHIPPED -- key-detaches travel as `K|` lines
+   (`ais_merge_detach`), alongside record-level `tomb`.
 2. Tomb hash width: 128-bit truncated vs full 256-bit.
 3. RESOLVED: plain `--dump` stays unchanged (readable); the prefixed `A|`/`D|` lines are the
    export-wire format only (see "Export-wire format" above).

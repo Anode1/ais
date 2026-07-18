@@ -51,7 +51,7 @@ ais \- associative index: save values under keys, get them back by keys
 .B ais
 .RB [ \-f
 .IR DIR ]
-.BR \-\-del | \-\-del-key | \-\-dump | \-\-keys | \-\-stats | \-\-timeline | \-\-tags | \-\-compact | \-\-export | \-\-import | \-\-import-interactively | \-\-sync | \-\-where | \-\-project | \-\-switch | \-\-indexes | \-\-forget | \-\-default | \-\-serve | \-\-init
+.BR \-\-del | \-\-del-key | \-\-dump | \-\-keys | \-\-stats | \-\-timeline | \-\-tags | \-\-compact | \-\-export | \-\-import | \-\-import-interactively | \-\-sync | \-\-sync-folder | \-\-where | \-\-project | \-\-switch | \-\-indexes | \-\-forget | \-\-default | \-\-serve | \-\-init
 .RI [ ARG ]
 .SH DESCRIPTION
 .B ais
@@ -308,6 +308,24 @@ Both converge in one round \(em a tombstone-union, timestamp last-writer-wins me
 included \(em unlike the one-shot
 .B \-\-export \-\-serve
 copy.
+.TP
+.B \-\-sync-folder \fIFOLDER\fR
+Sync through a shared FOLDER instead of a live connection. One import+export pass: merge every
+peer bundle already in FOLDER, then (re)write this device's own bundle
+.RI ( <device-id> .aisb )
+atomically. Point a background file mover (Syncthing, or a cloud drive) at FOLDER so the bundles
+travel between devices, then run
+.B \-\-sync-folder
+on each device, repeatedly (e.g.\& on a timer); they all converge by the same tombstone-union,
+timestamp last-writer-wins merge as
+.BR \-\-sync ,
+blobs included. Each device writes only its own id-named bundle, so devices never clobber one
+another, and a cloned identity heals itself. Unlike
+.BR \-\-sync ,
+no two devices need be reachable at the same instant, so this is the set-and-forget,
+cross-network path (the LAN
+.B \-\-sync
+is the live, both-here alternative).
 .TP
 .B \-\-init
 Create a local
