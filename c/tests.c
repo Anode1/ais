@@ -846,6 +846,108 @@ static void test_del_key(void)
     scratch_rm(dir);
 }
 
+/* ---- untag_key: detaches the key, destroys nothing -------------------- */
+static void test_untag_key(void)
+{
+    ais a;
+    struct idvec v;
+    struct valvec vv;
+    char keys[64];
+    long id2;
+    const char *dir = "/tmp/ais_ut_untag";
+    int i;
+
+    scratch_rm(dir);
+    ais_open(&a, dir);
+    ais_put(&a, "proj deploy", "u1");    /* id 1: also under 'deploy' */
+    ais_put(&a, "proj s3",     "u2");    /* id 2: also under 's3'     */
+    ais_put(&a, "proj",        "u3");    /* id 3: 'proj' is its only key */
+    ais_put(&a, "other",       "u4");
+
+    CHECK(ais_untag_key(&a, "proj") == 3, "untag 'proj' -> 3");
+    query(&a, AIS_AND, &v, 1, "proj");
+    CHECK(v.n == 0, "untag: get [proj] now empty");
+
+    /* the point of untag: the RECORDS are still there. A record whose only key
+     * was the untagged one keeps its id and value -- it is simply unfiled. */
+    query(&a, AIS_AND, &v, 1, "deploy");
+    { long w[1] = {1}; CHECK(ids_eq(&v, w, 1), "untag: [deploy] still -> {1}"); }
+    query(&a, AIS_AND, &v, 1, "s3");
+    { long w[1] = {2}; CHECK(ids_eq(&v, w, 1), "untag: [s3] still -> {2}"); }
+    vv.n = 0; ais_record(&a, 3, collect_val, &vv);
+    CHECK(vv.n == 1 && strcmp(vv.vals[0], "u3") == 0,
+          "untag: the keyless record survives, value intact");
+    query(&a, AIS_AND, &v, 1, "other");
+    { long w[1] = {4}; CHECK(ids_eq(&v, w, 1), "untag: [other] untouched"); }
+
+    /* idempotent, and reversible -- re-attaching clears the detach */
+    CHECK(ais_untag_key(&a, "proj") == 0, "untag: second call -> 0");
+    CHECK(ais_untag_key(&a, "nonexistent") == 0, "untag absent key -> 0");
+    CHECK(ais_update(&a, 1, "proj") == 0, "untag: re-attach ok");
+    query(&a, AIS_AND, &v, 1, "proj");
+    { long w[1] = {1}; CHECK(ids_eq(&v, w, 1), "untag: re-tagging restores it"); }
+
+    /* the detach outlives compaction: it is a ktomb entry, and compaction is
+     * what finally rewrites the authoritative keys field */
+    CHECK(ais_compact(&a) == 0, "untag: compact ok");
+    query(&a, AIS_AND, &v, 1, "s3");
+    CHECK(v.n == 1, "untag: [s3] survives compaction");
+    query(&a, AIS_AND, &v, 1, "proj");
+    { long w[1] = {1}; CHECK(ids_eq(&v, w, 1), "untag: only the re-tagged one is back"); }
+
+    /* a whitespace key HUNG forever and wrote a bogus key onto every record:
+     * "-a b" tokenised into a detach of 'a' and an ATTACH of 'b', while the
+     * posting being polled was 'a_b', so it never shrank. Encoding first makes
+     * the read side and the write side name the same thing. */
+    ais_put(&a, "a_b", "w1");
+    CHECK(ais_untag_key(&a, "a b") == 1, "untag: a whitespace key folds, not hangs");
+    query(&a, AIS_AND, &v, 1, "a_b");
+    CHECK(v.n == 0, "untag: the folded key is gone");
+    CHECK(ais_untag_key(&a, "") == -1, "untag: an empty key is rejected");
+    CHECK(ais_untag_key(&a, NULL) == -1, "untag: NULL is rejected");
+
+    /* a tombstoned record under the key must not abort the untag part-way, and
+     * the walk must cross the 64-id collection batch */
+    for (i = 0; i < 70; i++) {
+        char val[32];
+        snprintf(val, sizeof val, "bulk%d", i);
+        ais_put(&a, "bulk", val);
+    }
+    query(&a, AIS_AND, &v, 1, "bulk");
+    CHECK(v.n == 70, "untag: 70 filed under 'bulk'");
+    ais_del(&a, v.ids[0]);
+    ais_del(&a, v.ids[69]);
+    CHECK(ais_untag_key(&a, "bulk") == 68, "untag: 68 live across the batch boundary");
+    query(&a, AIS_AND, &v, 1, "bulk");
+    CHECK(v.n == 0, "untag: nothing left under 'bulk'");
+
+    /* Untagging a TOMBSTONED record must still RECORD the detach. Pruning the
+     * posting alone left the key in the authoritative keys field with nothing
+     * masking it, so resurrecting the record brought the tag back at compaction.
+     * Mirrored from tests/cli.sh so `make codeut` -- the fast inner loop and the
+     * sanitizer gate -- catches it too, not only the CLI suite. */
+    snprintf(keys, sizeof keys, "rk c1");
+    ais_put(&a, keys, "rv1");
+    id2 = ais_put(&a, "rk c2", "rv2");
+    ais_del(&a, id2);
+    CHECK(ais_untag_key(&a, "rk") == 1, "untag: only the LIVE record is counted");
+    ais_put(&a, "zz", "rv2");                  /* resurrect by value identity */
+    CHECK(ais_compact(&a) == 0, "untag: compact after a resurrect");
+    query(&a, AIS_AND, &v, 1, "rk");
+    CHECK(v.n == 0, "untag: the tag does not come back on resurrect");
+
+    /* del_key re-stamps an already-deleted record (so the deletion holds as of
+     * now against a peer add dated in between) but does NOT count it. */
+    ais_put(&a, "dk2", "dv1");
+    id2 = ais_put(&a, "dk2", "dv2");
+    ais_del(&a, id2);
+    CHECK(ais_del_key(&a, "dk2") == 1, "del_key: counts only the live records");
+    query(&a, AIS_AND, &v, 1, "dk2");
+    CHECK(v.n == 0, "del_key: nothing left under the key");
+    ais_close(&a);
+    scratch_rm(dir);
+}
+
 /* ---- find: value substring; key ignored; tombstoned records drop out ---- */
 static void test_find(void)
 {
@@ -2867,6 +2969,7 @@ int main(void)
     printf("del:\n");
     test_del();
     test_del_key();
+    test_untag_key();
     printf("keys:\n");
     test_keys();
     printf("stats:\n");

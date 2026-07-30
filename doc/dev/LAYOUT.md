@@ -48,6 +48,15 @@ live key set: a detached-but-not-yet-compacted key is still in it, and `ktomb` i
 what makes the removal true and lets it propagate to peers (I1). An attach needs no
 tombstone because the rewritten keys field propagates on its own in the `A|` line.
 
+**A record may have NO keys.** `untag KEY` leaves one behind whenever `KEY` was a
+record's only key, and the store represents that as an empty keys field. Such a
+record is still live: it keeps its id and value and answers `--find`, `--timeline`
+and `--dump`; it is simply not filed under anything. Anything that reads a record
+line must carry it through -- `import` accepts an empty keys field on a `--dump`
+line (which has an id to vouch for it) precisely so that `--dump | --import` does
+not lose exactly those records. A hand-written `|value` line has no id and is
+still refused as a typo.
+
 **Format versions.** v1 was `id|keys|value` (no `ts`); v2 added a local `ts`;
 v3 makes `ts` UTC with a trailing `Z`. `INDEX/version` records the format, and
 `store_open` stamps the current version into an older index in place the first
@@ -117,6 +126,17 @@ records are always read in full. Both files rebuild from `store` -- delete them,
 ### tomb -- tombstones
 `del(id)` appends the id to `tomb`. `get`/`dump` merge it out (suppress ids
 present in `tomb`). Physical removal happens only at compaction.
+
+**One deliberate asymmetry: an ENCRYPTED blob is shredded at delete time, not at
+compaction.** So a deleted plain record is recoverable until `compact` (truncate
+`tomb`), while a deleted secret is gone immediately -- its ciphertext is zero-filled
+and unlinked by `secret_shred_blob` before the tombstone is written. Deferring the
+shred to compaction would make the two uniform, but at the cost of leaving deleted
+ciphertext on disk for however long the user waits to compact, and exportable to a
+peer in the meantime. Destroying a secret promptly is worth more than a tidy rule,
+so this stays. The consequence to know: "deleted, recoverable until compaction" is
+true of ordinary records and NOT of encrypted ones. Do not tell users a delete is
+undoable without saying which kind.
 
 ### Idempotent put -- by store scan, no index, no hash
 `put(keys, value)`: find whether `value` is already stored by streaming `store`
@@ -204,7 +224,18 @@ flag selects a command; else `-v`/`-i` mean store; else recall the keys.
     ais [-f DIR] --set ID -v OLD -v NEW  replace ONE value in place (id, ts, keys kept)
     ais [-f DIR] --doc KEY... < FILE   save a multi-line document as a blob file
     ais [-f DIR] --doc KEY... -e < FILE  encrypt a whole document to an aisc: blob (--del/--del-key shreds it)
-    ais [-f DIR] --del ID | --del-key KEY | --dump | --keys | --stats | --compact
+    ais [-f DIR] --untag KEY           remove the tag, KEEP every record (reversible)
+    ais [-f DIR] --del-under KEY       DELETE every record filed under KEY
+                                       (--del-key is the old name, kept as an alias)
+
+The two are one keystroke apart and opposite in consequence, so every surface
+states the difference in the same words rather than relying on the command name:
+the safe one names the TAG, the destructive one names the RECORDS and their
+count, and the destructive one lists what it would take before asking and points
+at the safe one. The web GUI (`--serve`) offers the same pair on each tag row,
+over `/api/untag` and `/api/del-under`; there the destructive path also requires
+the tag name to be typed, because it destroys records that are not on screen.
+    ais [-f DIR] --del ID | --dump | --keys | --stats | --compact
     ais [-f DIR] --tags | --timeline       browse keys, or records newest-first
     ais [-f DIR] --import < FILE | --where | --project [KEY] | --serve [PORT]
     ais [-f DIR] --import-interactively   like --import, but y/N per record (answers on the tty)

@@ -66,6 +66,29 @@ has "ui: detail sheet (#sheet)"     'id="sheet"'
 has "ui: timeline range (#tlrange)" 'id="tlrange"'
 has "ui: nav has Timeline"          "Timeline"
 has "ui: nav has Tags"              "Tags"
+# the destructive tag sheet and its three guards: the escape hatch to untag, the
+# type-to-confirm input, and the confirm button that ships DISABLED.
+has "ui: delete-under sheet (#dsheet)"   'id="dsheet"'
+has "ui: sheet is a dialog"              'role="dialog"'
+has "ui: escape hatch to untag (#dskeep)" 'id="dskeep"'
+has "ui: type-to-confirm input (#dsname)" 'id="dsname"'
+has "ui: confirm button (#dsgo)"          'id="dsgo"'
+has "ui: confirm ships disabled"          "disabled"
+
+# the Tags view is reachable by hash, so its two per-tag controls can be asserted
+TDOM=$("$BR" --headless --disable-gpu --no-sandbox --virtual-time-budget=3000 \
+             --dump-dom "$B/#tags" 2>/dev/null)
+tag() {  # tag LABEL NEEDLE
+    case "$TDOM" in
+        *"$2"*) pass=$((pass + 1)); echo "  ok   $1" ;;
+        *)      fail=$((fail + 1)); echo "  FAIL $1 (missing '$2')" ;;
+    esac
+}
+tag "ui: #tags opens the Tags view"      "tagrow"
+tag "ui: the safe action names the TAG"  "Remove tag"
+# the destructive label must name the RECORDS and their count, never the tag:
+# that wording is the whole defence against confusing the two.
+tag "ui: the destructive action names the RECORDS" "Delete 1 record"
 
 echo "ui: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]

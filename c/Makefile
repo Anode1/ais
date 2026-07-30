@@ -110,8 +110,15 @@ $(BIN): $(OBJS)
 $(TESTBIN): $(SOURCES.c)
 	$(CC) $(AIS_CFLAGS) -g -DUNIT_TEST $(CPPFLAGS) $(SOURCES.c) -o $(TESTBIN) $(LDLIBS)
 
+# TIMEOUT so an engine test that SPINS reports a failure instead of wedging the
+# run: a lost loop guard is exactly the kind of regression these tests exist for,
+# and it is the one shape that otherwise hangs forever rather than going red.
+# (`timeout` is coreutils; where it is absent the tests just run unguarded.)
+TIMEOUT := $(shell command -v timeout 2>/dev/null)
+UT_TIMEOUT = $(if $(TIMEOUT),$(TIMEOUT) 300,)
+
 ut check: $(TESTBIN)
-	./$(TESTBIN)
+	$(UT_TIMEOUT) ./$(TESTBIN)
 
 # ut-asan / ut-ubsan: the SAME unit tests, but built with the compiler's
 # sanitizers so memory errors (buffer overflow, use-after-free) and undefined
@@ -123,11 +130,11 @@ ut check: $(TESTBIN)
 ut-asan:
 	$(CC) $(AIS_CFLAGS) -g -DUNIT_TEST -fsanitize=address -fno-omit-frame-pointer \
 	  $(CPPFLAGS) $(SOURCES.c) -o $(TESTBIN)_asan $(LDLIBS)
-	./$(TESTBIN)_asan
+	$(UT_TIMEOUT) ./$(TESTBIN)_asan
 ut-ubsan:
 	$(CC) $(AIS_CFLAGS) -g -DUNIT_TEST -fsanitize=undefined -fno-sanitize-recover=undefined \
 	  $(CPPFLAGS) $(SOURCES.c) -o $(TESTBIN)_ubsan $(LDLIBS)
-	./$(TESTBIN)_ubsan
+	$(UT_TIMEOUT) ./$(TESTBIN)_ubsan
 
 # -- libais: the engine as a library, for embedders (Flutter dart:ffi, native
 # plugins). libais.a = static (linked into the app, e.g. iOS); libais.so =

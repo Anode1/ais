@@ -77,8 +77,8 @@ static const char PAGE[] =
 "<meta name=viewport content='width=device-width,initial-scale=1'>"
 "<meta name=theme-color content=#1a0dab><title>AIS</title>"
 "<style>"
-":root{--accent:#1a0dab;--line:#e3e3ea;--muted:#54545e;--bg:#efeff6;--fg:#14141a;--card:#fff;--field:#fafafc;--barbg:rgba(255,255,255,.62)}"
-"@media(prefers-color-scheme:dark){:root{--accent:#9db4ff;--line:#33333e;--muted:#9b9ba7;--bg:#15151b;--fg:#e7e7ef;--card:#23232c;--field:#2b2b35;--barbg:rgba(28,28,36,.72)}}"
+":root{--accent:#1a0dab;--line:#e3e3ea;--muted:#54545e;--bg:#efeff6;--fg:#14141a;--card:#fff;--field:#fafafc;--barbg:rgba(255,255,255,.62);--danger:#a3281c}"
+"@media(prefers-color-scheme:dark){:root{--accent:#9db4ff;--line:#33333e;--muted:#9b9ba7;--bg:#15151b;--fg:#e7e7ef;--card:#23232c;--field:#2b2b35;--barbg:rgba(28,28,36,.72);--danger:#ff8172}}"
 "*{box-sizing:border-box}html{color-scheme:light dark}"   /* native date/checkbox/scrollbars follow the theme */
 "body{font:16px/1.45 system-ui,sans-serif;color:var(--fg);background:var(--bg);margin:0}"
 "#bar{position:sticky;top:0;z-index:5;padding:12px 16px;background:var(--barbg);"
@@ -100,8 +100,8 @@ static const char PAGE[] =
 "#bnav{position:fixed;left:0;right:0;bottom:0;z-index:6;display:flex;background:var(--card);border-top:1px solid var(--line);box-shadow:0 -2px 12px rgba(0,0,0,.05)}"
 "#bnav button{flex:1;border:0;background:none;padding:.5rem 0 .62rem;font:inherit;font-size:.72rem;color:var(--muted);cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:.12rem}"
 "#bnav button .ic{font-size:1.3rem;line-height:1}#bnav button.on{color:var(--accent)}"
-"#sheet,#syncsheet,#editsheet{position:fixed;inset:0;z-index:10;background:rgba(0,0,0,.35);display:flex;align-items:center;justify-content:center}"
-"#sheet[hidden],#syncsheet[hidden],#editsheet[hidden]{display:none}"
+"#sheet,#syncsheet,#editsheet,#dsheet{position:fixed;inset:0;z-index:10;background:rgba(0,0,0,.35);display:flex;align-items:center;justify-content:center}"
+"#sheet[hidden],#syncsheet[hidden],#editsheet[hidden],#dsheet[hidden]{display:none}"
 ".card{width:100%;max-width:560px;background:var(--card);border-radius:18px;padding:1.2rem;margin:1rem}"
 ".card h2{margin:0 0 1rem;font-size:1.15rem}"
 ".card textarea,.card input{width:100%;font:inherit;padding:.7rem .8rem;border:1px solid var(--line);"
@@ -118,19 +118,33 @@ static const char PAGE[] =
 ".daygroup{font-size:.85rem;color:var(--fg);font-weight:700;text-transform:uppercase;letter-spacing:.04em;"
 "margin:1.1rem 0 .2rem;padding-bottom:.2rem;border-bottom:1px solid var(--line)}"
 ".meta{font-size:.8rem;color:var(--muted);margin-top:.2rem}"
-".tagrow{display:flex;align-items:center;justify-content:space-between;padding:.55rem .2rem;border-bottom:1px solid var(--line)}"
+".tagrow{display:flex;align-items:center;justify-content:space-between;padding:.55rem .2rem .1rem}"
 ".taglink{border:0;background:none;color:var(--accent);font:inherit;cursor:pointer;padding:0;text-align:left;word-break:break-word}"
 ".tagcount{font-size:.8rem;color:var(--muted);background:var(--card);border:1px solid var(--line);border-radius:10px;padding:.1rem .5rem;min-width:2rem;text-align:center}"
 ".act{display:flex;gap:.8rem;margin-top:.35rem}.actmenu{display:inline-flex;gap:.8rem}.actmenu[hidden]{display:none}"
 ".actbtn{border:0;background:none;color:var(--muted);font:inherit;font-size:.8rem;cursor:pointer;padding:0}"
 ".actbtn:hover{color:var(--accent)}"
-".actbtn.del:hover{color:#c0392b}"
+".actbtn.del:hover{color:var(--danger)}"
+".tagacts{display:flex;justify-content:space-between;align-items:center;gap:3rem;padding:0 .2rem .3rem;border-bottom:1px solid var(--line)}"
+".tagacts .actbtn{min-height:44px;display:inline-flex;align-items:center;touch-action:manipulation}"
+".actbtn.danger{color:var(--danger)}"
+":focus-visible{outline:2px solid var(--accent);outline-offset:2px}"
+".actbtn.danger:focus-visible{outline-color:var(--danger)}"
+"#dsheet .prev{list-style:none;margin:.2rem 0 .6rem;padding:0;max-height:38vh;overflow-y:auto}"
+"#dsheet .prev li{font-size:.8rem;color:var(--muted);padding:.15rem 0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}"
+"#dsheet .lead{color:var(--danger);font-weight:600;margin:.2rem 0}"
+"#dsheet .card{max-height:85vh;overflow-y:auto}"
+"#dsheet input{font-size:16px}"
+"#dsheet .card:focus{outline:none}"
+"#dsheet .ghost{font:inherit;padding:.6rem 1rem;border-radius:8px;cursor:pointer;color:var(--fg)}"
+".danger-btn{background:var(--danger);color:#fff;border:0;border-radius:8px;font:inherit;font-weight:600;padding:.6rem 1rem;cursor:pointer}"
+".danger-btn[disabled]{opacity:.45;cursor:not-allowed}"
 ".loadmore{display:block;width:100%;margin:1rem 0;padding:.6rem;border:1px solid var(--line);background:var(--card);color:var(--accent);border-radius:8px;cursor:pointer;font:inherit}"
 ".loadmore:hover{background:var(--field)}"
 ".chips{display:flex;flex-wrap:wrap;gap:.4rem;margin:.2rem 0 .7rem}"
 ".chip{display:inline-flex;align-items:center;gap:.35rem;background:var(--field);border:1px solid var(--line);border-radius:16px;padding:.25rem .7rem;font-size:.9rem}"
 ".chip button{border:0;background:none;color:var(--muted);cursor:pointer;font:inherit;font-size:1rem;line-height:1;padding:0}"
-".chip button:hover{color:#c0392b}"
+".chip button:hover{color:var(--danger)}"
 "#toast{position:fixed;left:50%;bottom:82px;transform:translateX(-50%);z-index:20;display:flex;align-items:center;gap:1rem;background:#2b2b33;color:#fff;padding:.65rem 1.1rem;border-radius:10px;box-shadow:0 4px 16px rgba(0,0,0,.35)}"
 "#toast[hidden]{display:none}#toast button{color:#9db4ff;border:0;background:none;text-decoration:underline;cursor:pointer;font:inherit}"
 "</style>"
@@ -151,7 +165,7 @@ static const char PAGE[] =
 "<nav id=bnav><button data-v=recall><span class=ic>&#128269;</span>Search</button>"
 "<button data-v=timeline class=on><span class=ic>&#128336;</span>Recent</button>"
 "<button data-v=tags><span class=ic>&#127991;</span>Tags</button></nav>"
-"<div id=sheet hidden><div class=card><h2>Add to your memory</h2>"
+"<div id=dsheet hidden role=dialog aria-modal=true aria-labelledby=dstitle>""<div class=card tabindex=-1><h2 id=dstitle>Delete records?</h2>""<p class=lead>This deletes the records, not the tag.</p>""<p id=dsbody class=muted style='font-size:.9rem'></p>""<ul id=dsprev class=prev></ul>""<p><button id=dskeep class=link>Keep the records: remove just the tag</button></p>""<label for=dsname style='font-size:.85rem;color:var(--muted)'>Type the tag name to confirm</label>""<input id=dsname autocomplete=off autocapitalize=off autocorrect=off spellcheck=false>""<div class=row style='display:flex;gap:.5rem;justify-content:flex-end;margin-top:.6rem'>""<button id=dscancel class=ghost>Cancel</button>""<button id=dsgo class=danger-btn disabled>Delete</button></div></div></div>""<div id=sheet hidden><div class=card><h2>Add to your memory</h2>"
 "<input id=vk placeholder='Tags (space or comma separated, optional)'>"
 "<textarea id=v rows=3 placeholder='What to remember: a link, a note, a number...'></textarea>"
 "<div class=encrow style='display:flex;align-items:center;gap:.5rem;margin:.1rem 0'>"
@@ -287,14 +301,15 @@ static const char PAGE[] =
 /* Deferred delete + Undo (Flutter parity): hide the row and start a 5s window.
  * The engine del() only fires when the window lapses OR another action flushes
  * it -- never on Undo, which just re-shows the row (nothing was deleted). */
-"var delTimer=null,delRow=null,delCommit=null;"
+"var delTimer=null,delRow=null,delCommit=null,delUndoFn=null;"
 "function hideToast(){$('toast').hidden=true}"
-"function delFlush(){if(delTimer){clearTimeout(delTimer);delTimer=null}if(delCommit){var f=delCommit;delCommit=null;delRow=null;f();if(syncFolderSaved())syncFolderRun(true)}hideToast()}"
-"function delRec(id){delFlush();"                       /* commit any prior pending delete first */
+"function delFlush(){if(delTimer){clearTimeout(delTimer);delTimer=null}if(delCommit){var f=delCommit;delCommit=null;delRow=null;delUndoFn=null;f();if(syncFolderSaved())syncFolderRun(true)}hideToast()}"
+"function delRec(id){delFlush();$('toast').firstChild.textContent='Deleted';"                       /* commit any prior pending delete first */
 "var row=document.querySelector('.hit[data-id=\"'+id+'\"]');if(row)row.style.display='none';delRow=row;"
 "delCommit=function(){fetch('/api/del?id='+id,{method:'POST'})};"
 "$('toast').hidden=false;delTimer=setTimeout(delFlush,5000)}"
-"function delUndo(){if(delTimer){clearTimeout(delTimer);delTimer=null}if(delRow)delRow.style.display='';delRow=null;delCommit=null;hideToast()}"
+"function delUndo(){if(delTimer){clearTimeout(delTimer);delTimer=null}if(delRow)delRow.style.display='';"
+"if(delUndoFn){delUndoFn();delUndoFn=null}delRow=null;delCommit=null;hideToast()}"
 /* Edit modal: value (when editable) + a chip tag editor, computing a minimal
  * +tag/-tag delta on save. Replaces the old -KEY grammar prompt. */
 "var edId=0,edTags=[],edOldVal='',edEdit=false;"
@@ -356,9 +371,56 @@ static const char PAGE[] =
 "var b=document.createElement('button');b.className='taglink';b.textContent=k;"
 "b.onclick=function(){$('q').value=k;setView('recall')};"
 "var n=document.createElement('span');n.className='tagcount';n.textContent=c;"
-"row.appendChild(b);row.appendChild(n);o.appendChild(row);tgAfterc=+c;tgAfterk=k});"
+"row.appendChild(b);row.appendChild(n);o.appendChild(row);"
+"var ac=document.createElement('div');ac.className='tagacts';"
+"var u=document.createElement('button');u.className='actbtn';u.textContent='Remove tag';"
+"u.onclick=function(){untagKey(k,+c,row,ac)};"
+"var g=document.createElement('button');g.className='actbtn danger';"
+"g.textContent='Delete '+c+' record'+(+c==1?'':'s');"
+"g.onclick=function(){openDelUnder(k)};"
+"ac.appendChild(u);ac.appendChild(g);o.appendChild(ac);tgAfterc=+c;tgAfterk=k});"
 "tgN+=L.length;$('count').textContent=tgN+' tag'+(tgN==1?'':'s');"
 "if(L.length==tlPage){tgMore=true;var mo=document.createElement('button');mo.id='tgmore';mo.className='loadmore';mo.textContent='Load more';mo.onclick=pageMore;o.appendChild(mo)}else tgMore=false}"
+/* The two tag-level operations. They are opposite in consequence, so they get
+ * opposite treatments: untag reuses the deferred-commit + Undo window the record
+ * delete already uses (nothing has happened yet, so the Undo is honest), while
+ * delete-under gets a modal with a preview, an escape hatch to untag, and
+ * type-to-confirm -- it destroys records that are NOT on this screen, because
+ * each one also disappears from every other tag it is filed under. */
+"function untagKey(k,n,row,acts){delFlush();"
+"if(!confirm(\"Remove the tag '\"+k+\"' from \"+n+' record'+(n==1?'':'s')+\"? The records are kept.\\n\\nEach record keeps its value and its other tags. Adding the tag back restores it.\"))return;"
+"row.style.display='none';acts.style.display='none';delRow=null;"
+"$('toast').firstChild.textContent=\"Removed tag '\"+k+\"'\";"
+"delCommit=function(){fetch('/api/untag?keys='+encodeURIComponent(k),{method:'POST'}).then(function(){if(view=='tags')loadTags()})};"
+"delUndoFn=function(){row.style.display='';acts.style.display=''};"
+"$('toast').hidden=false;delTimer=setTimeout(delFlush,5000)}"
+/* Recompute the count and the preview at OPEN time: the row badge can be stale,
+ * and a number in a destructive confirmation has to be the number that will go. */
+"var dsKey='';"
+"async function openDelUnder(k){delFlush();"
+"var t=await(await fetch('/api/get?keys='+encodeURIComponent(k))).text();"
+"var L=t.split('\\n').filter(function(s){return s.length});"
+/* /api/get emits one line per LINK, and a record may hold several. Counting
+ * lines over-counted the records -- the modal offered to "Delete 3 records"
+ * beside a tag badge reading 2, and the engine then reported "deleted 2". Group
+ * by id so the number in the destructive copy is the number that will go. */
+"var R=[],seen={};L.forEach(function(ln){var b=ln.indexOf('|');"
+"var id=b<0?ln:ln.slice(0,b),v=b<0?ln:ln.slice(b+1);"
+"if(seen[id]===undefined){seen[id]=R.length;R.push({v:v,extra:0})}else R[seen[id]].extra++});"
+"if(!R.length){$('count').textContent=\"Nothing is filed under '\"+k+\"'\";loadTags();return}"
+"dsKey=k;var n=R.length,w=n+' record'+(n==1?'':'s');"
+"$('dstitle').textContent='Delete '+w+'?';"
+"$('dsbody').textContent='All '+w+\" filed under '\"+k+\"' are deleted, and each disappears from every other tag it is filed under too.\";"
+"var ul=$('dsprev');ul.innerHTML='';"
+"R.slice(0,10).forEach(function(r){var li=document.createElement('li');"
+"li.textContent=r.v+(r.extra?' (+'+r.extra+' more link'+(r.extra==1?'':'s')+' on this record)':'');"
+"ul.appendChild(li)});"
+"if(n>10){var li=document.createElement('li');li.textContent='... and '+(n-10)+' more. To see them all, tap the tag.';ul.appendChild(li)}"
+"$('dskeep').textContent=\"Keep the records: remove just the tag\";"
+"$('dsname').value='';$('dsname').placeholder=k;"
+"$('dsgo').textContent='Delete '+w;$('dsgo').disabled=true;"
+"$('dsheet').hidden=false;$('dsheet').querySelector('.card').focus()}"
+"function closeDel(){$('dsheet').hidden=true;dsKey=''}"
 /* Infinite scroll: near the bottom, pull the next page for whatever view is up.
  * loadingMore serializes fetches so a scroll burst can't double-load a page. */
 "function pageMore(){if(loadingMore)return;loadingMore=true;"
@@ -390,6 +452,17 @@ static const char PAGE[] =
 "$('tlclear').onclick=function(){$('tlfrom').value='';$('tlto').value='';loadTimeline()};"
 "$('addbtn').onclick=openSheet;$('cancel').onclick=closeSheet;$('save').onclick=save;"
 "$('toastundo').onclick=delUndo;"
+"$('dscancel').onclick=closeDel;"
+"$('dsheet').onclick=function(e){if(e.target===$('dsheet'))closeDel()};"
+"$('dskeep').onclick=function(){var k=dsKey;closeDel();if(view=='tags')loadTags();"
+"setTimeout(function(){var b=[].filter.call(document.querySelectorAll('.taglink'),function(t){return t.textContent==k})[0];"
+"if(b)b.parentNode.nextSibling.firstChild.click()},60)};"
+"$('dsname').oninput=function(){$('dsgo').disabled=this.value.trim()!==dsKey};"
+"$('dsgo').onclick=async function(){if(this.disabled)return;var k=dsKey;closeDel();"
+"var r=await(await fetch('/api/del-under?keys='+encodeURIComponent(k),{method:'POST'})).text();"
+"var m=+(r.match(/\\d+/)||[0])[0];$('count').textContent='Deleted '+m+' record'+(m==1?'':'s');"
+"loadTags()};"
+"document.addEventListener('keydown',function(e){if(e.key=='Escape'&&!$('dsheet').hidden)closeDel()});"
 "$('edcancel').onclick=function(){$('editsheet').hidden=true};$('edsave').onclick=edSave;"
 "$('edtag').addEventListener('keydown',function(e){if(e.key=='Enter'||e.key==','){e.preventDefault();edAdd()}});"
 "$('edtag').addEventListener('blur',edAdd);"
@@ -409,7 +482,10 @@ static const char PAGE[] =
 "$('storecancel').onclick=function(){$('storeedit').style.display='none'};"
 "$('storepath').onkeydown=function(e){if(e.key==='Enter')storeApply();else if(e.key==='Escape')$('storeedit').style.display='none'};"
 "loadStore();"
-"setView('timeline');"   /* open on content (Recent), not a blank search */
+/* #tags / #recall / #timeline opens that view directly, so a view is linkable
+ * (and reachable by a screenshot or a UI test, which cannot click before load). */
+"var h=(location.hash||'').slice(1);"
+"setView(h=='tags'||h=='recall'||h=='timeline'?h:'timeline');"   /* else open on content, not a blank search */
 /* ---- Sync (Host / Join), mirroring the mobile Sync feature ---------------
  * qrGen: a small pure-JS byte-mode QR encoder (ECC level L, mask 0, versions
  * 1-5) so a phone can scan the url+token with no server-side or network
@@ -979,6 +1055,14 @@ static int serve_shred_value(long id, const char *value, void *vp)
     return 0;
 }
 
+/* Same, per MATCHED RECORD: the bulk-delete pre-pass. VP is the ais handle. */
+static int serve_shred_id(long id, void *vp)
+{
+    ais *a = vp;
+    ais_record(a, id, serve_shred_value, (void *)a->dir);
+    return 0;
+}
+
 static void handle(ais *a, int fd)
 {
     char buf[AIS_LINE_MAX];
@@ -1199,6 +1283,49 @@ static void handle(ais *a, int fd)
         } else {
             static const char e[] = "HTTP/1.0 400 Bad Request\r\n"
                 "Connection: close\r\n\r\ncannot update\n";
+            write_all(fd, e, sizeof(e) - 1);
+        }
+    } else if (strcmp(method, "POST") == 0 && strcmp(path, "/api/untag") == 0) {
+        /* remove the tag ?keys=KEY from every record, destroying nothing. The
+         * non-destructive half of the pair below -- the page must offer BOTH, or
+         * a user who only wants the tag gone reaches for the delete. */
+        /* ONE tag, not the whitespace-separated list every other endpoint takes:
+         * key_encode would fold "a b" to "a_b" and report a cheerful 200 for a
+         * no-op on a tag that cannot exist. */
+        int nu = (keys[0] != '\0' && strcspn(keys, " \t") == strlen(keys))
+                 ? ais_untag_key(a, keys) : -1;
+        if (nu >= 0) {
+            char msg[64];
+            int len = snprintf(msg, sizeof msg, "untagged %d\n", nu);
+            send_head(fd, "text/plain");
+            write_all(fd, msg, (size_t)len);
+        } else {
+            static const char e[] = "HTTP/1.0 400 Bad Request\r\n"
+                "Connection: close\r\n\r\ncannot untag\n";
+            write_all(fd, e, sizeof(e) - 1);
+        }
+    } else if (strcmp(method, "POST") == 0 && strcmp(path, "/api/del-under") == 0) {
+        /* DELETE every record filed under ?keys=KEY. Shred encrypted blobs first,
+         * exactly as /api/del and the CLI do. */
+        if (keys[0] != '\0' && strcspn(keys, " \t") == strlen(keys)) {
+            char *k1[1];
+            int nd;
+            k1[0] = keys;
+            ais_get(a, k1, 1, AIS_AND, serve_shred_id, (void *)a);
+            nd = ais_del_key(a, keys);
+            if (nd >= 0) {
+                char msg[64];
+                int len = snprintf(msg, sizeof msg, "deleted %d\n", nd);
+                send_head(fd, "text/plain");
+                write_all(fd, msg, (size_t)len);
+            } else {
+                static const char e[] = "HTTP/1.0 400 Bad Request\r\n"
+                    "Connection: close\r\n\r\ncannot delete\n";
+                write_all(fd, e, sizeof(e) - 1);
+            }
+        } else {
+            static const char e[] = "HTTP/1.0 400 Bad Request\r\n"
+                "Connection: close\r\n\r\ncannot delete\n";
             write_all(fd, e, sizeof(e) - 1);
         }
     } else if (strcmp(method, "GET") == 0 && strcmp(path, "/api/keys") == 0) {

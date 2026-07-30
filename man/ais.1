@@ -51,7 +51,7 @@ ais \- associative index: save values under keys, get them back by keys
 .B ais
 .RB [ \-f
 .IR DIR ]
-.BR \-\-del | \-\-del-key | \-\-dump | \-\-keys | \-\-stats | \-\-timeline | \-\-tags | \-\-compact | \-\-export | \-\-import | \-\-import-interactively | \-\-sync | \-\-sync-folder | \-\-where | \-\-project | \-\-switch | \-\-indexes | \-\-forget | \-\-default | \-\-serve | \-\-init
+.BR \-\-del | \-\-del-under | \-\-untag | \-\-dump | \-\-keys | \-\-stats | \-\-timeline | \-\-tags | \-\-compact | \-\-export | \-\-import | \-\-import-interactively | \-\-sync | \-\-sync-folder | \-\-where | \-\-project | \-\-switch | \-\-indexes | \-\-forget | \-\-default | \-\-serve | \-\-init
 .RI [ ARG ]
 .SH DESCRIPTION
 .B ais
@@ -142,7 +142,7 @@ best-effort shreds the blob. Requires the crypto module
 .TP
 .B \-y
 Assume yes for
-.BR \-\-del / \-\-del-key / \-\-compact
+.BR \-\-del / \-\-del-under / \-\-untag / \-\-compact
 (no prompt).
 .TP
 .B \-d
@@ -208,8 +208,22 @@ A detached key is hidden at once and removed from the store by
 .B \-\-del \fIID\fR
 Delete record ID.
 .TP
-.B \-\-del-key \fIKEY\fR
-Delete every record filed under KEY.
+.B \-\-del-under \fIKEY\fR
+Delete every record filed under KEY. The RECORDS go, not just the tag \(em and
+each disappears from every other key it is filed under too. Before asking, it
+lists what would be destroyed and points at
+.B \-\-untag
+for the non-destructive alternative.
+.B \-\-del-key
+is the old name, kept as an alias.
+.TP
+.B \-\-untag \fIKEY\fR
+Remove the tag KEY, keeping every record: each keeps its id, its value and its
+other keys, and simply stops being filed under KEY. This is what people usually
+mean by "delete a key". Reversible \(em re-attaching the key restores it \(em and
+it propagates to synced peers. A record whose only key was KEY stays in the
+index, reachable by
+.BR \-\-find " and " \-\-timeline .
 .TP
 .B \-\-doc \fIKEY ...\fR
 Save standard input as a document: write it to

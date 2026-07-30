@@ -9,9 +9,17 @@ an exclusive flock for the duration of one mutating op.** A long-lived reader
 - `store_open` opens the lock file but does **not** lock it. Any number of
   readers (`get`, `find`, `dump`, `keys`, `where`, `stats`) run at once.
 - Each mutating op takes `store_wlock` (blocking `flock(LOCK_EX)`) and releases
-  with `store_wunlock`: `put`, `add`, `del`, `del-key`, `compact` (and `import`
-  and `doc`, which go through `put`). Writers serialize; a second writer waits
-  rather than failing.
+  with `store_wunlock`: `put`, `add`, `del`, `del-under`, `update`, `compact`
+  (and `import` and `doc`, which go through `put`). Writers serialize; a second
+  writer waits rather than failing.
+- `untag` is a LOOP of writers, not one: it collects ids lock-free, then takes
+  and releases the lock once per record (through `update`, or directly around the
+  `post_remove` that prunes a stale posting entry). It is not atomic as a whole,
+  which is what lets a long untag interleave with other writers instead of
+  holding the index for the duration. A record filed under the key by a
+  concurrent writer mid-untag gets a higher id than the cursor, so the next batch
+  picks it up and untags it too -- the pass ends when a batch comes back empty,
+  not at a snapshot taken when it started.
 - `next_id` is **disk-authoritative**. A writer calls `store_load_next_id` under
   the lock before assigning an id, so two processes never hand out the same one.
   `store_close` does *not* save `next_id` (each write already did, under the

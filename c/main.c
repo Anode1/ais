@@ -24,6 +24,7 @@
 #include <string.h>
 
 #include "ais.h"
+#include "compact.h"   /* tomb_contains: do not offer to delete a deleted record */
 #include "doc.h"           /* ais_doc_is_blob: recall cats a document, not its path */
 #include "help.h"
 #include "log.h"
@@ -97,6 +98,58 @@ static int shred_value_cb(long id, const char *value, void *vp)
 {
     (void)id;
     secret_shred_blob((const char *)vp, value);
+    return 0;
+}
+
+/* del-key preview: count the records a key would take with it. VP is a long *. */
+static int delkey_count_cb(long id, void *vp)
+{
+    (void)id;
+    (*(long *)vp)++;
+    return 0;
+}
+
+/* One preview line per record, on STDERR. Deliberately NOT the recall printer:
+ *  - recall writes to stdout, so `ais --del-key k > file` showed the user an
+ *    EMPTY kill-list above the prompt -- the most dangerous state this can be in;
+ *  - recall prints every link of a multi-link record and cats a --doc blob whole,
+ *    burying the record boundaries;
+ *  - recall reveals secrets, so previewing a key holding encrypted records asked
+ *    for passphrases in the middle of a delete confirmation.
+ * Shows the FIRST value only, truncated, and never decrypts. */
+#define DELKEY_PREVIEW_MAX 10
+#define DELKEY_VALUE_WIDTH 68
+struct delkey_preview { ais *a; long shown; };
+
+/* Prints the record's FIRST value, then keeps counting the rest: a record can
+ * hold several links and showing only one made the manifest UNDERSTATE what the
+ * delete takes -- the user consented to one line and lost four. Only the first is
+ * printed (a --doc blob or a ten-link record must not bury the record boundaries);
+ * the others are summarised as a count. VP is a long * (links seen). */
+static int delkey_line_cb(long id, const char *value, void *vp)
+{
+    long *nlink = vp;
+
+    if ((*nlink)++ == 0)
+        fprintf(stderr, "  %ld|%.*s%s\n", id, DELKEY_VALUE_WIDTH, value,
+                strlen(value) > (size_t)DELKEY_VALUE_WIDTH ? "..." : "");
+    return 0;
+}
+
+/* Print one manifest entry. Also THE counter: a separate ais_get to count first
+ * walked the whole posting twice, and the two walks could disagree. */
+static int delkey_show_cb(long id, void *vp)
+{
+    struct delkey_preview *p = vp;
+
+    if (p->shown < DELKEY_PREVIEW_MAX) {
+        long nlink = 0;
+        ais_record(p->a, id, delkey_line_cb, &nlink);
+        if (nlink > 1)
+            fprintf(stderr, "     (+%ld more link%s on this record)\n",
+                    nlink - 1, nlink == 2 ? "" : "s");
+    }
+    p->shown++;
     return 0;
 }
 
@@ -269,12 +322,45 @@ static void do_get(ais *a, char *const keys[], int nkeys, ais_mode mode)
  * AIS is append-only by default, so removing anything needs an explicit yes. */
 static int confirm(const char *prompt)
 {
+    const char *ttypath = getenv("AIS_TTY");   /* a file overrides the terminal */
     char buf[16];
+    FILE *tty;
+    size_t n;
+
+    /* Read the answer from the TERMINAL, not stdin -- the same seam
+     * feed_import_interactive uses. Reading stdin let a redirected data file
+     * answer a destructive prompt: `ais --del-key kul < notes.txt` was confirmed
+     * by whatever the first line happened to start with. */
+#ifdef _WIN32
+    tty = fopen(ttypath != NULL ? ttypath : "CONIN$", "r");
+#else
+    tty = fopen(ttypath != NULL ? ttypath : "/dev/tty", "r");
+#endif
+    if (tty == NULL) {
+        /* No terminal to ask on. Aborting quietly with status 0 would tell a
+         * script the work was done, so say what is missing and fail. */
+        fprintf(stderr, "no terminal to confirm on -- pass -y (or set AIS_TTY=FILE)\n");
+        exit(2);
+    }
+    if (ttypath != NULL)
+        /* The seam must never be SILENT. A destructive command run with AIS_TTY
+         * left set in the environment would otherwise be confirmed by a file with
+         * no sign on screen that nobody was asked. */
+        fprintf(stderr, "ais: reading the answer from AIS_TTY=%s, not a terminal\n",
+                ttypath);
     fprintf(stderr, "%s [y/N] ", prompt);
     fflush(stderr);
-    if (fgets(buf, sizeof(buf), stdin) == NULL)
-        return 0;                          /* EOF / no terminal -> No */
-    return buf[0] == 'y' || buf[0] == 'Y';
+    if (fgets(buf, sizeof(buf), tty) == NULL) {
+        fclose(tty);
+        fprintf(stderr, "\nno answer -- pass -y to confirm non-interactively\n");
+        exit(2);
+    }
+    fclose(tty);
+    n = strcspn(buf, "\r\n");
+    buf[n] = '\0';
+    /* Exactly "y" or "yes". A prefix test accepted "yolo" as consent. */
+    return (strcmp(buf, "y") == 0 || strcmp(buf, "Y") == 0 ||
+            strcasecmp(buf, "yes") == 0);
 }
 
 /* ---- main --------------------------------------------------------------- */
@@ -284,7 +370,7 @@ int main(int argc, char **argv)
     enum { OPT_HELP = 1000, OPT_VERSION, OPT_TOKEN,
            CMD_FIND, CMD_ADD, CMD_DEL, CMD_DELKEY, CMD_DUMP, CMD_KEYS, CMD_STATS,
            CMD_COMPACT, CMD_INIT, CMD_IMPORT, CMD_IMPORTI, CMD_WHERE, CMD_SERVE, CMD_PROJECT,
-           CMD_DOC, CMD_TIMELINE, CMD_TAGS, CMD_DEFAULT, CMD_UPDATE, CMD_SET,
+           CMD_DOC, CMD_TIMELINE, CMD_TAGS, CMD_DEFAULT, CMD_UPDATE, CMD_SET, CMD_UNTAG,
            CMD_SWITCH, CMD_INDEXES, CMD_FORGET, CMD_EXPORT, CMD_SYNC, CMD_SYNCFOLDER };
     static const struct option longopts[] = {
         { "index",       required_argument, NULL, 'f' },
@@ -307,7 +393,9 @@ int main(int argc, char **argv)
         { "update",      no_argument,       NULL, CMD_UPDATE },
         { "set",         no_argument,       NULL, CMD_SET },
         { "del",         no_argument,       NULL, CMD_DEL },
-        { "del-key",     no_argument,       NULL, CMD_DELKEY },
+        { "del-key",     no_argument,       NULL, CMD_DELKEY },   /* alias, kept forever */
+        { "del-under",   no_argument,       NULL, CMD_DELKEY },
+        { "untag",       no_argument,       NULL, CMD_UNTAG },
         { "dump",        no_argument,       NULL, CMD_DUMP },
         { "keys",        no_argument,       NULL, CMD_KEYS },
         { "tags",        no_argument,       NULL, CMD_TAGS },
@@ -334,6 +422,11 @@ int main(int argc, char **argv)
     ais_mode mode = AIS_AND;
     int assume_yes = 0, interactive = 0, project_given = 0, create = 0, encrypt = 0;
     int cmd = 0, serve_flag = 0;
+    /* Which long option spelled the command. Scanning argv for "--del-key" both
+     * misfired on a KEY literally named that and missed getopt's own unambiguous
+     * abbreviation ("--del-k"), so take the answer from getopt itself. */
+    const char *cmd_spelling = "";
+    int li = -1;
     const char *token_arg = NULL;
     char project[AIS_KEY_MAX];
     char keys[AIS_LINE_MAX], full[AIS_LINE_MAX];
@@ -342,7 +435,9 @@ int main(int argc, char **argv)
 
     /* -p is the per-call project override; --project (CMD_PROJECT) manages the
      * stored default. They are intentionally distinct. */
-    while ((c = getopt_long(argc, argv, "f:odhyiv:k:p:ce", longopts, NULL)) != -1) {
+    while (li = -1, (c = getopt_long(argc, argv, "f:odhyiv:k:p:ce", longopts, &li)) != -1) {
+        if (c >= OPT_HELP && li >= 0)          /* every long option code is >= OPT_HELP */
+            cmd_spelling = longopts[li].name;
         switch (c) {
         case 'f': dir = optarg; break;
         case 'o': mode = AIS_OR; break;
@@ -365,7 +460,7 @@ int main(int argc, char **argv)
         case CMD_DUMP: case CMD_KEYS: case CMD_STATS: case CMD_COMPACT:
         case CMD_INIT: case CMD_IMPORT: case CMD_IMPORTI: case CMD_EXPORT: case CMD_WHERE:
         case CMD_PROJECT: case CMD_DOC: case CMD_TIMELINE: case CMD_TAGS:
-        case CMD_DEFAULT: case CMD_UPDATE: case CMD_SET:
+        case CMD_DEFAULT: case CMD_UPDATE: case CMD_SET: case CMD_UNTAG:
         case CMD_SWITCH: case CMD_INDEXES: case CMD_FORGET: case CMD_SYNC:
         case CMD_SYNCFOLDER:
             if (cmd != 0) die("only one command at a time");
@@ -488,6 +583,23 @@ int main(int argc, char **argv)
              * value that is not an aisc: blob. Ordered AFTER the edit so a refused
              * --set never destroys a payload the record still holds. */
             secret_shred_blob(a.dir, values[0]);
+            /* An in-place value edit has NO representation in the merge stream:
+             * it emits A| for the new value and nothing retiring the old, so a
+             * synced peer keeps the old one and feeds it back, leaving BOTH on
+             * both devices. Say so rather than let the correction silently undo
+             * itself. Only warn on an index that actually syncs. */
+            {
+                char sp[AIS_PATH_MAX];
+                FILE *sf;
+                if (snprintf(sp, sizeof sp, "%s/syncid", a.dir) < (int)sizeof sp &&
+                    (sf = fopen(sp, "r")) != NULL) {
+                    fclose(sf);
+                    fprintf(stderr,
+                        "ais: note -- this index syncs, and --set does not propagate. "
+                        "The peer still holds the old value and will feed it back; "
+                        "run --set on each device, or --del the record and re-add it.\n");
+                }
+            }
             break;
         }
         case CMD_UPDATE: {
@@ -515,19 +627,114 @@ int main(int argc, char **argv)
             id = atol(argv[optind]);
             if (!assume_yes) {
                 char p[64];
-                snprintf(p, sizeof(p), "Delete record %ld?", id);
-                if (!confirm(p)) { fprintf(stderr, "aborted\n"); break; }
+                /* SHOW the record before asking. "Delete record 42?" tells the user
+                 * nothing they can check -- an id is not something anyone recognises,
+                 * and --del-under now previews what it destroys, so this asking blind
+                 * would be the odd one out. */
+                long nlink = 0;
+                /* ais_record reads the STORE, which still holds tombstoned lines
+                 * until compaction. Without this the preview showed a record that
+                 * was already deleted and offered to delete it again. */
+                int gone = (id > 0) ? tomb_contains(&a, id) : 0;
+                if (gone < 0) die("--del: cannot read the tombstone log");
+                fprintf(stderr, "About to delete:\n");
+                if (!gone)
+                    ais_record(&a, id, delkey_line_cb, &nlink);
+                if (nlink == 0) {
+                    /* Nothing to show means nothing to delete. Printing an empty
+                     * manifest and then asking "permanently delete record 42?"
+                     * invited a yes to a record that was never there. */
+                    fprintf(stderr, "  no live record %ld\n", id);
+                    ais_close(&a);
+                    return 1;
+                }
+                if (nlink > 1)
+                    fprintf(stderr, "     (+%ld more link%s on this record)\n",
+                            nlink - 1, nlink == 2 ? "" : "s");
+                fprintf(stderr, "\n");
+                snprintf(p, sizeof(p), "Permanently delete record %ld?", id);
+                if (!confirm(p)) { fprintf(stderr, "aborted\n"); ais_close(&a); return 1; }
             }
             ais_record(&a, id, shred_value_cb, a.dir);   /* shred encrypted blobs first */
             if (ais_del(&a, id) != 0) die("del failed");
             break;
         }
+        case CMD_UNTAG: {
+            /* The non-destructive counterpart to --del-under: the records stay,
+             * they just stop being filed under KEY. Reversible by re-tagging, so
+             * it gets a count and a plain y/N rather than a manifest. */
+            const char *key = (optind < argc) ? argv[optind]
+                            : (nexk ? exkeys[0] : NULL);
+            char p[AIS_KEY_MAX + 128];
+            long n = 0;
+            char *k1[1];
+            if (key == NULL) die("--untag needs a KEY");
+            k1[0] = (char *)key;
+            if (ais_get(&a, k1, 1, AIS_AND, delkey_count_cb, &n) < 0)
+                die("--untag: cannot read '%s'", key);
+            if (n == 0) {
+                fprintf(stderr, "nothing is filed under '%s'\n", key);
+                break;
+            }
+            snprintf(p, sizeof(p),
+                     "Remove the tag '%s' from %ld record%s? The records are kept.",
+                     key, n, n == 1 ? "" : "s");
+            if (assume_yes || confirm(p)) {
+                long done = ais_untag_key(&a, key);
+                if (done < 0) die("untag failed");
+                printf("untagged %ld\n", done);
+            } else { fprintf(stderr, "aborted\n"); ais_close(&a); return 1; }
+            break;
+        }
         case CMD_DELKEY: {
             const char *key = (optind < argc) ? argv[optind]
                             : (nexk ? exkeys[0] : NULL);
-            char p[AIS_KEY_MAX + 48];
-            if (key == NULL) die("--del-key needs a KEY");
-            snprintf(p, sizeof(p), "Delete every record filed under '%s'?", key);
+            char p[AIS_KEY_MAX + 128];
+            long nprev = 0;              /* how many the manifest counted */
+            /* The old spelling reads like "remove the tag", which is the one thing
+             * it does not do. Kept working forever; just say so once per use. */
+            if (strcmp(cmd_spelling, "del-key") == 0)
+                fprintf(stderr, "ais: --del-key is now --del-under "
+                                "(it deletes the records, not the tag); "
+                                "--untag removes just the tag\n");
+            if (key == NULL) die("--%s needs a KEY", cmd_spelling);
+            /* SHOW what is about to go before asking. This deletes whole records,
+             * not just the key, and a record filed under several keys disappears
+             * from all of them -- so a bare "are you sure?" is not enough to
+             * consent to. Skipped under -y, which is the caller saying they know. */
+            if (!assume_yes) {
+                char *k1[1];
+                struct delkey_preview pv;
+                k1[0] = (char *)key;
+                /* Name the DIFFERENCE, not just the danger. "--del-under" still
+                 * reads like "remove the tag", and that is the one thing it does
+                 * not do: the records themselves go, from every key they are filed
+                 * under. A user who meant to untag needs to be told before
+                 * answering, and told what to type instead. */
+                fprintf(stderr, "--%s deletes RECORDS, not the tag.\n\n"
+                                "Filed under '%s' -- all of these will be deleted, and\n"
+                                "each disappears from every other key it is filed under too:\n\n",
+                        cmd_spelling, key);
+                pv.a = &a;
+                pv.shown = 0;
+                if (ais_get(&a, k1, 1, AIS_AND, delkey_show_cb, &pv) < 0)
+                    die("--%s: cannot read '%s'", cmd_spelling, key);
+                nprev = pv.shown;
+                if (nprev == 0) {
+                    fprintf(stderr, "nothing is filed under '%s'\n", key);
+                    break;
+                }
+                if (pv.shown > DELKEY_PREVIEW_MAX)
+                    fprintf(stderr, "  ... and %ld more. To see them all: ais %s\n",
+                            pv.shown - DELKEY_PREVIEW_MAX, key);
+                fprintf(stderr,
+                    "\nTo remove the tag and KEEP the records: ais --untag %s\n\n",
+                    key);
+            }
+            /* The count is repeated here because with a long list the header has
+             * scrolled off; the prompt is the only line guaranteed to be on screen. */
+            snprintf(p, sizeof(p), "Permanently delete %s %ld record%s filed under '%s'?",
+                     nprev == 1 ? "this" : "these", nprev, nprev == 1 ? "" : "s", key);
             if (assume_yes || confirm(p)) {
                 char *k1[1];
                 long n;
@@ -536,14 +743,14 @@ int main(int argc, char **argv)
                 n = ais_del_key(&a, key);
                 if (n < 0) die("del-key failed");
                 printf("deleted %ld\n", n);
-            } else fprintf(stderr, "aborted\n");
+            } else { fprintf(stderr, "aborted\n"); ais_close(&a); return 1; }
             break;
         }
         case CMD_COMPACT:
             if (assume_yes ||
                 confirm("Compaction permanently discards deleted records. Proceed?")) {
                 if (ais_compact(&a) != 0) die("compact failed");
-            } else fprintf(stderr, "aborted\n");
+            } else { fprintf(stderr, "aborted\n"); ais_close(&a); return 1; }
             break;
         case CMD_SERVE: {
             int port = (optind < argc) ? atoi(argv[optind]) : 8765;

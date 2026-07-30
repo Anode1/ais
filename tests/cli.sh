@@ -193,9 +193,14 @@ aid=$("$AIS" -f "$AD" -v firstlink note)
 out=$("$AIS" -f "$AD" note)
 ok "add: original value still present"     "firstlink"  "$out"
 ok "add: added value attached to record"   "secondlink" "$out"
+"$AIS" -f "$AD" -v third other >/dev/null
+"$AIS" -f "$AD" -y --del 2 >/dev/null
 st=$("$AIS" -f "$AD" --stats)
-if [ -n "$st" ]; then pass=$((pass + 1)); echo "  ok   stats: prints a summary"
-else fail=$((fail + 1)); echo "  FAIL stats: empty"; fi
+# assert the NUMBERS, not merely that something was printed: 1 record live (the
+# two links count as one), 1 deleted, and 2 keys still filed until compaction.
+ok "stats: counts the live records" "records: 1$" "$st"
+ok "stats: counts the deleted"      "deleted: 1$" "$st"
+ok "stats: counts the keys"         "keys: 2$"    "$st"
 rm -rf "$AD"
 
 # 13. --del-key tombstones every record under a key (-y skips the prompt)
@@ -209,8 +214,11 @@ rm -rf "$DK"
 # 14. --compact reclaims space: a deleted record physically leaves the store
 CP=$(mktemp -d "${TMPDIR:-/tmp}/ais_cp.XXXXXX") || exit 2
 cid=$("$AIS" -f "$CP" -v doomed scratch)
-"$AIS" -f "$CP" -y --del "$cid" >/dev/null
+"$AIS" -f "$CP" -v survivor scratch >/dev/null   # without this, a store wiped to
+"$AIS" -f "$CP" -y --del "$cid" >/dev/null       # nothing also passed the test
 "$AIS" -f "$CP" -y --compact >/dev/null
+ok "compact: the live record is still there" "survivor" "$(cat "$CP"/store)"
+ok "compact: and still answers by key"       "survivor" "$("$AIS" -f "$CP" scratch)"
 case "$(cat "$CP"/store)" in
     *doomed*) fail=$((fail + 1)); echo "  FAIL compact: deleted value still in store" ;;
     *)        pass=$((pass + 1)); echo "  ok   compact: deleted record physically gone" ;;
@@ -369,6 +377,378 @@ ok      "detach: the record itself survives"                  "DETVAL"  "$("$AIS
 ok      "detach: the '|' record survives too"                 "PIPEVAL" "$("$AIS" -f "$DT" --find PIPEVAL)"
 rm -rf "$DT"
 
+# 17i. --del-key SHOWS what it will destroy before asking, and says plainly that it
+#      deletes the RECORDS, not the tag -- the command's name reads like "untag",
+#      which is the one thing it does not do. Answering no must change nothing.
+DK=$(mktemp -d "${TMPDIR:-/tmp}/ais_delkey.XXXXXX") || exit 2
+"$AIS" -f "$DK" -v "http://keep-a" proj alpha >/dev/null
+"$AIS" -f "$DK" -v "http://keep-b" proj beta  >/dev/null
+"$AIS" -f "$DK" -v "http://other"  unrelated  >/dev/null
+# the answer comes from AIS_TTY, the same seam --import-interactively uses: the
+# prompt must NOT be answerable by redirected data on stdin.
+DKT="$DK/answer"; printf 'n\n' > "$DKT"
+prev=$(AIS_TTY="$DKT" "$AIS" -f "$DK" --del-key proj 2>&1)
+ok      "del-key: names the key it would empty"    "Filed under 'proj'" "$prev"
+ok      "del-key: says records, not the tag"       "deletes RECORDS, not the tag" "$prev"
+ok      "del-key: lists what would go"             "http://keep-a" "$prev"
+# the remedy must be the command that EXISTS for this, not a hand-rolled
+# --update detach the user has to compose per record.
+ok      "del-key: offers the non-destructive path" "ais \-\-untag proj" "$prev"
+ok      "del-key: warns about the other keys"      "every other key" "$prev"
+ok      "del-key: the prompt repeats the count"    "these 2 record" "$prev"
+okeq    "del-key: declining deletes nothing"       "2" "$("$AIS" -f "$DK" proj | grep -c .)"
+# AIS_TTY is a TEST seam. If it is left set in an environment, a destructive
+# command must not be confirmed silently by a file -- it has to say who answered.
+ok      "del-key: says the answer came from AIS_TTY" "reading the answer from AIS_TTY" "$prev"
+AIS_TTY="$DKT" "$AIS" -f "$DK" --del-key proj >/dev/null 2>&1
+okeq    "del-key: declining exits non-zero"        "1" "$?"
+# a redirected data file must NOT be able to answer the prompt
+printf 'yes I really do\n' > "$DK/data"
+AIS_TTY=/dev/null "$AIS" -f "$DK" --del-key proj < "$DK/data" >/dev/null 2>&1
+okeq    "del-key: an empty terminal answer exits 2" "2" "$?"
+# The seam is that the answer comes from the TERMINAL, never stdin. /dev/null only
+# proves the EOF branch, so pit the two against each other: with the terminal
+# saying no and stdin saying yes, the delete must NOT happen (and vice versa).
+printf 'y\n' > "$DK/stdin_yes"
+printf 'n\n' > "$DK/tty_no"
+AIS_TTY="$DK/tty_no" "$AIS" -f "$DK" --del-key proj < "$DK/stdin_yes" >/dev/null 2>&1
+okeq    "del-key: a 'y' on stdin cannot confirm"   "2" "$("$AIS" -f "$DK" proj | grep -c .)"
+printf 'n\n' > "$DK/stdin_no"
+printf 'y\n' > "$DK/tty_yes"
+AIS_TTY="$DK/tty_yes" "$AIS" -f "$DK" --del-key proj < "$DK/stdin_no" >/dev/null 2>&1
+okempty "del-key: the TERMINAL answer is the one that counts" "$("$AIS" -f "$DK" proj)"
+"$AIS" -f "$DK" -v "http://keep-a" proj alpha >/dev/null   # restore the fixture
+"$AIS" -f "$DK" -v "http://keep-b" proj beta  >/dev/null
+okeq    "del-key: and nothing was deleted"         "2" "$("$AIS" -f "$DK" proj | grep -c .)"
+# only a real y/yes confirms: "yolo" must not
+printf 'yolo\n' > "$DKT"
+AIS_TTY="$DKT" "$AIS" -f "$DK" --del-key proj >/dev/null 2>&1
+okeq    "del-key: 'yolo' does not confirm"         "2" "$("$AIS" -f "$DK" proj | grep -c .)"
+ok      "del-key: the unrelated record is untouched" "http://other" "$("$AIS" -f "$DK" unrelated)"
+# an empty key says so and asks nothing
+none=$(printf 'n\n' | "$AIS" -f "$DK" --del-key nosuchkey 2>&1)
+ok      "del-key: an unused key asks nothing"      "nothing is filed" "$none"
+# and -y still skips the preview entirely, for scripts
+"$AIS" -f "$DK" -y --del-key proj >/dev/null 2>&1
+okempty "del-key: -y deletes without prompting"    "$("$AIS" -f "$DK" proj)"
+ok      "del-key: -y left other records alone"     "http://other" "$("$AIS" -f "$DK" unrelated)"
+rm -rf "$DK"
+
+# 17i-bis. The manifest's SHAPE, not just its wording. 17i asserts the text with
+#      a 2-record single-link fixture, which cannot see any of: the 10-record cap,
+#      per-value truncation, the multi-link summary, or -- the one the code calls
+#      the most dangerous state -- the manifest going to stdout instead of stderr.
+PV=$(mktemp -d "${TMPDIR:-/tmp}/ais_preview.XXXXXX") || exit 2
+printf 'n\n' > "$PV/ans"
+LONG="http://example.com/$(printf 'x%.0s' 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 \
+                                          1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 \
+                                          1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 \
+                                          1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 \
+                                          1 2 3 4 5 6 7 8 9 0)"
+"$AIS" -f "$PV" -v "$LONG" pk >/dev/null
+"$AIS" -f "$PV" -v http://link-a pk >/dev/null
+"$AIS" -f "$PV" --add 2 -v http://link-b >/dev/null    # id 2 holds TWO links
+i=1; while [ $i -le 12 ]; do "$AIS" -f "$PV" -v "http://p$i" pk >/dev/null; i=$((i+1)); done
+perr=$(AIS_TTY="$PV/ans" "$AIS" -f "$PV" --del-under pk 2>&1 >/dev/null)
+pout=$(AIS_TTY="$PV/ans" "$AIS" -f "$PV" --del-under pk 2>/dev/null)
+# `ais --del-under k > file` must not show the user an EMPTY kill-list
+okempty "del-under: the manifest never goes to stdout" "$pout"
+ok      "del-under: the manifest goes to stderr"    "http://link-a" "$perr"
+ok      "del-under: a multi-link record says how many links go" \
+        "(+1 more link on this record)" "$perr"
+ok      "del-under: the manifest caps at 10"        "and 4 more" "$perr"
+okeq    "del-under: exactly 10 record lines"        "10" \
+        "$(printf '%s\n' "$perr" | grep -c '^  [0-9]*|')"
+ok      "del-under: a long value is truncated"      "xxx\.\.\.$" "$perr"
+rm -rf "$PV"
+
+# 17i-ter. The prompt's own numbers, and its singular form. 17i/17j assert the
+#      RESULT line but never that the prompt agreed with it.
+PS=$(mktemp -d "${TMPDIR:-/tmp}/ais_prompt.XXXXXX") || exit 2
+printf 'n\n' > "$PS/ans"
+"$AIS" -f "$PS" -v s1 sk >/dev/null
+one=$(AIS_TTY="$PS/ans" "$AIS" -f "$PS" --del-under sk 2>&1)
+ok      "del-under: singular prompt"     "this 1 record filed under" "$one"
+"$AIS" -f "$PS" -v s2 sk >/dev/null
+"$AIS" -f "$PS" -v s3 sk >/dev/null
+two=$(AIS_TTY="$PS/ans" "$AIS" -f "$PS" --del-under sk 2>&1)
+ok      "del-under: plural prompt states the count" "these 3 records filed under" "$two"
+utp=$(AIS_TTY="$PS/ans" "$AIS" -f "$PS" --untag sk 2>&1)
+ok      "untag: the prompt states the count"        "from 3 records" "$utp"
+rm -rf "$PS"
+
+# 17i-quater. confirm() accepts exactly y/Y/yes/YES and nothing else. 17i only
+#      ever feeds it lowercase 'y' and 'yolo', so the other forms were unpinned.
+CF=$(mktemp -d "${TMPDIR:-/tmp}/ais_confirm.XXXXXX") || exit 2
+for ans in Y yes YES; do
+    "$AIS" -f "$CF" -v "cv$ans" cfk >/dev/null
+    printf '%s\n' "$ans" > "$CF/a"
+    AIS_TTY="$CF/a" "$AIS" -f "$CF" --del-under cfk >/dev/null 2>&1
+    okempty "confirm: '$ans' confirms" "$("$AIS" -f "$CF" cfk)"
+done
+"$AIS" -f "$CF" -v cvspace cfk >/dev/null
+printf 'y \n' > "$CF/a"                      # a trailing space is not consent
+AIS_TTY="$CF/a" "$AIS" -f "$CF" --del-under cfk >/dev/null 2>&1
+ok      "confirm: 'y ' does NOT confirm"  "cvspace" "$("$AIS" -f "$CF" cfk)"
+# the two exit-2 paths must stay distinguishable: no terminal vs no answer
+noterm=$(AIS_TTY=/nonexistent/path "$AIS" -f "$CF" --del-under cfk 2>&1); nrc=$?
+ok      "confirm: an unopenable terminal says so" "no terminal to confirm on" "$noterm"
+okeq    "confirm: and exits 2"            "2" "$nrc"
+rm -rf "$CF"
+
+# 17i-quinquies. --del-under shreds encrypted blobs before tombstoning, the same
+#      promise --del makes: the ciphertext must not outlive the record. The blob
+#      reference is written by hand so this pins the WIRING (which is what a
+#      regression drops) without needing the crypto module to be built.
+SH=$(mktemp -d "${TMPDIR:-/tmp}/ais_shred.XXXXXX") || exit 2
+mkdir -p "$SH/blobs"
+printf 'ciphertext-bytes\n' > "$SH/blobs/s1.aisc"
+printf 'ciphertext-bytes\n' > "$SH/blobs/s2.aisc"
+"$AIS" -f "$SH" -v 'aisc:@blobs/s1.aisc' shk >/dev/null
+"$AIS" -f "$SH" -v 'aisc:@blobs/s2.aisc' other >/dev/null
+"$AIS" -f "$SH" -y --del-under shk >/dev/null 2>&1
+okeq    "del-under: the deleted record's blob was shredded" "0" \
+        "$([ -e "$SH/blobs/s1.aisc" ] && echo 1 || echo 0)"
+okeq    "del-under: an unrelated record's blob is untouched" "1" \
+        "$([ -e "$SH/blobs/s2.aisc" ] && echo 1 || echo 0)"
+"$AIS" -f "$SH" -y --del 2 >/dev/null 2>&1
+okeq    "del: shreds the blob too (the same promise)"  "0" \
+        "$([ -e "$SH/blobs/s2.aisc" ] && echo 1 || echo 0)"
+rm -rf "$SH"
+
+# 17j. --untag removes the TAG and keeps the records: the non-destructive
+#      counterpart, and the thing most people mean by "delete a key". A record
+#      filed elsewhere stays reachable there, and the removal survives compaction
+#      (it is a ktomb entry, exactly like a single --update detach).
+UT=$(mktemp -d "${TMPDIR:-/tmp}/ais_untag.XXXXXX") || exit 2
+UTT="$UT/answer"; printf 'y\n' > "$UTT"
+"$AIS" -f "$UT" -v "http://u-one" proj deploy >/dev/null
+"$AIS" -f "$UT" -v "http://u-two" proj s3     >/dev/null
+"$AIS" -f "$UT" -v "http://u-solo" proj       >/dev/null
+out=$(AIS_TTY="$UTT" "$AIS" -f "$UT" --untag proj 2>&1)
+ok      "untag: says the records are kept"    "records are kept" "$out"
+ok      "untag: reports how many"             "untagged 3$"      "$out"
+okempty "untag: the tag is gone"              "$("$AIS" -f "$UT" proj)"
+ok      "untag: a record keeps its other tags" "http://u-one" "$("$AIS" -f "$UT" deploy)"
+ok      "untag: and the other one too"         "http://u-two" "$("$AIS" -f "$UT" s3)"
+ok      "untag: a record with no other tag survives" "http://u-solo" "$("$AIS" -f "$UT" --find u-solo)"
+"$AIS" -f "$UT" -y --compact >/dev/null
+okempty "untag: still gone after compaction"  "$("$AIS" -f "$UT" proj)"
+ok      "untag: records still there after compaction" "http://u-one" "$("$AIS" -f "$UT" deploy)"
+# re-tagging brings it back: untag is reversible, unlike --del-under
+"$AIS" -f "$UT" -v "http://u-one" proj >/dev/null
+ok      "untag: re-tagging restores it"       "http://u-one" "$("$AIS" -f "$UT" proj)"
+printf 'n\n' > "$UTT"
+AIS_TTY="$UTT" "$AIS" -f "$UT" --untag deploy >/dev/null 2>&1
+okeq    "untag: declining exits non-zero"     "1" "$?"
+ok      "untag: declining changes nothing"    "http://u-one" "$("$AIS" -f "$UT" deploy)"
+none=$(AIS_TTY="$UTT" "$AIS" -f "$UT" --untag nosuch 2>&1)
+ok      "untag: an unused key asks nothing"   "nothing is filed" "$none"
+rm -rf "$UT"
+
+# 17j-bis. A posting still lists ids whose records are TOMBSTONED (removal is
+#      physical only at compaction). Treating those as a failure aborted the untag
+#      part-way and then failed identically on every retry, so any index that had
+#      ever seen a delete could not untag at all. Also crosses the 64-id batch.
+UD=$(mktemp -d "${TMPDIR:-/tmp}/ais_untagdel.XXXXXX") || exit 2
+"$AIS" -f "$UD" -v "http://d-one" dproj keepme >/dev/null
+"$AIS" -f "$UD" -v "http://d-two" dproj >/dev/null
+"$AIS" -f "$UD" -v "http://d-three" dproj >/dev/null
+"$AIS" -f "$UD" -y --del 2 >/dev/null
+timeout 20 "$AIS" -f "$UD" -y --untag dproj >/dev/null 2>&1
+okeq    "untag: a deleted record does not block the untag" "0" "$?"
+okempty "untag: the tag is fully gone despite the tombstone" "$("$AIS" -f "$UD" dproj)"
+ok      "untag: the live records survived"    "http://d-one"   "$("$AIS" -f "$UD" keepme)"
+ok      "untag: the last record survived too" "http://d-three" "$("$AIS" -f "$UD" --find d-three)"
+# More than one batch of 64, with deletions ON the boundary. 3 records already
+# exist, so bulkkey's posting holds ids 4..83 and the first batch ends at id 67 --
+# ids 64/65/66 sit at posting positions 61/62/63, comfortably INSIDE batch one and
+# straddling nothing. 67 and 68 are the last of batch one and the first of batch two.
+i=1; while [ $i -le 80 ]; do "$AIS" -f "$UD" -v "http://bulk$i" bulkkey >/dev/null; i=$((i+1)); done
+for d in 67 68; do "$AIS" -f "$UD" -y --del "$d" >/dev/null 2>&1; done
+bulk=$(timeout 30 "$AIS" -f "$UD" -y --untag bulkkey 2>&1); brc=$?
+okeq    "untag: works across the batch boundary" "0" "$brc"
+# the count is asserted too: discarding it hid any miscount in the second batch
+ok      "untag: counts every live record across both batches" "untagged 78$" "$bulk"
+okempty "untag: nothing left under the bulk key" "$("$AIS" -f "$UD" bulkkey)"
+rm -rf "$UD"
+
+# 17j-ter. --untag can leave a record with NO keys, and that record must survive
+#      the documented backup pipeline. `--dump | --import` used to drop exactly
+#      those lines, so restoring a backup silently lost them.
+KL=$(mktemp -d "${TMPDIR:-/tmp}/ais_keyless.XXXXXX") || exit 2
+KR=$(mktemp -d "${TMPDIR:-/tmp}/ais_keyless2.XXXXXX") || exit 2
+"$AIS" -f "$KL" -v "http://solo" onlykey >/dev/null
+"$AIS" -f "$KL" -v "http://kept" ka kb   >/dev/null
+"$AIS" -f "$KL" -y --untag onlykey >/dev/null 2>&1
+ok      "keyless: untag leaves the record in the dump" "http://solo" "$("$AIS" -f "$KL" --dump)"
+"$AIS" -f "$KL" --dump | "$AIS" -f "$KR" --import >/dev/null 2>&1
+ok      "keyless: it survives dump|import"    "http://solo" "$("$AIS" -f "$KR" --dump)"
+ok      "keyless: the keyed record too"       "http://kept" "$("$AIS" -f "$KR" ka)"
+okeq    "keyless: both records restored"      "2" "$("$AIS" -f "$KR" --dump | grep -c .)"
+# the id prefix is recognised only when field 1 is a BARE INTEGER: without that
+# check a hand-written "key|value|more" line loses its key to the id-stripper
+mk=$(printf 'mykey|http://a|b\n' | "$AIS" -f "$KR" --import 2>&1)
+ok      "keyless: a hand-written first field is a KEY, not an id" "mykey" \
+        "$("$AIS" -f "$KR" --keys)"
+ok      "keyless: and its value kept both bars"  "http://a|b" "$("$AIS" -f "$KR" mykey)"
+# a HAND-WRITTEN keyless line has no id to vouch for it and is still a typo
+typo=$(printf '|http://typo\n' | "$AIS" -f "$KR" --import 2>&1)
+ok      "keyless: a hand-written empty key is still refused" "empty keys, skipped" "$typo"
+okeq    "keyless: and nothing was added"      "3" "$("$AIS" -f "$KR" --dump | grep -c .)"
+rm -rf "$KL" "$KR"
+
+# 17j-quater. A key with whitespace HUNG forever and corrupted the store: "-a b"
+#      tokenised into a detach of 'a' and an ATTACH of 'b', while the posting being
+#      polled was 'a_b' and so never shrank. The key is folded the way the posting
+#      names it, and the walk advances a cursor so no id can spin the loop.
+WS=$(mktemp -d "${TMPDIR:-/tmp}/ais_wskey.XXXXXX") || exit 2
+"$AIS" -f "$WS" -v "http://w1" a_b >/dev/null
+"$AIS" -f "$WS" -v "http://w2" a_b >/dev/null
+wout=$(timeout 20 "$AIS" -f "$WS" -y --untag "a b" 2>&1); wrc=$?
+okeq    "untag: a whitespace key terminates"  "0" "$wrc"
+ok      "untag: it folds to the posting's name" "untagged 2$" "$wout"
+okempty "untag: the folded key is gone"       "$("$AIS" -f "$WS" a_b)"
+okeq    "untag: no bogus key was attached"    "0" "$("$AIS" -f "$WS" --keys | grep -c .)"
+ok      "untag: the records are intact"       "http://w1" "$("$AIS" -f "$WS" --find w1)"
+rm -rf "$WS"
+
+# 17j-quinquies. Untagging a TOMBSTONED record must still RECORD the detach.
+#      Pruning the posting alone left the key in the authoritative keys field with
+#      nothing masking it, so resurrecting the record (a re-put of the same value,
+#      or a peer's newer A|) brought the tag back at the next compaction.
+RS=$(mktemp -d "${TMPDIR:-/tmp}/ais_resurrect.XXXXXX") || exit 2
+"$AIS" -f "$RS" -v rv1 tg c1 >/dev/null
+"$AIS" -f "$RS" -v rv2 tg c2 >/dev/null
+"$AIS" -f "$RS" -y --del 2 >/dev/null
+timeout 20 "$AIS" -f "$RS" -y --untag tg >/dev/null 2>&1
+"$AIS" -f "$RS" -v rv2 zz >/dev/null                 # resurrect the deleted record
+"$AIS" -f "$RS" -y --compact >/dev/null
+okeq    "untag: the tag does not come back on resurrect" "0" "$("$AIS" -f "$RS" --keys | grep -c '^tg$')"
+okempty "untag: and nothing answers under it"          "$("$AIS" -f "$RS" tg)"
+ok      "untag: the resurrected record is still there" "rv2" "$("$AIS" -f "$RS" zz)"
+rm -rf "$RS"
+
+# 17j-sexies. A posting can name an id with NO store line (a hand-edited index, or
+#      a store restored without its idx/). Failing there aborted the untag PART WAY
+#      and then failed identically on every retry, wedging the key forever.
+GH=$(mktemp -d "${TMPDIR:-/tmp}/ais_ghost.XXXXXX") || exit 2
+"$AIS" -f "$GH" -v g1 hk >/dev/null
+"$AIS" -f "$GH" -v g2 hk >/dev/null
+"$AIS" -f "$GH" -v g3 hk >/dev/null
+gpost=$(ls "$GH"/idx/*/hk)
+echo 999 >> "$gpost"                                  # an id that was never stored
+timeout 20 "$AIS" -f "$GH" -y --untag hk >/dev/null 2>&1
+okeq    "untag: a ghost posting entry does not wedge the key" "0" "$?"
+okempty "untag: the key is fully gone"                "$("$AIS" -f "$GH" hk)"
+okeq    "untag: every real record was untagged"       "3" "$("$AIS" -f "$GH" --dump | grep -c .)"
+rm -rf "$GH"
+
+# 17j-sexies-bis. A posting can also hold a NON-POSITIVE id (a hand edit, or a
+#      truncated write). The collection cursor starts below every id so those are
+#      pruned; starting it at 0 skipped them and left the key alive forever.
+NP=$(mktemp -d "${TMPDIR:-/tmp}/ais_nonpos.XXXXXX") || exit 2
+"$AIS" -f "$NP" -v n1 zk >/dev/null
+"$AIS" -f "$NP" -v n2 zk >/dev/null
+npost=$(ls "$NP"/idx/*/zk)          # dash does not glob a redirection TARGET
+printf '0\n-1\n' >> "$npost"
+timeout 20 "$AIS" -f "$NP" -y --untag zk >/dev/null 2>&1
+okeq    "untag: a non-positive posting id does not leave the key alive" \
+        "0" "$("$AIS" -f "$NP" --keys | grep -c '^zk$')"
+okempty "untag: nothing answers under it"     "$("$AIS" -f "$NP" zk)"
+rm -rf "$NP"
+
+# 17j-sexies-ter. A posting duplicated by a hand edit must be counted ONCE: the
+#      prompt counts live records, so a double count made the two disagree.
+DP=$(mktemp -d "${TMPDIR:-/tmp}/ais_duppost.XXXXXX") || exit 2
+"$AIS" -f "$DP" -v d1 dk >/dev/null
+"$AIS" -f "$DP" -v d2 dk >/dev/null
+dpost=$(ls "$DP"/idx/*/dk)
+printf '1\n' >> "$dpost"
+ok      "untag: a duplicated posting entry is counted once" "untagged 2$" \
+        "$(timeout 20 "$AIS" -f "$DP" -y --untag dk 2>&1)"
+rm -rf "$DP"
+
+# 17j-septies. --del-under RE-STAMPS an already-deleted record (so "delete
+#      everything under this key" holds as of now, and a peer add dated between the
+#      two deletes stays suppressed) but does NOT count it -- counting it made the
+#      prompt say one number and the result line another.
+RC=$(mktemp -d "${TMPDIR:-/tmp}/ais_restamp.XXXXXX") || exit 2
+"$AIS" -f "$RC" -v c1 ck >/dev/null
+"$AIS" -f "$RC" -v c2 ck >/dev/null
+"$AIS" -f "$RC" -y --del 1 >/dev/null
+ok      "del-under: counts only the LIVE records"     "deleted 1$" \
+        "$("$AIS" -f "$RC" -y --del-under ck 2>&1)"
+okeq    "del-under: the deleted one was re-stamped"   "2" "$(grep -c '^1|' "$RC"/tomb)"
+rm -rf "$RC"
+
+# 17j-octies. --del on an already-deleted id must not offer to delete it again:
+#      ais_record reads the store, which still holds tombstoned lines.
+DD=$(mktemp -d "${TMPDIR:-/tmp}/ais_deldead.XXXXXX") || exit 2
+"$AIS" -f "$DD" -v dv1 dk >/dev/null
+"$AIS" -f "$DD" -y --del 1 >/dev/null
+printf 'y\n' > "$DD/ans"
+dead=$(AIS_TTY="$DD/ans" "$AIS" -f "$DD" --del 1 2>&1); drc=$?
+ok      "del: an already-deleted id says so"          "no live record 1" "$dead"
+okeq    "del: and exits non-zero without asking"      "1" "$drc"
+okeq    "del: no second tombstone was appended"       "1" "$(grep -c '^1|' "$DD"/tomb)"
+rm -rf "$DD"
+
+# 17j-nonies. The small refusals and notices, each of which a regression can drop
+#      silently: a missing KEY must not be a no-op success, declining --compact must
+#      not report success, and an index with sync state must be warned that --set
+#      does not propagate.
+MS=$(mktemp -d "${TMPDIR:-/tmp}/ais_misc.XXXXXX") || exit 2
+"$AIS" -f "$MS" -v m1 mk >/dev/null
+"$AIS" -f "$MS" --untag >/dev/null 2>&1
+okeq    "untag: a missing KEY is an error, not a no-op" "1" "$?"
+"$AIS" -f "$MS" --del-under >/dev/null 2>&1
+okeq    "del-under: a missing KEY is an error too"      "1" "$?"
+printf 'n\n' > "$MS/ans"
+AIS_TTY="$MS/ans" "$AIS" -f "$MS" --compact >/dev/null 2>&1
+okeq    "compact: declining exits non-zero"             "1" "$?"
+ok      "compact: and the record is still there"        "m1" "$("$AIS" -f "$MS" mk)"
+# --set is LOCAL ONLY: it has no merge verb, so a synced index must be told
+printf 'peer-state\n' > "$MS/syncid"
+ok      "set: warns when the index syncs"  "does not propagate" \
+        "$("$AIS" -f "$MS" --set 1 -v m1 -v m2 2>&1)"
+rm -rf "$MS"
+
+# 17k. --del-under is the clear name for --del-key; the old spelling keeps working
+#      and says so. --del previews the record instead of just its id.
+AL=$(mktemp -d "${TMPDIR:-/tmp}/ais_alias.XXXXXX") || exit 2
+ALT="$AL/answer"; printf 'n\n' > "$ALT"
+"$AIS" -f "$AL" -v "http://alias-me" ak >/dev/null
+und=$(AIS_TTY="$ALT" "$AIS" -f "$AL" --del-under ak 2>&1)
+ok      "del-under: the new name works"       "deletes RECORDS" "$und"
+old=$(AIS_TTY="$ALT" "$AIS" -f "$AL" --del-key ak 2>&1)
+ok      "del-key: still works as an alias"    "deletes RECORDS" "$old"
+ok      "del-key: points at the new name"     "now --del-under" "$old"
+ok      "del-key: points at --untag too"      "untag removes just the tag" "$old"
+hlp=$("$AIS" --help 2>&1)
+ok      "help: lists --untag"                 "\-\-untag KEY" "$hlp"
+ok      "help: lists --del-under"             "\-\-del-under KEY" "$hlp"
+# the SAFE one is listed first: the eye should land on the reversible option
+okeq    "help: the safe command is listed first" "1" \
+        "$(printf '%s\n' "$hlp" | grep -n -- '--untag KEY\|--del-under KEY' | head -1 | grep -c 'untag')"
+okeq    "del-under: does NOT print the alias notice" "0" "$(printf '%s' "$und" | grep -c 'now --del-under')"
+okeq    "del-under: reports its own name"     "1" "$(printf '%s' "$und" | grep -c -- '--del-under deletes RECORDS')"
+# scanning argv for the literal "--del-key" got this wrong in both directions:
+# it fired on a KEY that happened to be spelled that way, and it stayed silent
+# for getopt's own unambiguous abbreviation.
+abbr=$(AIS_TTY="$ALT" "$AIS" -f "$AL" --del-k ak 2>&1)
+ok      "del-key: the abbreviation gets the notice too" "now --del-under" "$abbr"
+lit=$(AIS_TTY="$ALT" "$AIS" -f "$AL" --del-under -- "--del-key" 2>&1)
+okeq    "del-under: a KEY named --del-key is not the alias" "0" "$(printf '%s' "$lit" | grep -c 'now --del-under')"
+# the positive control: grep -c 0 also passes on empty output from a crash
+ok      "del-under: and it really was used as a KEY" "under '\-\-del-key'" "$lit"
+
+dl=$(AIS_TTY="$ALT" "$AIS" -f "$AL" --del 1 2>&1)
+ok      "del: previews the record, not just the id" "http://alias-me" "$dl"
+ok      "del: still asks"                     "Permanently delete record 1" "$dl"
+ok      "del: declining kept it"              "http://alias-me" "$("$AIS" -f "$AL" ak)"
+rm -rf "$AL"
+
 # 17. saved default index persists in ~/.ais/config ACROSS PROCESSES. Each ais
 #     call is a fresh process, so reading the path back -- and resolving --where
 #     to it from a dir with no local .ais -- proves it was written to disk, not
@@ -376,11 +756,29 @@ rm -rf "$DT"
 #     --default writes the real ~/.ais/config (home is the OS account dir, not a
 #     redirectable env var), so snapshot it and restore on exit.
 CFG="$HOME/.ais/config"
+# A run killed with SIGKILL cannot restore anything, so clear a leftover redirect
+# before starting. Only ever removes a line naming a directory under /tmp that no
+# longer exists -- a saved default pointing there is unusable however it got there.
+if [ -f "$CFG" ]; then
+    stale=$(sed -n 's/^index = \(\/tmp\/.*\)$/\1/p' "$CFG")
+    if [ -n "$stale" ] && [ ! -d "$stale" ]; then
+        # `|| true`: grep exits 1 when it filters EVERY line, which is exactly the
+        # single-line case this repairs -- the && form silently did nothing.
+        grep -vF "index = $stale" "$CFG" > "$CFG.clean" || true
+        mv "$CFG.clean" "$CFG"
+        echo "  note cleared a stale index redirect left by a killed run: $stale"
+    fi
+fi
 CFGBAK="$DIR/config.orig"; HADCFG=no
 [ -f "$CFG" ] && { cp "$CFG" "$CFGBAK"; HADCFG=yes; }
 restore_cfg() { if [ "$HADCFG" = yes ]; then cp "$CFGBAK" "$CFG"; else rm -f "$CFG"; fi; }
-# restore BEFORE removing $DIR -- the backup (CFGBAK) lives inside it.
+# restore BEFORE removing $DIR -- the backup (CFGBAK) lives inside it. Also on a
+# SIGNAL, not just a clean exit: a run killed here (a CI timeout, a ^C) used to
+# leave the developer's REAL config pointing at a temp dir this suite then
+# deleted, so every later `ais` call failed to open its index.
 trap 'restore_cfg; rm -rf "$DIR"' EXIT
+trap 'restore_cfg; rm -rf "$DIR"; exit 130' INT
+trap 'restore_cfg; rm -rf "$DIR"; exit 143' TERM HUP
 
 TGT="$DIR/saved-default"
 "$AIS" --default "$TGT" >/dev/null                              # save (process A)

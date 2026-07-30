@@ -63,7 +63,17 @@ int  ais_update(ais *a, long id, const char *keys);
  * line unchanged (legacy no-ts lines stay legacy), then the stale "off"
  * accelerator is dropped so it rebuilds lazily. Returns 0 on success, or -1 on
  * an unknown id, a value that does not match OLD_VALUE (the store is left
- * untouched), or any IO error. */
+ * untouched), or any IO error. Refuses a deleted id, and refuses a NEW_VALUE that
+ * another record already holds (a value is identity here: put is idempotent by
+ * value scan and tombstones are hash-stamped, so two records sharing one value
+ * make a peer collapse them and a later delete of either take both).
+ *
+ * LOCAL ONLY -- it has no merge verb. The stream carries A| adds, D| deletes and
+ * K| key-detaches; nothing retires a replaced value, so a synced peer keeps the old
+ * one and feeds it back, leaving BOTH values on BOTH devices. The CLI warns when
+ * the index has sync state. Giving this a wire representation is a protocol change
+ * (a value-retired fact that propagates without suppressing the record locally, so
+ * NOT the id-keyed tomb) and is the main open item for --set. */
 int  ais_set_value(ais *a, long id, const char *old_value, const char *new_value);
 
 /* Tombstone a record. Idempotent (deleting an absent id is a no-op).
@@ -72,9 +82,32 @@ int  ais_del(ais *a, long id);
 
 /* Tombstone every record currently filed under KEY, by streaming the key's
  * posting list and tombstoning each id (the same mechanism ais_del uses).
- * Idempotent; a key with no records is a no-op. Returns the number of records
- * tombstoned (>= 0), or -1 on error. */
+ * Idempotent; a key with no records is a no-op. A record already tombstoned is
+ * re-stamped (so the deletion holds as of now against a peer add dated in
+ * between) but NOT counted -- the count is live records only, so a caller's
+ * preview and this return value agree. Returns the number of records tombstoned
+ * (>= 0), or -1 on error. */
 int  ais_del_key(ais *a, const char *key);
+
+/* Detach KEY from every record filed under it, destroying NOTHING: each record
+ * keeps its id, value and other keys, and simply stops being filed under KEY.
+ * The non-destructive counterpart to ais_del_key -- the operation people usually
+ * mean when they reach for "delete a key". Reversible by re-attaching (the same
+ * ktomb clearing ais_update does), and it propagates to peers as a K| line.
+ * Idempotent; a key with no records is a no-op. KEY is folded the way the posting
+ * names it (key_encode), so "a b" and "a_b" address the same tag; NULL or "" is
+ * rejected. Already-tombstoned records under the key are skipped, not counted.
+ * Returns the number of records untagged (>= 0), or -1 on error.
+ *
+ * A record already tombstoned keeps no tag to lose, but its detach is still
+ * recorded, or resurrecting it would bring the key back at the next compaction;
+ * a posting entry naming an id with no store line at all is simply pruned.
+ *
+ * COST is quadratic in the number of records under KEY: every detach goes through
+ * ais_update, which rewrites the key's posting. ~2s for 5k records, ~30s for 20k.
+ * That is the price of having ONE detach implementation rather than a second, and
+ * this is an administrative command behind a confirmation prompt. */
+int  ais_untag_key(ais *a, const char *key);
 
 /* Retrieval mode for ais_get(). */
 typedef enum { AIS_AND, AIS_OR } ais_mode;

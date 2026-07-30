@@ -46,8 +46,61 @@ int main(int argc, char **argv) {
 
     ok("press Enter", cdp_key(c, "Enter") == 0);
     ok("seeded record renders in #out after Enter", cdp_wait_bool(c, HIT, 5000) == 0);
-    ok("count shows the result", cdp_wait_bool(c,
-        "document.getElementById('count').textContent.indexOf('1 result')>=0", 3000) == 0);
+    /* 2 records under 'venice', one holding two links: recall lists LINKS, so it
+     * says 3 here. The delete modal counts RECORDS and says 2 -- see below. */
+    ok("count shows the results", cdp_wait_bool(c,
+        "document.getElementById('count').textContent.indexOf('3 result')>=0", 3000) == 0);
+
+    /* ---- the two tag-level actions ------------------------------------
+     * They sit one tap apart and are opposite in consequence, so the guard on
+     * the destructive one is driven for real: open it, confirm it ships
+     * disabled, type a WRONG name (still disabled), type the right one (now
+     * enabled), then take the escape hatch instead and assert nothing died. */
+    cdp_eval_bool(c, "(function(){location.hash='#tags';setView('tags');return true})()", &(int){0});
+    ok("tags view lists the tag", cdp_wait_bool(c,
+        "document.getElementById('out').innerText.indexOf('venice')>=0", 5000) == 0);
+    /* the labels are the defence: safe one names the TAG, destructive one the RECORDS */
+    ok("safe action is labelled 'Remove tag'", cdp_wait_bool(c,
+        "document.getElementById('out').innerText.indexOf('Remove tag')>=0", 3000) == 0);
+    /* the tag badge and the destructive label both count RECORDS (2), not the 3
+     * links recall shows -- a destructive label must match what actually goes */
+    ok("destructive action names the records", cdp_wait_bool(c,
+        "document.getElementById('out').innerText.indexOf('Delete 2 records')>=0", 3000) == 0);
+
+    cdp_eval_bool(c, "(function(){openDelUnder('venice');return true})()", &(int){0});
+    ok("delete sheet opens", cdp_wait_bool(c,
+        "!document.getElementById('dsheet').hidden", 5000) == 0);
+    ok("its title names the records, not the tag", cdp_wait_bool(c,
+        "document.getElementById('dstitle').textContent==='Delete 2 records?'", 3000) == 0);
+    ok("it says the records go, not the tag", cdp_wait_bool(c,
+        "document.querySelector('#dsheet .lead').textContent.indexOf('not the tag')>=0", 3000) == 0);
+    ok("it warns about the OTHER tags", cdp_wait_bool(c,
+        "document.getElementById('dsbody').textContent.indexOf('every other tag')>=0", 3000) == 0);
+    ok("it previews what would go", cdp_wait_bool(c,
+        "document.getElementById('dsprev').children.length===2", 3000) == 0);
+    /* /api/get emits one line per LINK; one of these records holds two. Counting
+     * lines said "Delete 3 records" beside a tag badge reading 2. */
+    ok("a multi-link record counts ONCE", cdp_wait_bool(c,
+        "document.getElementById('dsprev').innerText.indexOf('+1 more link')>=0", 3000) == 0);
+    ok("confirm starts DISABLED", cdp_wait_bool(c,
+        "document.getElementById('dsgo').disabled===true", 3000) == 0);
+
+    cdp_eval_bool(c, "(function(){var i=document.getElementById('dsname');i.focus();return true})()", &(int){0});
+    cdp_insert_text(c, "venise");                       /* one letter off */
+    ok("a WRONG name leaves it disabled", cdp_wait_bool(c,
+        "document.getElementById('dsname').value==='venise'&&document.getElementById('dsgo').disabled===true", 3000) == 0);
+    cdp_eval_bool(c, "(function(){var i=document.getElementById('dsname');i.value='venice';"
+                     "i.dispatchEvent(new Event('input'));return true})()", &(int){0});
+    ok("the exact name enables it", cdp_wait_bool(c,
+        "document.getElementById('dsgo').disabled===false", 3000) == 0);
+
+    /* the escape hatch: the user who arrived here by mistake gets what they meant */
+    cdp_eval_bool(c, "(function(){window.confirm=function(){return false};"
+                     "document.getElementById('dskeep').click();return true})()", &(int){0});
+    ok("the escape hatch closes the delete sheet", cdp_wait_bool(c,
+        "document.getElementById('dsheet').hidden===true", 3000) == 0);
+    ok("and nothing was deleted", cdp_wait_bool(c,
+        "document.getElementById('out').innerText.indexOf('venice')>=0", 5000) == 0);
 
     cdp_close(c);
     printf("cdp: %d passed, %d failed\n", pass, fail);

@@ -43,6 +43,8 @@ fi
 
 "$AIS" -f "$IDX" --init >/dev/null 2>&1
 "$AIS" -f "$IDX" -v "https://example.org/venice" venice >/dev/null 2>&1
+"$AIS" -f "$IDX" -v "https://example.org/canal"  venice trip >/dev/null 2>&1
+"$AIS" -f "$IDX" --add 2 -v "https://example.org/canal-2" >/dev/null 2>&1  # a 2nd LINK, not a 2nd record
 AIS_NO_OPEN=1 "$AIS" -f "$IDX" --serve "$SPORT" >/dev/null 2>&1 &
 SRV=$!
 "$BR" --headless --disable-gpu --no-sandbox --disable-extensions --no-first-run \

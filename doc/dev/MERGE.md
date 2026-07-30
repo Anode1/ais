@@ -51,8 +51,16 @@ record's add-ts so a re-add after a delete reappears.
 
 ## Two tombstone types (both must merge)
 There are **two** delete mechanisms today, both id-keyed and untimestamped:
-- `tomb` — whole-record deletion (`del`, `del-key` cascade).
-- `ktomb` — per-key removal (`del_key` strips one key from a record that otherwise stays).
+- `tomb` — whole-record deletion (`del`, and the `del-under`/`del-key` cascade).
+  `del-under` RE-STAMPS a record that was already tombstoned, so "delete everything
+  under this key" holds as of now and a peer add dated between the two deletes stays
+  suppressed. It does not COUNT that record: the count is live records only, so the
+  confirmation prompt and the result line agree.
+- `ktomb` — per-key removal: `update ID -KEY` strips one key from a record that otherwise
+  stays, and `untag KEY` does the same across every record filed under KEY --
+  including records already tombstoned, whose detach must still be recorded or a
+  later resurrect brings the key back at the next compaction.
+  NOT `del_key`, which despite the name deletes whole records and writes `tomb`.
 Record-level (`tomb`) is the common case and covers v1. Key-level (`ktomb`) gets the same
 content-addressing + ts treatment: a portable fact `<ts>|<record-hash>|<key>`, emitted on the
 wire as `K|<ts>|<hash>|<key>` and merged via `ais_merge_detach`. SHIPPED -- both tombstone

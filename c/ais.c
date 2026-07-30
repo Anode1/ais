@@ -4,6 +4,7 @@
 #define _DEFAULT_SOURCE      /* strtok_r */
 #define _POSIX_C_SOURCE 200809L
 #include <dirent.h>
+#include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -706,12 +707,24 @@ int ais_del_key(ais *a, const char *key)
 
     for (; s.alive; post_next(&s)) {
         char ts[AIS_TS_MAX], hash[17];
+        /* A posting still lists ids whose records are already tombstoned (removal
+         * is physical only at compaction). Those are still RE-STAMPED, so "delete
+         * everything under this key" means deleted as of now and a peer's add
+         * dated between the original delete and this one stays suppressed -- but
+         * they are not COUNTED, which is what made the prompt say "2 records" and
+         * the result line then say "deleted 3". */
+        int dead = tomb_contains(a, s.head);
+        if (dead < 0) {
+            rc = -1;
+            goto cleanup;
+        }
         del_stamp(a, s.head, ts, sizeof ts, hash);
         if (tomb_append(a, s.head, ts, hash) != 0) {
             rc = -1;
             goto cleanup;
         }
-        n++;
+        if (!dead)
+            n++;
     }
     rc = n;
 
@@ -720,6 +733,110 @@ cleanup:
     store_wunlock(a);
     debug("del_key: '%s' tombstoned %d records", key, n);
     return rc;
+}
+
+int ais_untag_key(ais *a, const char *key)
+{
+    char enc[AIS_KEY_MAX], detach[AIS_KEY_MAX + 2];
+    long ids[64], after = LONG_MIN;
+    int n = 0, i, got;
+    post_stream s;
+
+    if (key == NULL || key[0] == '\0')
+        return -1;
+    /* Address the key the POSTING uses. ais_post_keys splits its argument on
+     * whitespace, so a raw "-a b" would detach "a" and ATTACH "b" while the
+     * posting being polled is "a_b" -- the loop then never shrank it and spun
+     * forever, writing a bogus key onto every record on each pass. Encoding first
+     * makes the read side and the write side name the same thing, and the encoded
+     * form never contains whitespace. */
+    if (key_encode(key, enc, sizeof enc) != 0)
+        return -1;
+    if (snprintf(detach, sizeof detach, "-%s", enc) >= (int)sizeof detach)
+        return -1;
+
+    /* Collect ids FIRST, then mutate: ais_update rewrites the store and the
+     * posting, so streaming that posting while changing it would read a file being
+     * renamed out from under the stream. AFTER is a strictly advancing cursor, so
+     * the loop terminates even if some id cannot be consumed -- relying on every
+     * callee to shrink the file is what made a single stuck id an infinite loop.
+     * It starts below every id, including the non-positive ones a hand-edited or
+     * truncated index can hold: skipping those left the key alive forever. */
+    for (;;) {
+        if (post_open(a, enc, &s) != 0)      /* reads are lock-free by design */
+            return -1;
+        for (got = 0; s.alive && got < (int)(sizeof ids / sizeof ids[0]); post_next(&s))
+            if (s.head > after)
+                ids[got++] = s.head;
+        post_close(&s);
+
+        if (got == 0)
+            break;
+        /* The MAX, not the last: a posting is written ascending, but a hand-edited
+         * one need not be, and taking the last entry could move the cursor
+         * BACKWARDS and re-collect ids the next pass had already consumed. */
+        after = ids[0];
+        for (i = 1; i < got; i++)
+            if (ids[i] > after)
+                after = ids[i];
+
+        for (i = 0; i < got; i++) {
+            char kts[AIS_TS_MAX], khash[17];
+            int dead, had, j, dup = 0;
+
+            /* A duplicated entry (again: a hand edit) must be counted ONCE. The
+             * copies need not be adjacent, so compare against the whole batch;
+             * across batches the cursor already excludes them. */
+            for (j = 0; j < i; j++)
+                if (ids[j] == ids[i]) {
+                    dup = 1;
+                    break;
+                }
+            if (dup)
+                continue;
+
+            dead = tomb_contains(a, ids[i]);
+            if (dead < 0)
+                return -1;
+
+            if (dead == 0) {
+                if (ais_update(a, ids[i], detach) == 0) {
+                    n++;
+                    continue;
+                }
+                /* ais_update also refuses an id with NO store line, which a
+                 * posting can name after a hand edit or a store restored without
+                 * its idx/. Failing there aborted the untag PART WAY and then
+                 * failed identically on every retry, wedging the key forever. */
+                del_stamp(a, ids[i], kts, sizeof kts, khash);
+                if (khash[0] != '\0')
+                    return -1;        /* the record is real: a genuine failure */
+            } else {
+                /* Tombstoned, so ais_update refuses it -- but the detach must
+                 * still be RECORDED. Pruning the posting alone left the key in the
+                 * authoritative keys field with nothing to mask it, so a resurrect
+                 * (a local re-add of the same value, or a peer's newer A|) brought
+                 * the tag back at the next compaction, and no K| ever reached a
+                 * peer still holding the record live. */
+                had = ktomb_contains(a, ids[i], enc);
+                if (had < 0)
+                    return -1;
+                del_stamp(a, ids[i], kts, sizeof kts, khash);
+                if (!had && ktomb_append(a, ids[i], kts, khash, enc) != 0)
+                    return -1;
+            }
+            /* Not counted either way: nothing live lost a tag here. */
+            if (store_wlock(a) != 0)  /* post_remove is a WRITER (LOCKING.md) */
+                return -1;
+            if (post_remove(a, enc, ids[i]) != 0) {
+                store_wunlock(a);
+                return -1;
+            }
+            store_wunlock(a);
+        }
+    }
+    debug("untag_key: '%s' detached from %d records", enc, n);
+    return n;
 }
 
 /* Find a local record whose value hashes to the target (record identity = value). */

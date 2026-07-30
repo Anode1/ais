@@ -17,8 +17,22 @@ command -v curl >/dev/null 2>&1 || { echo "serve: curl not found -- SKIP"; exit 
 IDX=$(mktemp -d)
 PORT=$(( 18000 + ($$ % 2000) ))
 SRV=
-cleanup() { [ -n "$SRV" ] && kill "$SRV" 2>/dev/null; rm -rf "$IDX"; }
+
+# /api/store persists the chosen index to the developer's REAL ~/.ais/config
+# (ais_default_set), and this suite points it at temp dirs it then deletes. Without
+# a snapshot every `make ut` left the developer's saved default pointing at a
+# directory that no longer exists, so their next plain `ais` call could not open
+# its index. Same guard as tests/cli.sh around --default.
+CFG="$HOME/.ais/config"
+CFGBAK="$IDX.config.orig"; HADCFG=no
+[ -f "$CFG" ] && { cp "$CFG" "$CFGBAK"; HADCFG=yes; }
+restore_cfg() { if [ "$HADCFG" = yes ]; then cp "$CFGBAK" "$CFG"; else rm -f "$CFG"; fi
+                rm -f "$CFGBAK"; }
+
+cleanup() { [ -n "$SRV" ] && kill "$SRV" 2>/dev/null; restore_cfg; rm -rf "$IDX"; }
 trap cleanup EXIT
+trap 'cleanup; exit 130' INT
+trap 'cleanup; exit 143' TERM HUP
 
 pass=0; fail=0
 ok()    { case "$3" in *"$2"*) pass=$((pass+1)); echo "  ok   $1";;
@@ -220,6 +234,52 @@ case $STAT in
 esac
 # reap any host child we started so it does not linger on 8766
 for p in $(command -v ss >/dev/null 2>&1 && ss -ltnp 2>/dev/null | grep ':8766 ' | grep -o 'pid=[0-9]*' | cut -d= -f2 | sort -u); do kill "$p" 2>/dev/null; done
+
+# --- the two tag-level operations the Tags view offers -------------------
+# They are one keystroke apart in the UI and opposite in consequence, so the
+# API contract for each is pinned separately: untag must destroy NOTHING.
+printf 'u one' | curl -s -X POST --data-binary @- "$B/api/put?keys=utag+ukeep" >/dev/null
+printf 'u two' | curl -s -X POST --data-binary @- "$B/api/put?keys=utag" >/dev/null
+ok "untag: reports how many it detached" "untagged 2" \
+   "$(curl -s -X POST "$B/api/untag?keys=utag")"
+empty "untag: the tag is gone"           "$(curl -s "$B/api/get?keys=utag")"
+ok "untag: the record kept its other tag" "u one" "$(curl -s "$B/api/get?keys=ukeep")"
+# the record whose ONLY key was untagged is still in the index, just unfiled
+ok "untag: the unfiled record survives"  "u two" "$(curl -s "$B/api/timeline?count=50")"
+ok "untag: an unused tag is a no-op"     "untagged 0" \
+   "$(curl -s -X POST "$B/api/untag?keys=nosuchtag")"
+ok "untag: an empty tag is refused"      "400" \
+   "$(curl -s -o /dev/null -w '%{http_code}' -X POST "$B/api/untag?keys=")"
+
+printf 'd one' | curl -s -X POST --data-binary @- "$B/api/put?keys=dtag+dkeep" >/dev/null
+printf 'd two' | curl -s -X POST --data-binary @- "$B/api/put?keys=dtag" >/dev/null
+ok "del-under: reports how many records it deleted" "deleted 2" \
+   "$(curl -s -X POST "$B/api/del-under?keys=dtag")"
+empty "del-under: the tag is gone"       "$(curl -s "$B/api/get?keys=dtag")"
+# the difference that matters: the RECORD went, so it is gone from its OTHER tag too
+empty "del-under: and gone from its other tag too" "$(curl -s "$B/api/get?keys=dkeep")"
+# both take ONE tag, not the whitespace-separated list the other endpoints take:
+# key_encode would fold "a b" to "a_b" and answer 200 for a tag that cannot exist
+ok "untag: a multi-key value is refused"  "400" \
+   "$(curl -s -o /dev/null -w '%{http_code}' -X POST "$B/api/untag?keys=aa+bb")"
+ok "del-under: a multi-key value is refused" "400" \
+   "$(curl -s -o /dev/null -w '%{http_code}' -X POST "$B/api/del-under?keys=aa+bb")"
+# /api/del-under shreds encrypted blobs before tombstoning, exactly as /api/del
+# and the CLI do: the ciphertext must not outlive the record. The blob reference
+# is written by hand so this pins the WIRING without needing the crypto module.
+mkdir -p "$IDX/blobs"
+printf 'ciphertext\n' > "$IDX/blobs/w1.aisc"
+printf 'ciphertext\n' > "$IDX/blobs/w2.aisc"
+printf 'aisc:@blobs/w1.aisc' | curl -s -X POST --data-binary @- "$B/api/put?keys=shk" >/dev/null
+printf 'aisc:@blobs/w2.aisc' | curl -s -X POST --data-binary @- "$B/api/put?keys=shkeep" >/dev/null
+curl -s -X POST "$B/api/del-under?keys=shk" >/dev/null
+ok "del-under: the deleted record's blob was shredded" "0" \
+   "$([ -e "$IDX/blobs/w1.aisc" ] && echo 1 || echo 0)"
+ok "del-under: an unrelated blob is untouched"        "1" \
+   "$([ -e "$IDX/blobs/w2.aisc" ] && echo 1 || echo 0)"
+
+ok "del-under: an empty tag is refused"  "400" \
+   "$(curl -s -o /dev/null -w '%{http_code}' -X POST "$B/api/del-under?keys=")"
 
 echo "serve: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]

@@ -48,16 +48,21 @@ static void chomp(char *s)
  * "keys|value" line is untouched: its first field is not a bare integer, or it
  * has just one '|'. Only the plain add form calls this; A|/D|/K| merge lines
  * (field 1 is a letter) are handled before it. */
-static void strip_dump_id(char *line)
+/* Returns 1 if an "id|" prefix was stripped -- i.e. the line came from --dump
+ * and its keys field is AUTHORITATIVE (empty means the record really has no
+ * keys), rather than being a hand-written feed line where an empty keys field
+ * is a typo. */
+static int strip_dump_id(char *line)
 {
     char *b1 = strchr(line, '|'), *d;
 
     if (b1 == NULL || b1 == line || strchr(b1 + 1, '|') == NULL)
-        return;                          /* need "<field1>|<...>|<...>" */
+        return 0;                        /* need "<field1>|<...>|<...>" */
     for (d = line; d < b1; d++)
         if (*d < '0' || *d > '9')
-            return;                      /* field 1 is not a bare integer id */
+            return 0;                    /* field 1 is not a bare integer id */
     memmove(line, b1 + 1, strlen(b1 + 1) + 1);   /* drop the "id|" prefix */
+    return 1;
 }
 
 void feed_interactive(ais *a, const char *base)
@@ -122,6 +127,7 @@ void feed_import_from(ais *a, FILE *in)
 {
     char line[AIS_LINE_MAX];
     long n = 0;
+    int  from_dump;
 
     /* A line is one of: a merge-stream "A|ts|keys|value" (add) or "D|ts|hash" (delete),
      * or a plain "keys|value" (legacy dump / hand-edit -> an add with no ts). Keys never
@@ -167,7 +173,7 @@ void feed_import_from(ais *a, FILE *in)
             }
         }
 
-        strip_dump_id(line);                   /* "id|keys|value" (a --dump line) -> "keys|value" */
+        from_dump = strip_dump_id(line);       /* "id|keys|value" (a --dump line) -> "keys|value" */
         bar = strchr(line, '|');
         if (bar == NULL) {
             fprintf(stderr, "import: no '|', skipped: %s\n", line);
@@ -184,7 +190,12 @@ void feed_import_from(ais *a, FILE *in)
         while (*val == ' ' || *val == '\t')
             val++;
 
-        if (*keys == '\0') {
+        /* A record with no keys is legal in the store -- --untag can leave one, and
+         * the engine writes it. Dropping it here meant the documented backup
+         * pipeline (--dump | --import) silently LOST exactly those records. Only a
+         * hand-written line is still refused, where an empty keys field is a typo
+         * and there is no id to say otherwise. */
+        if (*keys == '\0' && !from_dump) {
             fprintf(stderr, "import: empty keys, skipped: %s\n", val);
             continue;
         }

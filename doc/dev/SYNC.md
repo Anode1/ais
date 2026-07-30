@@ -65,6 +65,11 @@ spec. See LAYOUT.md (format), BNF.txt (grammar).
 
 ## GUI / UX
 - A resource = value (identity, shown read-only) + an editable keyset.
+  - `--set` breaks this and DOES NOT SYNC. It edits the identity field in place,
+    and the stream has no verb retiring the old value, so the peer keeps it and
+    feeds it back: both values end up on both devices. Local-only until a
+    value-retired fact exists on the wire (not the id-keyed tomb, which would
+    suppress the record locally). The CLI warns on an index that has synced.
 - Save emits the DIFF against the loaded state (only the +'s and -'s you changed),
   NOT the absolute keyset, so a concurrent add on another device is not wiped.
 - `-key` is internal: the GUI toggles tag chips and emits it; users never type
