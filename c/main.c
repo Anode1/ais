@@ -284,7 +284,7 @@ int main(int argc, char **argv)
     enum { OPT_HELP = 1000, OPT_VERSION, OPT_TOKEN,
            CMD_FIND, CMD_ADD, CMD_DEL, CMD_DELKEY, CMD_DUMP, CMD_KEYS, CMD_STATS,
            CMD_COMPACT, CMD_INIT, CMD_IMPORT, CMD_IMPORTI, CMD_WHERE, CMD_SERVE, CMD_PROJECT,
-           CMD_DOC, CMD_TIMELINE, CMD_TAGS, CMD_DEFAULT, CMD_UPDATE,
+           CMD_DOC, CMD_TIMELINE, CMD_TAGS, CMD_DEFAULT, CMD_UPDATE, CMD_SET,
            CMD_SWITCH, CMD_INDEXES, CMD_FORGET, CMD_EXPORT, CMD_SYNC, CMD_SYNCFOLDER };
     static const struct option longopts[] = {
         { "index",       required_argument, NULL, 'f' },
@@ -305,6 +305,7 @@ int main(int argc, char **argv)
         { "find",        no_argument,       NULL, CMD_FIND },
         { "add",         no_argument,       NULL, CMD_ADD },
         { "update",      no_argument,       NULL, CMD_UPDATE },
+        { "set",         no_argument,       NULL, CMD_SET },
         { "del",         no_argument,       NULL, CMD_DEL },
         { "del-key",     no_argument,       NULL, CMD_DELKEY },
         { "dump",        no_argument,       NULL, CMD_DUMP },
@@ -364,7 +365,7 @@ int main(int argc, char **argv)
         case CMD_DUMP: case CMD_KEYS: case CMD_STATS: case CMD_COMPACT:
         case CMD_INIT: case CMD_IMPORT: case CMD_IMPORTI: case CMD_EXPORT: case CMD_WHERE:
         case CMD_PROJECT: case CMD_DOC: case CMD_TIMELINE: case CMD_TAGS:
-        case CMD_DEFAULT: case CMD_UPDATE:
+        case CMD_DEFAULT: case CMD_UPDATE: case CMD_SET:
         case CMD_SWITCH: case CMD_INDEXES: case CMD_FORGET: case CMD_SYNC:
         case CMD_SYNCFOLDER:
             if (cmd != 0) die("only one command at a time");
@@ -465,6 +466,30 @@ int main(int argc, char **argv)
                     die("--add: no record id %ld", id);
             break;
         }
+        /* Replace ONE of a record's values in place. The counterpart to --add,
+         * which could attach a link but leave no way to correct it: a wrong link
+         * could only be removed by deleting the whole record, and a local re-add
+         * of any matching value resurrects it (ais_put_at, last-write-wins), so
+         * delete-and-recreate silently restores what it just removed. --set edits
+         * the one line instead, keeping the id, ts and keys. */
+        case CMD_SET: {
+            long id;
+            if (optind >= argc) die("--set needs an ID");
+            if (nval != 2) die("--set needs -v OLD_VALUE -v NEW_VALUE");
+            id = atol(argv[optind]);
+            /* ais_set_value fails for several reasons and prints its own message for
+             * the ones it can explain (a multi-line value), so word this as the
+             * likely cause rather than asserting one and contradicting it. */
+            if (ais_set_value(&a, id, values[0], values[1]) != 0)
+                die("--set: record %ld unchanged (no such id, or no value '%s')", id, values[0]);
+            /* The replaced value may have been the ONLY reference to an encrypted
+             * blob. Shred it once the store no longer points at it, matching the
+             * promise --del/--del-key make; secret_shred_blob is a no-op for any
+             * value that is not an aisc: blob. Ordered AFTER the edit so a refused
+             * --set never destroys a payload the record still holds. */
+            secret_shred_blob(a.dir, values[0]);
+            break;
+        }
         case CMD_UPDATE: {
             long id;
             if (optind >= argc) die("--update needs an ID");
@@ -477,7 +502,11 @@ int main(int argc, char **argv)
             if (keys[0] == '\0')
                 die("--update needs at least one key (KEY to add, -KEY to remove)");
             if (ais_update(&a, id, keys) != 0)
-                die("--update: no live record with id %ld", id);
+                /* ais_update fails for several reasons -- unknown or deleted id, a
+                 * key that would push the line past AIS_LINE_MAX, IO. Name the
+                 * likely one rather than asserting a cause that may be wrong. */
+                die("--update: record %ld unchanged (no such live id, or the keys "
+                    "would not fit on one line)", id);
             break;
         }
         case CMD_DEL: {

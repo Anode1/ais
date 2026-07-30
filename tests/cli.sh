@@ -264,7 +264,110 @@ ok      "update: re-attached key recalls again"     "venice" "$("$AIS" -f "$UP" 
 "$AIS" -f "$UP" -y --compact >/dev/null
 okempty "update: detach is durable through compact" "$("$AIS" -f "$UP" italy)"
 ok      "update: other key survives compact"        "venice" "$("$AIS" -f "$UP" venice)"
+"$AIS" -f "$UP" --update "$uid" tuscany >/dev/null               # ATTACH + compact
+"$AIS" -f "$UP" -y --compact >/dev/null
+ok      "update: attach is durable through compact" "venice" "$("$AIS" -f "$UP" tuscany)"
+# and it reaches a peer: export reads the STORE, so a key posted only to idx/
+# would never leave this device (the same defect, on the sync path).
+UPD=$(mktemp -d "${TMPDIR:-/tmp}/ais_updpeer.XXXXXX") || exit 2
+"$AIS" -f "$UP" --export > "$UPD/stream" 2>/dev/null
+"$AIS" -f "$UPD" --import < "$UPD/stream" >/dev/null 2>&1
+ok      "update: attached key reaches a peer"       "venice" "$("$AIS" -f "$UPD" tuscany)"
+rm -rf "$UPD"
 rm -rf "$UP"
+
+# 17c. --set replaces ONE of a multi-link record's values in place, leaving the
+#      other links, the id and the keys alone. Without it a wrong link could only
+#      be removed by deleting the record, and a re-add of any matching value
+#      resurrects it (put is last-write-wins), so delete-and-recreate restores
+#      what it just removed.
+SV=$(mktemp -d "${TMPDIR:-/tmp}/ais_set.XXXXXX") || exit 2
+sid=$("$AIS" -f "$SV" -v "Some Article - https://example.com/a" -v "https://doi.org/10.5281/zenodo.111" articles papers)
+"$AIS" -f "$SV" --set "$sid" -v "https://doi.org/10.5281/zenodo.111" -v "https://doi.org/10.5281/zenodo.110"
+ok      "set: the new value is there"        "zenodo.110" "$("$AIS" -f "$SV" papers)"
+okempty "set: the old value is gone"         "$("$AIS" -f "$SV" --find zenodo.111)"
+ok      "set: the sibling link is untouched" "example.com/a" "$("$AIS" -f "$SV" papers)"
+ok      "set: keys survive"                  "zenodo.110" "$("$AIS" -f "$SV" articles)"
+okeq    "set: still one record"              "$sid" "$("$AIS" -f "$SV" papers | head -1 | cut -d'|' -f1)"
+"$AIS" -f "$SV" --set "$sid" -v "no-such-value" -v "x" 2>/dev/null
+ok      "set: a value that does not match leaves the store alone" "zenodo.110" "$("$AIS" -f "$SV" papers)"
+# a multi-line NEW value must be refused, exactly as store_append refuses one on
+# the put path: the rewrite would split the line and orphan the tail.
+"$AIS" -f "$SV" --set "$sid" -v "https://doi.org/10.5281/zenodo.110" -v "$(printf 'a\nb')" 2>/dev/null
+ok      "set: a multi-line value is refused"  "zenodo.110" "$("$AIS" -f "$SV" papers)"
+okeq    "set: the store is still one line per link" "2" "$(grep -c . "$SV/store")"
+rm -rf "$SV"
+
+# 17d. An attached key is FOLDED before it reaches the store line ('|' and control
+#      bytes -> '_'), the same as keys_attach_only does for a put. Keys share the
+#      line's '|' delimiter, so a raw "a|b" would shift the value into the wrong
+#      field; a raw newline would end the line and drop the value entirely.
+FK=$(mktemp -d "${TMPDIR:-/tmp}/ais_fold.XXXXXX") || exit 2
+fid=$("$AIS" -f "$FK" -v "http://rome" italy)
+"$AIS" -f "$FK" --update "$fid" 'a|b' >/dev/null 2>&1
+ok      "fold: the value survives a '|' in an attached key" "http://rome" "$("$AIS" -f "$FK" italy)"
+ok      "fold: the key is stored folded"                    "a_b"         "$("$AIS" -f "$FK" --dump)"
+"$AIS" -f "$FK" --update "$fid" "$(printf 'x\ny')" >/dev/null 2>&1
+ok      "fold: the value survives a newline in an attached key" "http://rome" "$("$AIS" -f "$FK" italy)"
+okeq    "fold: the store is still a single line"            "1" "$(grep -c . "$FK/store")"
+rm -rf "$FK"
+
+# 17e. The store is written BEFORE the index. A rewrite that cannot fit must leave
+#      no posting behind: a key in idx/ that the store does not know about is
+#      exactly what the next --compact drops, i.e. the loss the mirror prevents.
+AT=$(mktemp -d "${TMPDIR:-/tmp}/ais_atom.XXXXXX") || exit 2
+big=$(printf 'v%.0s' $(seq 1 65400))
+longkey=$(printf 'z%.0s' $(seq 1 200))
+aid=$("$AIS" -f "$AT" -v "$big" only)
+"$AIS" -f "$AT" --update "$aid" alpha "$longkey" >/dev/null 2>&1   # 'alpha' fits, the pair does not
+okeq    "atomic: the keys field is unchanged when the rewrite cannot fit" "only" "$(cut -d'|' -f3 "$AT/store")"
+okempty "atomic: no phantom posting for the rejected keys"  "$(find "$AT/idx" -name 'alpha' -o -name "$longkey")"
+rm -rf "$AT"
+
+# 17f. --set refuses what would break value-identity: a deleted id (as --update
+#      does), and a value another record already holds (put is idempotent by value
+#      scan and tombstones are hash-stamped, so two records with one value make a
+#      peer collapse them and a later delete of either take both).
+GD=$(mktemp -d "${TMPDIR:-/tmp}/ais_guard.XXXXXX") || exit 2
+d1=$("$AIS" -f "$GD" -v "http://one" g1)
+d2=$("$AIS" -f "$GD" -v "http://two" g2)
+"$AIS" -f "$GD" --set "$d2" -v "http://two" -v "http://one" 2>/dev/null
+ok      "set: refuses a value another record holds" "http://two" "$("$AIS" -f "$GD" g2)"
+"$AIS" -f "$GD" -y --del "$d1" >/dev/null 2>&1
+"$AIS" -f "$GD" --set "$d1" -v "http://one" -v "http://three" 2>/dev/null
+okempty "set: refuses a deleted id"                 "$("$AIS" -f "$GD" --find http://three)"
+rm -rf "$GD"
+
+# 17g. Encode-equivalent spellings are ONE key. idx/ holds a single entry for
+#      "Doc"/"doc"/"DOC", so counting them as separate tokens would grow the keys
+#      field on every re-put until the line no longer fits.
+CS=$(mktemp -d "${TMPDIR:-/tmp}/ais_case.XXXXXX") || exit 2
+"$AIS" -f "$CS" -v "CASEVAL" Doc >/dev/null
+for k in doc DOC dOc DoC; do "$AIS" -f "$CS" -v "CASEVAL" $k >/dev/null; done
+okeq    "case: one token kept, first spelling wins" "Doc" "$(cut -d'|' -f3 "$CS/store")"
+ok      "case: recall still works by any spelling"  "CASEVAL" "$("$AIS" -f "$CS" DOC)"
+rm -rf "$CS"
+
+# 17h. A detach must stick through compaction whatever the spelling. ktomb stores
+#      and compares the key_encode() form -- the identity the postings use -- so
+#      detaching "doc" removes a stored "Doc". A raw strcmp did not match, and
+#      compaction then RESURRECTED the key it had just removed. Encoding also folds
+#      the '|' that would otherwise split the ktomb line's own fields.
+DT=$(mktemp -d "${TMPDIR:-/tmp}/ais_det.XXXXXX") || exit 2
+t1=$("$AIS" -f "$DT" -v "DETVAL" Doc)
+"$AIS" -f "$DT" --update "$t1" -- -doc >/dev/null 2>&1
+okempty "detach: a differently-spelled detach hides the key"  "$("$AIS" -f "$DT" doc)"
+"$AIS" -f "$DT" -y --compact >/dev/null
+okempty "detach: and it stays hidden through compaction"      "$("$AIS" -f "$DT" doc)"
+t2=$("$AIS" -f "$DT" -v "PIPEVAL" 'a|b')
+"$AIS" -f "$DT" --update "$t2" -- '-a|b' >/dev/null 2>&1
+"$AIS" -f "$DT" -y --compact >/dev/null
+okempty "detach: a '|' key detaches and stays detached"       "$("$AIS" -f "$DT" 'a|b')"
+# the records themselves survive: only the keys were detached (Doc was that
+# record's ONLY key, so it is correctly unreachable by key, not deleted).
+ok      "detach: the record itself survives"                  "DETVAL"  "$("$AIS" -f "$DT" --find DETVAL)"
+ok      "detach: the '|' record survives too"                 "PIPEVAL" "$("$AIS" -f "$DT" --find PIPEVAL)"
+rm -rf "$DT"
 
 # 17. saved default index persists in ~/.ais/config ACROSS PROCESSES. Each ais
 #     call is a fresh process, so reading the path back -- and resolving --where

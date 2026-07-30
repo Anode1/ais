@@ -93,11 +93,25 @@ char *ais_embed_reveal(const char *marked_value, const char *passphrase)
     return out;
 }
 
+/* Shred an encrypted-blob payload before its record is tombstoned. VP is the
+ * index dir; a no-op for any value that is not an aisc: blob. */
+static int embed_shred_value(long id, const char *value, void *vp)
+{
+    (void)id;
+    secret_shred_blob((const char *)vp, value);
+    return 0;
+}
+
 int ais_embed_del(void *handle, long id)
 {
+    ais *a = handle;
+
     if (handle == NULL)
         return -1;
-    return ais_del((ais *)handle, id);
+    /* Shred first, as the CLI does: deleting a secret from the app must not
+     * leave its ciphertext on disk afterwards. */
+    ais_record(a, id, embed_shred_value, (void *)a->dir);
+    return ais_del(a, id);
 }
 
 int ais_embed_update(void *handle, long id, const char *keys)
@@ -469,11 +483,12 @@ char *ais_embed_tags(void *handle)
 }
 
 /* ---- keys: a record's CURRENT (visible) keys, by id ---------------------- */
-/* The store line holds only the keys a record was CREATED with; ais_update
- * attaches/detaches in the index (postings + ktomb), never rewriting the line
- * until compaction. So the live key set can't be read off the store line --
- * derive it the way recall does: a key belongs to id iff ais_get finds id
- * under it. Enumerate candidate keys with ais_tags, membership-test each. */
+/* The store line's keys field records every key ATTACHED (an attach rewrites it;
+ * see LAYOUT.md), but NOT which are still live: a DETACH leaves the key in the
+ * field and records a ktomb entry, and only compaction strips it. So the live key
+ * set still can't be read off the line -- derive it the way recall does: a key
+ * belongs to id iff ais_get finds id under it. Enumerate candidate keys with
+ * ais_tags, membership-test each. */
 struct keys_member { long want; int found; };
 
 static int keys_hit(long id, void *vp)

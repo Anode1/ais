@@ -1489,6 +1489,13 @@ static void test_update(void)
     CHECK(ktomb_contains(&a, id, "italy") == 1, "update: key-tombstone retained through compact (I1)");
     CHECK(read_posting(dir, "italy", vids, 16, &asc) == -1, "update: 'italy' posting gone after compact");
 
+    /* an ATTACH is durable through compaction too. It has no ktomb to carry it, so
+     * it only survives because the attach is mirrored into the authoritative keys
+     * field; a key left in idx/ alone is dropped when compaction rebuilds idx/ from
+     * the store (LAYOUT.md, "the keys field is authoritative"). 'rome' was attached
+     * above, BEFORE the compact just performed. */
+    query(&a, AIS_AND, &v, 1, "rome"); { long w[1] = {1}; CHECK(ids_eq(&v, w, 1), "update: attached 'rome' survives compact"); }
+
     /* a deleted record cannot be updated */
     ais_del(&a, id);
     CHECK(ais_update(&a, id, "rome") == -1, "update: deleted id -> -1");

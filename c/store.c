@@ -46,7 +46,7 @@ static int ts_digits(const char *p, int i, int n)
  * common and must not be mistaken for a save time. A malformed date simply
  * fails here and the line is read as a dateless v1 record -- the id, keys and
  * value are never lost, only the date is dropped. */
-static int looks_like_ts(const char *p)
+int store_looks_like_ts(const char *p)
 {
     int i;
 
@@ -95,7 +95,7 @@ static int store_parse(char *line, long *id, char **ts, char **keys, char **valu
         return -1;
 
     p = bar + 1;                          /* field 2: ts (v2) or keys (v1) */
-    if (looks_like_ts(p)) {
+    if (store_looks_like_ts(p)) {
         *ts = p;
         bar = strchr(p, '|');
         if (bar == NULL) {                /* ts but no keys/value (degenerate) */

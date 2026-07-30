@@ -13,6 +13,7 @@
 #include <dirent.h>
 
 #include "common.h"
+#include "compact.h"   /* tomb_contains: the tomb is not id-ordered */
 #include "stats.h"
 
 /* Parse the leading id of a store/tomb line ("id|..." or "id\n").
@@ -67,61 +68,47 @@ static int stats_count_ids(const ais *a, const char *name, long *out)
     return rc;
 }
 
-/* Count distinct LIVE record ids: store ids not present in tomb. Both files
- * are id-ordered, so this is a streaming merge keeping only one id per file --
- * memory is O(1). A missing store counts as 0; a missing tomb suppresses
- * nothing. Returns 0 on success, -1 on error. */
+/* Count distinct LIVE record ids: store ids not present in tomb. The store IS
+ * id-ordered (ids are monotonic and it is append-only), but the TOMB IS NOT --
+ * it is in delete order, which is user order. A streaming merge over both
+ * therefore miscounts as soon as anyone deletes a higher id before a lower one
+ * (delete 3 then 1: the head advances past 1 and never comes back). So the tomb
+ * is asked per id instead. Memory stays O(1); the tomb is small by nature and
+ * tomb_contains early-exits on a hit. Returns 0 on success, -1 on error. */
 static int stats_count_live(const ais *a, long *out)
 {
-    char spath[AIS_PATH_MAX], tpath[AIS_PATH_MAX];
+    char spath[AIS_PATH_MAX];
     char line[AIS_LINE_MAX];
-    char tline[AIS_LINE_MAX];
-    FILE *sf = NULL, *tf = NULL;
-    long count = 0, prev = 0, tid = 0;
-    int sn, tn, rc = 0;
+    FILE *sf = NULL;
+    long count = 0, prev = 0;
+    int sn, rc = 0;
 
     *out = 0;
     sn = snprintf(spath, sizeof(spath), "%s/store", a->dir);
-    tn = snprintf(tpath, sizeof(tpath), "%s/tomb", a->dir);
-    if (sn < 0 || (size_t)sn >= sizeof(spath) ||
-        tn < 0 || (size_t)tn >= sizeof(tpath))
+    if (sn < 0 || (size_t)sn >= sizeof(spath))
         return -1;
 
     sf = fopen(spath, "r");
     if (sf == NULL)
         return (errno == ENOENT) ? 0 : -1;   /* no store -> 0 live records */
 
-    tf = fopen(tpath, "r");   /* may be NULL: no tombstones */
-    if (tf != NULL) {         /* prime the tomb head */
-        if (fgets(tline, sizeof(tline), tf) != NULL)
-            tid = stats_line_id(tline);
-    }
-
     while (fgets(line, sizeof(line), sf) != NULL) {
         long id = stats_line_id(line);
+        int  t;
         if (id == 0 || id == prev)
             continue;   /* blank or another link line of the current id */
         prev = id;
 
-        /* advance the tomb head to >= id (tomb is id-ordered) */
-        while (tf != NULL && tid != 0 && tid < id) {
-            if (fgets(tline, sizeof(tline), tf) != NULL)
-                tid = stats_line_id(tline);
-            else
-                tid = 0;
-        }
-        if (tf != NULL && tid == id)
+        t = tomb_contains(a, id);
+        if (t < 0) { rc = -1; break; }
+        if (t == 1)
             continue;   /* tombstoned: not live */
         count++;
     }
     if (ferror(sf))
         rc = -1;
-    if (tf != NULL && ferror(tf))
-        rc = -1;
 
     if (fclose(sf) != 0)
-        rc = -1;
-    if (tf != NULL && fclose(tf) != 0)
         rc = -1;
 
     if (rc == 0)

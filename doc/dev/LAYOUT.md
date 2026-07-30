@@ -22,9 +22,31 @@ is hashed: every file is plain text, readable, greppable, repairable by hand.
 the save time, written on every put as UTC to the second, `YYYY-MM-DDThh:mm:ssZ`
 (one canonical instant across devices). `keys` is one or more space-separated
 encoded keys. `value` is the literal resource: a URL, URI, absolute path, or a
-path relative to INDEX (relative keeps the whole INDEX portable). Records are
-only appended, never rewritten except by compaction. Because ids are monotonic,
-the store is physically in id order.
+path relative to INDEX (relative keeps the whole INDEX portable). Because ids are
+monotonic, the store is physically in id order.
+
+**The keys field is authoritative, and every key-attach must reach it.** The store
+is the source of truth and `idx/` is a rebuildable accelerator, so a key that lives
+only in a posting list does not exist as far as the store is concerned: compaction
+rebuilds `idx/` from the store lines and silently drops it, `--dump` prints the
+stale field, and `--export`/`--import` never carry it. Attaching a key therefore
+rewrites the record's lines in place (all of them: every line of a multi-line
+record repeats the same keys field), the same rewrite compaction and
+`ais_set_value` perform. This is the one exception to append-only besides
+compaction and the in-place value edit; it is cheap because it is rare (a re-put
+with new keys, or `--update`), and the alternative -- a durable "key added" file
+mirroring `ktomb` -- would add a fourth store file and a merge-stream type to
+express something the keys field already says. Attach is folded first (`|` and
+control bytes to `_`, as `keys_attach_only` does for a put): a stored key shares
+the line's `|` delimiter, so a raw `a|b` would shift the value into the wrong
+field, and a raw newline would end the line and drop the value.
+
+Detach is NOT symmetric. It removes the posting and records a `ktomb` entry, and
+the key stays in the keys field until compaction strips it (`compact_visible_keys`).
+So the keys field is the authoritative record of what has been ATTACHED, not the
+live key set: a detached-but-not-yet-compacted key is still in it, and `ktomb` is
+what makes the removal true and lets it propagate to peers (I1). An attach needs no
+tombstone because the rewritten keys field propagates on its own in the `A|` line.
 
 **Format versions.** v1 was `id|keys|value` (no `ts`); v2 added a local `ts`;
 v3 makes `ts` UTC with a trailing `Z`. `INDEX/version` records the format, and
@@ -179,6 +201,7 @@ flag selects a command; else `-v`/`-i` mean store; else recall the keys.
     ais [-f DIR] KEY... -e             store ENCRYPTED (prompts value+passphrase; -v - = stdin; reveals on tty recall)
     ais [-f DIR] --find TEXT           search values by substring
     ais [-f DIR] --add ID -v VALUE
+    ais [-f DIR] --set ID -v OLD -v NEW  replace ONE value in place (id, ts, keys kept)
     ais [-f DIR] --doc KEY... < FILE   save a multi-line document as a blob file
     ais [-f DIR] --doc KEY... -e < FILE  encrypt a whole document to an aisc: blob (--del/--del-key shreds it)
     ais [-f DIR] --del ID | --del-key KEY | --dump | --keys | --stats | --compact

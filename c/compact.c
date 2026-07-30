@@ -12,6 +12,7 @@
 
 #include "common.h"
 #include "compact.h"
+#include "key.h"      /* ktomb stores and compares keys in key_encode() form */
 #include "post.h"
 #include "store.h"
 #include "win.h"          /* lstat/mkdir shims on native Windows; empty on POSIX */
@@ -206,17 +207,24 @@ static long ktomb_parse(char *line, const char **tsp, const char **hp, const cha
     return atol(line);
 }
 
+/* KEY is stored and compared in its key_encode() form throughout this file. That
+ * is the identity the postings use, so a detach of "doc" matches a stored "Doc"
+ * (a raw strcmp did not, and compaction then RESURRECTED the key it had removed);
+ * and encoding folds the '|' that would otherwise split the ktomb line itself. */
 int ktomb_append(const ais *a, long id, const char *ts, const char *hash, const char *key)
 {
     char path[AIS_PATH_MAX];
+    char enc[AIS_KEY_MAX];
     FILE *fp;
 
+    if (key_encode(key, enc, sizeof enc) != 0)
+        return -1;
     if (compact_path(a, "ktomb", path, sizeof(path)) != 0)
         return -1;
     fp = fopen(path, "a");
     if (fp == NULL)
         return -1;
-    fprintf(fp, "%ld|%s|%s|%s\n", id, ts ? ts : "", hash ? hash : "", key);
+    fprintf(fp, "%ld|%s|%s|%s\n", id, ts ? ts : "", hash ? hash : "", enc);
     if (fclose(fp) != 0)
         return -1;
     return 0;
@@ -250,8 +258,12 @@ int ktomb_contains(const ais *a, long id, const char *key)
 {
     char path[AIS_PATH_MAX];
     char line[AIS_LINE_MAX];
+    char enc[AIS_KEY_MAX];
     FILE *fp;
     int found = 0;
+
+    if (key_encode(key, enc, sizeof enc) != 0)
+        return -1;
 
     if (compact_path(a, "ktomb", path, sizeof(path)) != 0)
         return -1;
@@ -261,7 +273,7 @@ int ktomb_contains(const ais *a, long id, const char *key)
 
     while (fgets(line, sizeof(line), fp) != NULL) {
         const char *ts, *h, *k = NULL;
-        if (ktomb_parse(line, &ts, &h, &k) == id && k != NULL && strcmp(k, key) == 0) {
+        if (ktomb_parse(line, &ts, &h, &k) == id && k != NULL && strcmp(k, enc) == 0) {
             found = 1;
             break;
         }
@@ -277,8 +289,12 @@ int ktomb_lookup(const ais *a, long id, const char *key, char *ts, size_t tsz)
 {
     char path[AIS_PATH_MAX];
     char line[AIS_LINE_MAX];
+    char enc[AIS_KEY_MAX];
     FILE *fp;
     int found = 0;
+
+    if (key_encode(key, enc, sizeof enc) != 0)
+        return -1;
 
     if (ts != NULL && tsz > 0)
         ts[0] = '\0';
@@ -290,7 +306,7 @@ int ktomb_lookup(const ais *a, long id, const char *key, char *ts, size_t tsz)
 
     while (fgets(line, sizeof(line), fp) != NULL) {
         const char *kts, *h, *k = NULL;
-        if (ktomb_parse(line, &kts, &h, &k) == id && k != NULL && strcmp(k, key) == 0) {
+        if (ktomb_parse(line, &kts, &h, &k) == id && k != NULL && strcmp(k, enc) == 0) {
             found = 1;                        /* keep scanning: last wins */
             if (ts != NULL && tsz > 0 && kts != NULL) {
                 strncpy(ts, kts, tsz - 1);
@@ -306,10 +322,13 @@ int ktomb_remove(const ais *a, long id, const char *key)
 {
     char path[AIS_PATH_MAX], tmp[AIS_PATH_MAX];
     char orig[AIS_LINE_MAX], work[AIS_LINE_MAX];
+    char enc[AIS_KEY_MAX];
     FILE *in, *out;
     long kept = 0;
     int removed = 0;
 
+    if (key_encode(key, enc, sizeof enc) != 0)
+        return -1;
     if (compact_path(a, "ktomb", path, sizeof(path)) != 0)
         return -1;
     in = fopen(path, "r");
@@ -328,7 +347,7 @@ int ktomb_remove(const ais *a, long id, const char *key)
     while (fgets(orig, sizeof(orig), in) != NULL) {
         const char *ts, *h, *k = NULL;
         snprintf(work, sizeof(work), "%s", orig);   /* parse a copy; emit orig */
-        if (ktomb_parse(work, &ts, &h, &k) == id && k != NULL && strcmp(k, key) == 0) {
+        if (ktomb_parse(work, &ts, &h, &k) == id && k != NULL && strcmp(k, enc) == 0) {
             removed = 1;
             continue;                                /* drop this pair */
         }

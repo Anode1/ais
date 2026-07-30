@@ -49,6 +49,11 @@ int store_write_version(const ais *a);
  * AIS_TS_MAX). Sets BUF to "" and returns -1 if the clock cannot be read. */
 int store_now(char *buf, size_t bufsz);
 
+/* Would P parse as a store line's ts field? Exposed so the in-place rewrites can
+ * avoid emitting a legacy (no-ts) line whose keys field would be read as a date,
+ * which would shift every field right and turn the value into a key. */
+int store_looks_like_ts(const char *p);
+
 /* Append one record line "id|ts|keys|value\n" to INDEX/store (a "" ts falls
  * back to the legacy "id|keys|value" form). Returns 0 on success, -1 on error. */
 int store_append(const ais *a, long id, const char *ts,

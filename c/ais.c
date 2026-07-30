@@ -10,6 +10,7 @@
 
 #include "ais.h"
 #include "compact.h"
+#include "key.h"          /* key_encode: keys_union dedups on the posting's identity */
 #include "log.h"
 #include "merge.h"
 #include "post.h"
@@ -39,22 +40,107 @@ void ais_close(ais *a)
 /* forward: stamp a record's (ts, value-hash) -- shared by delete and key-detach. */
 static void del_stamp(ais *a, long id, char *ts, size_t tsz, char hash[17]);
 
+/* Context for ais_add / the key-attach mirror: does the id exist, and its keys. */
+struct add_lookup {
+    long  id;
+    int   found;
+    char  keys[AIS_LINE_MAX];
+};
+
+/* forward: the key-attach mirror into the authoritative keys field (LAYOUT.md). */
+static int  add_seek(long id, const char *ts, const char *keys,
+                     const char *value, void *vp);
+static int  keys_union(char *keys, size_t sz, const char *tok);
+static int  key_fold_stored(const char *tok, char *out, size_t sz);
+static int  store_set_keys(ais *a, long id, const char *keys);
+
 /* Attach/detach KEYS on record ID. ATTACH_TS is the timestamp an implicit
  * re-attach LWW-competes against a prior detach with: NULL = a LOCAL edit (now,
  * always wins, clears the detach); on the merge/import path it is the record's
  * add-ts, so a key detached AT OR AFTER it (a genuine later user edit on some
  * device) survives an unaware peer's stale A| line instead of being reverted. */
-static int ais_post_keys(ais *a, const char *keys, long id, const char *attach_ts)
+/* Does an attach of TOK win against a prior detach? 1 = attach, 0 = leave the
+ * detach standing, -1 on error. On the merge path ATTACH_TS is the record's
+ * add-ts and a detach stamped at or after it wins (detaches are sticky on ties);
+ * a local edit passes NULL and always wins. Shared by both passes below so the
+ * store and the index can never disagree about which tokens were attached. */
+static int attach_wins(ais *a, long id, const char *tok,
+                       const char *attach_ts, int active)
+{
+    char kts[AIS_TS_MAX];
+    int kt;
+
+    if (attach_ts == NULL || !active)
+        return 1;
+    kt = ktomb_lookup(a, id, tok, kts, sizeof kts);
+    if (kt < 0)
+        return -1;
+    if (kt == 1 && kts[0] != '\0' && strcmp(kts, attach_ts) >= 0)
+        return 0;
+    return 1;
+}
+
+static int ais_post_keys(ais *a, const char *keys, long id, const char *attach_ts,
+                         int line_carries_keys)
 {
     char buf[AIS_LINE_MAX];
+    struct add_lookup L;                 /* L.keys doubles as the union buffer */
+    int  have_line_keys = 0, changed = 0;
     char *tok, *save;
     int n, active;
 
+    active = ktomb_active(a);            /* gate the re-attach cleanup (cheap) */
+    if (active < 0)
+        return -1;
+
+    /* PASS 1 -- the AUTHORITATIVE keys field first. The store must be written
+     * before the disposable index: a posting inserted first would survive a
+     * failed or over-long rewrite as a phantom key that the next compaction
+     * silently drops, which is exactly the loss this mirror exists to prevent.
+     * Skipped entirely when the caller has just written the line with these keys
+     * (a brand-new record), since the union could not then change anything. */
+    if (line_carries_keys)
+        goto postings;                   /* the line was just written from these keys */
     n = snprintf(buf, sizeof(buf), "%s", keys);
     if (n < 0 || (size_t)n >= sizeof(buf))
         return -1;
-    active = ktomb_active(a);            /* gate the re-attach cleanup (cheap) */
-    if (active < 0)
+    for (tok = strtok_r(buf, " \t", &save); tok != NULL;
+         tok = strtok_r(NULL, " \t", &save)) {
+        char folded[AIS_KEY_MAX];        /* one key, not a whole line */
+        int w, u;
+        if (tok[0] == '-' && tok[1] != '\0')
+            continue;                    /* a detach never enters the keys field */
+        w = attach_wins(a, id, tok, attach_ts, active);
+        if (w < 0)
+            return -1;
+        if (!w)
+            continue;
+        if (!have_line_keys) {
+            /* L.keys IS the union buffer -- a second AIS_LINE_MAX copy here would
+             * put this frame (already carrying buf[]) over the 512 KB thread
+             * stack the FFI seam runs on. */
+            L.id = id; L.found = 0; L.keys[0] = '\0';
+            if (store_each_record(a, add_seek, &L) < -1)
+                return -1;
+            if (!L.found)                /* no line yet: nothing to mirror into */
+                return -1;
+            have_line_keys = 1;
+        }
+        if (key_fold_stored(tok, folded, sizeof folded) != 0)
+            return -1;
+        u = keys_union(L.keys, sizeof L.keys, folded);
+        if (u < 0)
+            return -1;                   /* would not fit: nothing written yet */
+        if (u == 1)
+            changed = 1;
+    }
+    if (changed && store_set_keys(a, id, L.keys) != 0)
+        return -1;
+
+    /* PASS 2 -- postings and detaches. strtok_r consumed the first copy. */
+postings:
+    n = snprintf(buf, sizeof(buf), "%s", keys);
+    if (n < 0 || (size_t)n >= sizeof(buf))
         return -1;
     for (tok = strtok_r(buf, " \t", &save); tok != NULL;
          tok = strtok_r(NULL, " \t", &save)) {
@@ -74,19 +160,11 @@ static int ais_post_keys(ais *a, const char *keys, long id, const char *attach_t
                     return -1;
             }
         } else {                                     /* attach */
-            /* Don't let an implicit re-attach silently revert a NEWER detach. On
-             * the merge path attach_ts is the record's add-ts; a detach stamped
-             * at or after it wins (deletes/detaches are sticky on ties), so leave
-             * the posting removed and the ktomb intact -- skip this token. A local
-             * edit passes attach_ts == NULL and always wins. */
-            if (attach_ts != NULL && active) {
-                char kts[AIS_TS_MAX];
-                int kt = ktomb_lookup(a, id, tok, kts, sizeof kts);
-                if (kt < 0)
-                    return -1;
-                if (kt == 1 && kts[0] != '\0' && strcmp(kts, attach_ts) >= 0)
-                    continue;                        /* the detach is newer: keep it */
-            }
+            int w = attach_wins(a, id, tok, attach_ts, active);
+            if (w < 0)
+                return -1;
+            if (!w)
+                continue;                            /* the detach is newer: keep it */
             if (post_insert(a, tok, id) != 0)
                 return -1;
             if (active && ktomb_remove(a, id, tok) != 0)
@@ -173,7 +251,7 @@ long ais_put_at(ais *a, const char *keys, const char *value, const char *ts)
             if (!win) { rc = id; goto out; }            /* the delete is newer: stay deleted */
             if (tomb_remove(a, id) != 0) { rc = -1; goto out; }   /* resurrect */
         }
-        rc = (ais_post_keys(a, clean, id, ts) != 0) ? -1 : id;  /* ts: LWW vs a detach */
+        rc = (ais_post_keys(a, clean, id, ts, 0) != 0) ? -1 : id;  /* ts: LWW vs a detach */
         goto out;
     }
 
@@ -196,7 +274,9 @@ long ais_put_at(ais *a, const char *keys, const char *value, const char *ts)
         if (store_append(a, id, use_ts, clean, value) != 0) { rc = -1; goto out; }
         if (ok && off_append(a, off) != 0)                  { rc = -1; goto out; }  /* keep "off" in lockstep */
     }
-    if (ais_post_keys(a, clean, id, ts) != 0) { rc = -1; goto out; }  /* new record: no prior detach */
+    /* 1: store_append above just wrote the line from `clean`, so the mirror
+     * could not change anything -- skip its full-store scan on every new put. */
+    if (ais_post_keys(a, clean, id, ts, 1) != 0) { rc = -1; goto out; }
     debug("put: new id=%ld", id);
     rc = id;
 
@@ -210,12 +290,154 @@ long ais_put(ais *a, const char *keys, const char *value)
     return ais_put_at(a, keys, value, NULL);
 }
 
-/* Context for ais_add: find whether the id exists and capture its keys. */
-struct add_lookup {
-    long  id;
-    int   found;
-    char  keys[AIS_LINE_MAX];
+/* Rewrite the keys field of every line belonging to one id (a multi-line record
+ * repeats the same keys on each line). The keys field is authoritative: a key
+ * posted only to idx/ is dropped the next time compaction rebuilds idx/ from the
+ * store, so an attach that never lands here is silent data loss. See LAYOUT.md,
+ * "the keys field is authoritative". */
+struct keys_rewrite {
+    FILE       *out;
+    long        id;
+    const char *keys;
+    int         matched;
 };
+
+static int keyrw_line(long id, const char *ts, const char *keys,
+                      const char *value, void *vp)
+{
+    struct keys_rewrite *c = vp;
+    const char *wkeys = keys;
+    char wts[AIS_TS_MAX];
+
+    snprintf(wts, sizeof wts, "%s", ts);     /* may be upgraded below */
+    if (id == c->id) {
+        int need = (wts[0] != '\0')
+                 ? snprintf(NULL, 0, "%ld|%s|%s|%s\n", id, wts, c->keys, value)
+                 : snprintf(NULL, 0, "%ld|%s|%s\n", id, c->keys, value);
+        if (need < 0 || need >= AIS_LINE_MAX)   /* the edited line would not round-trip */
+            return -1;
+        wkeys = c->keys;
+        c->matched = 1;
+        /* A legacy (no-ts) line is re-emitted as "id|keys|value", so a keys field
+         * that parses as a date lands in the slot the reader takes for the ts:
+         * every field shifts right and the VALUE becomes a key. Stamp a real ts
+         * instead, upgrading the line, rather than write one that cannot be read
+         * back. Only ever happens on a pre-v2 line whose new keys start with a
+         * date-shaped token. */
+        if (wts[0] == '\0' && store_looks_like_ts(c->keys)) {
+            char now[AIS_TS_MAX];
+            store_now(now, sizeof now);
+            if (now[0] != '\0' &&
+                snprintf(NULL, 0, "%ld|%s|%s|%s\n", id, now, c->keys, value) < AIS_LINE_MAX)
+                snprintf(wts, sizeof wts, "%s", now);
+            else
+                return -1;               /* cannot write a readable line: refuse */
+        }
+    }
+    if (wts[0] != '\0')
+        fprintf(c->out, "%ld|%s|%s|%s\n", id, wts, wkeys, value);   /* v2/v3 */
+    else
+        fprintf(c->out, "%ld|%s|%s\n", id, wkeys, value);           /* legacy */
+    return 0;
+}
+
+/* Write KEYS into id's store lines. Caller holds the write lock. 0, or -1 (the
+ * store is left untouched on any failure -- nothing is renamed). */
+static int store_set_keys(ais *a, long id, const char *keys)
+{
+    char storep[AIS_PATH_MAX], newp[AIS_PATH_MAX], offp[AIS_PATH_MAX];
+    struct keys_rewrite c;
+    FILE *out;
+
+    if (snprintf(storep, sizeof storep, "%s/store", a->dir) >= (int)sizeof storep ||
+        snprintf(newp, sizeof newp, "%s/store.new", a->dir) >= (int)sizeof newp)
+        return -1;
+
+    out = fopen(newp, "w");
+    if (out == NULL)
+        return -1;
+    c.out = out; c.id = id; c.keys = keys; c.matched = 0;
+
+    if (store_each_record(a, keyrw_line, &c) != 0 || !c.matched) {
+        fclose(out); remove(newp);
+        return -1;
+    }
+    /* Not `fflush(out) != 0 || fclose(out) != 0`: short-circuiting on a failed
+     * fflush (ENOSPC, EIO) would return with the stream still open, and remove()
+     * on an open file fails outright on Windows, leaving store.new behind. */
+    if (fflush(out) != 0) { fclose(out); remove(newp); return -1; }
+    if (fclose(out) != 0) { remove(newp); return -1; }
+    if (rename(newp, storep) != 0) { remove(newp); return -1; }
+
+    /* "off" now holds stale byte offsets; it is a pure accelerator that
+     * ais_record falls back past, so drop it and let it rebuild. */
+    if (snprintf(offp, sizeof offp, "%s/off", a->dir) < (int)sizeof offp)
+        remove(offp);
+    return 0;
+}
+
+/* Copy TOK into OUT folding '|' and control bytes to '_', exactly as
+ * keys_attach_only does for a put. A stored key shares the line's '|' delimiter
+ * and is matched by its key_encode() path form, which folds the same bytes, so a
+ * raw "a|b" would shift the value into the wrong field on readback and disagree
+ * with the index. ais_update passes the user's string through unsanitized, so the
+ * fold has to happen here or an attach corrupts the line. Returns 0/-1 (too long). */
+static int key_fold_stored(const char *tok, char *out, size_t sz)
+{
+    size_t i;
+
+    for (i = 0; tok[i] != '\0'; i++) {
+        if (i + 1 >= sz)
+            return -1;
+        out[i] = (tok[i] == '|' || (unsigned char)tok[i] < 0x20) ? '_' : tok[i];
+    }
+    if (i >= sz)
+        return -1;
+    out[i] = '\0';
+    return 0;
+}
+
+/* Append TOK to KEYS unless an encode-equivalent key is already there. Identity is
+ * the key_encode() form, matching the postings this mirrors: idx/ holds one entry
+ * for "Doc", "doc" and "DOC", so treating them as three tokens would grow the keys
+ * field without bound on ordinary re-puts (a UI that titlecases a tag is enough)
+ * until the line no longer fits and the record becomes unstorable. The first
+ * spelling seen is the one kept, so the store still shows what was typed.
+ * Returns 1 if added, 0 if already present, -1 if the result would not fit. */
+static int keys_union(char *keys, size_t sz, const char *tok)
+{
+    const char *p = keys;
+    char enc_tok[AIS_KEY_MAX], enc_have[AIS_KEY_MAX];
+    size_t tlen = strlen(tok), klen;
+
+    if (key_encode(tok, enc_tok, sizeof enc_tok) != 0)
+        return -1;
+
+    while (*p != '\0') {                       /* scan the existing tokens */
+        size_t n;
+        char one[AIS_KEY_MAX];
+        while (*p == ' ' || *p == '\t') p++;
+        for (n = 0; p[n] != '\0' && p[n] != ' ' && p[n] != '\t'; n++)
+            ;
+        if (n == 0)
+            break;                             /* trailing whitespace only */
+        if (n < sizeof one) {
+            memcpy(one, p, n);
+            one[n] = '\0';
+            if (key_encode(one, enc_have, sizeof enc_have) == 0 &&
+                strcmp(enc_have, enc_tok) == 0)
+                return 0;                      /* already present, some spelling */
+        }
+        p += n;
+    }
+    klen = strlen(keys);
+    if (klen + 1 + tlen + 1 > sz)
+        return -1;
+    if (klen > 0)
+        keys[klen++] = ' ';
+    memcpy(keys + klen, tok, tlen + 1);
+    return 1;
+}
 
 static int add_seek(long id, const char *ts, const char *keys,
                     const char *value, void *vp)
@@ -297,7 +519,7 @@ int ais_update(ais *a, long id, const char *keys)
     if (!L.found)                       /* no such id */
         goto out;
 
-    rc = (ais_post_keys(a, keys, id, NULL) != 0) ? -1 : 0;   /* local edit: now, always wins */
+    rc = (ais_post_keys(a, keys, id, NULL, 0) != 0) ? -1 : 0;  /* local edit: now, always wins */
 out:
     store_wunlock(a);
     if (rc == 0)
@@ -356,12 +578,38 @@ int ais_set_value(ais *a, long id, const char *old_value, const char *new_value)
 
     if (old_value == NULL || new_value == NULL)
         return -1;
+    /* A record is ONE line: an embedded newline would end the fgets on read and
+     * drop everything after it. store_append refuses this on the put path; the
+     * in-place edit has to refuse it too, or the rewrite splits the line and the
+     * tail becomes an orphan (silent, unrecoverable data loss). */
+    if (strpbrk(new_value, "\r\n") != NULL) {
+        fprintf(stderr, "ais: value spans multiple lines -- use --doc for multi-line/large values\n");
+        return -1;
+    }
     if (snprintf(storep, sizeof storep, "%s/store", a->dir) >= (int)sizeof storep ||
         snprintf(newp, sizeof newp, "%s/store.new", a->dir) >= (int)sizeof newp)
         return -1;
 
     if (store_wlock(a) != 0)
         return -1;
+
+    /* Refuse a deleted id, as ais_update does. Editing a tombstoned record would
+     * also leave the tomb's content hash pointing at a value that no longer
+     * exists, so the delete could never propagate to a peer. */
+    if (tomb_contains(a, id) != 0) {
+        store_wunlock(a);
+        return -1;
+    }
+    /* Refuse a value another record already holds. The whole model treats a value
+     * as identity -- put is idempotent by value scan, tombstones are hash-stamped,
+     * the merge stream is hash-keyed -- so two records sharing one value makes a
+     * peer collapse them, and a later delete of either takes both. */
+    {
+        long other = 0;
+        int  dup = store_find_value(a, new_value, &other);
+        if (dup < 0) { store_wunlock(a); return -1; }
+        if (dup && other != id) { store_wunlock(a); return -1; }
+    }
 
     out = fopen(newp, "w");
     if (out == NULL) {
