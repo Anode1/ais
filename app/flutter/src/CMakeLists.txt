@@ -27,6 +27,24 @@ add_library(ais_engine SHARED ${AIS_SRC})
 set_target_properties(ais_engine PROPERTIES OUTPUT_NAME ais C_VISIBILITY_PRESET default)
 target_include_directories(ais_engine PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../../../c")
 
+# Stamp the version, exactly as c/Makefile does for the CLI. Without this the
+# library falls back to the "0.0.0-dev" default in ais.h, so ais_version() -- the
+# whole point of which is to reveal WHICH engine an app is running -- reports
+# nothing useful, and the About screen that exists to catch a stale engine cannot.
+# A source copy with no .git keeps the fallback, which is visibly wrong rather
+# than silently wrong. See doc/dev/VERSIONING.md.
+execute_process(
+    COMMAND git describe --tags --always --dirty
+    WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+    OUTPUT_VARIABLE AIS_GIT_VERSION
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    ERROR_QUIET)
+if(AIS_GIT_VERSION)
+    string(REGEX REPLACE "^v" "" AIS_GIT_VERSION "${AIS_GIT_VERSION}")
+    target_compile_definitions(ais_engine PRIVATE AIS_VERSION="${AIS_GIT_VERSION}")
+    message(STATUS "ais engine version: ${AIS_GIT_VERSION}")
+endif()
+
 # Single source of truth: assert libais.so has NO unresolved crypto symbols, so
 # the regression "c/crypto/*.c dropped from the glob -> undefined aisc_encrypt ->
 # crash on first encrypt/reveal" is caught HERE, at the one place that builds the
