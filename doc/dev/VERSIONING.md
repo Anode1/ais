@@ -27,6 +27,19 @@ number, so no `-dirty`/`-gSHA` can ride along) and `--build-number` is
 demands of `versionCode`. `pubspec.yaml` keeps a version line as a FALLBACK for
 a bare `flutter run`; it is not the source of truth and will drift if trusted.
 
+**DECIDED (v0.3.10): `versionCode` is `git rev-list --count HEAD`.** The first
+release under this rule uploaded in the 247-248 range. Play never accepts a
+versionCode at or below one already uploaded, so this is one-way: every number
+below the last upload is now spent, and the alternative (a small sequential
+counter) is no longer available. Always build a release with the flags:
+
+    flutter build appbundle --release $(sh tool/version.sh)
+
+A flagless `flutter build` silently uses pubspec's fallback, which is a SMALLER
+number than any real upload and will be rejected by Play -- or, worse, accepted
+into a track you did not mean. Treat a release built without the flags as
+unusable rather than trying to reconcile it.
+
 ## Compile-time vs runtime: the pair that catches a stale library
 
     AIS_VERSION        what you were COMPILED against   (ais.h)
