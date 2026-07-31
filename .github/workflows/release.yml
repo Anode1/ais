@@ -101,8 +101,15 @@ jobs:
         working-directory: app/flutter
         run: |
           flutter pub get
-          flutter build apk --release
-          flutter build appbundle --release   # .aab for the Play Store
+          # The version flags are NOT optional: without them Flutter falls back to
+          # pubspec's placeholder versionCode, which is far below anything already
+          # uploaded, so Play rejects the bundle (or worse, accepts a wrong number
+          # into a track). tool/version.sh derives both from the git tag -- which is
+          # why this job checks out with fetch-depth: 0. See doc/dev/VERSIONING.md.
+          V="$(sh tool/version.sh)"
+          echo "building with: $V"
+          flutter build apk --release $V
+          flutter build appbundle --release $V   # .aab for the Play Store
       - name: verify the C engine (libais.so) is bundled per ABI
         run: |
           # FFI loads lib/<device-abi>/libais.so; a missing ABI = runtime crash on
