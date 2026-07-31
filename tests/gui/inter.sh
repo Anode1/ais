@@ -60,3 +60,34 @@ if ! curl -s -o /dev/null "$S/"; then echo "  FAIL server did not start on $SPOR
 if ! curl -s -o /dev/null "$V";  then echo "  FAIL chrome debug port not up on $CPORT"; exit 1; fi
 
 "$BIN" 127.0.0.1 "$CPORT" "$S/"
+rc1=$?
+
+# Second front-end, SAME driver: app/index.html served via $AIS_WEB. It is a
+# separate page from the embedded PAGE and had no coverage at all, so a feature
+# could land in one and not the other (it had, for the tag actions). The element
+# ids are deliberately identical, so one driver asserts both.
+APPDIR=$(cd "$DIR/../../app" && pwd)
+IDX2="$TMP/idx2"; SPORT2=$(( SPORT + 1 )); SRV2=
+"$AIS" -f "$IDX2" --init >/dev/null 2>&1
+"$AIS" -f "$IDX2" -v "https://example.org/venice" venice >/dev/null 2>&1
+"$AIS" -f "$IDX2" -v "https://example.org/canal"  venice trip >/dev/null 2>&1
+"$AIS" -f "$IDX2" --add 2 -v "https://example.org/canal-2" >/dev/null 2>&1
+AIS_WEB="$APPDIR" AIS_NO_OPEN=1 "$AIS" -f "$IDX2" --serve "$SPORT2" >/dev/null 2>&1 &
+SRV2=$!
+S2="http://127.0.0.1:$SPORT2"
+i=0; while [ $i -lt 50 ]; do curl -s -o /dev/null "$S2/" && break; i=$((i+1)); sleep 0.1; done
+if ! curl -s -o /dev/null "$S2/"; then
+    echo "  FAIL app-page server did not start on $SPORT2"; kill "$SRV2" 2>/dev/null; exit 1
+fi
+# prove we are really testing the OTHER page, not the embedded fallback
+if curl -s "$S2/" | grep -q 'manifest.webmanifest'; then
+    echo "  ok   app page (\$AIS_WEB) is the one being served"
+else
+    echo "  FAIL \$AIS_WEB did not serve app/index.html (embedded fallback?)"
+    kill "$SRV2" 2>/dev/null; exit 1
+fi
+echo "-- app/index.html (the \$AIS_WEB front end) --"
+"$BIN" 127.0.0.1 "$CPORT" "$S2/"
+rc2=$?
+kill "$SRV2" 2>/dev/null
+[ "$rc1" -eq 0 ] && [ "$rc2" -eq 0 ]

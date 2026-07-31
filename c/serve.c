@@ -36,7 +36,8 @@
 #include "b64.h"           /* base64 a document blob's content onto the line-based wire */
 #include "common.h"
 #include "doc.h"
-#include "secret.h"       /* GUI encrypt: secret_encrypt for the "aisc:" marker */
+#include "secret.h"      /* GUI encrypt: secret_encrypt for the "aisc:" marker */
+#include "stats.h"       /* ais_stats: the GUI shows what clean-up would reclaim */
 #include "locate.h"       /* ais_default_set: persist the chosen store */
 #include "win.h"          /* Winsock + socket shims on native Windows; empty on POSIX */
 #include "serve.h"
@@ -153,7 +154,7 @@ static const char PAGE[] =
 "<button id=seg-recall class=getbtn>Search</button></div>"
 "<label class=allk style='display:flex;align-items:center;gap:.4rem;font-size:.85rem;color:var(--muted);margin-top:.5rem'><input id=anyk type=checkbox style='width:auto'> Match any tag</label>"
 "<div class=storerow><span id=store class=muted></span><span style='flex:1'></span>"
-"<button id=syncbtn class=link>sync</button><button id=storebtn class=link>change</button></div>"
+"<button id=cleanbtn class=link>clean up</button>""<button id=syncbtn class=link>sync</button><button id=storebtn class=link>change</button></div>"
 "<div id=storeedit class=storerow style='display:none;margin-top:.4rem'><input id=storepath placeholder='Library folder (full path)' autocomplete=off style='flex:1;font:inherit'><button id=storeok class=link>open</button><button id=storecancel class=link>cancel</button></div>"
 "<div id=tlrange style='display:none;gap:.4rem;align-items:center;margin-top:.5rem;font-size:.85rem;color:var(--muted)'>"
 "<span>from</span><input id=tlfrom type=date style='font:inherit'>"
@@ -374,7 +375,7 @@ static const char PAGE[] =
 "row.appendChild(b);row.appendChild(n);o.appendChild(row);"
 "var ac=document.createElement('div');ac.className='tagacts';"
 "var u=document.createElement('button');u.className='actbtn';u.textContent='Remove tag';"
-"u.onclick=function(){untagKey(k,+c,row,ac)};"
+"u.onclick=function(){untagKey(k)};"
 "var g=document.createElement('button');g.className='actbtn danger';"
 "g.textContent='Delete '+c+' record'+(+c==1?'':'s');"
 "g.onclick=function(){openDelUnder(k)};"
@@ -387,12 +388,15 @@ static const char PAGE[] =
  * delete-under gets a modal with a preview, an escape hatch to untag, and
  * type-to-confirm -- it destroys records that are NOT on this screen, because
  * each one also disappears from every other tag it is filed under. */
-"function untagKey(k,n,row,acts){delFlush();"
-"if(!confirm(\"Remove the tag '\"+k+\"' from \"+n+' record'+(n==1?'':'s')+\"? The records are kept.\\n\\nEach record keeps its value and its other tags. Adding the tag back restores it.\"))return;"
-"row.style.display='none';acts.style.display='none';delRow=null;"
+/* Finds its own row, so both front ends expose the same untagKey(key,count). */
+"function untagKey(k){delFlush();"
+"var row=null,acts=null;"
+"[].forEach.call(document.querySelectorAll('.taglink'),function(b){"
+"if(b.textContent==k){row=b.parentNode;acts=row.nextSibling}});"
+"if(row)row.style.display='none';if(acts)acts.style.display='none';delRow=null;"
 "$('toast').firstChild.textContent=\"Removed tag '\"+k+\"'\";"
 "delCommit=function(){fetch('/api/untag?keys='+encodeURIComponent(k),{method:'POST'}).then(function(){if(view=='tags')loadTags()})};"
-"delUndoFn=function(){row.style.display='';acts.style.display=''};"
+"delUndoFn=function(){if(row)row.style.display='';if(acts)acts.style.display=''};"
 "$('toast').hidden=false;delTimer=setTimeout(delFlush,5000)}"
 /* Recompute the count and the preview at OPEN time: the row badge can be stale,
  * and a number in a destructive confirmation has to be the number that will go. */
@@ -454,9 +458,7 @@ static const char PAGE[] =
 "$('toastundo').onclick=delUndo;"
 "$('dscancel').onclick=closeDel;"
 "$('dsheet').onclick=function(e){if(e.target===$('dsheet'))closeDel()};"
-"$('dskeep').onclick=function(){var k=dsKey;closeDel();if(view=='tags')loadTags();"
-"setTimeout(function(){var b=[].filter.call(document.querySelectorAll('.taglink'),function(t){return t.textContent==k})[0];"
-"if(b)b.parentNode.nextSibling.firstChild.click()},60)};"
+"$('dskeep').onclick=function(){var k=dsKey;closeDel();untagKey(k)};"
 "$('dsname').oninput=function(){$('dsgo').disabled=this.value.trim()!==dsKey};"
 "$('dsgo').onclick=async function(){if(this.disabled)return;var k=dsKey;closeDel();"
 "var r=await(await fetch('/api/del-under?keys='+encodeURIComponent(k),{method:'POST'})).text();"
@@ -478,6 +480,20 @@ static const char PAGE[] =
 "var r=await fetch('/api/store',{method:'POST',body:d});"
 "if(r.ok){$('q').value='';$('out').innerHTML='';$('count').textContent='';loadStore()}"
 "else{alert('Could not open that index')}}"
+/* Reclaim deleted records. There is no CLI on a phone, so without this the store
+ * grows forever and the tags of deleted records linger in the index. The second
+ * question is the privacy one and is asked separately, because forgetting is the
+ * one choice here another device can undo for you. */
+"async function cleanUp(){"
+"var st=await(await fetch('/api/stats')).text();"
+"var d=(st.match(/deleted:\\s*(\\d+)/)||[0,'0'])[1];"
+"if(d=='0'){$('count').textContent='Nothing to clean up';return}"
+"if(!confirm('Reclaim the space of '+d+' deleted record'+(d=='1'?'':'s')+'?'))return;"
+"var f=confirm('Also FORGET what was deleted?\\n\\nThey stay deleted here, but this device can no longer tell your other devices about them, and nothing is left for anyone to test a guess against.\\n\\nSync your other devices FIRST -- one that has not seen these deletions can send them back.\\n\\nOK = forget.  Cancel = just reclaim the space.');"
+"var r=await(await fetch('/api/compact'+(f?'?forget=1':''),{method:'POST'})).text();"
+"$('count').textContent=r.trim()=='cleaned and forgotten'?'Cleaned up, deletions forgotten':'Cleaned up';"
+"setView(view)}"
+"$('cleanbtn').onclick=cleanUp;"
 "$('storebtn').onclick=changeStore;$('storeok').onclick=storeApply;"
 "$('storecancel').onclick=function(){$('storeedit').style.display='none'};"
 "$('storepath').onkeydown=function(e){if(e.key==='Enter')storeApply();else if(e.key==='Escape')$('storeedit').style.display='none'};"
@@ -868,12 +884,19 @@ static const char *ctype_of(const char *name)
  * '/' or "..", so the browser cannot escape the dir. Returns 1 if served. */
 static int serve_asset(int fd, const char *name)
 {
-    const char *webdir = "gui/web";       /* external assets if present (dev); no env */
+    /* $AIS_WEB is the documented way to serve the app/ page instead of the
+     * embedded one (app/README.md, doc/android-install.md). It was never read,
+     * so that documented invocation silently fell back to the embedded PAGE and
+     * app/ was unreachable. Traversal is already impossible: NAME is one safe
+     * filename, checked below. */
+    const char *webdir = getenv("AIS_WEB");
     char path[AIS_PATH_MAX], buf[8192];
     FILE *fp;
     size_t n;
     const char *p;
 
+    if (webdir == NULL || webdir[0] == '\0')
+        webdir = "gui/web";               /* the dev default */
     if (name[0] == '\0')
         return 0;
     for (p = name; *p != '\0'; p++)
@@ -1071,6 +1094,8 @@ static void handle(ais *a, int fd)
     char *method, *path, *query, *body, *keys = nokeys, *sp;
     int want_or = 0;                      /* "Match any key" -> AIS_OR; default AND+relax */
     int enc = 0;                          /* ?enc=1 -> encrypt the value before storing */
+    int forget = 0;                       /* ?forget=1 -> compaction also drops the
+                                           * tombstone hashes (see /api/compact)   */
     long reqid = 0;                       /* ?id= for /api/del and /api/update      */
     long before = 0;                      /* ?before= cursor for /api/timeline paging */
     long after = 0;                       /* ?after= id cursor for /api/get paging    */
@@ -1211,6 +1236,8 @@ static void handle(ais *a, int fd)
             want_or = (query[3] == '1');
         } else if (strncmp(query, "enc=", 4) == 0) {
             enc = (query[4] == '1');
+        } else if (strncmp(query, "forget=", 7) == 0) {
+            forget = (query[7] == '1');
         } else if (strncmp(query, "id=", 3) == 0) {
             reqid = atol(query + 3);
         } else if (strncmp(query, "before=", 7) == 0) {
@@ -1240,10 +1267,21 @@ static void handle(ais *a, int fd)
     } else if (strcmp(method, "POST") == 0 && strcmp(path, "/api/put") == 0) {
         char msg[64];
         long c = enc ? do_put_enc(a, keys, body) : do_put(a, keys, body);
-        int m = snprintf(msg, sizeof(msg), "saved %ld record(s)\n", c);
-        send_head(fd, "text/plain");
-        if (m > 0)
-            write_all(fd, msg, (size_t)m);
+        if (c <= 0) {
+            /* Saving nothing is a FAILURE, not a 200 with a count of zero. An
+             * encrypted save on a build with no crypto module answered "saved 0
+             * record(s)" with a 200, so both pages closed the sheet as if the
+             * secret had been stored -- the one case where believing a success
+             * message loses the thing you were trying to protect. */
+            static const char e[] = "HTTP/1.0 500 Internal Server Error\r\n"
+                "Connection: close\r\n\r\nnothing was saved\n";
+            write_all(fd, e, sizeof(e) - 1);
+        } else {
+            int m = snprintf(msg, sizeof(msg), "saved %ld record(s)\n", c);
+            send_head(fd, "text/plain");
+            if (m > 0)
+                write_all(fd, msg, (size_t)m);
+        }
     } else if (strcmp(method, "POST") == 0 && strcmp(path, "/api/reveal") == 0) {
         /* body = "passphrase\nmarked-value"; decrypt and return the cleartext
          * (empty body = could not decrypt). The passphrase rides the body, not
@@ -1326,6 +1364,47 @@ static void handle(ais *a, int fd)
         } else {
             static const char e[] = "HTTP/1.0 400 Bad Request\r\n"
                 "Connection: close\r\n\r\ncannot delete\n";
+            write_all(fd, e, sizeof(e) - 1);
+        }
+    } else if (strcmp(method, "GET") == 0 && strcmp(path, "/api/version") == 0) {
+        /* Which of the four numbers moved is the first thing a bug report needs,
+         * and a browser cannot run `ais --version`. Engine and on-disk format:
+         * the page adds its own. */
+        char vbuf[128];
+        int vn = snprintf(vbuf, sizeof vbuf, "engine: %s\nformat: v%d\n",
+                          ais_version(), AIS_FORMAT_VERSION);
+        send_head(fd, "text/plain");
+        if (vn > 0)
+            write_all(fd, vbuf, (size_t)vn);
+    } else if (strcmp(method, "GET") == 0 && strcmp(path, "/api/stats") == 0) {
+        /* The same three lines as `ais --stats`. The GUI needs the deleted count
+         * to say what "clean up" would actually reclaim, rather than asking the
+         * user to confirm an unknown amount of work. */
+        FILE *sp = tmpfile();
+        send_head(fd, "text/plain");
+        if (sp != NULL) {
+            char sbuf[512];
+            size_t n;
+            if (ais_stats(a, sp) == 0 && fflush(sp) == 0) {
+                rewind(sp);
+                while ((n = fread(sbuf, 1, sizeof sbuf, sp)) > 0)
+                    write_all(fd, sbuf, n);
+            }
+            fclose(sp);
+        }
+    } else if (strcmp(method, "POST") == 0 && strcmp(path, "/api/compact") == 0) {
+        /* Reclaim deleted records. ?forget=1 also strips the tombstone hashes, so
+         * the deletions stay in force here but stop travelling and stop being
+         * testable. Reachable from the GUI because a phone has no CLI, and the
+         * store would otherwise grow forever with deleted bodies and the tags of
+         * deleted records would linger in the index. */
+        if ((forget ? ais_compact_purge(a) : ais_compact(a)) == 0) {
+            send_head(fd, "text/plain");
+            write_all(fd, forget ? "cleaned and forgotten\n" : "cleaned\n",
+                      forget ? 22 : 8);
+        } else {
+            static const char e[] = "HTTP/1.0 500 Internal Server Error\r\n"
+                "Connection: close\r\n\r\ncould not clean up\n";
             write_all(fd, e, sizeof(e) - 1);
         }
     } else if (strcmp(method, "GET") == 0 && strcmp(path, "/api/keys") == 0) {

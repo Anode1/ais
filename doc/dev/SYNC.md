@@ -24,16 +24,25 @@ spec. See LAYOUT.md (format), BNF.txt (grammar).
 - Re-bind after unbind: LATEST-SIGN-WINS (loose timestamp; skew is immaterial at a
   multi-day sync cadence).
 - Only a LEADING `-` is the sign; `-` elsewhere is literal (use `+key` to bind a
-  key that literally starts with `-`). [+/- and propagation: planned; today
-  `--del-key` removes locally only, no traveling marker]
+  key that literally starts with `-`). A detach propagates today as a `K|` line;
+  the general `+/-` patch line remains planned.
 
-## Delete -- soft, via Trash
-- Delete a resource = unbind ALL its keys -> keyless -> Trash. Keyless is
-  unreachable by recall, still visible to `--dump`/`--find`.
-- Manual empty (`--compact`) physically purges keyless resources and spent `-key`
-  markers. GC is a HUMAN decision (empty only when all devices have synced), so
-  there is no distributed consensus and no resurrection. [planned; `tomb` exists
-  for ids today]
+## Delete -- a tombstone, kept for the life of the index
+- Delete is delete. There is no trash and no restore: `--del ID` and
+  `--del-under KEY` confirm first, then remove the record. The GUI's 5s undo
+  window is the only reprieve, and nothing reaches the engine until it lapses.
+- The id goes to `tomb` as `id|ts|hash`; recall, `--find` and `--dump` suppress
+  it. `--compact` drops the record's BODY from the store and KEEPS the
+  tombstone: it is the portable delete fact a peer needs, so collecting it would
+  let any device that still holds the record push it back on the next sync.
+- Tombstones are therefore never garbage-collected, by anyone, at any time. One
+  ~42-byte line each is a rounding error against the store.
+- Removing a tag is the reversible operation, and it is not a delete: `--untag
+  KEY` (and `--update ID -KEY`) leaves every record live, keyless if that was its
+  only key, and travels as its own fact (`ktomb`, the `K|` line).
+- An encrypted value is shredded at delete time rather than at compaction, so a
+  deleted secret is gone at once while a deleted plain record stays readable in
+  `store` until `--compact`.
 
 ## Sync -- bidirectional export/import
 - Merge = `--export` one side, `--import` the other, both ways; two-way
@@ -41,9 +50,9 @@ spec. See LAYOUT.md (format), BNF.txt (grammar).
   `A|`/`D|` merge stream (record-level, tombstone-union, timestamp
   last-writer-wins); the `+/-` key patch below remains planned, not the wire
   format today.
-- Adds union losslessly (a grow-only CRDT, no clock). Removes propagate today as
-  tombstones (`D|`), latest-write-wins; the `-key` traveling marker is planned.
-  Deletes are untag-all -> Trash.
+- Adds union losslessly (a grow-only CRDT, no clock). Removes propagate as
+  tombstones: `D|` for a whole record, `K|` for a single key-detach, both
+  content-addressed and resolved last-write-wins by ts.
 - Blobs sync as files (rsync-style), device-tagged names, never content-deduped.
 - Git or a file-sync app may TRANSPORT the bytes, but the MERGE must be `--import`
   (value-aware). Never trust git's textual merge of `store`, it id-collides.
@@ -74,5 +83,6 @@ spec. See LAYOUT.md (format), BNF.txt (grammar).
   NOT the absolute keyset, so a concurrent add on another device is not wiped.
 - `-key` is internal: the GUI toggles tag chips and emits it; users never type
   operators.
-- Delete is an explicit, labeled, undoable action (-> Trash), not a silent
-  consequence of removing the last tag.
+- Delete is an explicit, labeled action on the record, confirmed before it runs
+  and undoable only inside the 5s window; it is never a silent consequence of
+  removing the last tag. Removing the last tag leaves the record live and keyless.

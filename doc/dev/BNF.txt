@@ -76,8 +76,25 @@ INDEX/idx/<p>/<key> -- one key's posting list, ascending and duplicate-free
 <posting_file> ::= ( <id> "\n" )*        ? strictly ascending, no duplicates ?
 <p>            ::= <key_char> ( <key_char> ){0,1}   ? 1-2 char navigable prefix of <key> ?
 
-INDEX/tomb      -- tombstoned (deleted) ids
-<tomb_file>    ::= ( <id> "\n" )*
+INDEX/tomb      -- deletions. REAL DATA, not derived: a deleted record is not in
+                   the store, so nothing can rebuild this. Retained for the life
+                   of the index (compaction keeps every hash-bearing line), and
+                   exported as "D|<ts>|<hash>" so a delete reaches every device.
+                   The hash is a 64-bit FNV-1a of the DELETED VALUE salted with
+                   the record's creation ts (content_hash_salted). Not a
+                   cryptographic hash: a very guessable value can still be
+                   confirmed, but not amortised across the file. Unsalted digests
+                   from older versions are still matched on import. The value
+                   itself is never stored here.
+<tomb_file>    ::= ( <tomb_line> "\n" )*
+<tomb_line>    ::= <id> "|" <ts> "|" <hash>     ? v1 lines were bare <id> ?
+<hash>         ::= [:xdigit:]{16}               ? FNV-1a 64 of the value ?
+
+INDEX/ktomb     -- per-key detaches. REAL DATA for the same reason as tomb, and
+                   exported as "K|<ts>|<hash>|<key>". Note the KEY travels in the
+                   clear: a detached tag name is readable, unhashed, forever.
+<ktomb_file>   ::= ( <ktomb_line> "\n" )*
+<ktomb_line>   ::= <id> "|" <ts> "|" <hash> "|" <key>
 
 INDEX/multi     -- ids carrying more than one value line
 <multi_file>   ::= ( <id> "\n" )*

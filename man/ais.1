@@ -217,6 +217,14 @@ for the non-destructive alternative.
 .B \-\-del-key
 is the old name, kept as an alias.
 .TP
+.B \-\-forget-deleted
+Only with
+.BR \-\-compact .
+Also forget WHAT was deleted: each deletion keeps working on this device, but
+stops being something another device can be told about, and stops being something
+anyone holding your files could test a guess against. Sync your other devices
+first \(em one that has not seen these deletions can send those records back.
+.TP
 .B \-\-untag \fIKEY\fR
 Remove the tag KEY, keeping every record: each keeps its id, its value and its
 other keys, and simply stops being filed under KEY. This is what people usually
@@ -267,7 +275,10 @@ most recent records, newest first (default 500); a GUI pages through older ones 
 Every key with how many records use it, busiest first.
 .TP
 .B \-\-compact
-Reclaim space from deleted records.
+Reclaim the space of deleted records and rebuild the index. The deletions
+themselves are KEPT: they are what tells your other devices a record is gone. See
+.B \-\-forget-deleted
+to drop those too.
 .TP
 .B \-\-import \fR[\fIURL\fR]
 With no argument, read

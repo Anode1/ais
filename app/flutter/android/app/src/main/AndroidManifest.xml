@@ -6,10 +6,26 @@
          INTERNET only to the debug/profile manifests, so it must be declared here
          or sync fails silently in the release (Play) build. -->
     <uses-permission android:name="android.permission.INTERNET"/>
+    <!-- allowBackup: the index is the user's own plain text and nothing goes to any
+         cloud. Android's default (true) makes the app eligible for Google auto-backup,
+         which would upload it. false turns that off. On API 31+ it disables only the
+         CLOUD path; device-to-device transfer still runs, and that is deliberate: a
+         D2D transfer is a direct local handset-to-handset copy during setup with no
+         server in the middle, so it keeps the promise.
+         dataExtractionRules (API 31+) states the same split explicitly: deny
+         cloud-backup, allow device-transfer. See res/xml/data_extraction_rules.xml.
+
+         hasFragileUserData: sync between the user's own devices IS the backup. There
+         is no cloud copy and no trash, so an uninstall would take the index with it.
+         This makes Android's uninstall dialog offer a "Keep app data" checkbox. Not
+         noise; do not remove it. -->
     <application
         android:label="ais"
         android:name="${applicationName}"
-        android:icon="@mipmap/ic_launcher">
+        android:icon="@mipmap/ic_launcher"
+        android:allowBackup="false"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:hasFragileUserData="true">
         <activity
             android:name=".MainActivity"
             android:exported="true"

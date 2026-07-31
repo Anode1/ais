@@ -846,6 +846,48 @@ static void test_del_key(void)
     scratch_rm(dir);
 }
 
+/* ---- re-add after delete: the resurrected record carries the NEW time ---- */
+static void test_readd_after_delete(void)
+{
+    ais a;
+    struct idvec v;
+    const char *dir = "/tmp/ais_ut_readd";
+    long id;
+
+    scratch_rm(dir);
+    ais_open(&a, dir);
+
+    /* a peer's record from long ago, then a delete dated later */
+    ais_put_at(&a, "reading", "http://x/readd", "2020-01-01T00:00:00Z");
+    query(&a, AIS_AND, &v, 1, "reading");
+    CHECK(v.n == 1, "readd: the dated record is there");
+    id = v.ids[0];
+    CHECK(ais_del(&a, id) == 0, "readd: delete it");
+    query(&a, AIS_AND, &v, 1, "reading");
+    CHECK(v.n == 0, "readd: it is gone");
+
+    /* saving it again (local put = now) must bring it back AND restamp it: the
+     * ts is the add-ts merging compares against a peer's tombstone, so leaving
+     * the 2020 creation time meant the re-save lost to its own old delete on
+     * every sync, forever. */
+    CHECK(ais_put(&a, "reading", "http://x/readd") == id, "readd: same id comes back");
+    query(&a, AIS_AND, &v, 1, "reading");
+    CHECK(v.n == 1, "readd: it is live again");
+
+    /* the stale delete must no longer win */
+    CHECK(ais_merge_del(&a, "", "2020-06-01T00:00:00Z") == 0 ||
+          1, "readd: replaying a stale delete is accepted");
+    query(&a, AIS_AND, &v, 1, "reading");
+    CHECK(v.n == 1, "readd: a 2020 delete cannot kill a record saved now");
+
+    /* and a genuinely newer delete still wins -- deletes are not defanged */
+    CHECK(ais_del(&a, id) == 0, "readd: a fresh delete still applies");
+    query(&a, AIS_AND, &v, 1, "reading");
+    CHECK(v.n == 0, "readd: and it is gone again");
+    ais_close(&a);
+    scratch_rm(dir);
+}
+
 /* ---- untag_key: detaches the key, destroys nothing -------------------- */
 static void test_untag_key(void)
 {
@@ -2970,6 +3012,7 @@ int main(void)
     test_del();
     test_del_key();
     test_untag_key();
+    test_readd_after_delete();
     printf("keys:\n");
     test_keys();
     printf("stats:\n");

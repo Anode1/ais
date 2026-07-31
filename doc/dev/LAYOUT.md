@@ -57,6 +57,34 @@ line (which has an id to vouch for it) precisely so that `--dump | --import` doe
 not lose exactly those records. A hand-written `|value` line has no id and is
 still refused as a typo.
 
+**An interrupted compaction is rolled back at the next open.** `compact_locked`
+stages the old posting tree in `idx.bak` and restores it on a graceful error, but
+a SIGKILL, an OOM kill or a power cut never reaches that path: what it leaves is a
+half-built `idx/` live and the good tree orphaned. `get()` reads `idx/` with NO
+store fallback, so every keyed lookup then returns a SUBSET, exit 0, no warning,
+until somebody happens to compact again -- measured at 180 of 1492 records.
+`compact_recover()` runs from `ais_open` and puts the staged tree back. Restoring
+it is safe in both windows because postings are keyed by id and compaction
+preserves ids, so the pre-compaction tree is a superset and reads filter
+tombstones anyway. A superset that reads correctly beats a subset that lies.
+
+**Tag counts are filtered at READ time, not pruned at delete time.** A posting
+keeps a deleted record's id until the next compaction, so counting lines reported
+tags that answer nothing -- the tag list said "notes 120" while querying `notes`
+returned zero, and in the GUIs, where the tag list IS how you browse, tapping it
+gave 0 results. `ais_tags`/`ais_keys` skip tombstoned ids and omit a key whose
+every record is dead. Gated on `tomb_active()`, a single stat, so an index with
+nothing deleted pays nothing. Pruning at delete time instead would turn an O(1)
+append into a walk of every key the record carries, on the phone's hot path.
+
+**A long-lived process must re-read `next_id`.** It is cached at open, and
+`ais_timeline` took its ceiling from it, so a server or a phone app that stayed up
+never showed anything another writer added -- including records arriving by sync.
+`get`/`tags` read the postings each call and did see them, so only "Recent" lied.
+The refresh has to happen BEFORE `off_consistent()`, which compares the `off` file
+against `next_id` too: a stale counter also mis-declares the accelerator
+inconsistent and diverts to the scan path.
+
 **Format versions.** v1 was `id|keys|value` (no `ts`); v2 added a local `ts`;
 v3 makes `ts` UTC with a trailing `Z`. `INDEX/version` records the format, and
 `store_open` stamps the current version into an older index in place the first
@@ -125,7 +153,41 @@ records are always read in full. Both files rebuild from `store` -- delete them,
 
 ### tomb -- tombstones
 `del(id)` appends the id to `tomb`. `get`/`dump` merge it out (suppress ids
-present in `tomb`). Physical removal happens only at compaction.
+present in `tomb`). Compaction drops the deleted record's BODY from the store but
+KEEPS the tombstone (`tomb_keep_hashed`): the tombstone is the portable delete
+fact a peer needs, so collecting it would let any device that still holds the
+record push it back on the next sync. Tombstones are retained for the life of the
+index -- one ~42-byte line each, which is a rounding error against the store.
+
+The line carries a digest of the DELETED VALUE, salted with the record's CREATION
+ts (`content_hash_salted`). The salt is not a secret -- both devices read it off the
+record's own store line, so matching needs nothing shared -- and it is not a
+cryptographic hash either. What it buys is arithmetic: unsalted, one precomputed
+pass recovered EVERY deleted value in the file at once, and a guessable value fell
+in seconds. Salted per record, an attacker must guess the value AND the second it
+was created, separately for every tombstone. A very low-entropy value is still
+reachable; this is a cost increase, not a proof.
+
+`content_hash()` (unsalted) is still computed on the MATCHING side, so a tombstone
+written before the salt, or one from a peer that has not upgraded, keeps applying
+forever. Nothing writes it any more. This is the
+same asymmetry noted above for blobs, in the other direction: an ENCRYPTED value
+hashes its ciphertext, so its tombstone reveals nothing and its blob is shredded
+at delete time. Do not tell a user a plain delete leaves nothing behind.
+
+`--compact --forget-deleted` (`ais_compact_purge`) is the user's answer: it blanks
+the hash while keeping the id, so the record stays suppressed here but the delete
+stops travelling and stops being testable. The cost is real and the CLI states it
+before asking -- a peer that has not synced since can push those records back,
+because this index can no longer tell it they were deleted.
+
+Migrating old tombstones is impossible and does not need to be attempted: for any
+that survived a compaction the value is gone from the store, so their digest can
+never be recomputed. That is why the matcher accepts BOTH forms rather than
+converting anything -- old tombstones keep working, `--forget-deleted` retires
+them when the user wants, and every new delete is salted. The one thing that must
+never happen is a peer computing a digest the other cannot reproduce, which is
+why the salt is per-record data both sides already hold rather than a shared key.
 
 **One deliberate asymmetry: an ENCRYPTED blob is shredded at delete time, not at
 compaction.** So a deleted plain record is recoverable until `compact` (truncate
@@ -234,7 +296,13 @@ the safe one names the TAG, the destructive one names the RECORDS and their
 count, and the destructive one lists what it would take before asking and points
 at the safe one. The web GUI (`--serve`) offers the same pair on each tag row,
 over `/api/untag` and `/api/del-under`; there the destructive path also requires
-the tag name to be typed, because it destroys records that are not on screen.
+the tag name to be typed, because it destroys records that are not on screen,
+while the safe one runs a 5s undo window instead of a modal (nothing reaches the
+engine until it lapses). There are TWO web front ends over that one API -- the
+page embedded in `c/serve.c` (the default) and `app/` (a PWA, served when
+`$AIS_WEB` points at it) -- and they deliberately share element ids and function
+names so `tests/gui/cdptest.c` drives both. A feature added to one and not the
+other is a bug; the suite runs the same driver twice to catch it.
     ais [-f DIR] --del ID | --dump | --keys | --stats | --compact
     ais [-f DIR] --tags | --timeline       browse keys, or records newest-first
     ais [-f DIR] --import < FILE | --where | --project [KEY] | --serve [PORT]

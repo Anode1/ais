@@ -94,13 +94,210 @@ int main(int argc, char **argv) {
     ok("the exact name enables it", cdp_wait_bool(c,
         "document.getElementById('dsgo').disabled===false", 3000) == 0);
 
-    /* the escape hatch: the user who arrived here by mistake gets what they meant */
-    cdp_eval_bool(c, "(function(){window.confirm=function(){return false};"
-                     "document.getElementById('dskeep').click();return true})()", &(int){0});
+    /* The escape hatch: whoever arrived here by mistake gets what they MEANT --
+     * an untag, not a delete. It runs the same reversible undo window, so cancel
+     * it afterwards and confirm the records are all still there. */
+    cdp_eval_bool(c, "(function(){document.getElementById('dskeep').click();return true})()", &(int){0});
     ok("the escape hatch closes the delete sheet", cdp_wait_bool(c,
         "document.getElementById('dsheet').hidden===true", 3000) == 0);
-    ok("and nothing was deleted", cdp_wait_bool(c,
-        "document.getElementById('out').innerText.indexOf('venice')>=0", 5000) == 0);
+    ok("it untags instead of deleting", cdp_wait_bool(c,
+        "!document.getElementById('toast').hidden"
+        "&&document.getElementById('toast').innerText.indexOf('Removed tag')>=0", 5000) == 0);
+    cdp_eval_bool(c, "(function(){delUndo();return true})()", &(int){0});   /* take it back */
+    ok("Undo leaves everything as it was",
+       cdp_eval_bool(c, "(function(){window.__k=null;fetch('/api/get?keys=venice')"
+                        ".then(function(r){return r.text()}).then(function(t){window.__k=t});return true})()",
+                     &(int){0}) == 0 &&
+       cdp_wait_bool(c, "window.__k!==null&&window.__k.indexOf('example.org/venice')>=0", 5000) == 0);
+
+    /* ---- the edit sheet -------------------------------------------------
+     * The keys editor used to be a prompt() asking the user to compose a
+     * "-KEY" delta by hand -- and prompt() is silently disabled in an installed
+     * PWA, so on the app page it did nothing at all. Drive the real thing:
+     * open it, drop a key, add a key, save, and assert the DELTA landed. */
+    cdp_eval_bool(c, "(function(){openEdit(2,'https://example.org/canal');return true})()", &(int){0});
+    ok("edit sheet opens", cdp_wait_bool(c,
+        "!document.getElementById('editsheet').hidden", 5000) == 0);
+    ok("it prefills the value", cdp_wait_bool(c,
+        "document.getElementById('edval').value==='https://example.org/canal'", 3000) == 0);
+    /* the record's CURRENT keys as chips -- not a blank box to retype */
+    ok("it shows the current keys as chips", cdp_wait_bool(c,
+        "document.getElementById('edchips').children.length===2", 3000) == 0);
+    ok("the chips are the record's keys", cdp_wait_bool(c,
+        "document.getElementById('edchips').innerText.indexOf('venice')>=0"
+        "&&document.getElementById('edchips').innerText.indexOf('trip')>=0", 3000) == 0);
+
+    /* drop 'trip' by its chip button, and add 'canal' through the input */
+    cdp_eval_bool(c, "(function(){var c=document.getElementById('edchips');"
+                     "for(var i=0;i<c.children.length;i++)"
+                     "if(c.children[i].textContent.indexOf('trip')===0){c.children[i].querySelector('button').click();return true}"
+                     "return false})()", &(int){0});
+    ok("removing a chip drops that key", cdp_wait_bool(c,
+        "document.getElementById('edchips').children.length===1"
+        "&&document.getElementById('edchips').innerText.indexOf('trip')<0", 3000) == 0);
+    cdp_eval_bool(c, "(function(){var i=document.getElementById('edtag');i.value='canal';"
+                     "i.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true}));return true})()", &(int){0});
+    ok("typing a key and pressing Enter adds a chip", cdp_wait_bool(c,
+        "document.getElementById('edchips').innerText.indexOf('canal')>=0", 3000) == 0);
+
+    cdp_eval_bool(c, "(function(){document.getElementById('edsave').click();return true})()", &(int){0});
+    ok("saving closes the sheet", cdp_wait_bool(c,
+        "document.getElementById('editsheet').hidden===true", 5000) == 0);
+    /* The delta really reached the engine, in both directions. cdp_eval_bool
+     * needs a BOOLEAN, so the fetch parks its answer on window and the wait
+     * polls that -- handing it a Promise just evaluates to "not a boolean". */
+    ok("the added key now answers",
+       cdp_eval_bool(c, "(function(){window.__k=null;fetch('/api/get?keys=canal')"
+                        ".then(function(r){return r.text()}).then(function(t){window.__k=t});return true})()",
+                     &(int){0}) == 0 &&
+       cdp_wait_bool(c, "window.__k!==null&&window.__k.indexOf('example.org/canal')>=0", 5000) == 0);
+    ok("the removed key no longer answers",
+       cdp_eval_bool(c, "(function(){window.__k=null;fetch('/api/get?keys=trip')"
+                        ".then(function(r){return r.text()}).then(function(t){window.__k=t});return true})()",
+                     &(int){0}) == 0 &&
+       cdp_wait_bool(c, "window.__k!==null&&window.__k.indexOf('example.org/canal')<0", 5000) == 0);
+    /* and the record kept the key that was left alone */
+    ok("the untouched key still answers",
+       cdp_eval_bool(c, "(function(){window.__k=null;fetch('/api/get?keys=venice')"
+                        ".then(function(r){return r.text()}).then(function(t){window.__k=t});return true})()",
+                     &(int){0}) == 0 &&
+       cdp_wait_bool(c, "window.__k!==null&&window.__k.indexOf('example.org/canal')>=0", 5000) == 0);
+
+    /* the other half of the sheet: editing the VALUE in place (/api/setvalue),
+     * which keeps the record's id and its timeline slot */
+    cdp_eval_bool(c, "(function(){openEdit(2,'https://example.org/canal');return true})()", &(int){0});
+    ok("edit sheet reopens", cdp_wait_bool(c,
+        "!document.getElementById('editsheet').hidden", 5000) == 0);
+    cdp_eval_bool(c, "(function(){document.getElementById('edval').value='https://example.org/canal-EDITED';"
+                     "document.getElementById('edsave').click();return true})()", &(int){0});
+    ok("the edited value replaced the old one",
+       cdp_eval_bool(c, "(function(){window.__k=null;fetch('/api/get?keys=venice')"
+                        ".then(function(r){return r.text()}).then(function(t){window.__k=t});return true})()",
+                     &(int){0}) == 0 &&
+       cdp_wait_bool(c, "window.__k!==null&&window.__k.indexOf('canal-EDITED')>=0", 5000) == 0);
+    /* in PLACE: the old value is gone, and the record kept its id (2) */
+    ok("the old value is gone", cdp_wait_bool(c,
+        "window.__k.indexOf('example.org/canal\\n')<0", 3000) == 0);
+    ok("the record kept its id", cdp_wait_bool(c,
+        "window.__k.indexOf('2|https://example.org/canal-EDITED')>=0", 3000) == 0);
+
+    /* UNTAG for real: every earlier tag assertion either declined the confirm or
+     * only checked the wording, so the safe action's actual EFFECT -- the tag
+     * goes, the records stay -- was never driven from a front end. */
+    cdp_eval_bool(c, "(function(){location.hash='#tags';setView('tags');return true})()", &(int){0});
+    ok("tags view shows the added key", cdp_wait_bool(c,
+        "document.getElementById('out').innerText.indexOf('canal')>=0", 5000) == 0);
+    cdp_eval_bool(c, "(function(){untagKey('canal',1);return true})()", &(int){0});
+    /* a reversible action gets an undo WINDOW, not a modal: nothing has been sent
+     * to the engine yet, which is what makes that Undo honest */
+    ok("untag opens an undo window", cdp_wait_bool(c,
+        "!document.getElementById('toast').hidden"
+        "&&document.getElementById('toast').innerText.indexOf(\"Removed tag 'canal'\")>=0", 5000) == 0);
+    ok("it offers Undo", cdp_wait_bool(c,
+        "!!document.getElementById('toastundo')", 3000) == 0);
+    cdp_eval_bool(c, "(function(){delFlush();return true})()", &(int){0});   /* commit now */
+    ok("the tag is gone",
+       cdp_eval_bool(c, "(function(){window.__k=null;fetch('/api/get?keys=canal')"
+                        ".then(function(r){return r.text()}).then(function(t){window.__k=t});return true})()",
+                     &(int){0}) == 0 &&
+       cdp_wait_bool(c, "window.__k!==null&&window.__k.indexOf('canal-EDITED')<0", 5000) == 0);
+    /* the whole point: the RECORD survived, still filed under its other key */
+    ok("but the record survived under its other key",
+       cdp_eval_bool(c, "(function(){window.__k=null;fetch('/api/get?keys=venice')"
+                        ".then(function(r){return r.text()}).then(function(t){window.__k=t});return true})()",
+                     &(int){0}) == 0 &&
+       cdp_wait_bool(c, "window.__k!==null&&window.__k.indexOf('canal-EDITED')>=0", 5000) == 0);
+
+    /* ---- documents -----------------------------------------------------
+     * A multi-line value is stored as one aisdoc:<base64> record, so the line
+     * split cannot tear it apart. The page has to DECODE it: printing the marker
+     * raw is what the app page used to do, and base64 is not a note. */
+    cdp_eval_bool(c, "(function(){window.__d=null;fetch('/api/put?keys=notes',"
+                     "{method:'POST',body:'line one\\nline two\\nline three'})"
+                     ".then(function(r){return r.text()}).then(function(t){window.__d=t});return true})()",
+                  &(int){0});
+    ok("a multi-line note is stored", cdp_wait_bool(c,
+        "window.__d!==null&&window.__d.indexOf('saved 1')>=0", 5000) == 0);
+    cdp_eval_bool(c, "(function(){setView('timeline');return true})()", &(int){0});
+    ok("a document renders its text, not its base64", cdp_wait_bool(c,
+        "document.getElementById('out').innerText.indexOf('line one')>=0", 5000) == 0);
+    ok("every line survives", cdp_wait_bool(c,
+        "document.getElementById('out').innerText.indexOf('line three')>=0", 3000) == 0);
+    ok("the marker never reaches the screen", cdp_wait_bool(c,
+        "document.getElementById('out').innerText.indexOf('aisdoc:')<0", 3000) == 0);
+
+    /* ---- secrets -------------------------------------------------------
+     * An encrypted record is opaque until a passphrase is given. Encryption is
+     * server-side, so if the crypto module is not built there is nothing to
+     * drive -- say so rather than fail a build that never had the feature. */
+    cdp_eval_bool(c, "(function(){window.__e=null;fetch('/api/put?keys=wifi&enc=1',"
+                     "{method:'POST',body:'pw123\\nwifi-Staff-2026'})"
+                     ".then(function(r){return r.text()}).then(function(t){window.__e=t});return true})()",
+                  &(int){0});
+    cdp_wait_bool(c, "window.__e!==null", 5000);
+    int haveEnc = 0;
+    cdp_eval_bool(c, "window.__e!==null&&window.__e.indexOf('saved 1')>=0", &haveEnc);
+    if (!haveEnc) {
+        printf("  skip secrets (crypto module not built)\n");
+    } else {
+        cdp_eval_bool(c, "(function(){setView('timeline');return true})()", &(int){0});
+        ok("a secret says it is encrypted", cdp_wait_bool(c,
+            "document.getElementById('out').innerText.indexOf('encrypted')>=0", 5000) == 0);
+        ok("its ciphertext never reaches the screen", cdp_wait_bool(c,
+            "document.getElementById('out').innerText.indexOf('aisc:')<0", 3000) == 0);
+        /* the row offers Reveal, and Reveal asks for the passphrase INLINE:
+         * prompt() is disabled in an installed PWA, so a prompt would do nothing */
+        ok("Reveal opens a passphrase field", cdp_eval_bool(c,
+            "(function(){var h=document.querySelectorAll('.hit');"
+            "for(var i=0;i<h.length;i++){var b=h[i].querySelector('button');"
+            "if(b&&b.textContent==='Reveal'){b.click();return true}}return false})()",
+            &(int){0}) == 0 &&
+            cdp_wait_bool(c, "!!document.querySelector('.hit input[type=password]')", 3000) == 0);
+        ok("the right passphrase shows the cleartext", cdp_eval_bool(c,
+            "(function(){var p=document.querySelector('.hit input[type=password]');"
+            "p.value='pw123';var bs=p.parentNode.querySelectorAll('button');"
+            "for(var i=0;i<bs.length;i++)if(bs[i].textContent==='Show'){bs[i].click();return true}"
+            "return false})()", &(int){0}) == 0 &&
+            cdp_wait_bool(c, "document.getElementById('out').innerText.indexOf('wifi-Staff-2026')>=0",
+                          5000) == 0);
+        /* and offers to copy what was revealed -- the ciphertext row has no copy */
+        ok("the revealed value can be copied", cdp_wait_bool(c,
+            "document.getElementById('out').innerText.indexOf('copy')>=0", 3000) == 0);
+
+        /* ---- saving an encrypted record ---------------------------------
+         * The refusal first: a ticked Encrypt with no passphrase must NOT fall
+         * back to saving in the clear. alert() is stubbed so the modal cannot
+         * block the driver, and so its wording can be asserted. */
+        cdp_eval_bool(c, "(function(){window.__alert=null;window.alert=function(m){window.__alert=m};"
+                         "openSheet();document.getElementById('v').value='safe-combo-1234';"
+                         "document.getElementById('vk').value='locker';"
+                         "var e=document.getElementById('enc');e.checked=true;"
+                         "e.dispatchEvent(new Event('change'));"
+                         "document.getElementById('save').click();return true})()", &(int){0});
+        ok("Encrypt reveals the passphrase field", cdp_wait_bool(c,
+            "document.getElementById('pp').hidden===false", 3000) == 0);
+        ok("no passphrase is refused, in those words", cdp_wait_bool(c,
+            "window.__alert==='Enter a passphrase to encrypt'", 3000) == 0);
+        ok("the sheet stays open to retry", cdp_wait_bool(c,
+            "document.getElementById('sheet').hidden===false", 3000) == 0);
+        ok("and nothing was saved in the clear",
+           cdp_eval_bool(c, "(function(){window.__k=null;fetch('/api/get?keys=locker')"
+                            ".then(function(r){return r.text()}).then(function(t){window.__k=t});return true})()",
+                         &(int){0}) == 0 &&
+           cdp_wait_bool(c, "window.__k!==null&&window.__k.indexOf('safe-combo-1234')<0", 5000) == 0);
+
+        cdp_eval_bool(c, "(function(){document.getElementById('pp').value='pw123';"
+                         "document.getElementById('save').click();return true})()", &(int){0});
+        ok("with a passphrase it saves and closes", cdp_wait_bool(c,
+            "document.getElementById('sheet').hidden===true", 5000) == 0);
+        /* what landed is the marker, not the value: the whole point of the box */
+        ok("the stored value is encrypted, not the cleartext",
+           cdp_eval_bool(c, "(function(){window.__k=null;fetch('/api/get?keys=locker')"
+                            ".then(function(r){return r.text()}).then(function(t){window.__k=t});return true})()",
+                         &(int){0}) == 0 &&
+           cdp_wait_bool(c, "window.__k!==null&&window.__k.indexOf('aisc:')>=0"
+                            "&&window.__k.indexOf('safe-combo-1234')<0", 5000) == 0);
+    }
 
     cdp_close(c);
     printf("cdp: %d passed, %d failed\n", pass, fail);

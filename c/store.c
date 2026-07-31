@@ -137,10 +137,39 @@ int store_now(char *buf, size_t bufsz)
  * dedups by value (the same value IS the same record; keys are labels that union on
  * merge). FNV-1a 64-bit as 16 hex chars + NUL. NOT a security hash. Same value ->
  * same hash on any device, independent of local ids. */
+/* The LEGACY unsalted digest. Still computed on the matching side so a tombstone
+ * written before the salt -- or by a peer that has not upgraded -- keeps applying.
+ * Nothing writes it any more. */
 void content_hash(const char *value, char out[17])
 {
     unsigned long long h = 1469598103934665603ULL;   /* FNV-1a offset basis */
     const char *p;
+    for (p = value; *p != '\0'; p++) { h ^= (unsigned char)*p; h *= 1099511628211ULL; }
+    snprintf(out, 17, "%016llx", h);
+}
+
+/* The record's cross-device identity, salted with its CREATION time.
+ *
+ * The salt is not a secret and is not meant to be one: both devices read it off
+ * the record's own store line, so matching still works with nothing shared. What
+ * it changes is the arithmetic for someone who holds only a sync bundle. An
+ * unsalted digest of a low-entropy value -- a phone number, a short URL -- is a
+ * few seconds of guessing, and because it is unsalted ONE precomputed pass
+ * recovers every deleted value in the file at once. Salting per record forces the
+ * attacker to guess the value AND the second it was created, separately for every
+ * tombstone: the amortised attack is gone and the per-item cost rises by the
+ * entropy of the timestamp.
+ *
+ * It is a cost increase, not a proof. A value guessable to within a handful of
+ * candidates is still reachable. The complete answer is an identity that is not
+ * derived from content at all, which needs a wire generation change; this is what
+ * is available without one. */
+void content_hash_salted(const char *salt, const char *value, char out[17])
+{
+    unsigned long long h = 1469598103934665603ULL;   /* FNV-1a offset basis */
+    const char *p;
+    for (p = salt; *p != '\0'; p++) { h ^= (unsigned char)*p; h *= 1099511628211ULL; }
+    h ^= 0xffu; h *= 1099511628211ULL;                /* separator: salt|value */
     for (p = value; *p != '\0'; p++) { h ^= (unsigned char)*p; h *= 1099511628211ULL; }
     snprintf(out, 17, "%016llx", h);
 }
@@ -225,6 +254,7 @@ int store_open(ais *a, const char *dir)
     int n;
 
     a->lock_fd = -1;
+    a->purge_deletes = 0;
     a->next_id = 1;
 
     n = snprintf(a->dir, sizeof(a->dir), "%s", dir);

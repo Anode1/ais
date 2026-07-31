@@ -541,6 +541,15 @@ char *ais_embed_keys(void *handle, long id)
 
 /* Persist DIR as the saved default index (~/.ais/config), for a GUI's "change
  * store" so the choice sticks next run. 0 on success, -1 on failure. */
+int ais_embed_compact(void *handle, int forget)
+{
+    ais *a = handle;
+
+    if (a == NULL)
+        return -1;
+    return forget ? ais_compact_purge(a) : ais_compact(a);
+}
+
 int ais_embed_default_set(const char *dir)
 {
     return ais_default_set(dir);

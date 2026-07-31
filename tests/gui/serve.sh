@@ -281,5 +281,31 @@ ok "del-under: an unrelated blob is untouched"        "1" \
 ok "del-under: an empty tag is refused"  "400" \
    "$(curl -s -o /dev/null -w '%{http_code}' -X POST "$B/api/del-under?keys=")"
 
+# --- compaction from the GUI: a phone has no CLI ---------------------------
+printf 'to be deleted' | curl -s -X POST --data-binary @- "$B/api/put?keys=cmpk" >/dev/null
+printf 'to be kept'    | curl -s -X POST --data-binary @- "$B/api/put?keys=cmpkeep" >/dev/null
+delid=$(curl -s "$B/api/get?keys=cmpk" | head -1 | cut -d'|' -f1)
+curl -s -X POST "$B/api/del?id=$delid" >/dev/null
+# earlier cases in this file already deleted things, so assert "some", not "one"
+okd=$(curl -s "$B/api/stats" | grep -c 'deleted: [1-9]')
+okeq2() { if [ "$2" = "$3" ]; then pass=$((pass+1)); echo "  ok   $1"; else fail=$((fail+1)); echo "  FAIL $1 (want '$2', got '$3')"; fi; }
+okeq2 "stats: reports what clean-up would reclaim" "1" "$okd"
+# a browser cannot run `ais --version`, and which of the four numbers moved is the
+# first thing a bug report needs -- see doc/dev/VERSIONING.md
+ver=$(curl -s "$B/api/version")
+ok "version: reports the engine version"      "engine: " "$ver"
+ok "version: reports the on-disk format"      "format: v" "$ver"
+ok "compact: reclaims from the GUI"             "cleaned"    "$(curl -s -X POST "$B/api/compact")"
+empty "compact: the deleted record is gone"     "$(curl -s "$B/api/get?keys=cmpk")"
+ok "compact: the live record survives"          "to be kept" "$(curl -s "$B/api/get?keys=cmpkeep")"
+# and the privacy variant, which a phone user cannot reach any other way
+printf 'secret-ish' | curl -s -X POST --data-binary @- "$B/api/put?keys=cmpf" >/dev/null
+fid=$(curl -s "$B/api/get?keys=cmpf" | head -1 | cut -d'|' -f1)
+curl -s -X POST "$B/api/del?id=$fid" >/dev/null
+ok "compact: forget=1 also drops the delete facts" "cleaned and forgotten" \
+   "$(curl -s -X POST "$B/api/compact?forget=1")"
+okno() { case "$3" in *"$2"*) fail=$((fail+1)); echo "  FAIL $1";; *) pass=$((pass+1)); echo "  ok   $1";; esac; }
+okno "compact: nothing is left to test a guess against" "cmpf" "$(cat "$IDX/tomb" 2>/dev/null)"
+
 echo "serve: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]

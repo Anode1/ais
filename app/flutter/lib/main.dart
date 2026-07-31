@@ -18,6 +18,7 @@ import 'package:share_plus/share_plus.dart';
 import 'package:speech_to_text/speech_to_text.dart';
 import 'ais_ffi.dart';
 import 'add_validation.dart';
+import 'version.dart';
 
 void main() => runApp(const AisApp());
 
@@ -132,6 +133,10 @@ class _RecallPageState extends State<RecallPage> {
   // 'getInitialLink'. Absent on desktop, where the calls just throw and are ignored.
   static const _linkChannel = MethodChannel('ais/deeplink');
 
+  // iOS-only: ask the runner to set NSURLIsExcludedFromBackupKey on the index dir
+  // (see ios/Runner/AppDelegate.swift). Absent elsewhere, where the call just throws.
+  static const _backupChannel = MethodChannel('ais/backup');
+
   @override
   void initState() {
     super.initState();
@@ -153,10 +158,27 @@ class _RecallPageState extends State<RecallPage> {
     return dir;
   }
 
+  // Nothing goes to any cloud. iOS backs Documents/ up to iCloud BY DEFAULT, so the
+  // index would be uploaded unless it is explicitly opted out with
+  // NSURLIsExcludedFromBackupKey -- a native-only flag, hence the channel. Must run
+  // AFTER the directory exists (the flag is set on an existing item) and on every
+  // launch, because it does not survive the dir being recreated. Failure is not
+  // fatal to the app, but it is the privacy promise, so it is logged, not swallowed.
+  Future<void> _excludeFromICloud(String dir) async {
+    if (!Platform.isIOS) return;
+    try {
+      final ok = await _backupChannel.invokeMethod<bool>('excludeFromBackup', dir);
+      if (ok != true) debugPrint('AIS: could not exclude $dir from iCloud backup');
+    } catch (e) {
+      debugPrint('AIS: iCloud backup exclusion unavailable: $e');
+    }
+  }
+
   Future<void> _init() async {
     try {
       final dir = await _indexDir();
       Directory(dir).createSync(recursive: true);
+      await _excludeFromICloud(dir);
       _ais = AisEngine(dir);
       _dir = dir;
       _status = 'Type tags, then Search. Tap Add to save.';
@@ -1120,13 +1142,51 @@ class _RecallPageState extends State<RecallPage> {
     if (picked != null) themeModeNotifier.value = picked;
   }
 
-  // Simple About dialog: app name + the current store path.
+  // The on-disk format version, read from the index's own `version` file (the one
+  // c/store.c writes). Absent means a legacy index predating versioning, which the
+  // engine treats as 0. Null when no index is open or the file is unreadable, and
+  // then the About line simply omits it.
+  int? _indexFormatVersion() {
+    if (_dir.isEmpty) return null;
+    try {
+      final f = File('$_dir/version');
+      if (!f.existsSync()) return 0;
+      return int.tryParse(f.readAsStringSync().trim());
+    } catch (_) {
+      return null;
+    }
+  }
+
+  // About: app version, the ENGINE version this bundle actually links, and the index
+  // format version -- the three numbers a bug report needs, on one copyable line. The
+  // engine one matters: a Flutter bundle can ship a stale libais (it has), and with
+  // nothing on screen to reveal it, testers re-file bugs that are already fixed.
+  // "engine: unknown" is the honest answer from a library with no ais_version().
   void _showAbout() {
+    final messenger = ScaffoldMessenger.of(context);
+    final engine = AisIndex.engineVersion() ?? 'unknown';
+    final fmt = _indexFormatVersion();
+    final line = 'AIS $appVersionLabel · engine: $engine'
+        '${fmt == null ? '' : ' · index format: v$fmt'}';
     showAboutDialog(
       context: context,
       applicationName: 'AIS',
+      applicationVersion: appVersionLabel,
       children: [
-        Text(_dir.isEmpty ? 'Library: (default)' : 'Library: $_dir'),
+        Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Expanded(child: SelectableText(line)),
+          IconButton(
+            icon: const Icon(Icons.copy),
+            tooltip: 'Copy version details',
+            onPressed: () {
+              Clipboard.setData(ClipboardData(text: line));
+              messenger.showSnackBar(
+                  const SnackBar(content: Text('Version details copied')));
+            },
+          ),
+        ]),
+        const SizedBox(height: 8),
+        SelectableText(_dir.isEmpty ? 'Library: (default)' : 'Library: $_dir'),
       ],
     );
   }

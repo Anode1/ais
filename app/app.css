@@ -1,6 +1,6 @@
 /* app.css -- AIS phone web app, styled close to the Flutter client:
    a frosted recall header, a clean results list, and a value-first Add sheet. */
-:root { --accent: #1a0dab; --line: #e3e3ea; --muted: #6b6b75; --bg: #efeff6; }
+:root { --accent: #1a0dab; --line: #e3e3ea; --muted: #6b6b75; --bg: #efeff6; --danger: #a3281c; }
 * { box-sizing: border-box; }
 body { font: 16px/1.45 system-ui, sans-serif; color: #14141a; background: var(--bg); margin: 0; }
 
@@ -23,23 +23,29 @@ body { font: 16px/1.45 system-ui, sans-serif; color: #14141a; background: var(--
   background: #fff; border: 1px solid var(--line); border-radius: 28px; padding: 0 .8rem; }
 
 /* Recall / Timeline / Tags switch */
-.seg { display: flex; gap: .3rem; margin-top: .5rem; }
-.segbtn { flex: 1; border: 1px solid var(--line); background: #fff; color: var(--muted);
-  font: inherit; font-size: .85rem; padding: .4rem; border-radius: 8px; cursor: pointer; }
-.segbtn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
 .sicon { color: var(--muted); }
 #q { flex: 1; font: inherit; border: 0; outline: none; background: transparent; padding: .7rem .4rem; }
 .iconbtn { border: 0; background: transparent; font-size: 1.2rem; cursor: pointer; padding: .3rem; }
 
 /* results */
-#out { max-width: 720px; margin: 0 auto; padding: .5rem 1rem 6rem; }
+#out { max-width: 720px; margin: 0 auto; padding: .5rem 1rem 8.5rem; }
 .hit { padding: .85rem .2rem; border-bottom: 1px solid var(--line); word-break: break-word; }
 .hit:last-child { border-bottom: 0; }
 .hit a { color: var(--accent); text-decoration: none; }
-.act { display: flex; gap: 1.1rem; margin-top: .45rem; }
+.act { display: flex; gap: 1.1rem; margin-top: .45rem; align-items: center; }
+.actmenu { display: inline-flex; gap: 1.1rem; }
+.actmenu[hidden] { display: none; }
 .actbtn { border: 0; background: none; color: var(--muted); font: inherit; font-size: .8rem; cursor: pointer; padding: 0; }
 .actbtn:active { color: var(--accent); }
-.actbtn.del:active { color: #c0392b; }
+.actbtn.del:active { color: var(--danger); }
+/* a decoded document keeps its line breaks: it was stored as one multi-line note */
+.doc { white-space: pre-wrap; }
+/* an encrypted row reads as opaque, so the lock line is muted like metadata --
+   there is nothing to read there, only a Reveal to press */
+.lockline { color: var(--muted); }
+.revbtn { margin-left: .4rem; }
+.ppinline { width: auto; font: inherit; padding: .2rem .4rem; background: #fafafc;
+  border: 1px solid var(--line); border-radius: 8px; }
 .loadmore { display: block; width: 100%; margin: 1rem 0; padding: .7rem; border: 1px solid var(--line);
   background: #fff; color: var(--accent); border-radius: 8px; cursor: pointer; font: inherit; }
 .empty { color: var(--muted); text-align: center; margin-top: 3rem; }
@@ -49,9 +55,21 @@ body { font: 16px/1.45 system-ui, sans-serif; color: #14141a; background: var(--
   letter-spacing: .04em; margin: 1.1rem 0 .2rem; padding-bottom: .2rem; border-bottom: 1px solid var(--line); }
 .meta { font-size: .74rem; color: var(--muted); margin-top: .2rem; }
 
-/* tags list */
+/* tags list. The rule closes the GROUP (tag + its two actions): on .tagrow it
+   fell between a tag and its own actions, so they read as the next tag's. */
 .tagrow { display: flex; align-items: center; justify-content: space-between;
-  padding: .55rem .2rem; border-bottom: 1px solid var(--line); }
+  padding: .55rem .2rem .1rem; }
+/* The two tag actions are opposite in consequence and one tap apart, so they sit
+   at the two ENDS of their own line at a 44px touch target. The labels carry the
+   distinction unaided: the safe one names the TAG, the destructive one names the
+   RECORDS and their count, so neither depends on colour being perceived. */
+.tagacts { display: flex; justify-content: space-between; align-items: center;
+  gap: 3rem; padding: 0 .2rem .3rem; border-bottom: 1px solid var(--line); }
+.tagacts .actbtn { min-height: 44px; display: inline-flex; align-items: center;
+  touch-action: manipulation; }
+.actbtn.danger { color: var(--danger); }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.actbtn.danger:focus-visible { outline-color: var(--danger); }
 .taglink { border: 0; background: none; color: var(--accent); font: inherit;
   cursor: pointer; padding: 0; text-align: left; word-break: break-word; }
 .tagcount { font-size: .8rem; color: var(--muted); background: #fff; border: 1px solid var(--line);
@@ -59,7 +77,7 @@ body { font: 16px/1.45 system-ui, sans-serif; color: #14141a; background: var(--
 
 /* the Add FAB */
 .fab {
-  position: fixed; right: 18px; bottom: calc(env(safe-area-inset-bottom) + 18px);
+  position: fixed; right: 18px; bottom: calc(env(safe-area-inset-bottom) + 68px);
   border: 0; border-radius: 30px; padding: .9rem 1.3rem; cursor: pointer;
   font: inherit; font-weight: 600; color: #fff; background: var(--accent);
   box-shadow: 0 4px 14px rgba(0, 0, 0, .25);
@@ -76,7 +94,65 @@ body { font: 16px/1.45 system-ui, sans-serif; color: #14141a; background: var(--
 .card textarea, .card input { width: 100%; font: inherit; padding: .7rem .8rem;
   border: 1px solid var(--line); border-radius: 10px; margin-bottom: .8rem; background: #fafafc; }
 .card textarea { resize: vertical; }
+/* Encrypt sits on one line with its passphrase, which appears only when ticked */
+.encrow { display: flex; align-items: center; gap: .5rem; margin: .1rem 0 .8rem; }
+.encrow label { display: flex; align-items: center; gap: .35rem; font-size: .85rem;
+  color: var(--muted); white-space: nowrap; }
+.encrow input { margin-bottom: 0; }
+.encrow #enc { width: auto; }
+.encrow #pp { flex: 1; }
 .actions { display: flex; justify-content: flex-end; gap: .6rem; margin-top: .3rem; }
 .actions button { font: inherit; padding: .6rem 1.1rem; border-radius: 10px; cursor: pointer; }
 .ghost { border: 1px solid var(--line); background: #fff; }
+
+/* bottom nav (Flutter's NavigationBar, and the embedded page's #bnav) */
+#bnav { position: fixed; left: 0; right: 0; bottom: 0; z-index: 6; display: flex;
+  background: #fff; border-top: 1px solid var(--line); box-shadow: 0 -2px 12px rgba(0,0,0,.05);
+  padding-bottom: env(safe-area-inset-bottom); }
+#bnav button { flex: 1; border: 0; background: none; padding: .5rem 0 .62rem; font: inherit;
+  font-size: .72rem; color: var(--muted); cursor: pointer; display: flex;
+  flex-direction: column; align-items: center; gap: .12rem; min-height: 52px;
+  touch-action: manipulation; }
+#bnav button .ic { font-size: 1.3rem; line-height: 1; }
+#bnav button.on { color: var(--accent); }
+
+/* Undo toast: a reversible action gets a 5s window instead of a modal. Nothing
+   has been sent to the engine while it is up, so the Undo is honest. */
+#toast { position: fixed; left: 50%; bottom: 8.5rem; transform: translateX(-50%);
+  z-index: 20; display: flex; align-items: center; gap: 1rem; background: #2b2b33;
+  color: #fff; padding: .65rem 1.1rem; border-radius: 10px;
+  box-shadow: 0 4px 16px rgba(0,0,0,.35); max-width: calc(100vw - 2rem); }
+#toast[hidden] { display: none; }
+#toast button { color: #9db4ff; border: 0; background: none; text-decoration: underline;
+  cursor: pointer; font: inherit; min-height: 44px; }
+
+/* the Edit sheet: a chip tag editor, so no prompt() is needed (prompt() is
+   silently disabled in an installed PWA -- which this page is) */
+#editsheet { position: fixed; inset: 0; z-index: 10; background: rgba(0, 0, 0, .35);
+  display: flex; align-items: flex-end; justify-content: center; }
+#editsheet[hidden] { display: none; }
+#editsheet .card:focus { outline: none; }   /* a container, not a control */
+@media (min-width: 600px) { #editsheet { align-items: center; } }
+.chips { display: flex; flex-wrap: wrap; gap: .4rem; margin: .2rem 0 .7rem; }
+.chip { display: inline-flex; align-items: center; gap: .35rem; background: var(--bg);
+  border: 1px solid var(--line); border-radius: 16px; padding: .25rem .7rem; font-size: .9rem; }
+.chip button { border: 0; background: none; color: var(--muted); cursor: pointer;
+  font: inherit; font-size: 1rem; line-height: 1; padding: 0; min-height: 32px; }
+.chip button:active { color: var(--danger); }
+
+/* the destructive tag sheet: same overlay as #sheet, plus a preview list */
+#dsheet { position: fixed; inset: 0; z-index: 10; background: rgba(0, 0, 0, .35);
+  display: flex; align-items: flex-end; justify-content: center; }
+#dsheet[hidden] { display: none; }
+@media (min-width: 600px) { #dsheet { align-items: center; } }
+#dsheet .card { max-height: 85vh; overflow-y: auto; }
+#dsheet .card:focus { outline: none; }   /* a container, not a control */
+#dsheet .lead { color: var(--danger); font-weight: 600; margin: .2rem 0; }
+#dsheet .prev { list-style: none; margin: .2rem 0 .6rem; padding: 0;
+  max-height: 38vh; overflow-y: auto; }
+#dsheet .prev li { font-size: .8rem; color: var(--muted); padding: .15rem 0;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#dsheet input { font-size: 16px; }       /* under 16px, iOS zooms on focus */
+.danger-btn { background: var(--danger); color: #fff; border: 0; font-weight: 600; }
+.danger-btn[disabled] { opacity: .45; cursor: not-allowed; }
 .primary { border: 0; background: var(--accent); color: #fff; font-weight: 600; }

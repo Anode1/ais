@@ -17,6 +17,11 @@ int tomb_append(const ais *a, long id, const char *ts, const char *hash);
 /* Is ID tombstoned? Streams INDEX/tomb. Returns 1 yes, 0 no, -1 on error.
  * Bounded memory; O(tomb) per call. */
 int tomb_contains(const ais *a, long id);
+int tomb_active(const ais *a);    /* 1 if anything is deleted, 0 if not, -1 */
+
+/* Undo a compaction that was killed mid-flight (see the comment on the
+ * definition). Call once at open. 1 = recovered, 0 = nothing to do, -1 = error. */
+int compact_recover(ais *a);
 
 /* Stream each tomb entry (id, ts, hash) through CB (ts/hash "" for a legacy v1
  * entry). Returns 0, the callback's stop code, or -1 on error. */

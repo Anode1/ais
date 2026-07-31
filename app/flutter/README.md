@@ -47,6 +47,16 @@ This scaffold holds only the Dart + the native CMake. Generate the
     flutter run -d <android>  # your Android device
     # iOS: open ios/Runner.xcworkspace on Zoya's Mac, sign, run / TestFlight
 
+Release builds take their version from the git tag, not from `pubspec.yaml`:
+
+    flutter build appbundle --release $(sh tool/version.sh)
+    flutter build ipa --release $(sh tool/version.sh)
+
+`tool/version.sh` prints `--build-name`/`--build-number` (store metadata) and the
+matching `--dart-define`s (what the About screen shows), all from the nearest
+`vX.Y.Z` tag plus the commit count. `pubspec.yaml`'s `version:` is only the
+fallback for a plain `flutter run`.
+
 ## Android SDK (Linux)
 
 Android SDK setup: see doc/android-install.md.
@@ -55,6 +65,12 @@ Android SDK setup: see doc/android-install.md.
 
 - The index lives in the app's documents dir (`getApplicationDocumentsDirectory()/ais`):
   plain-text files on the phone, the same format as everywhere else.
+- Nothing goes to any cloud, and both platforms back that up by default, so both are
+  turned off explicitly: Android via `allowBackup="false"` +
+  `res/xml/data_extraction_rules.xml` (cloud denied, local device-to-device transfer
+  allowed), iOS via `NSURLIsExcludedFromBackupKey` on the index dir, set over the
+  `ais/backup` channel in `ios/Runner/AppDelegate.swift`. Android also sets
+  `hasFragileUserData="true"` so uninstall offers "Keep app data".
 - Next steps after first run: Siri Shortcuts (iOS) and Android App Actions so
   "Hey Siri / Hey Google, ask AIS to recall …" hits `recall()`: the same seam a
   future glasses client rides.

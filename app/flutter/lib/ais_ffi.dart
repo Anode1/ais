@@ -49,6 +49,9 @@ typedef _DefaultSetC = Int32 Function(Pointer<Utf8>);
 typedef _DefaultSetD = int Function(Pointer<Utf8>);
 typedef _LocateC = Int32 Function(Pointer<Utf8>, IntPtr);     // (out, outsz)
 typedef _LocateD = int Function(Pointer<Utf8>, int);
+// const char *ais_version(void) -- a static string in the library, NOT freed.
+typedef _VersionC = Pointer<Utf8> Function();
+typedef _VersionD = Pointer<Utf8> Function();
 
 /// One recall hit: the record id (the handle for delete/update) and its value.
 class Hit {
@@ -109,6 +112,26 @@ class AisIndex {
       return _defaultSet(d) == 0;
     } finally {
       calloc.free(d);
+    }
+  }
+
+  /// The version of the ENGINE this build actually links, e.g. "0.4.0" -- not the
+  /// app's version. A Flutter bundle can ship a stale libais (it has: a two-week-old
+  /// engine had testers re-filing fixed bugs), and nothing on screen revealed it.
+  ///
+  /// Null when the loaded library does not export `ais_version` -- older engines do
+  /// not, so this is looked up lazily and per call rather than as a `static final`
+  /// (an eager binding would throw at field initialization and take the whole class
+  /// with it). The caller shows "engine: unknown". The returned `const char *` is a
+  /// static string owned by the library: read it, never free it.
+  static String? engineVersion() {
+    try {
+      final p = _lib.lookupFunction<_VersionC, _VersionD>('ais_version')();
+      if (p == nullptr) return null;
+      final v = p.toDartString();
+      return v.isEmpty ? null : v;
+    } catch (_) {
+      return null; // symbol absent (ArgumentError) or the library would not load
     }
   }
 }

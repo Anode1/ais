@@ -48,6 +48,17 @@ static void chomp(char *s)
  * "keys|value" line is untouched: its first field is not a bare integer, or it
  * has just one '|'. Only the plain add form calls this; A|/D|/K| merge lines
  * (field 1 is a letter) are handled before it. */
+/* Does this field START with a date, "YYYY-"? Used only to tell a merge-stream
+ * verb line from a hand-written "keys|value" whose key happens to look like one. */
+static int feed_looks_dated(const char *p)
+{
+    int i;
+    for (i = 0; i < 4; i++)
+        if (p[i] < '0' || p[i] > '9')
+            return 0;
+    return p[4] == '-';
+}
+
 /* Returns 1 if an "id|" prefix was stripped -- i.e. the line came from --dump
  * and its keys field is AUTHORITATIVE (empty means the record really has no
  * keys), rather than being a hand-written feed line where an empty keys field
@@ -126,7 +137,7 @@ void feed_interactive(ais *a, const char *base)
 void feed_import_from(ais *a, FILE *in)
 {
     char line[AIS_LINE_MAX];
-    long n = 0;
+    long n = 0, skipped = 0;
     int  from_dump;
 
     /* A line is one of: a merge-stream "A|ts|keys|value" (add) or "D|ts|hash" (delete),
@@ -173,10 +184,53 @@ void feed_import_from(ais *a, FILE *in)
             }
         }
 
+        /* A single capital letter then '|' is the merge stream's verb shape. If it
+         * is not one WE know, refuse the line -- do not fall through to the plain
+         * "keys|value" reader, which used to turn a future verb (or a binary
+         * bundle's header) into a junk record under a fabricated key and still
+         * report success. That silent corruption is also why no new verb could
+         * ever be added: every older peer would mangle it instead of skipping it.
+         * Refusing here is what makes the stream extensible. */
+        {
+            /* A merge-stream verb is a short uppercase token before the first
+             * '|', followed by a timestamp. Checking only ONE letter let a
+             * two-character verb through -- "D2|<ts>|<hash>" became a record
+             * keyed "D2", which is the exact silent corruption this guard exists
+             * to stop, and it would have bitten the first peer to see a v2 verb.
+             * The timestamp test is what keeps a legitimate tag safe: a
+             * hand-written "TODO|buy milk" has no date in field 2, so it still
+             * imports as a record. */
+            size_t vl = strcspn(line, "|");
+            if (vl >= 1 && vl <= 3 && line[vl] == '|') {
+                size_t c;
+                int isverb = 1;
+                for (c = 0; c < vl; c++)
+                    if (!((line[c] >= 'A' && line[c] <= 'Z') ||
+                          (line[c] >= '0' && line[c] <= '9')))
+                        isverb = 0;
+                if (isverb && !(line[0] >= '0' && line[0] <= '9') &&
+                    feed_looks_dated(line + vl + 1)) {
+                    fprintf(stderr, "import: unknown '%.*s|' record, skipped "
+                                    "(from a newer ais?): %.60s\n",
+                            (int)vl, line, line);
+                    skipped++;
+                    continue;
+                }
+            }
+        }
+        /* A bundle is not a stream: it has a binary header and length-prefixed
+         * blobs, so reading it line-by-line invents records. Name the mistake. */
+        if (n == 0 && strncmp(line, "AISB", 4) == 0) {
+            fprintf(stderr, "import: this is a sync bundle, not an export stream.\n"
+                            "        use: ais --sync-folder DIR\n");
+            return;
+        }
+
         from_dump = strip_dump_id(line);       /* "id|keys|value" (a --dump line) -> "keys|value" */
         bar = strchr(line, '|');
         if (bar == NULL) {
             fprintf(stderr, "import: no '|', skipped: %s\n", line);
+            skipped++;
             continue;
         }
         *bar = '\0';
@@ -197,15 +251,20 @@ void feed_import_from(ais *a, FILE *in)
          * and there is no id to say otherwise. */
         if (*keys == '\0' && !from_dump) {
             fprintf(stderr, "import: empty keys, skipped: %s\n", val);
+            skipped++;
             continue;
         }
         if (ais_put(a, keys, val) < 0) {       /* shared with the sync merge: skip, don't abort */
             fprintf(stderr, "import: skipped (put failed): %s\n", val);
+            skipped++;
             continue;
         }
         n++;
     }
-    fprintf(stderr, "imported %ld\n", n);
+    if (skipped > 0)
+        fprintf(stderr, "imported %ld, skipped %ld\n", n, skipped);
+    else
+        fprintf(stderr, "imported %ld\n", n);
 }
 
 void feed_import(ais *a) { feed_import_from(a, stdin); }

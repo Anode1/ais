@@ -18,12 +18,40 @@
 #include "store.h"
 #include "win.h"          /* rename() -> MoveFileEx shim on native Windows; empty on POSIX */
 
+const char *ais_version(void)
+{
+    return AIS_VERSION;
+}
+
+long ais_version_number(void)
+{
+    const char *v = AIS_VERSION;
+    long part[3] = { 0, 0, 0 };
+    int i = 0;
+
+    /* "0.3.9", or what git describe adds: "0.3.9-2-gabc1234", "0.3.9-dirty".
+     * Stop at the first non-digit, non-dot -- the suffix is not ordering. */
+    for (; *v != '\0' && i < 3; v++) {
+        if (*v >= '0' && *v <= '9') {
+            part[i] = part[i] * 10 + (*v - '0');
+            continue;
+        }
+        if (*v == '.') { i++; continue; }
+        break;                            /* a tag that is not a plain version */
+    }
+    return part[0] * 1000000 + part[1] * 1000 + part[2];
+}
+
 int ais_open(ais *a, const char *dir)
 {
     if (store_open(a, dir) != 0) {
         debug("cannot open index '%s' (in use, or unwritable)", dir);
         return -1;
     }
+    /* A killed compaction leaves a half-built idx/ that makes every keyed lookup
+     * silently under-report. Put the staged tree back before anyone reads. */
+    if (compact_recover(a) < 0)
+        debug("could not recover a staged idx/ in '%s'", dir);
     debug("opened index '%s', next_id=%ld", a->dir, a->next_id);
     return 0;
 }
@@ -54,6 +82,8 @@ static int  add_seek(long id, const char *ts, const char *keys,
 static int  keys_union(char *keys, size_t sz, const char *tok);
 static int  key_fold_stored(const char *tok, char *out, size_t sz);
 static int  store_set_keys(ais *a, long id, const char *keys);
+static int  store_restamp(ais *a, long id, const char *ts);
+static long tag_count_file(const ais *a, const char *path, int dead);
 
 /* Attach/detach KEYS on record ID. ATTACH_TS is the timestamp an implicit
  * re-attach LWW-competes against a prior detach with: NULL = a LOCAL edit (now,
@@ -251,6 +281,23 @@ long ais_put_at(ais *a, const char *keys, const char *value, const char *ts)
             }
             if (!win) { rc = id; goto out; }            /* the delete is newer: stay deleted */
             if (tomb_remove(a, id) != 0) { rc = -1; goto out; }   /* resurrect */
+            /* Restamp, or the resurrection is LOCAL ONLY. The line still carried
+             * its original creation time, so it exported as an A| older than the
+             * peer's tombstone; the peer kept the delete and sent its D| back,
+             * which killed the record here again. Re-saving anything the index
+             * had ever deleted was therefore impossible, permanently. On the
+             * merge path the incoming ts is the one that won, so carry that. */
+            {
+                char now[AIS_TS_MAX];
+                const char *stamp = ts;
+                if (stamp == NULL) {
+                    store_now(now, sizeof now);
+                    stamp = now;
+                }
+                if (stamp[0] != '\0' && store_restamp(a, id, stamp) != 0) {
+                    rc = -1; goto out;
+                }
+            }
         }
         rc = (ais_post_keys(a, clean, id, ts, 0) != 0) ? -1 : id;  /* ts: LWW vs a detach */
         goto out;
@@ -299,7 +346,8 @@ long ais_put(ais *a, const char *keys, const char *value)
 struct keys_rewrite {
     FILE       *out;
     long        id;
-    const char *keys;
+    const char *keys;      /* NULL = keep the line's own keys */
+    const char *ts;        /* NULL = keep the line's own ts    */
     int         matched;
 };
 
@@ -312,12 +360,16 @@ static int keyrw_line(long id, const char *ts, const char *keys,
 
     snprintf(wts, sizeof wts, "%s", ts);     /* may be upgraded below */
     if (id == c->id) {
-        int need = (wts[0] != '\0')
-                 ? snprintf(NULL, 0, "%ld|%s|%s|%s\n", id, wts, c->keys, value)
-                 : snprintf(NULL, 0, "%ld|%s|%s\n", id, c->keys, value);
+        const char *nk = (c->keys != NULL) ? c->keys : keys;
+        int need;
+        if (c->ts != NULL)                   /* restamp: the add-ts LWW compares */
+            snprintf(wts, sizeof wts, "%s", c->ts);
+        need = (wts[0] != '\0')
+             ? snprintf(NULL, 0, "%ld|%s|%s|%s\n", id, wts, nk, value)
+             : snprintf(NULL, 0, "%ld|%s|%s\n", id, nk, value);
         if (need < 0 || need >= AIS_LINE_MAX)   /* the edited line would not round-trip */
             return -1;
-        wkeys = c->keys;
+        wkeys = nk;
         c->matched = 1;
         /* A legacy (no-ts) line is re-emitted as "id|keys|value", so a keys field
          * that parses as a date lands in the slot the reader takes for the ts:
@@ -325,11 +377,11 @@ static int keyrw_line(long id, const char *ts, const char *keys,
          * instead, upgrading the line, rather than write one that cannot be read
          * back. Only ever happens on a pre-v2 line whose new keys start with a
          * date-shaped token. */
-        if (wts[0] == '\0' && store_looks_like_ts(c->keys)) {
+        if (wts[0] == '\0' && c->keys != NULL && store_looks_like_ts(c->keys)) {
             char now[AIS_TS_MAX];
             store_now(now, sizeof now);
             if (now[0] != '\0' &&
-                snprintf(NULL, 0, "%ld|%s|%s|%s\n", id, now, c->keys, value) < AIS_LINE_MAX)
+                snprintf(NULL, 0, "%ld|%s|%s|%s\n", id, now, nk, value) < AIS_LINE_MAX)
                 snprintf(wts, sizeof wts, "%s", now);
             else
                 return -1;               /* cannot write a readable line: refuse */
@@ -344,7 +396,7 @@ static int keyrw_line(long id, const char *ts, const char *keys,
 
 /* Write KEYS into id's store lines. Caller holds the write lock. 0, or -1 (the
  * store is left untouched on any failure -- nothing is renamed). */
-static int store_set_keys(ais *a, long id, const char *keys)
+static int store_rewrite_line(ais *a, long id, const char *keys, const char *ts)
 {
     char storep[AIS_PATH_MAX], newp[AIS_PATH_MAX], offp[AIS_PATH_MAX];
     struct keys_rewrite c;
@@ -357,7 +409,7 @@ static int store_set_keys(ais *a, long id, const char *keys)
     out = fopen(newp, "w");
     if (out == NULL)
         return -1;
-    c.out = out; c.id = id; c.keys = keys; c.matched = 0;
+    c.out = out; c.id = id; c.keys = keys; c.ts = ts; c.matched = 0;
 
     if (store_each_record(a, keyrw_line, &c) != 0 || !c.matched) {
         fclose(out); remove(newp);
@@ -375,6 +427,22 @@ static int store_set_keys(ais *a, long id, const char *keys)
     if (snprintf(offp, sizeof offp, "%s/off", a->dir) < (int)sizeof offp)
         remove(offp);
     return 0;
+}
+
+/* Replace the record's keys field, keeping its ts. */
+static int store_set_keys(ais *a, long id, const char *keys)
+{
+    return store_rewrite_line(a, id, keys, NULL);
+}
+
+/* Replace the record's ts, keeping its keys. The ts IS the add-ts that merging
+ * compares against a peer's tombstone (MERGE.md, "last-write-wins by ts"), so a
+ * record that comes back to life has to carry the time it came back. Leaving the
+ * original creation time is what made a re-saved value lose to its own old
+ * delete forever, on every device. */
+static int store_restamp(ais *a, long id, const char *ts)
+{
+    return store_rewrite_line(a, id, NULL, ts);
 }
 
 /* Copy TOK into OUT folding '|' and control bytes to '_', exactly as
@@ -653,14 +721,28 @@ out:
 
 /* Grab a record's value by id (via ais_record) so del can content-hash it for a
  * portable, compaction-proof tombstone. */
-struct del_value { char value[AIS_LINE_MAX]; int found; };
-static int del_grab_value(long id, const char *value, void *ctx)
+struct del_value {
+    long id;
+    char value[AIS_LINE_MAX];
+    char ts[AIS_TS_MAX];              /* the record's CREATION ts: the hash salt */
+    int  found;
+};
+
+/* Grab the record's creation ts as well as its value. The ts is field 2 of the
+ * store line and ais_record only yields values, so this reads the line itself --
+ * through the same off/store_record_at seek ais_record uses, not a full scan,
+ * because it runs once per record inside --del-under and --untag. */
+static int del_seek_line(long id, const char *ts, const char *keys,
+                         const char *value, void *ctx)
 {
     struct del_value *D = ctx;
-    (void)id;
+    (void)keys;
+    if (id != D->id)
+        return 0;
     snprintf(D->value, sizeof D->value, "%s", value);
+    snprintf(D->ts, sizeof D->ts, "%s", ts);
     D->found = 1;
-    return 1;   /* stop after the first line */
+    return 1;                          /* first line wins, as before */
 }
 
 /* Stamp a tombstone for id: ts = now, hash = content hash of the record's value (so
@@ -668,12 +750,18 @@ static int del_grab_value(long id, const char *value, void *ctx)
 static void del_stamp(ais *a, long id, char *ts, size_t tsz, char hash[17])
 {
     struct del_value D;
+    long offset;
+
+    D.id = id;
     D.found = 0;
     D.value[0] = '\0';
-    ais_record(a, id, del_grab_value, &D);
+    D.ts[0] = '\0';
+    if (off_get(a, id, &offset) != 1 ||
+        store_record_at(a, id, offset, del_seek_line, &D) < 0 || !D.found)
+        store_each_record(a, del_seek_line, &D);   /* no accelerator: scan */
     store_now(ts, tsz);
     if (D.found)
-        content_hash(D.value, hash);
+        content_hash_salted(D.ts, D.value, hash);  /* salt = creation time */
     else
         hash[0] = '\0';
 }
@@ -681,10 +769,24 @@ static void del_stamp(ais *a, long id, char *ts, size_t tsz, char hash[17])
 int ais_del(ais *a, long id)
 {
     char ts[AIS_TS_MAX], hash[17];
-    int rc;
+    int rc, dead;
 
     if (store_wlock(a) != 0)
         return -1;
+    /* Deleting an already-deleted record says nothing new, and the tombstone is
+     * kept for the life of the index -- so appending a second one just makes every
+     * peer re-scan its whole store for the same fact on every future import. Three
+     * `--del 1` in a row wrote three identical lines. Idempotent as documented. */
+    dead = tomb_contains(a, id);
+    if (dead < 0) {
+        store_wunlock(a);
+        return -1;
+    }
+    if (dead == 1) {
+        store_wunlock(a);
+        debug("del: id=%ld already tombstoned", id);
+        return 0;
+    }
     del_stamp(a, id, ts, sizeof ts, hash);
     rc = tomb_append(a, id, ts, hash);
     store_wunlock(a);
@@ -719,6 +821,15 @@ int ais_del_key(ais *a, const char *key)
             goto cleanup;
         }
         del_stamp(a, s.head, ts, sizeof ts, hash);
+        /* Re-stamping an already-dead record REPLACES its tombstone rather than
+         * adding one: the intent is "this key is deleted as of now", which is one
+         * fact, not a running tally. Appending let a repeated --del-under grow the
+         * tomb without bound, and every duplicate costs each peer a full store
+         * scan on every import, forever. */
+        if (dead == 1 && tomb_remove(a, s.head) != 0) {
+            rc = -1;
+            goto cleanup;
+        }
         if (tomb_append(a, s.head, ts, hash) != 0) {
             rc = -1;
             goto cleanup;
@@ -844,10 +955,16 @@ struct mdel_ctx { const char *hash; long id; char add_ts[AIS_TS_MAX]; int found;
 static int mdel_seek(long id, const char *ts, const char *keys, const char *value, void *vp)
 {
     struct mdel_ctx *M = vp;
-    char h[17];
+    char h[17], legacy[17];
     (void)keys;
-    content_hash(value, h);
-    if (strcmp(h, M->hash) == 0) {
+    /* Salted with the record's own creation ts (this line's field 2). The legacy
+     * unsalted form is still accepted, or every delete written before this change
+     * -- and every delete from a peer that has not upgraded -- would stop
+     * applying. Accepting both costs one extra hash per record and keeps old
+     * bundles merging forever. */
+    content_hash_salted(ts, value, h);
+    content_hash(value, legacy);
+    if (strcmp(h, M->hash) == 0 || strcmp(legacy, M->hash) == 0) {
         M->id = id;
         snprintf(M->add_ts, sizeof M->add_ts, "%s", ts);
         M->found = 1;
@@ -1030,7 +1147,7 @@ int ais_keys(ais *a, ais_key_cb cb, void *ctx)
     struct key_buf b;
     DIR *idx = NULL;
     struct dirent *pe;
-    int i, rc = 0;
+    int i, rc = 0, dead;
 
     b.names = NULL;
     b.n = 0;
@@ -1041,6 +1158,9 @@ int ais_keys(ais *a, ais_key_cb cb, void *ctx)
     idx = opendir(idxdir);
     if (idx == NULL)
         return 0;   /* no idx/ yet: no keys */
+    dead = tomb_active(a);
+    if (dead < 0)
+        dead = 1;
 
     /* one bounded heap block holding the collected key names */
     b.names = malloc((size_t)b.cap * sizeof(b.names[0]));
@@ -1064,7 +1184,15 @@ int ais_keys(ais *a, ais_key_cb cb, void *ctx)
         if (pd == NULL)
             continue;   /* not a dir (or unreadable): skip, stay local */
         while ((ke = readdir(pd)) != NULL) {
+            char kpath[AIS_PATH_MAX];
             if (ke->d_name[0] == '.')
+                continue;
+            /* Skip a key whose every record is deleted: the posting keeps their
+             * ids until compaction, so listing it offered a key that answers
+             * nothing. Same rule as ais_tags -- and free when nothing is deleted. */
+            if (dead && snprintf(kpath, sizeof kpath, "%s/%s", pdir, ke->d_name)
+                            < (int)sizeof kpath &&
+                tag_count_file(a, kpath, dead) == 0)
                 continue;
             if (key_buf_add(&b, ke->d_name) != 0) {
                 rc = -1;
@@ -1324,6 +1452,17 @@ int ais_timeline(ais *a, long before_id, int count,
     e.filter = (ktomb_active(a) == 1);
     e.from = from; e.to = to; e.emitted = 0;
 
+    /* Re-read the counter from disk BEFORE anything reads it. It is cached at
+     * open, so a process that stays up -- the web server, the phone app -- had
+     * its ceiling frozen at whatever the counter was when it started, and every
+     * record any OTHER writer added sat above it, invisible. "Recent" was the one
+     * screen that lied, while get/tags (which read the postings each call) saw
+     * them. off_consistent() compares the off file against next_id too, so a
+     * stale counter also mis-declared the accelerator inconsistent and sent this
+     * down the scan path -- the refresh has to come first. */
+    if (store_load_next_id(a) != 0)
+        return -1;
+
     if (off_consistent(a) != 1)               /* no usable index: bounded scan */
         return tl_scan(a, before_id, count, &e);
 
@@ -1354,11 +1493,20 @@ struct tag_entry {
 };
 
 /* Count the lines (postings) in one key file idx/<p>/<key>. */
-static long tag_count_file(const char *path)
+/* LIVE postings under one key. A posting keeps a deleted record's id until the
+ * next compaction, so counting lines reported tags that answer nothing: the tag
+ * list said "notes 120" while querying `notes` returned zero, and the GUIs -- where
+ * the tag list is the main way to browse -- offered a tag that led nowhere. On a
+ * phone there is no CLI, so compaction never runs and those never clear.
+ * DEAD is the tombstone count: with nothing deleted (the common case) this is the
+ * old newline count at the old speed, and only an index that has seen deletes pays
+ * for the id parse and the tomb lookup. */
+static long tag_count_file(const ais *a, const char *path, int dead)
 {
     char buf[8192];
     FILE *fp;
-    long n = 0;
+    long n = 0, id = 0;
+    int  indig = 0;
     size_t r;
 
     fp = fopen(path, "r");
@@ -1366,9 +1514,20 @@ static long tag_count_file(const char *path)
         return 0;
     while ((r = fread(buf, 1, sizeof(buf), fp)) > 0) {
         size_t i;
-        for (i = 0; i < r; i++)
-            if (buf[i] == '\n')
+        for (i = 0; i < r; i++) {
+            if (buf[i] >= '0' && buf[i] <= '9') {
+                id = id * 10 + (buf[i] - '0');
+                indig = 1;
+                continue;
+            }
+            if (buf[i] != '\n')
+                continue;
+            if (!dead)                          /* nothing deleted: just count */
                 n++;
+            else if (indig && tomb_contains(a, id) != 1)
+                n++;
+            id = 0; indig = 0;
+        }
     }
     fclose(fp);
     return n;
@@ -1387,7 +1546,7 @@ int ais_tags_page(ais *a, long after_count, const char *after_key, int count,
 {
     char idxdir[AIS_PATH_MAX];
     struct tag_entry *tags = NULL;
-    int ntags = 0, cap = AIS_KEYS_LIST_MAX, i, rc = 0, emitted = 0;
+    int ntags = 0, cap = AIS_KEYS_LIST_MAX, i, rc = 0, emitted = 0, dead;
     DIR *idx;
     struct dirent *pe;
 
@@ -1396,6 +1555,9 @@ int ais_tags_page(ais *a, long after_count, const char *after_key, int count,
     idx = opendir(idxdir);
     if (idx == NULL)
         return 0;             /* no idx/ yet: no tags */
+    dead = tomb_active(a);    /* nothing deleted -> skip the per-id liveness check */
+    if (dead < 0)
+        dead = 1;             /* unreadable tomb: filter rather than over-report */
 
     tags = malloc((size_t)cap * sizeof(tags[0]));
     if (tags == NULL) {
@@ -1426,7 +1588,9 @@ int ais_tags_page(ais *a, long after_count, const char *after_key, int count,
                     >= (int)sizeof(kpath))
                 continue;
             snprintf(tags[ntags].key, sizeof(tags[ntags].key), "%s", ke->d_name);
-            tags[ntags].count = tag_count_file(kpath);
+            tags[ntags].count = tag_count_file(a, kpath, dead);
+            if (tags[ntags].count == 0)
+                continue;                 /* every record under it is deleted */
             ntags++;
         }
         closedir(pd);

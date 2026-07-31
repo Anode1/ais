@@ -35,6 +35,10 @@ Concurrency / scale
     (a pre-"off" index falls back to a scan until you compact).
 
 Files (in the index directory)
-  store is the source of truth. idx/ off multi tomb are DERIVED -- delete any of
+  store is the source of truth. idx/ off multi are DERIVED -- delete any of
   them and `compact` rebuilds it. blobs/ holds documents and is REAL DATA (not
-  rebuildable). next_id is the id counter; lock is the writer flock.
+  rebuildable). tomb and ktomb are REAL DATA too: they are the record of what was
+  DELETED, and nothing can rebuild them from the store, because a deleted record
+  is not in the store. Removing tomb resurrects everything ever deleted -- and the
+  next sync pushes those records back to every other device. next_id is the id
+  counter; lock is the writer flock.

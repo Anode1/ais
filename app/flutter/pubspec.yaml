@@ -1,6 +1,10 @@
 name: ais
 description: "AIS — associative index, native client (Flutter, FFI to the C engine)."
 publish_to: none
+# FALLBACK ONLY -- the release version comes from the git tag via tool/version.sh
+# (`flutter build ... $(sh tool/version.sh)`), which overrides this. Kept because
+# `flutter build` still wants a version when no --build-name/--build-number is
+# passed, e.g. a plain `flutter run`. Mirrored in lib/version.dart's defaults.
 version: 0.3.9+9
 
 environment:

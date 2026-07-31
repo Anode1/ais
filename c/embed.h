@@ -158,6 +158,19 @@ void  ais_embed_close(void *handle);
  * store"), so the next run opens it. 0 on success, -1 on failure. */
 int   ais_embed_default_set(const char *dir);
 
+/* Reclaim the space of deleted records and rebuild the posting index. FORGET=0
+ * keeps the deletions exportable, which is what a peer needs to learn about them;
+ * FORGET=1 also strips the content hash from every tombstone, so the deletions
+ * stay in force HERE but stop travelling and stop being testable against a guess.
+ *
+ * A phone has no CLI, so without this the store grows forever, tags of deleted
+ * records linger in the index, and the privacy note's advice ("run ais --compact
+ * --forget-deleted") is unreachable for the people who most need it. Safe to run
+ * unattended: it is atomic, and an interrupted run is rolled back at the next
+ * open. With FORGET=1 warn first -- a device that has not synced since can push
+ * the deleted records back. 0 on success, -1 on failure. */
+int   ais_embed_compact(void *handle, int forget);
+
 /* Resolve the index a bare run would use (same precedence as the CLI: nearest
  * .ais/, then ~/.ais/config, then ~/.ais), writing it into OUT (size OUTSZ).
  * 0 on success, -1 on error. Lets an embedder open the same index as the CLI

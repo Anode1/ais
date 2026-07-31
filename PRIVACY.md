@@ -11,8 +11,38 @@ personal data.
 
 Everything you enter (keys, entries, links, notes, and secrets) is stored
 **locally on your device**. Secrets are **encrypted** on the device with a
-passphrase you choose. The app has no user accounts and no server, and nothing
-you store is sent to the developer.
+passphrase you choose. Your index is your own plain-text files: you can open,
+read and copy them yourself. That is deliberate, and it means anyone who can read
+those files can read everything in them that you did not encrypt. The app has no
+user accounts and no server, and nothing you store is sent to the developer.
+
+## Deleting an entry
+
+Deleting an entry removes it from your index, and syncing carries the deletion to
+your other devices. To make it travel, AIS keeps a small permanent marker: the
+date you deleted, and a short fingerprint of the deleted value. The value itself
+is not kept. The marker stays for the life of the index, so a device that was
+switched off when you deleted something does not push it back later.
+
+Be aware of what that marker means. The fingerprint is a fast checksum, not a
+cryptographic one. Someone who can read your index files, and who already guesses
+what a deleted entry might have been, can test that guess against the fingerprint
+in seconds. It will not tell them what you deleted, but it can confirm a guess,
+and it tells them the date. Until you run `ais --compact`, your index also still
+records which tags a deleted entry carried.
+
+Entries you saved **encrypted** are not affected: their fingerprint is taken over
+the encrypted form, which cannot be guessed this way, and the encrypted file is
+shredded the moment you delete. If something may need to be truly gone later,
+save it encrypted.
+
+If you want a deletion to leave no trace at all, run:
+
+    ais --compact --forget-deleted
+
+That erases the markers on this device: the entries stay deleted, but nothing is
+left for anyone to test a guess against. Sync your other devices first — a device
+that has not yet seen the deletion can send the entry back.
 
 ## Data we collect
 
@@ -27,6 +57,11 @@ The app offers optional **on-demand LAN sync**: a one-time transfer of your inde
 **directly between your own devices** over your local network, only when you start
 it. That traffic is **end-to-end encrypted** and travels only between devices you
 control. It does not pass through the developer or any third-party server.
+
+You can also sync through a **shared folder** — an SD card, a USB stick, or a
+cloud folder you chose. Those files are plain text, like your index. Nothing is
+sent to the developer either way, but anyone who can read that folder can read
+what is in it, so pick a folder only you can reach.
 
 ## Third parties, ads, and tracking
 

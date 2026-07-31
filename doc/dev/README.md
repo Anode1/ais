@@ -13,6 +13,9 @@ Core format and code:
 - **WHY-PLAIN-TEXT.md**: why the text format is fast (1M-record measurements) and the case against "use a binary DB".
 - **WHY-C.md**: why the engine is C and not a memory-safe language, and how the memory-safety class is caught (sanitizers, style) without a rewrite.
 
+- **VERSIONING.md**: the four things that version independently (release, library
+  ABI, on-disk format, sync wire) and which one to move.
+
 Sync (multi-device):
 
 - **SYNC.md**: the sync model overview.
@@ -24,5 +27,6 @@ Distribution and front-ends:
 - **DISTRIBUTION.md**: one download per platform, packaging, the GUI inventory, and the planned phone PWA.
 - **SIGNING.md**: Windows (SignPath) and Android (keystore) release signing.
 - **GUI.md**: shared label/layout conventions across the web, Flutter, and Win32 front-ends.
+- **HTTP_API.md**: the `--serve` endpoints both web front-ends drive.
 
 Start with `../../AGENTS.md`, then `LAYOUT.md` and `STYLE.md`.

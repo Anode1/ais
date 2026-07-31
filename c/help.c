@@ -79,6 +79,8 @@ void usage_long(FILE *out)
 "                                 a GUI pages through older ones on demand)\n"
 "  ais --tags                     every key with how many records use it (busiest first)\n"
 "  ais --compact                  reclaim space from deleted records\n"
+"  ais --compact --forget-deleted also forget WHAT was deleted (sync first:\n"
+"                                 an unsynced device can send them back)\n"
 "  ais --init                     create a local .ais index here (git-style)\n"
 "  ais --import < FILE            add 'keys|value' lines (the inverse of --dump)\n"
 "  ais --import-interactively     like --import, but confirm each record [y/N]\n"

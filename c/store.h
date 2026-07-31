@@ -120,4 +120,9 @@ int  multi_contains(const ais *a, long id);   /* 1 yes, 0 no, -1 error */
  * NOT a security hash. Same value -> same hash on any device. */
 void content_hash(const char *value, char out[17]);
 
+/* Same, salted with the record's creation ts so a tombstone's digest cannot be
+ * attacked once for the whole file. See the definition for what this does and
+ * does not buy. */
+void content_hash_salted(const char *salt, const char *value, char out[17]);
+
 #endif /* AIS_STORE_H */

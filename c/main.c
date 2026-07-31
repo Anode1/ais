@@ -367,7 +367,7 @@ static int confirm(const char *prompt)
 
 int main(int argc, char **argv)
 {
-    enum { OPT_HELP = 1000, OPT_VERSION, OPT_TOKEN,
+    enum { OPT_HELP = 1000, OPT_VERSION, OPT_TOKEN, OPT_PURGE,
            CMD_FIND, CMD_ADD, CMD_DEL, CMD_DELKEY, CMD_DUMP, CMD_KEYS, CMD_STATS,
            CMD_COMPACT, CMD_INIT, CMD_IMPORT, CMD_IMPORTI, CMD_WHERE, CMD_SERVE, CMD_PROJECT,
            CMD_DOC, CMD_TIMELINE, CMD_TAGS, CMD_DEFAULT, CMD_UPDATE, CMD_SET, CMD_UNTAG,
@@ -402,6 +402,7 @@ int main(int argc, char **argv)
         { "timeline",    no_argument,       NULL, CMD_TIMELINE },
         { "stats",       no_argument,       NULL, CMD_STATS },
         { "compact",     no_argument,       NULL, CMD_COMPACT },
+        { "forget-deleted", no_argument,    NULL, OPT_PURGE },
         { "init",        no_argument,       NULL, CMD_INIT },
         { "import",      no_argument,       NULL, CMD_IMPORT },
         { "import-interactively", no_argument, NULL, CMD_IMPORTI },
@@ -426,6 +427,7 @@ int main(int argc, char **argv)
      * misfired on a KEY literally named that and missed getopt's own unambiguous
      * abbreviation ("--del-k"), so take the answer from getopt itself. */
     const char *cmd_spelling = "";
+    int purge_deletes = 0;             /* --forget-deleted, a modifier on --compact */
     int li = -1;
     const char *token_arg = NULL;
     char project[AIS_KEY_MAX];
@@ -443,6 +445,7 @@ int main(int argc, char **argv)
         case 'o': mode = AIS_OR; break;
         case 'd': ais_debug_flag = 1; break;
         case 'y': assume_yes = 1; break;
+        case OPT_PURGE: purge_deletes = 1; break;
         case 'i': interactive = 1; break;
         case 'c': create = 1; break;
         case 'e': encrypt = 1; break;
@@ -747,8 +750,26 @@ int main(int argc, char **argv)
             break;
         }
         case CMD_COMPACT:
-            if (assume_yes ||
-                confirm("Compaction permanently discards deleted records. Proceed?")) {
+            if (purge_deletes) {
+                /* Name the price before asking. Forgetting a deletion is the one
+                 * thing here that another device can undo for you, and the user
+                 * cannot be expected to know that a peer still holds the record. */
+                if (!assume_yes) {
+                    fprintf(stderr,
+                        "This also FORGETS what was deleted.\n\n"
+                        "Each deletion keeps working on this device, but stops being\n"
+                        "something another device can be told about -- and stops being\n"
+                        "something anyone holding your files could test a guess against.\n\n"
+                        "Sync your other devices FIRST. A device that has not seen these\n"
+                        "deletions can send those records back.\n\n");
+                }
+                if (assume_yes ||
+                    confirm("Reclaim space and permanently forget what was deleted?")) {
+                    if (ais_compact_purge(&a) != 0) die("compact failed");
+                } else { fprintf(stderr, "aborted\n"); ais_close(&a); return 1; }
+            } else if (assume_yes ||
+                confirm("Compaction reclaims the space of deleted records. "
+                        "The deletions themselves are kept. Proceed?")) {
                 if (ais_compact(&a) != 0) die("compact failed");
             } else { fprintf(stderr, "aborted\n"); ais_close(&a); return 1; }
             break;

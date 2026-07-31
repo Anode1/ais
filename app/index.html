@@ -13,37 +13,89 @@
   <div class="titlerow"><span class="brand">AIS</span><span id="count" class="muted"></span></div>
   <div class="searchrow">
     <span class="sicon">&#128269;</span>
-    <input id="q" type="search" enterkeyhint="search" placeholder="type keys to get…" autocomplete="off" autofocus>
+    <input id="q" type="search" enterkeyhint="search" placeholder="type tags to filter" autocomplete="off" autofocus>
     <button id="mic" class="iconbtn" title="Speak" hidden>&#127908;</button>
   </div>
   <label style="display:flex;align-items:center;gap:.4rem;font-size:.85rem;color:var(--muted);margin-top:.45rem">
-    <input id="anyk" type="checkbox" style="width:auto"> Match any key</label>
-  <div class="seg">
-    <button id="seg-recall" class="segbtn active">Get</button>
-    <button id="seg-timeline" class="segbtn">Timeline</button>
-    <button id="seg-tags" class="segbtn">Tags</button>
-  </div>
+    <input id="anyk" type="checkbox" style="width:auto"> Match any tag</label>
   <div id="tlrange" style="display:none;gap:.4rem;align-items:center;margin-top:.5rem;font-size:.85rem;color:var(--muted)">
     <span>from</span><input id="tlfrom" type="date" style="font:inherit">
     <span>to</span><input id="tlto" type="date" style="font:inherit">
     <button id="tlclear" class="link">clear</button>
   </div>
-  <div class="storerow"><span id="store" class="muted"></span><button id="storebtn" class="link">change</button></div>
+  <div class="storerow"><span id="store" class="muted"></span><button id="cleanbtn" class="link">clean up</button><button id="storebtn" class="link">change</button></div>
+  <div id="storeedit" class="storerow" style="display:none;margin-top:.4rem">
+    <input id="storepath" placeholder="Index folder (full path)" autocomplete="off" style="flex:1;font:inherit">
+    <button id="storeok" class="link">open</button><button id="storecancel" class="link">cancel</button></div>
 </header>
 
-<main id="out"><p class="empty">Type keys, then Enter. Tap + Add to save.</p></main>
+<main id="out"><p class="empty">Type tags, then Search. Tap Add to save.</p></main>
 
 <button id="addbtn" class="fab">+ Add</button>
 
-<!-- value-first Add sheet: what to remember, then optional keys -->
+<!-- bottom nav, matching the Flutter NavigationBar (Search / Recent / Tags) and
+     the embedded page: reachable by thumb, and the same three destinations -->
+<nav id="bnav">
+  <button data-v="recall"><span class="ic">&#128269;</span>Search</button>
+  <button data-v="timeline" class="on"><span class="ic">&#128336;</span>Recent</button>
+  <button data-v="tags"><span class="ic">&#127991;</span>Tags</button>
+</nav>
+
+<div id="toast" hidden><span>Deleted</span><button id="toastundo">Undo</button></div>
+
+<!-- value-first Add sheet: what to remember, then optional tags -->
 <div id="sheet" hidden>
   <div class="card">
     <h2>Add to your memory</h2>
     <textarea id="v" rows="3" placeholder="What to remember &mdash; a link, a note, a number&hellip;"></textarea>
-    <input id="vk" placeholder="Keys (space-separated, optional)">
+    <input id="vk" placeholder="Tags (space or comma separated, optional)">
+    <!-- Encrypt: the passphrase field stays hidden until it is asked for, and the
+         passphrase rides the POST body, never the URL -->
+    <div class="encrow">
+      <label><input id="enc" type="checkbox"> Encrypt</label>
+      <input id="pp" type="password" placeholder="Passphrase" hidden>
+    </div>
     <div class="actions">
       <button id="cancel" class="ghost">Cancel</button>
       <button id="save" class="primary">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- Edit sheet: value (when editable) + a chip tag editor. Replaces the old
+     "-KEY grammar" prompt(), which an installed PWA silently disables. -->
+<div id="editsheet" hidden role="dialog" aria-modal="true" aria-labelledby="edtitle">
+  <div class="card" tabindex="-1">
+    <h2 id="edtitle">Edit</h2>
+    <div id="edvalwrap">
+      <label class="muted" style="font-size:.8rem" for="edval">Value</label>
+      <textarea id="edval" rows="3"></textarea>
+    </div>
+    <label class="muted" style="font-size:.8rem" for="edtag">Tags</label>
+    <div id="edchips" class="chips"></div>
+    <input id="edtag" placeholder="Add a tag">
+    <div class="actions">
+      <button id="edcancel" class="ghost">Cancel</button>
+      <button id="edsave" class="primary">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- delete-under: destroys records that are NOT on screen (each also disappears
+     from every other tag it is filed under), so it previews, offers the safe
+     alternative, and gates the confirm behind typing the tag name -->
+<div id="dsheet" hidden role="dialog" aria-modal="true" aria-labelledby="dstitle">
+  <div class="card" tabindex="-1">
+    <h2 id="dstitle">Delete records?</h2>
+    <p class="lead">This deletes the records, not the tag.</p>
+    <p id="dsbody" class="muted" style="font-size:.9rem"></p>
+    <ul id="dsprev" class="prev"></ul>
+    <p><button id="dskeep" class="link">Keep the records: remove just the tag</button></p>
+    <label for="dsname" style="font-size:.85rem;color:var(--muted)">Type the tag name to confirm</label>
+    <input id="dsname" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false">
+    <div class="actions">
+      <button id="dscancel" class="ghost">Cancel</button>
+      <button id="dsgo" class="danger-btn" disabled>Delete</button>
     </div>
   </div>
 </div>
@@ -53,42 +105,210 @@ var $ = function (i) { return document.getElementById(i); };
 var view = 'recall';
 var tlBefore = 0, tlDay = null, tlN = 0, tlPage = 100;  // timeline keyset paging
 
-function isUrl(v){ return v.slice(0,7)=='http://' || v.slice(0,8)=='https://'; }
+// fillVal: append V to NODE, turning every embedded http(s) URL into a real link
+// -- not only values that are wholly a URL, so a "Title - https://..." value gets
+// its URL linked with the title left as text.
+function fillVal(node, v) {
+  var re = /https?:\/\/[^\s]+/g, last = 0, m;
+  while ((m = re.exec(v)) !== null) {
+    if (m.index > last) node.appendChild(document.createTextNode(v.slice(last, m.index)));
+    var a = document.createElement('a');
+    a.href = m[0]; a.textContent = m[0]; a.target = '_blank'; a.rel = 'noopener';
+    node.appendChild(a); last = m.index + m[0].length;
+  }
+  if (last < v.length) node.appendChild(document.createTextNode(v.slice(last)));
+}
+// An "aisc:" value is ciphertext: show an opaque lock plus a Reveal button rather
+// than the marker itself. The cleartext lives until the next render, no longer.
+function fillSecret(node, v) {
+  var s = document.createElement('span'); s.className = 'lockline';
+  s.textContent = '🔒 encrypted ';
+  var b = document.createElement('button'); b.className = 'actbtn'; b.textContent = 'Reveal';
+  b.onclick = function () { revealSecret(node, v); };
+  node.appendChild(s); node.appendChild(b);
+}
+// inline password field, not prompt(): prompt() is silently disabled in an
+// installed PWA -- which this page is -- so a prompt() reveal would do nothing.
+async function revealSecret(node, v) {
+  node.innerHTML = '';
+  var i = document.createElement('input');
+  i.type = 'password'; i.placeholder = 'Passphrase'; i.autocomplete = 'off';
+  i.className = 'ppinline';
+  var b = document.createElement('button'); b.className = 'actbtn revbtn'; b.textContent = 'Show';
+  var x = document.createElement('button'); x.className = 'actbtn revbtn'; x.textContent = 'cancel';
+  x.onclick = function () { node.innerHTML = ''; fillSecret(node, v); };
+  async function go() {
+    var pp = i.value; if (!pp) return;
+    // passphrase in the body, never the URL: a URL lands in history and logs
+    var r = await fetch('/api/reveal', { method:'POST', body: pp + '\n' + v });
+    var t = await r.text();
+    node.innerHTML = '';
+    if (t) {
+      fillVal(node, t);
+      var c = document.createElement('button'); c.className = 'actbtn revbtn';
+      c.textContent = 'copy'; c.onclick = function () { copyText(t, c); };
+      node.appendChild(c);
+    } else node.textContent = '(cannot decrypt)';
+  }
+  b.onclick = go;
+  i.onkeydown = function (e) {
+    if (e.key === 'Enter') go();
+    else if (e.key === 'Escape') { node.innerHTML = ''; fillSecret(node, v); }
+  };
+  node.appendChild(i); node.appendChild(b); node.appendChild(x); i.focus();
+}
+// A document blob comes over the wire as "aisdoc:<base64 of the content>", so the
+// multi-line content survives the line-based record split. Decode the base64 as
+// UTF-8 bytes and show it verbatim, newlines and all.
+function docText(v) {
+  try {
+    var s = atob(v.slice(7)), b = new Uint8Array(s.length), i;
+    for (i = 0; i < s.length; i++) b[i] = s.charCodeAt(i);
+    return new TextDecoder().decode(b);
+  } catch (e) { return v; }
+}
+function fillDoc(node, v) {
+  var d = document.createElement('div'); d.className = 'doc';
+  d.textContent = docText(v); node.appendChild(d);
+}
 
 function render(text, q, ms) {
   var lines = text.split('\n').filter(function (s){ return s.length; });
   $('count').textContent = lines.length + ' result' + (lines.length==1?'':'s') + ' · ' + ms.toFixed(0) + ' ms';
   var out = $('out'); out.innerHTML = '';
-  if (!lines.length) { out.innerHTML = '<p class="empty">No results for "' + q + '"</p>'; return; }
+  if (!lines.length) {
+    // textContent, not innerHTML: a tag name reaches q via the tag list, so the
+    // query is not always something the user typed about themselves
+    var e = document.createElement('p'); e.className = 'empty';
+    e.textContent = 'No tag match for "' + q + '"';
+    out.appendChild(e); return;
+  }
   lines.forEach(function (ln) {
     var p = ln.indexOf('|'), id = p>=0 ? ln.slice(0,p) : '', v = p>=0 ? ln.slice(p+1) : ln;
     var row = document.createElement('div'); row.className = 'hit';
-    var span = document.createElement(isUrl(v) ? 'a' : 'span');
-    span.textContent = v;
-    if (isUrl(v)) { span.href = v; span.target = '_blank'; span.rel = 'noopener'; }
-    row.appendChild(span);
-    if (id) row.appendChild(rowActions(id));
+    if (id) row.dataset.id = id;               // the handle the undo window hides/restores
+    (v.indexOf('aisc:') == 0 ? fillSecret(row, v)
+     : v.indexOf('aisdoc:') == 0 ? fillDoc(row, v) : fillVal(row, v));
+    if (id) row.appendChild(rowActions(id, v));
     out.appendChild(row);
   });
 }
 
 // per-record edit (attach/detach keys by id) and delete; both refresh the view
-function rowActions(id) {
+// An overflow menu, matching the Flutter app's per-row popup and the embedded
+// page: two always-visible buttons per row put a destructive action one stray
+// tap from every record, and the row's own content is what should carry the eye.
+function rowActions(id, v) {
   var d = document.createElement('div'); d.className = 'act';
-  var e = document.createElement('button'); e.className = 'actbtn'; e.textContent = 'edit keys';
-  e.onclick = function () { editRec(id); };
-  var x = document.createElement('button'); x.className = 'actbtn del'; x.textContent = '✕ delete';
+  var m = document.createElement('button'); m.className = 'actbtn';
+  m.textContent = '\u22ee'; m.title = 'more';
+  var box = document.createElement('span'); box.className = 'actmenu'; box.hidden = true;
+  // no copy on a secret: the only thing there is to copy is its ciphertext (the
+  // Reveal button offers copy once the cleartext is on screen). A document copies
+  // its decoded text, not the aisdoc: marker.
+  if (v.indexOf('aisc:') != 0) {
+    var c = document.createElement('button'); c.className = 'actbtn'; c.textContent = 'copy';
+    c.onclick = function () { copyText(v.indexOf('aisdoc:') == 0 ? docText(v) : v, c); };
+    box.appendChild(c);
+  }
+  var e = document.createElement('button'); e.className = 'actbtn'; e.textContent = 'edit';
+  e.onclick = function () { openEdit(id, v); };
+  var x = document.createElement('button'); x.className = 'actbtn del'; x.textContent = '\u2715 delete';
   x.onclick = function () { delRec(id); };
-  d.appendChild(e); d.appendChild(x); return d;
+  box.appendChild(e); box.appendChild(x);
+  m.onclick = function () { box.hidden = !box.hidden; };
+  d.appendChild(m); d.appendChild(box); return d;
 }
-async function delRec(id) {
-  if (!confirm('Delete this record?')) return;
-  await fetch('/api/del?id=' + id, { method:'POST' }); setView(view);
+async function copyText(t, btn) {
+  try {
+    await navigator.clipboard.writeText(t);
+    var o = btn.textContent; btn.textContent = 'copied';
+    setTimeout(function () { btn.textContent = o; }, 1200);
+  } catch (err) { alert('copy needs https or localhost'); }
 }
-async function editRec(id) {
-  var s = prompt('Edit keys: a KEY adds it, -KEY removes it (space-separated)');
-  if (s === null || !s.trim()) return;
-  await fetch('/api/update?id=' + id + '&keys=' + encodeURIComponent(s.trim()), { method:'POST' });
+// Deferred delete + Undo, matching the embedded page. The engine call only fires
+// when the 5s window lapses OR another action flushes it -- never on Undo, which
+// simply re-shows what was hidden, because nothing was sent yet.
+var delTimer = null, delCommit = null, delUndoFn = null;
+function hideToast(){ $('toast').hidden = true; }
+function delFlush() {
+  if (delTimer) { clearTimeout(delTimer); delTimer = null; }
+  if (delCommit) { var f = delCommit; delCommit = null; delUndoFn = null; f(); }
+  hideToast();
+}
+function delUndo() {
+  if (delTimer) { clearTimeout(delTimer); delTimer = null; }
+  if (delUndoFn) { delUndoFn(); delUndoFn = null; }
+  delCommit = null; hideToast();
+}
+function delPending(label, commit, undo) {
+  delFlush();                                  // commit any prior pending action
+  $('toast').firstChild.textContent = label;
+  delCommit = commit; delUndoFn = undo;
+  $('toast').hidden = false;
+  delTimer = setTimeout(delFlush, 5000);
+}
+// ALL rows for the id, not one: /api/get emits a row per LINK, so a multi-link
+// record has several. Hiding a single one left the row the user actually clicked
+// on screen, with live buttons, pointing at a record about to be deleted.
+function delRec(id) {
+  var rows = [].filter.call(document.querySelectorAll('.hit'), function (r) {
+    return r.dataset.id == id;
+  });
+  rows.forEach(function (r){ r.style.display = 'none'; });
+  delPending('Deleted',
+    function () { fetch('/api/del?id=' + id, { method:'POST' }); },
+    function () { rows.forEach(function (r){ r.style.display = ''; }); });
+}
+// Edit: a chip editor over the record's CURRENT keys, saved as a minimal
+// +key/-key delta. The old prompt() asked the user to compose that delta by hand
+// in a grammar they had to remember -- and did nothing at all in an installed PWA.
+function normkeys(s){ return s.replace(/,/g,' ').trim().replace(/\s+/g,' '); }
+var edId = 0, edTags = [], edOldVal = '', edEdit = false;
+function edChips() {
+  var c = $('edchips'); c.innerHTML = '';
+  edTags.forEach(function (t) {
+    var s = document.createElement('span'); s.className = 'chip'; s.textContent = t;
+    var b = document.createElement('button'); b.textContent = '\u00d7';
+    b.title = 'Remove the key ' + t;
+    b.onclick = function () { edTags = edTags.filter(function (x){ return x != t; }); edChips(); };
+    s.appendChild(b); c.appendChild(s);
+  });
+}
+function edAdd() {
+  normkeys($('edtag').value).split(' ').forEach(function (t) {
+    if (t && edTags.indexOf(t) < 0) edTags.push(t);
+  });
+  $('edtag').value = ''; edChips();
+}
+async function openEdit(id, v) {
+  edId = id; edOldVal = v || '';
+  // an encrypted or blob-backed value is not editable as text
+  edEdit = edOldVal.indexOf('aisc:') != 0 && edOldVal.indexOf('aisdoc:') != 0;
+  $('edvalwrap').style.display = edEdit ? 'block' : 'none';
+  if (edEdit) $('edval').value = edOldVal;
+  var t = (await (await fetch('/api/keys?id=' + id)).text()).trim();
+  edTags = t ? t.split(/\s+/) : []; edChips();
+  $('edtag').value = '';
+  $('editsheet').hidden = false;
+  $('editsheet').querySelector('.card').focus();
+}
+async function edSave() {
+  edAdd();                                     // commit a key still being typed
+  if (edEdit) {
+    var nv = $('edval').value.replace(/\r?\n/g, ' ').trim();
+    if (nv && nv != edOldVal)
+      await fetch('/api/setvalue?id=' + edId, { method:'POST', body: edOldVal + '\n' + nv });
+  }
+  // re-read the keys and send only what CHANGED: a blind re-send would re-attach
+  // a key another device detached in the meantime
+  var o = (await (await fetch('/api/keys?id=' + edId)).text()).trim();
+  var oa = o ? o.split(/\s+/) : [], dl = [];
+  oa.forEach(function (t){ if (edTags.indexOf(t) < 0) dl.push('-' + t); });
+  edTags.forEach(function (t){ if (oa.indexOf(t) < 0) dl.push(t); });
+  if (dl.length)
+    await fetch('/api/update?id=' + edId + '&keys=' + encodeURIComponent(dl.join(' ')), { method:'POST' });
+  $('editsheet').hidden = true;
   setView(view);
 }
 
@@ -140,30 +360,38 @@ async function loadTimeline(more) {
       out.appendChild(h);
     }
     var row = document.createElement('div'); row.className = 'hit';
-    var s = document.createElement(isUrl(r.value) ? 'a' : 'span');
-    s.textContent = r.value;
-    if (isUrl(r.value)) { s.href = r.value; s.target = '_blank'; s.rel = 'noopener'; }
-    row.appendChild(s);
+    if (r.id) row.dataset.id = r.id;
+    (r.value.indexOf('aisc:') == 0 ? fillSecret(row, r.value)
+     : r.value.indexOf('aisdoc:') == 0 ? fillDoc(row, r.value) : fillVal(row, r.value));
     var m = document.createElement('div'); m.className = 'meta';
     var tm = lt && lt.time ? lt.time + ' · ' : '';
-    m.textContent = tm + (r.keys || '(no keys)');
+    m.textContent = tm + (r.keys || '(no tags)');
     row.appendChild(m);
-    if (r.id) { row.appendChild(rowActions(r.id)); tlBefore = r.id; }
+    if (r.id) { row.appendChild(rowActions(r.id, r.value)); tlBefore = r.id; }
     out.appendChild(row);
   });
   tlN += lines.length;
-  $('count').textContent = tlN + ' record' + (tlN == 1 ? '' : 's');
+  setCount(tlN + ' record' + (tlN == 1 ? '' : 's'));
   if (lines.length == tlPage) {
     var b = document.createElement('button'); b.id = 'tlmore'; b.className = 'loadmore';
     b.textContent = 'Load more'; b.onclick = function () { loadTimeline(true); };
     out.appendChild(b);
   }
 }
+// A message set just before a reload was destroyed by that reload's own count:
+// the one irreversible action in the UI finished with no report of what it did.
+// note() parks it, and the next view render prints it instead of its own count.
+var pendingNote = '';
+function note(msg){ pendingNote = msg; $('count').textContent = msg; }
+function setCount(text){
+  if (pendingNote) { $('count').textContent = pendingNote; pendingNote = ''; }
+  else $('count').textContent = text;
+}
 async function loadTags() {
   var t = await (await fetch('/api/tags')).text();
   var lines = t.split('\n').filter(function (s){ return s.length; });
   var out = $('out'); out.innerHTML = '';
-  $('count').textContent = lines.length + ' tag' + (lines.length==1?'':'s');
+  setCount(lines.length + ' tag' + (lines.length==1?'':'s'));
   if (!lines.length) { out.innerHTML = '<p class="empty">No tags yet.</p>'; return; }
   lines.forEach(function (ln) {
     var p = ln.indexOf('|'), count = ln.slice(0, p), key = ln.slice(p+1);
@@ -173,43 +401,159 @@ async function loadTags() {
     var n = document.createElement('span'); n.className = 'tagcount'; n.textContent = count;
     row.appendChild(b); row.appendChild(n);
     out.appendChild(row);
+    // safe first, destructive far right; the labels name different objects
+    var acts = document.createElement('div'); acts.className = 'tagacts';
+    var u = document.createElement('button'); u.className = 'actbtn';
+    u.textContent = 'Remove tag';
+    u.onclick = function () { untagKey(key); };
+    var g = document.createElement('button'); g.className = 'actbtn danger';
+    g.textContent = 'Delete ' + count + ' record' + (+count==1 ? '' : 's');
+    g.onclick = function () { openDelUnder(key); };
+    acts.appendChild(u); acts.appendChild(g);
+    out.appendChild(acts);
   });
 }
+
+// UNTAG: reversible and destroys nothing, so it gets the undo window rather than
+// a modal -- the records are never at risk, and the tag can be re-added anyway.
+function untagKey(key) {
+  var row = null, acts = null;
+  [].forEach.call(document.querySelectorAll('.taglink'), function (b) {
+    if (b.textContent == key) { row = b.parentNode; acts = row.nextSibling; }
+  });
+  if (row) row.style.display = 'none';
+  if (acts) acts.style.display = 'none';
+  delPending("Removed tag '" + key + "'",
+    function () {
+      fetch('/api/untag?keys=' + encodeURIComponent(key), { method:'POST' })
+        .then(function () { if (view == 'tags') loadTags(); });
+    },
+    function () {
+      if (row) row.style.display = '';
+      if (acts) acts.style.display = '';
+    });
+}
+
+// DELETE-UNDER: recompute at open time -- the row badge can be stale, and a
+// number in destructive copy has to be the number that will actually go.
+var dsKey = '';
+async function openDelUnder(key) {
+  delFlush();          // a pending delete would still be counted by /api/get
+  var t = await (await fetch('/api/get?keys=' + encodeURIComponent(key))).text();
+  var lines = t.split('\n').filter(function (s){ return s.length; });
+  // /api/get emits one line per LINK and a record may hold several: group by id
+  // or the modal offers to delete more records than exist.
+  var recs = [], seen = {};
+  lines.forEach(function (ln) {
+    var b = ln.indexOf('|'), id = b<0 ? ln : ln.slice(0,b), v = b<0 ? ln : ln.slice(b+1);
+    if (seen[id] === undefined) { seen[id] = recs.length; recs.push({ v:v, extra:0 }); }
+    else recs[seen[id]].extra++;
+  });
+  if (!recs.length) { $('count').textContent = "Nothing is filed under '" + key + "'"; loadTags(); return; }
+  dsKey = key;
+  var n = recs.length, w = n + ' record' + (n==1?'':'s');
+  $('dstitle').textContent = 'Delete ' + w + '?';
+  $('dsbody').textContent = 'All ' + w + " filed under '" + key
+    + "' are deleted, and each disappears from every other tag it is filed under too.";
+  var ul = $('dsprev'); ul.innerHTML = '';
+  recs.slice(0,10).forEach(function (r) {
+    var li = document.createElement('li');
+    li.textContent = r.v + (r.extra ? ' (+' + r.extra + ' more link' + (r.extra==1?'':'s') + ' on this record)' : '');
+    ul.appendChild(li);
+  });
+  if (n > 10) {
+    var li = document.createElement('li');
+    li.textContent = '... and ' + (n-10) + ' more. To see them all, tap the tag.';
+    ul.appendChild(li);
+  }
+  $('dsname').value = ''; $('dsname').placeholder = key;
+  $('dsgo').textContent = 'Delete ' + w; $('dsgo').disabled = true;
+  $('dsheet').hidden = false;
+  $('dsheet').querySelector('.card').focus();   // not the input: the keyboard would cover the preview
+}
+function closeDel(){ $('dsheet').hidden = true; dsKey = ''; }
 function setView(v) {
+  delFlush();
   view = v;
-  ['recall','timeline','tags'].forEach(function (k) {
-    $('seg-' + k).className = 'segbtn' + (k == v ? ' active' : '');
+  [].forEach.call(document.querySelectorAll('#bnav button'), function (b) {
+    b.className = (b.dataset.v == v) ? 'on' : '';
   });
   $('tlrange').style.display = (v == 'timeline') ? 'flex' : 'none';  // date range: Timeline only
   if (v == 'recall') {
     if ($('q').value.trim()) recall();
-    else { $('out').innerHTML = '<p class="empty">Type keys, then Enter. Tap + Add to save.</p>'; $('count').textContent = ''; }
+    else { $('out').innerHTML = '<p class="empty">Type tags, then Search. Tap Add to save.</p>'; $('count').textContent = ''; }
   } else if (v == 'timeline') loadTimeline();
   else loadTags();
 }
 
-function openSheet(){ $('vk').value = $('q').value.trim(); $('sheet').hidden = false; $('v').focus(); }
-function closeSheet(){ $('sheet').hidden = true; $('v').value = ''; }
+function openSheet(){
+  $('vk').value = $('q').value.trim();
+  $('enc').checked = false; $('pp').value = ''; $('pp').hidden = true;
+  $('sheet').hidden = false; $('v').focus();
+}
+function closeSheet(){ $('sheet').hidden = true; $('v').value = ''; $('pp').value = ''; }
 
 async function save() {
   var value = $('v').value.trim(); if (!value) return;
   var keys = $('vk').value.trim();
-  await fetch('/api/put?keys=' + encodeURIComponent(keys), { method:'POST', body:value });
+  var enc = $('enc').checked, pp = $('pp').value;
+  // refuse rather than save in the clear: a ticked Encrypt box with no passphrase
+  // is the one case where doing the obvious thing would leak the secret
+  if (enc && !pp) { alert('Enter a passphrase to encrypt'); return; }
+  // on a failed or unreachable put, say so and KEEP the sheet, so the value the
+  // user typed is still there to retry with
+  try {
+    var r = await fetch('/api/put?keys=' + encodeURIComponent(keys) + (enc ? '&enc=1' : ''),
+                        { method:'POST', body: enc ? (pp + '\n' + value) : value });
+    if (!r.ok) throw new Error('server ' + r.status);
+  } catch (e) { alert('Save failed (' + e.message + '). Nothing was saved.'); return; }
   closeSheet();
   $('q').value = keys; recall();          // show what was just saved
 }
 
 $('q').addEventListener('keydown', function (e){ if (e.key=='Enter') setView('recall'); });
-$('seg-recall').onclick = function (){ setView('recall'); };
-$('seg-timeline').onclick = function (){ setView('timeline'); };
-$('seg-tags').onclick = function (){ setView('tags'); };
+[].forEach.call(document.querySelectorAll('#bnav button'), function (b) {
+  b.onclick = function () { setView(b.dataset.v); };
+});
 $('tlfrom').onchange = function (){ loadTimeline(); };
 $('tlto').onchange = function (){ loadTimeline(); };
 $('tlclear').onclick = function (){ $('tlfrom').value = ''; $('tlto').value = ''; loadTimeline(); };
 $('addbtn').onclick = openSheet;
+$('enc').onchange = function () { $('pp').hidden = !$('enc').checked; if ($('enc').checked) $('pp').focus(); };
 $('cancel').onclick = closeSheet;
 $('save').onclick = save;
 $('sheet').addEventListener('click', function(e){ if (e.target == $('sheet')) closeSheet(); });
+$('edcancel').onclick = function () { $('editsheet').hidden = true; };
+$('edsave').onclick = edSave;
+$('edtag').addEventListener('keydown', function (e) {
+  if (e.key == 'Enter' || e.key == ',') { e.preventDefault(); edAdd(); }
+});
+$('edtag').addEventListener('blur', edAdd);   // a key left in the field still counts
+$('editsheet').addEventListener('click', function(e){ if (e.target == $('editsheet')) $('editsheet').hidden = true; });
+$('toastundo').onclick = delUndo;
+$('dscancel').onclick = closeDel;
+$('dsheet').addEventListener('click', function(e){ if (e.target == $('dsheet')) closeDel(); });
+// the escape hatch: whoever landed here by mistake gets what they meant, in one tap
+$('dskeep').onclick = function () {
+  var k = dsKey;                 // captured before closeDel() clears it
+  closeDel(); untagKey(k);
+};
+// really disabled (not a pointer-events trick) until the typed name matches exactly
+$('dsname').oninput = function () { $('dsgo').disabled = this.value.trim() !== dsKey; };
+$('dsgo').onclick = async function () {
+  if (this.disabled) return;
+  var k = dsKey; closeDel();
+  var r = await (await fetch('/api/del-under?keys=' + encodeURIComponent(k), { method:'POST' })).text();
+  var m = +(r.match(/\d+/) || [0])[0];
+  note('Deleted ' + m + ' record' + (m==1?'':'s'));
+  loadTags();
+};
+document.addEventListener('keydown', function (e) {
+  if (e.key != 'Escape') return;
+  if (!$('dsheet').hidden) closeDel();
+  else if (!$('editsheet').hidden) $('editsheet').hidden = true;
+  else if (!$('sheet').hidden) closeSheet();
+});
 
 // voice: the browser's speech-to-text -> keys -> recall (Android Chrome; absent
 // on iOS Safari, where we just hide the mic). Needs a secure context.
@@ -222,17 +566,55 @@ if (SR) {
 }
 
 // show the current store, and let the user point at a different index
-async function loadStore(){ $('store').textContent = 'store: ' + await (await fetch('/api/where')).text(); }
+async function loadStore(){ $('store').textContent = 'Library: ' + await (await fetch('/api/where')).text(); }
+// inline field, not prompt(): an installed PWA silently disables prompt(), so
+// the "change" button did nothing at all there.
 async function changeStore(){
-  var cur = await (await fetch('/api/where')).text();
-  var d = prompt('Index folder (full path):', cur);
-  if (!d || d == cur) return;
+  var cur = (await (await fetch('/api/where')).text()).trim();
+  $('storepath').value = cur;
+  $('storeedit').style.display = 'flex';
+  $('storepath').focus();
+}
+async function storeApply(){
+  var d = $('storepath').value.trim();
+  $('storeedit').style.display = 'none';
+  if (!d) return;
   var r = await fetch('/api/store', { method:'POST', body:d });
-  if (r.ok) { $('q').value=''; $('out').innerHTML='<p class="empty">Type keys to get.</p>'; $('count').textContent=''; loadStore(); }
+  if (r.ok) { $('q').value=''; $('out').innerHTML='<p class="empty">Type tags, then Search.</p>'; $('count').textContent=''; loadStore(); }
   else alert('Could not open that index');
 }
+// Reclaim deleted records. There is no CLI on a phone, so without this the store
+// grows forever and the tags of deleted records linger in the index. The second
+// question is asked separately because forgetting is the one choice here that
+// another device can undo for you.
+async function cleanUp() {
+  var st = await (await fetch('/api/stats')).text();
+  var d = (st.match(/deleted:\s*(\d+)/) || [0, '0'])[1];
+  if (d == '0') { $('count').textContent = 'Nothing to clean up'; return; }
+  if (!confirm('Reclaim the space of ' + d + ' deleted record' + (d == '1' ? '' : 's') + '?')) return;
+  var f = confirm('Also FORGET what was deleted?\n\n'
+    + 'They stay deleted here, but this device can no longer tell your other '
+    + 'devices about them, and nothing is left for anyone to test a guess against.\n\n'
+    + 'Sync your other devices FIRST \u2014 one that has not seen these deletions '
+    + 'can send them back.\n\nOK = forget.  Cancel = just reclaim the space.');
+  var r = await (await fetch('/api/compact' + (f ? '?forget=1' : ''), { method:'POST' })).text();
+  note(r.trim() == 'cleaned and forgotten' ? 'Cleaned up, deletions forgotten' : 'Cleaned up');
+  setView(view);
+}
+$('cleanbtn').onclick = cleanUp;
 $('storebtn').onclick = changeStore;
+$('storeok').onclick = storeApply;
+$('storecancel').onclick = function(){ $('storeedit').style.display = 'none'; };
+$('storepath').onkeydown = function (e) {
+  if (e.key === 'Enter') storeApply();
+  else if (e.key === 'Escape') $('storeedit').style.display = 'none';
+};
 loadStore();
+
+// #tags / #recall / #timeline opens that view directly, so a view is linkable
+// (and reachable by a screenshot or a UI test, which cannot click before load).
+var h0 = (location.hash || '').slice(1);
+if (h0 == 'tags' || h0 == 'recall' || h0 == 'timeline') setView(h0);
 
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(function(){});
 </script>

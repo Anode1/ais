@@ -11,12 +11,32 @@
 #include <stdio.h>
 #include "common.h"
 
+/* The version this HEADER describes -- what a caller was compiled against.
+ * Compare it with ais_version() below, which is what the loaded library actually
+ * is. A Flutter bundle here shipped a two-week-old libais.so and nothing revealed
+ * it, so two testers filed bugs that were already fixed. This is the same
+ * compile-time/runtime pair SQLite (SQLITE_VERSION / sqlite3_libversion) and zlib
+ * (ZLIB_VERSION / zlibVersion) expose for exactly that reason. */
+#ifndef AIS_VERSION
+#define AIS_VERSION "0.0.0-dev"           /* the build stamps the real one in */
+#endif
+
+/* The version of the library you are actually running. Never NULL; the storage is
+ * static and must not be freed. */
+const char *ais_version(void);
+
+/* The same, as an integer for comparisons: major*1000000 + minor*1000 + patch, so
+ * 0.3.9 is 3009. A non-numeric or missing stamp yields 0. */
+long ais_version_number(void);
+
 /* Open handle. Holds only the path, the id counter, and the writer lock.
  * Declare one on the stack:  ais a; ais_open(&a, dir); ... ais_close(&a); */
 typedef struct ais {
     char dir[AIS_PATH_MAX];   /* the INDEX directory                         */
     long next_id;             /* next id to assign (monotonic)               */
     int  lock_fd;             /* single-writer advisory lock; -1 if not held */
+    int  purge_deletes;       /* ais_compact also forgets the delete FACTS (see
+                               * ais_compact_purge); 0 for every other caller  */
 } ais;
 
 /* Open (creating if absent) the INDEX directory `dir`, taking a single-writer
@@ -186,8 +206,20 @@ int ais_tags(ais *a, ais_tag_cb cb, void *ctx);
 int ais_tags_page(ais *a, long after_count, const char *after_key, int count,
                   ais_tag_cb cb, void *ctx);
 
-/* Reclaim space: streaming rewrite of the store dropping tombstoned records,
- * rebuild the posting index, clear the tombstone log. Returns 0 on success. */
+/* Reclaim space: streaming rewrite of the store dropping tombstoned records and
+ * rebuilding the posting index. Tombstones are KEPT: they are the portable delete
+ * fact a peer needs, so collecting them would let any device that still holds the
+ * record push it back. Returns 0 on success. */
 int  ais_compact(ais *a);
+
+/* Compact, and also FORGET what was deleted: each tombstone keeps its id (so the
+ * record stays suppressed here) but loses its content hash, which is the part
+ * that travels to peers and the part someone holding your files could test a
+ * guess against. Deletion becomes final on this device.
+ *
+ * THE PRICE, and the caller must say it out loud: a device that has not synced
+ * since those deletions can push the records back, because this index can no
+ * longer tell it they were deleted. Sync everything first. Returns 0/-1. */
+int  ais_compact_purge(ais *a);
 
 #endif /* AIS_H */

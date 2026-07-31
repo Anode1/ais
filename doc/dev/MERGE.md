@@ -49,6 +49,67 @@ Local `del(id)`: resolve the record's content, compute the hash, append `id|<now
 Read-time suppression stays id-keyed (fast), comparing the stored delete-ts against the
 record's add-ts so a re-add after a delete reappears.
 
+**A resurrect RESTAMPS the store line.** `put` is idempotent by value, so re-saving
+something reuses the existing record -- and that record's `ts` is the add-ts this whole
+scheme compares against a peer's tombstone. Reusing the line without restamping it made the
+resurrection LOCAL ONLY: the record exported as an `A|` older than the delete, the peer kept
+its tombstone and sent the `D|` back, and the re-save died on every device. Saving anything
+the index had ever deleted was therefore impossible, permanently. `ais_put_at` now stamps the
+line with the time it came back (the incoming ts on the merge path, `now` locally), which is
+what "compare the latest ADD ts" above always meant.
+
+RESOLUTION CAVEAT: `ts` is wall-clock UTC at ONE-SECOND resolution, and ties keep the delete.
+A re-save inside the same second as the delete still loses. That is the same clock dependence
+already noted for skew, and the same fix answers both -- a logical clock, or per-add unique
+tags (an OR-Set), so ordering stops depending on wall time at all. Until then a re-save is
+reliable at human timescales and unreliable at machine ones.
+
+## The stream is extensible only because import REFUSES what it does not know
+
+`--import` skips a line whose first field is a short uppercase token followed by a
+timestamp and is not a verb it knows, and says so. Before that it fell through to
+the plain `keys|value` reader, so a future verb became a record under a fabricated
+key, silently, and `imported N` still reported success. That is why no new verb
+could ever be added: every older peer would mangle it rather than skip it.
+
+Two consequences, both binding:
+
+- A new verb may only be WRITTEN a full release after the refusing build has
+  reached every device. Older peers predate the refusal.
+- The verb must be a SHORT UPPERCASE TOKEN followed by a timestamp. The
+  timestamp is what keeps a legitimate tag safe -- a hand-written `TODO|buy milk`
+  has no date in field 2 and still imports as a record.
+
+A bundle fed to `--import` is named and refused rather than parsed line by line;
+it has a binary header and length-prefixed blobs, so reading it as a stream
+invents records.
+
+## The tombstone digest is salted with the record's creation ts
+
+`content_hash_salted(ts, value)`. The salt is not a secret and does not need to
+be: both devices read it off the record's own store line, so matching needs
+nothing shared -- no key, no distribution, no pairing step. What it buys is
+arithmetic. Unsalted, the digest was a plain hash of the deleted value: a
+guessable value fell in seconds, and because there was no salt, ONE precomputed
+pass recovered every deleted value in the file at once. Salted per record, an
+attacker must guess the value AND the second it was created, separately for every
+tombstone. The amortised attack is gone; a very low-entropy value is still
+reachable. A cost increase, not a proof.
+
+`content_hash()` (unsalted) is still computed on the MATCHING side, so a tombstone
+written before the salt, or one from a peer that has not upgraded, keeps applying
+forever. Nothing writes it any more, and nothing converts the old ones: for any
+tombstone that survived a compaction the value is gone from the store, so its
+digest can never be recomputed. `--compact --forget-deleted`
+(`ais_compact_purge`) is how a user retires them -- it blanks the digest while
+keeping the id, so the record stays suppressed here but the deletion stops
+travelling and stops being testable. The price, which the caller must state: a
+peer that has not synced since can push those records back.
+
+The complete answer -- an identity not derived from content at all -- needs a wire
+generation change, because it must reach a peer that only knows the record by its
+content. That is a flag day, and this is what is available without one.
+
 ## Two tombstone types (both must merge)
 There are **two** delete mechanisms today, both id-keyed and untimestamped:
 - `tomb` — whole-record deletion (`del`, and the `del-under`/`del-key` cascade).

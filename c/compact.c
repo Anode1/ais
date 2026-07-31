@@ -12,6 +12,7 @@
 
 #include "common.h"
 #include "compact.h"
+#include "log.h"        /* debug: report a recovered idx/ */
 #include "key.h"      /* ktomb stores and compares keys in key_encode() form */
 #include "post.h"
 #include "store.h"
@@ -375,6 +376,21 @@ int ktomb_remove(const ais *a, long id, const char *key)
     return 0;
 }
 
+/* 1 if anything is deleted at all, 0 if the tomb is empty/absent, -1 on error.
+ * A cheap stat, so read paths can skip per-id liveness checks entirely on the
+ * common index where nothing has ever been deleted. */
+int tomb_active(const ais *a)
+{
+    char path[AIS_PATH_MAX];
+    struct stat st;
+
+    if (compact_path(a, "tomb", path, sizeof(path)) != 0)
+        return -1;
+    if (stat(path, &st) != 0)
+        return (errno == ENOENT) ? 0 : -1;
+    return st.st_size > 0;
+}
+
 int ktomb_active(const ais *a)
 {
     char path[AIS_PATH_MAX];
@@ -543,7 +559,12 @@ static int compact_line(long id, const char *ts, const char *keys,
  * resurrect mesh-wide. Rewrite tomb keeping only hash-bearing (exportable) entries; the
  * ids are now vestigial (their records are gone) but the D|ts|hash export keeps the
  * delete propagating. Atomic (temp+rename). Returns 0, or -1. */
-static int tomb_keep_hashed(ais *a)
+/* PURGE: keep the id so the record stays suppressed HERE, drop the hash so the
+ * line is no longer exportable (feed.c's exp_dead skips a hash-less entry) and no
+ * longer testable against a guess. This is the user choosing to make a deletion
+ * final on this device, at the documented price: a peer that has not synced since
+ * can push those records back. */
+static int tomb_keep_hashed_x(ais *a, int purge)
 {
     char path[AIS_PATH_MAX], tmp[AIS_PATH_MAX], line[AIS_LINE_MAX], work[AIS_LINE_MAX];
     FILE *in, *out;
@@ -563,8 +584,14 @@ static int tomb_keep_hashed(ais *a)
         t = strchr(work, '|');
         h = NULL;
         if (t != NULL) { h = strchr(t + 1, '|'); if (h != NULL) h++; }
-        if (h != NULL && h[0] != '\0')            /* hash-bearing: retain verbatim */
-            fputs(line, out);
+        if (h == NULL || h[0] == '\0')
+            continue;                             /* v1, already local-only */
+        if (purge) {
+            *h = '\0';                            /* "id|ts|" -- suppresses, never travels */
+            fprintf(out, "%s\n", work);
+        } else {
+            fputs(line, out);                     /* hash-bearing: retain verbatim */
+        }
     }
     if (fclose(in) != 0) { fclose(out); remove(tmp); return -1; }
     if (fflush(out) != 0 || fclose(out) != 0) { remove(tmp); return -1; }
@@ -572,12 +599,13 @@ static int tomb_keep_hashed(ais *a)
     return 0;
 }
 
+
 /* Folder-sync I1: compaction strips detached keys from the store lines, but must NOT
  * drop the KEY tombstones that carry a hash -- else a peer still holding the key would
  * re-attach it. Rewrite ktomb keeping only hash-bearing "id|ts|hash|key" entries (the
  * exportable ones); legacy hash-less "id|key" entries drop (pre-sync, already stripped
  * from the store above). Atomic. Returns 0, or -1. */
-static int ktomb_keep_hashed(ais *a)
+static int ktomb_keep_hashed_x(ais *a, int purge)
 {
     char path[AIS_PATH_MAX], tmp[AIS_PATH_MAX], line[AIS_LINE_MAX], work[AIS_LINE_MAX];
     FILE *in, *out;
@@ -593,8 +621,18 @@ static int ktomb_keep_hashed(ais *a)
     while (fgets(line, sizeof line, in) != NULL) {
         const char *ts, *h, *k;
         snprintf(work, sizeof work, "%s", line);
-        if (ktomb_parse(work, &ts, &h, &k) >= 0 && k != NULL && h[0] != '\0')
+        if (ktomb_parse(work, &ts, &h, &k) < 0 || k == NULL || h[0] == '\0')
+            continue;
+        if (purge) {
+            /* Blank the hash so the detach stops travelling and stops being
+             * testable. The key stays: ktomb_contains needs (id,key) to keep
+             * suppressing it here, and the key name is in idx/ and the store
+             * anyway -- it is the EXPORT that carried it to other people. */
+            long id = strtol(work, NULL, 10);
+            fprintf(out, "%ld|%s||%s\n", id, ts, k);
+        } else {
             fputs(line, out);                /* hash-bearing: retain verbatim */
+        }
     }
     if (fclose(in) != 0) { fclose(out); remove(tmp); return -1; }
     if (fflush(out) != 0 || fclose(out) != 0) { remove(tmp); return -1; }
@@ -696,9 +734,9 @@ static int compact_locked(ais *a)
     /* B3 + I1: RETAIN hash-bearing delete AND key-detach tombstones (so an offline peer
      * can't resurrect a deleted record or re-attach a removed tag on the next folder
      * sync). Detached keys are already stripped from the rewritten store above. */
-    if (tomb_keep_hashed(a) != 0)
+    if (tomb_keep_hashed_x(a, a->purge_deletes) != 0)
         goto cleanup;
-    if (ktomb_keep_hashed(a) != 0)
+    if (ktomb_keep_hashed_x(a, a->purge_deletes) != 0)
         goto cleanup;
 
     /* next_id must NEVER regress. Ids are permanent per-device handles, and the
@@ -744,7 +782,64 @@ int ais_compact(ais *a)
 
     if (store_wlock(a) != 0)
         return -1;
+    a->purge_deletes = 0;
     rc = compact_locked(a);
     store_wunlock(a);
     return rc;
+}
+
+int ais_compact_purge(ais *a)
+{
+    int rc;
+
+    if (store_wlock(a) != 0)
+        return -1;
+    a->purge_deletes = 1;
+    rc = compact_locked(a);
+    a->purge_deletes = 0;                    /* never sticky: one call, one purge */
+    store_wunlock(a);
+    return rc;
+}
+
+/* Roll back a compaction that was KILLED mid-flight. The staging in
+ * compact_locked protects against a graceful mid-stream error -- its cleanup path
+ * puts idx.bak back -- but a SIGKILL, an OOM kill or a power cut never reaches
+ * that path. What it leaves behind is the dangerous shape: a half-built idx/ live,
+ * the good tree orphaned in idx.bak, and get() reading idx/ with NO store
+ * fallback. Every keyed lookup then silently returns a SUBSET, exit 0, no
+ * warning, until somebody happens to compact again.
+ *
+ * Restoring the staged tree is safe in BOTH windows. Postings are keyed by id and
+ * compaction preserves ids, so the pre-compaction tree is a superset of the
+ * correct one; the ids it holds for records the run had already dropped are
+ * tombstoned, and every read filters those out anyway. A superset that reads
+ * correctly beats a subset that lies.
+ *
+ * Returns 1 if it recovered, 0 if there was nothing to do, -1 on error. */
+int compact_recover(ais *a)
+{
+    char idxpath[AIS_PATH_MAX], idxbak[AIS_PATH_MAX];
+    struct stat st;
+
+    if (compact_path(a, "idx", idxpath, sizeof(idxpath)) != 0 ||
+        compact_path(a, "idx.bak", idxbak, sizeof(idxbak)) != 0)
+        return -1;
+    if (lstat(idxbak, &st) != 0)
+        return 0;                            /* the common case: no debris */
+
+    /* Take the writer lock only now that we know there is work: recovery is a
+     * write, and opening an index must not serialize the lock-free readers. */
+    if (store_wlock(a) != 0)
+        return -1;
+    if (lstat(idxbak, &st) != 0) {           /* another process just did it */
+        store_wunlock(a);
+        return 0;
+    }
+    if (compact_rmtree(idxpath) != 0 || rename(idxbak, idxpath) != 0) {
+        store_wunlock(a);
+        return -1;
+    }
+    store_wunlock(a);
+    debug("recovered idx/ from idx.bak (a compaction was interrupted)");
+    return 1;
 }

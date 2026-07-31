@@ -595,6 +595,20 @@ ok      "keyless: and its value kept both bars"  "http://a|b" "$("$AIS" -f "$KR"
 # a HAND-WRITTEN keyless line has no id to vouch for it and is still a typo
 typo=$(printf '|http://typo\n' | "$AIS" -f "$KR" --import 2>&1)
 ok      "keyless: a hand-written empty key is still refused" "empty keys, skipped" "$typo"
+# A future verb must be REFUSED, not turned into a record. Checking one letter let
+# a two-character verb through, so "D2|<ts>|<hash>" landed as a record keyed "D2" --
+# the exact corruption the guard exists to stop, and the first thing a v2 verb
+# would have hit. The date test is what keeps a real tag safe.
+VB=$(mktemp -d "${TMPDIR:-/tmp}/ais_verbs.XXXXXX") || exit 2
+vb=$(printf 'D2|2026-01-02T00:00:00Z|deadbeef\nE|2026-01-02T00:00:00Z|cafebabe\n' \
+     | "$AIS" -f "$VB" --import 2>&1)
+ok      "verbs: a two-character future verb is refused" "unknown 'D2|'" "$vb"
+ok      "verbs: a one-character future verb is refused" "unknown 'E|'"  "$vb"
+okeq    "verbs: neither became a record"        "0" "$("$AIS" -f "$VB" --dump | grep -c .)"
+# but a tag that merely LOOKS like a verb still imports: no date in field 2
+printf 'TODO|buy milk\n' | "$AIS" -f "$VB" --import >/dev/null 2>&1
+ok      "verbs: a real tag is not mistaken for one" "buy milk" "$("$AIS" -f "$VB" TODO)"
+rm -rf "$VB"
 okeq    "keyless: and nothing was added"      "3" "$("$AIS" -f "$KR" --dump | grep -c .)"
 rm -rf "$KL" "$KR"
 
@@ -679,7 +693,11 @@ RC=$(mktemp -d "${TMPDIR:-/tmp}/ais_restamp.XXXXXX") || exit 2
 "$AIS" -f "$RC" -y --del 1 >/dev/null
 ok      "del-under: counts only the LIVE records"     "deleted 1$" \
         "$("$AIS" -f "$RC" -y --del-under ck 2>&1)"
-okeq    "del-under: the deleted one was re-stamped"   "2" "$(grep -c '^1|' "$RC"/tomb)"
+# The re-stamp REPLACES rather than accumulates: "everything under this key is
+# deleted as of now" is one fact, not a running tally, and every duplicate costs
+# each peer a full store scan on every future import.
+okeq    "del-under: re-stamping does not grow the tomb" "1" "$(grep -c '^1|' "$RC"/tomb)"
+okempty "del-under: and the record stays deleted"       "$("$AIS" -f "$RC" ck)"
 rm -rf "$RC"
 
 # 17j-octies. --del on an already-deleted id must not offer to delete it again:
@@ -713,6 +731,183 @@ printf 'peer-state\n' > "$MS/syncid"
 ok      "set: warns when the index syncs"  "does not propagate" \
         "$("$AIS" -f "$MS" --set 1 -v m1 -v m2 2>&1)"
 rm -rf "$MS"
+
+# 17m. A value the index once DELETED must be saveable again, and the re-save has
+#      to survive the next sync. The record kept its ORIGINAL creation time when it
+#      came back, so it exported as an A| older than the peer's tombstone: the peer
+#      kept the delete and sent its D| back, killing it here too. Re-saving anything
+#      ever deleted was impossible, permanently, on every device.
+#      Dated lines, not sleeps, so the test is deterministic.
+# The digest is salted with the record's CREATION ts, so it has to be taken from a
+# record created at the same instant as the one it will be matched against -- here,
+# the dated 2020 line. Deleting a copy is how we learn that digest.
+RH=$(mktemp -d "${TMPDIR:-/tmp}/ais_readdh.XXXXXX") || exit 2
+printf 'A|2020-01-01T00:00:00Z|reading|http://x/readd\n' | "$AIS" -f "$RH" --import >/dev/null 2>&1
+"$AIS" -f "$RH" -y --del 1 >/dev/null 2>&1
+hash=$(cut -d'|' -f3 < "$RH/tomb")
+rm -rf "$RH"
+RA=$(mktemp -d "${TMPDIR:-/tmp}/ais_readd2.XXXXXX") || exit 2
+# a peer's record from long ago, then a delete dated later: the record goes
+printf 'A|2020-01-01T00:00:00Z|reading|http://x/readd\n' | "$AIS" -f "$RA" --import >/dev/null 2>&1
+printf 'D|2020-06-01T00:00:00Z|%s\n' "$hash" | "$AIS" -f "$RA" --import >/dev/null 2>&1
+okempty "readd: the dated delete removed it"        "$("$AIS" -f "$RA" reading)"
+# the user changes their mind and saves it again (stamped now, well after 2020)
+"$AIS" -f "$RA" -v "http://x/readd" reading >/dev/null
+ok      "readd: saving it again brings it back"     "http://x/readd" "$("$AIS" -f "$RA" reading)"
+# THE POINT: the exported add must be NEWER than the delete, or the next sync kills it
+newts=$("$AIS" -f "$RA" --export | grep 'http://x/readd' | cut -d'|' -f2)
+if [ -n "$newts" ] && [ "$newts" \> "2020-06-01T00:00:00Z" ]; then
+    pass=$((pass + 1)); echo "  ok   readd: it exports NEWER than the delete it survived"
+else
+    fail=$((fail + 1)); echo "  FAIL readd: exported ts '$newts' does not outrank the delete"
+fi
+# and a peer replaying its own stale delete must no longer win
+printf 'D|2020-06-01T00:00:00Z|%s\n' "$hash" | "$AIS" -f "$RA" --import >/dev/null 2>&1
+ok      "readd: a stale delete no longer kills it"  "http://x/readd" "$("$AIS" -f "$RA" reading)"
+rm -rf "$RA"
+
+# 17n. A tag whose every record is deleted must stop being offered. The posting
+#      keeps a deleted record's id until compaction, so the tag list said
+#      "notes 120" while querying `notes` returned nothing -- and in the GUIs, where
+#      the tag list IS the way to browse, tapping it gave 0 results. On a phone
+#      there is no CLI, so compaction never runs and the dead tags never clear.
+PT=$(mktemp -d "${TMPDIR:-/tmp}/ais_phantom.XXXXXX") || exit 2
+"$AIS" -f "$PT" -v p1 parents >/dev/null
+"$AIS" -f "$PT" -v p2 parents >/dev/null
+"$AIS" -f "$PT" -v p3 keep    >/dev/null
+ok      "phantom: the tag counts 2 while both live" "2  parents" "$("$AIS" -f "$PT" --tags)"
+"$AIS" -f "$PT" -y --del 1 >/dev/null
+ok      "phantom: the count drops with one deleted"  "1  parents" "$("$AIS" -f "$PT" --tags)"
+"$AIS" -f "$PT" -y --del 2 >/dev/null
+okempty "phantom: querying the empty tag returns nothing" "$("$AIS" -f "$PT" parents)"
+okeq    "phantom: --tags no longer offers it"        "0" \
+        "$("$AIS" -f "$PT" --tags | grep -c 'parents')"
+okeq    "phantom: --keys no longer lists it"         "0" \
+        "$("$AIS" -f "$PT" --keys | grep -c '^parents$')"
+ok      "phantom: the live tag is untouched"         "keep" "$("$AIS" -f "$PT" --keys)"
+# and it must come BACK when something live is filed under it again
+"$AIS" -f "$PT" -v p9 parents >/dev/null
+ok      "phantom: it returns when a live record uses it" "parents" "$("$AIS" -f "$PT" --keys)"
+ok      "phantom: and counts 1, not 3"               "1  parents" "$("$AIS" -f "$PT" --tags)"
+rm -rf "$PT"
+
+# 17o. A long-running process must see records written by ANY other process. The
+#      id counter is cached at open, and the timeline's ceiling came from it, so a
+#      server or a phone app that stayed up never showed anything added elsewhere --
+#      including records arriving by sync. get/tags saw them; only "Recent" lied.
+TLF=$(mktemp -d "${TMPDIR:-/tmp}/ais_tlfresh.XXXXXX") || exit 2
+"$AIS" -f "$TLF" -v "https://seed.example" seed >/dev/null
+tlport=$(( 19700 + ($$ % 200) ))
+AIS_NO_OPEN=1 "$AIS" -f "$TLF" --serve "$tlport" >/dev/null 2>&1 &
+tlsrv=$!
+i=0; while [ $i -lt 50 ]; do curl -s -o /dev/null "http://127.0.0.1:$tlport/" && break; i=$((i+1)); sleep 0.1; done
+if curl -s -o /dev/null "http://127.0.0.1:$tlport/" 2>/dev/null; then
+    curl -s "http://127.0.0.1:$tlport/api/timeline?count=20" >/dev/null   # warm the cached counter
+    "$AIS" -f "$TLF" -v "https://added.later" science >/dev/null          # a DIFFERENT process
+    tl=$(curl -s "http://127.0.0.1:$tlport/api/timeline?count=20")
+    ok   "timeline: a running server sees another writer's record" "added.later" "$tl"
+    ok   "timeline: and still shows the original"                  "seed.example" "$tl"
+else
+    echo "  note could not bind $tlport -- skipping the live-server timeline check"
+fi
+kill "$tlsrv" 2>/dev/null
+rm -rf "$TLF"
+
+# 17p. A compaction KILLED mid-flight must not leave keyed lookups quietly wrong.
+#      The staging in compact_locked rolls idx.bak back on a graceful error, but a
+#      SIGKILL/OOM/power cut never reaches that path: it leaves a half-built idx/
+#      live and the good tree orphaned in idx.bak. get() reads idx/ with NO store
+#      fallback, so every keyed lookup then returned a SUBSET -- exit 0, no warning,
+#      until somebody happened to compact again. Measured before the fix: a key that
+#      should recall 1492 records returned 180.
+#      The crashed state is built by hand so the test is deterministic and fast.
+CR=$(mktemp -d "${TMPDIR:-/tmp}/ais_crashcompact.XXXXXX") || exit 2
+i=1; while [ $i -le 40 ]; do "$AIS" -f "$CR" -v "rec-$i" bulk >/dev/null; i=$((i+1)); done
+want=$("$AIS" -f "$CR" bulk | grep -c .)
+okeq    "crash-compact: baseline recall"          "40" "$want"
+# exactly what a killed run leaves behind: good tree staged, live tree half-built
+mv "$CR/idx" "$CR/idx.bak"
+mkdir -p "$CR/idx"
+# check the crashed shape on the FILESYSTEM, not through ais: opening the index is
+# what triggers recovery, so any query would heal it before it could observe it
+okeq    "crash-compact: the live tree is empty, the good one staged" "0" \
+        "$(find "$CR/idx" -type f | wc -l)"
+okeq    "crash-compact: the staged tree holds the postings" "1" \
+        "$([ "$(find "$CR/idx.bak" -type f | wc -l)" -gt 0 ] && echo 1 || echo 0)"
+# the first open heals it: without recovery this recalls 0 of 40
+okeq    "crash-compact: the next open restores the tree"   "40" "$("$AIS" -f "$CR" bulk | grep -c .)"
+okeq    "crash-compact: and the staged copy is cleared"    "0" \
+        "$([ -d "$CR/idx.bak" ] && echo 1 || echo 0)"
+ok      "crash-compact: records are intact"        "rec-7" "$("$AIS" -f "$CR" --find rec-7)"
+rm -rf "$CR"
+
+# 17q. --compact --forget-deleted makes a deletion final HERE. A tombstone keeps a
+#      hash of the deleted value so the delete can reach other devices -- but that
+#      hash is FNV-1a over a often-guessable value, it is exported to every peer,
+#      and it is kept for the life of the index. So "I deleted it" left a permanent,
+#      testable trace of what was deleted. This gives the user a way to say no.
+FD=$(mktemp -d "${TMPDIR:-/tmp}/ais_forget.XXXXXX") || exit 2
+"$AIS" -f "$FD" -v "+15551234567" contacts >/dev/null
+"$AIS" -f "$FD" -v "keep this"    keep     >/dev/null
+"$AIS" -f "$FD" -v "tagged"       t1 t2    >/dev/null
+"$AIS" -f "$FD" --update 3 -- -t2 >/dev/null          # a key detach, for ktomb
+"$AIS" -f "$FD" -y --del 1 >/dev/null
+okeq    "forget: the delete exports before purging"  "1" \
+        "$("$AIS" -f "$FD" --export | grep -c '^D|')"
+okeq    "forget: the detach exports too"             "1" \
+        "$("$AIS" -f "$FD" --export | grep -c '^K|')"
+"$AIS" -f "$FD" -y --compact --forget-deleted >/dev/null 2>&1
+okeq    "forget: the delete no longer travels"       "0" \
+        "$("$AIS" -f "$FD" --export | grep -c '^D|')"
+okeq    "forget: the detach no longer travels"       "0" \
+        "$("$AIS" -f "$FD" --export | grep -c '^K|')"
+# the hash is what a guess is tested against; it must be gone from disk
+okeq    "forget: no hash is left to test a guess against" "0" \
+        "$(cut -d'|' -f3 < "$FD/tomb" | grep -c '[0-9a-f]')"
+# and the deletion must still WORK here -- forgetting is not undeleting
+okempty "forget: the deleted record stays deleted"   "$("$AIS" -f "$FD" contacts)"
+ok      "forget: live records are untouched"         "keep this" "$("$AIS" -f "$FD" keep)"
+okempty "forget: the detached tag stays detached"    "$("$AIS" -f "$FD" t2)"
+ok      "forget: the record kept its other tag"      "tagged" "$("$AIS" -f "$FD" t1)"
+rm -rf "$FD"
+
+# 17r. A tombstone's digest is SALTED with the record's creation time. Unsalted, it
+#      was a plain hash of the deleted value: a guessable value fell in seconds, and
+#      because the salt was absent ONE precomputed pass recovered every deleted value
+#      in the file at once. The salt is not a secret (both devices read it off the
+#      record's own line) -- it makes the attacker guess the value AND the second it
+#      was created, separately for every tombstone.
+SH=$(mktemp -d "${TMPDIR:-/tmp}/ais_salt.XXXXXX") || exit 2
+"$AIS" -f "$SH" -v "+15551234567" contacts >/dev/null
+"$AIS" -f "$SH" -y --del 1 >/dev/null
+# the FNV-1a of the value alone, which is what the tombstone used to hold
+plainh=$(python3 -c "
+h=1469598103934665603
+for c in b'+15551234567': h^=c; h=(h*1099511628211)%(2**64)
+print('%016x'%h)" 2>/dev/null)
+if [ -n "$plainh" ]; then
+    okeq "salt: the digest is NOT a plain hash of the value" "0" \
+         "$(cut -d'|' -f3 < "$SH/tomb" | grep -c "^$plainh$")"
+else
+    echo "  note no python3 -- skipping the plain-hash comparison"
+fi
+# the whole point: a peer must still apply it
+SP=$(mktemp -d "${TMPDIR:-/tmp}/ais_saltpeer.XXXXXX") || exit 2
+"$AIS" -f "$SP" -v "+15551234567" contacts >/dev/null
+"$AIS" -f "$SH" --export | "$AIS" -f "$SP" --import >/dev/null 2>&1
+okempty "salt: a peer still applies the delete" "$("$AIS" -f "$SP" contacts)"
+# and a tombstone written by an OLDER ais (unsalted) must keep working forever
+SL=$(mktemp -d "${TMPDIR:-/tmp}/ais_saltlegacy.XXXXXX") || exit 2
+"$AIS" -f "$SL" -v "legacy-value" k >/dev/null
+legacyh=$(python3 -c "
+h=1469598103934665603
+for c in b'legacy-value': h^=c; h=(h*1099511628211)%(2**64)
+print('%016x'%h)" 2>/dev/null)
+if [ -n "$legacyh" ]; then
+    printf 'D|2030-01-01T00:00:00Z|%s\n' "$legacyh" | "$AIS" -f "$SL" --import >/dev/null 2>&1
+    okempty "salt: a legacy unsalted delete still applies" "$("$AIS" -f "$SL" k)"
+fi
+rm -rf "$SH" "$SP" "$SL"
 
 # 17k. --del-under is the clear name for --del-key; the old spelling keeps working
 #      and says so. --del previews the record instead of just its id.
