@@ -28,7 +28,9 @@ demands of `versionCode`. `pubspec.yaml` keeps a version line as a FALLBACK for
 a bare `flutter run`; it is not the source of truth and will drift if trusted.
 
 **DECIDED (v0.3.10): `versionCode` is `git rev-list --count HEAD`.** The first
-release under this rule uploaded in the 247-248 range. Play never accepts a
+release under this rule uploaded from the `v0.3.10` tag, in the 240s -- run
+`tool/version.sh` at the tag for the exact number rather than trusting a figure
+written down here, since every commit moves it. Play never accepts a
 versionCode at or below one already uploaded, so this is one-way: every number
 below the last upload is now spent, and the alternative (a small sequential
 counter) is no longer available. Always build a release with the flags:
@@ -109,5 +111,5 @@ reached every device.
 
 - `ais --version`
 - `/api/version` and the About line in both web front ends
-- Flutter's About: `AIS 0.3.9 (244) · engine: … · index format: v3`, copyable,
+- Flutter's About: `AIS 0.3.10 (249) · engine: … · index format: v3`, copyable,
   because the first thing a bug report needs is which of the four numbers moved.
