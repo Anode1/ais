@@ -45,6 +45,18 @@ if(AIS_GIT_VERSION)
     message(STATUS "ais engine version: ${AIS_GIT_VERSION}")
 endif()
 
+# execute_process runs at CONFIGURE time, so without this the version is frozen
+# at whatever it was when the build directory was first created: an incremental
+# release build after a commit or a tag keeps stamping the OLD string, and a
+# release artifact that misreports its own version is worse than one that has
+# none. Re-configure when HEAD, the ref it points at, or the index changes.
+# (The CLI's Makefile has no such problem -- $(shell) re-runs every invocation.)
+set(AIS_GIT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../../.git")
+if(EXISTS "${AIS_GIT_DIR}/HEAD")
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+                 "${AIS_GIT_DIR}/HEAD" "${AIS_GIT_DIR}/index")
+endif()
+
 # Single source of truth: assert libais.so has NO unresolved crypto symbols, so
 # the regression "c/crypto/*.c dropped from the glob -> undefined aisc_encrypt ->
 # crash on first encrypt/reveal" is caught HERE, at the one place that builds the
