@@ -131,6 +131,8 @@ itself contains "|" therefore round-trips dump -> import unchanged.
 <add_line>     ::= "A|" ( <ts> )? "|" <keys> "|" <value>   ? add; empty <ts> = oldest ?
 <del_line>     ::= "D|" <ts> "|" <hash>                     ? record tombstone ?
 <detach_line>  ::= "K|" <ts> "|" <hash> "|" <key>           ? per-key detach (ktomb) ?
+<link_line>    ::= "M|" <ts> "|" <hash> "|" <value>         ? another link on the record whose FIRST value hashes to <hash> ?
+<blob_section> ::= "B|" <relpath> "|" <size> "\n" <size raw bytes>   ? a document body ?
 <plain_line>   ::= <keys> "|" <value>                        ? legacy dump / hand-edit ?
 <hash>         ::= [:xdigit:]+   ? FNV-1a 64-bit hex of the record's <value> (MERGE.md) ?
 <comment_line> ::= "#" <value_char>*

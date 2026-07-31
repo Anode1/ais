@@ -846,6 +846,55 @@ static void test_del_key(void)
     scratch_rm(dir);
 }
 
+/* ---- a multi-link record survives a merge as ONE record --------------- */
+static void test_merge_multilink(void)
+{
+    ais a, b;
+    struct idvec v;
+    struct valvec vv;
+    const char *da = "/tmp/ais_ut_mlA", *db = "/tmp/ais_ut_mlB";
+    long id;
+    char h[17];
+
+    scratch_rm(da); scratch_rm(db);
+    ais_open(&a, da);
+    ais_open(&b, db);
+
+    id = ais_put(&a, "trio", "https://x/a");
+    CHECK(ais_add(&a, id, "https://x/b") == 0, "multilink: second link");
+    CHECK(ais_add(&a, id, "https://x/c") == 0, "multilink: third link");
+
+    /* What the wire does: the first value carries the record, the others attach
+     * to it by the first value's hash. Emitting all three as adds is what split
+     * one record into three on every restore. */
+    content_hash("https://x/a", h);
+    CHECK(ais_put_at(&b, "trio", "https://x/a", "2026-01-01T00:00:00Z") > 0,
+          "multilink: the record lands on the peer");
+    CHECK(ais_merge_addval(&b, h, "https://x/b") == 0, "multilink: attach the 2nd");
+    CHECK(ais_merge_addval(&b, h, "https://x/c") == 0, "multilink: attach the 3rd");
+
+    query(&b, AIS_AND, &v, 1, "trio");
+    CHECK(v.n == 1, "multilink: ONE record on the peer, not three");
+    vv.n = 0;
+    ais_record(&b, v.ids[0], collect_val, &vv);
+    CHECK(vv.n == 3, "multilink: carrying all three links");
+
+    /* idempotent: replaying the same stream must not duplicate */
+    CHECK(ais_merge_addval(&b, h, "https://x/b") == 0, "multilink: replay is accepted");
+    vv.n = 0;
+    ais_record(&b, v.ids[0], collect_val, &vv);
+    CHECK(vv.n == 3, "multilink: replay added nothing");
+
+    /* a hash this index does not hold is a no-op, not an error */
+    content_hash("https://x/nowhere", h);
+    CHECK(ais_merge_addval(&b, h, "https://x/z") == 0, "multilink: unknown hash is a no-op");
+    query(&b, AIS_AND, &v, 1, "trio");
+    CHECK(v.n == 1, "multilink: and created nothing");
+
+    ais_close(&a); ais_close(&b);
+    scratch_rm(da); scratch_rm(db);
+}
+
 /* ---- re-add after delete: the resurrected record carries the NEW time ---- */
 static void test_readd_after_delete(void)
 {
@@ -2951,7 +3000,11 @@ static void test_merge_multivalue(void)
           "multivalue: both values survive the merge");
     store_find_value(&B, "v1", &i1);
     store_find_value(&B, "v2", &i2);
-    CHECK(i1 != i2, "multivalue: values un-group into separate records on the peer");
+    /* This assertion used to demand the OPPOSITE (i1 != i2), pinning the split as
+     * expected behaviour -- which is why the suite stayed green while every backup
+     * silently turned one multi-link record into several. The M| verb carries the
+     * grouping now; the values must land on ONE record. */
+    CHECK(i1 == i2, "multivalue: the values stay on ONE record across the merge");
 
     ais_close(&A);
     ais_close(&B);
@@ -3013,6 +3066,7 @@ int main(void)
     test_del_key();
     test_untag_key();
     test_readd_after_delete();
+    test_merge_multilink();
     printf("keys:\n");
     test_keys();
     printf("stats:\n");

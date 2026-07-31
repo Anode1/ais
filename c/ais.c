@@ -973,6 +973,39 @@ static int mdel_seek(long id, const char *ts, const char *keys, const char *valu
     return 0;
 }
 
+/* Attach VALUE as an additional link on the record whose FIRST value hashes to
+ * HASH -- the import side of the M| verb. A record can hold several values, and
+ * the wire has no other way to say "these belong together": each value is its own
+ * store line, so a plain export emitted each as its own A| and every restore
+ * SPLIT one record into several. Idempotent: ais_add skips a value the record
+ * already holds. Unknown hash = nothing to attach to, which is not an error (the
+ * peer may simply not have that record). 0/-1. */
+int ais_merge_addval(ais *a, const char *hash, const char *value)
+{
+    struct mdel_ctx M;
+
+    if (hash == NULL || hash[0] == '\0' || value == NULL || value[0] == '\0')
+        return -1;
+    M.hash = hash;
+    M.id = 0;
+    M.found = 0;
+    M.add_ts[0] = '\0';
+    store_each_record(a, mdel_seek, &M);
+    if (!M.found)
+        return 0;                       /* no such record here: nothing to do */
+    if (tomb_contains(a, M.id) == 1)
+        return 0;                       /* deleted here: do not resurrect via a link */
+    {
+        /* ais_add appends unconditionally, so replaying a stream would stack the
+         * same link again and again. Sync is repeated by design -- folder syncs
+         * re-import the same bundle every pass -- so this has to be idempotent. */
+        long already = 0;
+        if (store_find_value(a, value, &already) == 1)
+            return 0;                   /* this index already holds that value */
+    }
+    return (ais_add(a, M.id, value) == 0) ? 0 : -1;
+}
+
 int ais_merge_del(ais *a, const char *hash, const char *ts)
 {
     struct mdel_ctx M;

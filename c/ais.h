@@ -67,6 +67,11 @@ int  ais_merge_del(ais *a, const char *hash, const char *ts);
  * KEY under last-write-wins (folder sync I1). Idempotent. Returns 0, or -1 on bad args. */
 int  ais_merge_detach(ais *a, const char *hash, const char *key, const char *ts);
 
+/* Apply an incoming additional link (M|): attach VALUE to the record whose first
+ * value hashes to HASH. Idempotent; a hash this index does not hold is a no-op.
+ * Without it a restore splits every multi-link record into separate records. */
+int  ais_merge_addval(ais *a, const char *hash, const char *value);
+
 /* Attach another value/link to an existing record (the multi-link case).
  * Returns 0 on success, -1 if `id` is unknown. */
 int  ais_add(ais *a, long id, const char *value);

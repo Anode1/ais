@@ -881,6 +881,48 @@ okempty "forget: the detached tag stays detached"    "$("$AIS" -f "$FD" t2)"
 ok      "forget: the record kept its other tag"      "tagged" "$("$AIS" -f "$FD" t1)"
 rm -rf "$FD"
 
+# 17s. BACKUP FIDELITY. Every round-trip test in this suite used a single-line,
+#      single-value record -- "second", "alpha", "http://solo" -- so the suite was
+#      green for months while --export/--dump silently DROPPED document bodies and
+#      SPLIT every multi-link record into separate records. A round-trip test is
+#      only as good as the SHAPES in its fixture, so this one carries all of them.
+BK=$(mktemp -d "${TMPDIR:-/tmp}/ais_backup.XXXXXX") || exit 2
+BR=$(mktemp -d "${TMPDIR:-/tmp}/ais_backup2.XXXXXX") || exit 2
+printf 'doc line one\ndoc line two\n' | "$AIS" -f "$BK" --doc papers notes >/dev/null
+"$AIS" -f "$BK" -v https://x/a -v https://x/b -v https://x/c trio >/dev/null
+"$AIS" -f "$BK" -v "plain value" simple >/dev/null
+"$AIS" -f "$BK" -v "untagged one" "" >/dev/null
+"$AIS" -f "$BK" -v "doomed" gone >/dev/null
+"$AIS" -f "$BK" -y --del 5 >/dev/null
+src=$("$AIS" -f "$BK" --stats | head -1)
+"$AIS" -f "$BK" --export | "$AIS" -f "$BR" --import >/dev/null 2>&1
+okeq    "backup: the record COUNT survives"      "$src" "$("$AIS" -f "$BR" --stats | head -1)"
+# the multi-link record must come back as ONE record, not three
+okeq    "backup: a 3-link record stays one record" "3" \
+        "$("$AIS" -f "$BR" trio | grep -c .)"
+okeq    "backup: and all three links are on it"  "1" \
+        "$("$AIS" -f "$BR" trio | cut -d'|' -f1 | sort -u | grep -c .)"
+# the document's BODY has to travel, not just the pointer to it
+ok      "backup: the document body is restored"  "doc line one" \
+        "$(cat "$BR"/blobs/*.txt 2>/dev/null)"
+ok      "backup: and its second line too"        "doc line two" \
+        "$(cat "$BR"/blobs/*.txt 2>/dev/null)"
+ok      "backup: the plain record survives"      "plain value" "$("$AIS" -f "$BR" simple)"
+ok      "backup: the untagged record survives"   "untagged one" "$("$AIS" -f "$BR" --find untagged)"
+okempty "backup: the deleted one stays deleted"  "$("$AIS" -f "$BR" gone)"
+# the whole point, stated once: the two libraries must be the same library
+# temp files, not `diff <(...)`: process substitution is a bashism and this suite
+# runs under sh (dash), where it is a syntax error -- the same class of portability
+# bug as `timeout` missing on macOS.
+"$AIS" -f "$BK" --dump | cut -d'|' -f2- | sort > "$BK/a.dump"
+"$AIS" -f "$BR" --dump | cut -d'|' -f2- | sort > "$BK/b.dump"
+if diff "$BK/a.dump" "$BK/b.dump" >/dev/null 2>&1; then
+    pass=$((pass + 1)); echo "  ok   backup: the two libraries are identical"
+else
+    fail=$((fail + 1)); echo "  FAIL backup: the restored library differs from the source"
+fi
+rm -rf "$BK" "$BR"
+
 # 17k. --del-under is the clear name for --del-key; the old spelling keeps working
 #      and says so. --del previews the record instead of just its id.
 AL=$(mktemp -d "${TMPDIR:-/tmp}/ais_alias.XXXXXX") || exit 2

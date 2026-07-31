@@ -6,6 +6,8 @@
  * Front-end code: it may die() on error, the same as main.c (the engine
  * modules only return codes). */
 #define _POSIX_C_SOURCE 200809L      /* strtok_r */
+#include <sys/stat.h>
+#include <dirent.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -13,6 +15,7 @@
 #include "compact.h"      /* tomb_contains / tomb_each -- merge export */
 #include "doc.h"
 #include "feed.h"
+#include "win.h"        /* mkdir() shim on native Windows */
 #include "log.h"
 #include "secret.h"
 #include "store.h"        /* store_each_record -- merge export */
@@ -134,6 +137,43 @@ void feed_interactive(ais *a, const char *base)
     fclose(tty);
 }
 
+/* Consume WANT raw bytes from IN into <index>/blobs/<basename of REL>. Refuses a
+ * relative path with a separator so a crafted stream cannot write outside blobs/.
+ * The bytes are consumed either way, so the parser stays in sync. 0/-1. */
+static int feed_take_blob(ais *a, const char *rel, long want, FILE *in)
+{
+    char path[AIS_PATH_MAX], dirp[AIS_PATH_MAX], buf[8192];
+    const char *base = rel;
+    FILE *out = NULL;
+    long left = want;
+
+    if (strncmp(rel, "blobs/", 6) == 0)
+        base = rel + 6;
+    if (strchr(base, '/') != NULL || strchr(base, '\\') != NULL || base[0] == '\0' ||
+        strcmp(base, "..") == 0)
+        base = NULL;                            /* refuse, but still drain */
+
+    if (base != NULL &&
+        snprintf(dirp, sizeof dirp, "%s/blobs", a->dir) < (int)sizeof dirp &&
+        snprintf(path, sizeof path, "%s/blobs/%s", a->dir, base) < (int)sizeof path) {
+        mkdir(dirp, 0777);      /* win.h maps this to _mkdir */
+        out = fopen(path, "rb");                /* already here: keep ours, drain theirs */
+        if (out != NULL) { fclose(out); out = NULL; }
+        else out = fopen(path, "wb");
+    }
+    while (left > 0) {
+        size_t chunk = (left > (long)sizeof buf) ? sizeof buf : (size_t)left;
+        size_t n = fread(buf, 1, chunk, in);
+        if (n == 0)
+            break;
+        if (out != NULL && fwrite(buf, 1, n, out) != n) { fclose(out); out = NULL; }
+        left -= (long)n;
+    }
+    if (out != NULL && fclose(out) != 0)
+        return -1;
+    return (base == NULL || left != 0) ? -1 : 0;
+}
+
 void feed_import_from(ais *a, FILE *in)
 {
     char line[AIS_LINE_MAX];
@@ -180,6 +220,35 @@ void feed_import_from(ais *a, FILE *in)
                 *h++ = '\0';                           /* ts | */
                 *k++ = '\0';                           /* hash | key */
                 ais_merge_detach(a, h, k, ts);
+                continue;
+            }
+        }
+
+        if (line[0] == 'B' && line[1] == '|') {        /* B|blobs/<name>|<size> + raw bytes */
+            /* Write the document body back before the record that points at it.
+             * The header is followed by exactly <size> raw bytes, which are NOT
+             * lines -- read them by length, or the parser would try to interpret
+             * a document's contents as records. */
+            char *rel = line + 2, *szp;
+            long want;
+            szp = strchr(rel, '|');
+            if (szp != NULL) {
+                *szp++ = '\0';
+                want = atol(szp);
+                if (want >= 0 && feed_take_blob(a, rel, want, in) != 0)
+                    fprintf(stderr, "import: could not store %s\n", rel);
+                continue;
+            }
+        }
+
+        if (line[0] == 'M' && line[1] == '|') {        /* M|ts|hash|value */
+            char *ts = line + 2, *h, *v;
+            h = strchr(ts, '|');
+            v = (h != NULL) ? strchr(h + 1, '|') : NULL;
+            if (h != NULL && v != NULL) {
+                *h++ = '\0';
+                *v++ = '\0';
+                ais_merge_addval(a, h, v);
                 continue;
             }
         }
@@ -293,18 +362,50 @@ static void exp_eff_keys(ais *a, long id, const char *keys, char *out, size_t ou
         used += (size_t)n;
     }
 }
+/* Grab a record's FIRST value, to tell an A| line from an M| one. */
+struct first_val { char v[AIS_LINE_MAX]; int got; };
+static int first_val_cb(long id, const char *value, void *ctx)
+{
+    struct first_val *F = ctx;
+    (void)id;
+    snprintf(F->v, sizeof F->v, "%s", value);
+    F->got = 1;
+    return 1;                                  /* first line only */
+}
+
 static int exp_live(long id, const char *ts, const char *keys, const char *value, void *vp)
 {
     struct exp_ctx *E = vp;
+    const char *k = keys;
+    char eff[AIS_LINE_MAX];
+
     if (tomb_contains(E->a, id) != 0)
         return 0;
     if (E->hasktomb) {
-        char eff[AIS_LINE_MAX];
         exp_eff_keys(E->a, id, keys, eff, sizeof eff);
-        fprintf(E->out, "A|%s|%s|%s\n", ts, eff, value);
-    } else {
-        fprintf(E->out, "A|%s|%s|%s\n", ts, keys, value);
+        k = eff;
     }
+
+    /* A record may hold several values, each its own store line. Emitting every
+     * line as A| made the importer create a SEPARATE RECORD per value, so a
+     * restore silently split one 3-link record into three -- through --dump,
+     * --export and the sync bundle alike. The first value carries the record
+     * (A|); the rest say "attach me to the record whose first value hashes to
+     * this" (M|). An older peer skips M| and gets the record with one link:
+     * lossy, but no longer wrong. */
+    if (multi_contains(E->a, id) == 1) {
+        struct first_val F;
+        F.got = 0;
+        F.v[0] = '\0';
+        ais_record(E->a, id, first_val_cb, &F);
+        if (F.got && strcmp(F.v, value) != 0) {
+            char h[17];
+            content_hash(F.v, h);
+            fprintf(E->out, "M|%s|%s|%s\n", ts, h, value);
+            return 0;
+        }
+    }
+    fprintf(E->out, "A|%s|%s|%s\n", ts, k, value);
     return 0;
 }
 static int exp_dead(long id, const char *ts, const char *hash, void *vp)
@@ -323,12 +424,54 @@ static int exp_kdead(long id, const char *ts, const char *hash, const char *key,
         fprintf(E->out, "K|%s|%s|%s\n", ts, hash, key);
     return 0;
 }
+/* Emit every file under <dir>/blobs/ as a "B|blobs/<name>|<size>\n" header plus
+ * its raw bytes. A --doc record stores only the PATH to its body, so without this
+ * an export carried a pointer to a file the other side never receives: the
+ * restored index held a record whose document was simply missing, silently, and
+ * --dump/--export were the documented backup route. sync.c emits the same section
+ * for bundles (which is why documents survived a folder sync but not an export);
+ * the two should be unified once sync.c's copy can be reached from here.
+ * Returns 0; a missing blobs/ dir is not an error. */
+static int export_blobs_stream(FILE *out, const char *dir)
+{
+    char blobsdir[AIS_PATH_MAX], path[AIS_PATH_MAX], buf[8192];
+    DIR *d;
+    struct dirent *de;
+
+    if (snprintf(blobsdir, sizeof blobsdir, "%s/blobs", dir) >= (int)sizeof blobsdir)
+        return 0;
+    d = opendir(blobsdir);
+    if (d == NULL)
+        return 0;
+    while ((de = readdir(d)) != NULL) {
+        FILE *bf;
+        long sz;
+        size_t n;
+        if (de->d_name[0] == '.')
+            continue;
+        if (snprintf(path, sizeof path, "%s/%s", blobsdir, de->d_name) >= (int)sizeof path)
+            continue;
+        bf = fopen(path, "rb");
+        if (bf == NULL)
+            continue;
+        if (fseek(bf, 0, SEEK_END) != 0 || (sz = ftell(bf)) < 0 ||
+            fseek(bf, 0, SEEK_SET) != 0) { fclose(bf); continue; }
+        fprintf(out, "B|blobs/%s|%ld\n", de->d_name, sz);
+        while ((n = fread(buf, 1, sizeof buf, bf)) > 0)
+            fwrite(buf, 1, n, out);
+        fclose(bf);
+    }
+    closedir(d);
+    return 0;
+}
+
 void feed_export(ais *a, FILE *out)
 {
     struct exp_ctx E;
     E.a = a;
     E.out = out;
     E.hasktomb = (ktomb_active(a) > 0);
+    export_blobs_stream(out, a->dir);        /* bodies first: a record may point at one */
     store_each_record(a, exp_live, &E);
     tomb_each(a, exp_dead, &E);
     ktomb_each(a, exp_kdead, &E);            /* key-detaches propagate as K| lines (I1) */

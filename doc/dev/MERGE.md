@@ -11,7 +11,7 @@ keys+value); the content hash is **FNV-1a** of the value (not blake2b); **no mig
 (v1 `id`-only tomb lines coexist with v2). Key-level (`ktomb`) removals now merge too --
 built and shipped: they export/import as `K|<ts>|<hash>|<key>` lines (feed.c `exp_kdead` /
 `ktomb_each`, `ais_merge_detach`), so a detached tag propagates and stays removed after sync.
-Deferred follow-up: multi-value (`ais_add`) grouping across a merge.
+Multi-value (`ais_add`) grouping across a merge: SHIPPED, as the `M|` verb.
 
 ## The core problem: ids are device-local
 `store` ids are monotonic PER INDEX. Device A's id 5 and device B's id 5 are different
@@ -110,6 +110,30 @@ a compaction the value is gone from the store, so their digest can never be
 recomputed. A privacy fix therefore cannot work by changing the function -- only by
 forgetting, or by an identity not derived from content at all, which needs a wire
 generation change.
+
+## A record's extra links travel as M|
+
+A record can hold several values, each its own store line, and the wire had no way
+to say they belong together: an export emitted every line as its own `A|`, so the
+importer created a SEPARATE RECORD per value and every restore silently split one
+3-link record into three. Through `--dump`, `--export` and the sync bundle alike.
+
+    A|<ts>|<keys>|<first value>
+    M|<ts>|<hash of the first value>|<another value>
+
+The first value carries the record; the rest attach to it by that value's hash
+(`ais_merge_addval`). Idempotent, because sync repeats by design -- a folder sync
+re-imports the same bundle every pass, and `ais_add` appends unconditionally, so
+without a check the same link stacked up on every round.
+
+An older peer skips `M|` (see the extensibility rule above) and gets the record
+with one link: lossy, but no longer WRONG, and strictly better than the three
+separate records it used to invent.
+
+Document bodies travel the same stream as `B|<path>|<size>` plus raw bytes. They
+always did for sync bundles, which is why a folder sync carried documents while
+`--export` -- the documented backup route -- dropped them, restoring a record whose
+body simply did not exist.
 
 ## Two tombstone types (both must merge)
 There are **two** delete mechanisms today, both id-keyed and untimestamped:

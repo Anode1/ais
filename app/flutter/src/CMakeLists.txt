@@ -33,12 +33,25 @@ target_include_directories(ais_engine PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../..
 # nothing useful, and the About screen that exists to catch a stale engine cannot.
 # A source copy with no .git keeps the fallback, which is visibly wrong rather
 # than silently wrong. See doc/dev/VERSIONING.md.
+# A RELEASE is built at a tag, so ask for the tag first. `--dirty` is right for a
+# dev build but wrong here: CI's own build steps touch tracked files, so the
+# published v0.3.11 artifact reported "0.3.11-dirty" -- which reads as "built from
+# uncommitted changes" and would send anyone debugging it down the wrong path.
+# Off a tag, fall back to the descriptive form, dirty marker included.
 execute_process(
-    COMMAND git describe --tags --always --dirty
+    COMMAND git describe --exact-match --tags HEAD
     WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
     OUTPUT_VARIABLE AIS_GIT_VERSION
     OUTPUT_STRIP_TRAILING_WHITESPACE
     ERROR_QUIET)
+if(NOT AIS_GIT_VERSION)
+    execute_process(
+        COMMAND git describe --tags --always --dirty
+        WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+        OUTPUT_VARIABLE AIS_GIT_VERSION
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+        ERROR_QUIET)
+endif()
 if(AIS_GIT_VERSION)
     string(REGEX REPLACE "^v" "" AIS_GIT_VERSION "${AIS_GIT_VERSION}")
     target_compile_definitions(ais_engine PRIVATE AIS_VERSION="${AIS_GIT_VERSION}")
