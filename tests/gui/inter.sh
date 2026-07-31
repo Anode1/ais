@@ -67,7 +67,7 @@ rc1=$?
 # could land in one and not the other (it had, for the tag actions). The element
 # ids are deliberately identical, so one driver asserts both.
 APPDIR=$(cd "$DIR/../../app" && pwd)
-IDX2="$TMP/idx2"; SPORT2=$(( SPORT + 1 )); SRV2=
+IDX2="$TMP/idx2"; SPORT2=$(( SPORT + 900 )); SRV2=   # +1 would collide with ui.sh, see there
 "$AIS" -f "$IDX2" --init >/dev/null 2>&1
 "$AIS" -f "$IDX2" -v "https://example.org/venice" venice >/dev/null 2>&1
 "$AIS" -f "$IDX2" -v "https://example.org/canal"  venice trip >/dev/null 2>&1

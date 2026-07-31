@@ -97,7 +97,10 @@ tag "ui: the destructive action names the RECORDS" "Delete 1 record"
 # control could exist in one and not the other (it did, for the tag actions and
 # the edit sheet). Same ids, so the same assertions apply.
 APPDIR=$(cd "$(dirname "$0")/../../app" && pwd)
-IDX2=$(mktemp -d); PORT2=$(( PORT + 1 ))
+# +1 collides: these scripts run back-to-back, so their PIDs (and thus their base
+# ports) usually differ by one, and one script's SECOND server lands on the next
+# script's FIRST. Disjoint offsets instead.
+IDX2=$(mktemp -d); PORT2=$(( PORT + 500 ))
 "$AIS" -f "$IDX2" -v "https://example.org/venice" venice >/dev/null 2>&1
 # a DOCUMENT: stored as aisdoc:<base64>, so the page has to decode it to show it
 printf 'line one\nline two\nline three\n' | "$AIS" -f "$IDX2" --doc notes >/dev/null 2>&1
