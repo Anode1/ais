@@ -761,7 +761,7 @@ static void del_stamp(ais *a, long id, char *ts, size_t tsz, char hash[17])
         store_each_record(a, del_seek_line, &D);   /* no accelerator: scan */
     store_now(ts, tsz);
     if (D.found)
-        content_hash_salted(D.ts, D.value, hash);  /* salt = creation time */
+        content_hash(D.value, hash);
     else
         hash[0] = '\0';
 }
@@ -955,16 +955,16 @@ struct mdel_ctx { const char *hash; long id; char add_ts[AIS_TS_MAX]; int found;
 static int mdel_seek(long id, const char *ts, const char *keys, const char *value, void *vp)
 {
     struct mdel_ctx *M = vp;
-    char h[17], legacy[17];
+    char h[17];
     (void)keys;
-    /* Salted with the record's own creation ts (this line's field 2). The legacy
-     * unsalted form is still accepted, or every delete written before this change
-     * -- and every delete from a peer that has not upgraded -- would stop
-     * applying. Accepting both costs one extra hash per record and keeps old
-     * bundles merging forever. */
-    content_hash_salted(ts, value, h);
-    content_hash(value, legacy);
-    if (strcmp(h, M->hash) == 0 || strcmp(legacy, M->hash) == 0) {
+    /* Identity is the value and NOTHING else. Salting this with the record's
+     * creation ts was tried and reverted: two devices that independently save the
+     * same value stamp it at different times, so they computed different digests
+     * and a delete silently stopped crossing between them. Identity has to be
+     * derived from what both sides can agree on with nothing shared, and the ts
+     * is not that -- it is only equal when the record itself was synced. */
+    content_hash(value, h);
+    if (strcmp(h, M->hash) == 0) {
         M->id = id;
         snprintf(M->add_ts, sizeof M->add_ts, "%s", ts);
         M->found = 1;

@@ -159,18 +159,21 @@ fact a peer needs, so collecting it would let any device that still holds the
 record push it back on the next sync. Tombstones are retained for the life of the
 index -- one ~42-byte line each, which is a rounding error against the store.
 
-The line carries a digest of the DELETED VALUE, salted with the record's CREATION
-ts (`content_hash_salted`). The salt is not a secret -- both devices read it off the
-record's own store line, so matching needs nothing shared -- and it is not a
-cryptographic hash either. What it buys is arithmetic: unsalted, one precomputed
-pass recovered EVERY deleted value in the file at once, and a guessable value fell
-in seconds. Salted per record, an attacker must guess the value AND the second it
-was created, separately for every tombstone. A very low-entropy value is still
-reachable; this is a cost increase, not a proof.
+The line carries `content_hash()` of the DELETED VALUE, and that is FNV-1a, not a
+cryptographic hash. A guessable value (a phone number, a short URL) is recoverable
+from it in seconds, and the tombstone is exported to every peer and kept forever,
+so a delete leaves a permanent, testable trace of what was deleted.
 
-`content_hash()` (unsalted) is still computed on the MATCHING side, so a tombstone
-written before the salt, or one from a peer that has not upgraded, keeps applying
-forever. Nothing writes it any more. This is the
+SALTING IT WAS TRIED AND REVERTED, and the reason is worth keeping. Salting with
+the record's creation ts looked free -- both devices read the ts off the record's
+own line, so nothing had to be shared. But two devices that INDEPENDENTLY save the
+same value stamp it at different times, so they computed different digests and the
+delete silently stopped crossing between them. That is the whole point of
+content-addressing: identity must be derivable from what both sides can agree on
+with nothing shared, and a per-device timestamp is not that. It is only equal when
+the record itself was synced, which is exactly the case that did not need help.
+Anything that changes this digest must survive the same test: two devices, same
+value, different creation times, delete on one. This is the
 same asymmetry noted above for blobs, in the other direction: an ENCRYPTED value
 hashes its ciphertext, so its tombstone reveals nothing and its blob is shredded
 at delete time. Do not tell a user a plain delete leaves nothing behind.

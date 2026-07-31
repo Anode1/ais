@@ -84,31 +84,32 @@ A bundle fed to `--import` is named and refused rather than parsed line by line;
 it has a binary header and length-prefixed blobs, so reading it as a stream
 invents records.
 
-## The tombstone digest is salted with the record's creation ts
+## The tombstone digest is the value, and only the value
 
-`content_hash_salted(ts, value)`. The salt is not a secret and does not need to
-be: both devices read it off the record's own store line, so matching needs
-nothing shared -- no key, no distribution, no pairing step. What it buys is
-arithmetic. Unsalted, the digest was a plain hash of the deleted value: a
-guessable value fell in seconds, and because there was no salt, ONE precomputed
-pass recovered every deleted value in the file at once. Salted per record, an
-attacker must guess the value AND the second it was created, separately for every
-tombstone. The amortised attack is gone; a very low-entropy value is still
-reachable. A cost increase, not a proof.
+`content_hash(value)`, FNV-1a. Identity has to be derivable from what two devices
+can agree on with NOTHING shared -- no key, no pairing, no prior sync. The value is
+the only such thing.
 
-`content_hash()` (unsalted) is still computed on the MATCHING side, so a tombstone
-written before the salt, or one from a peer that has not upgraded, keeps applying
-forever. Nothing writes it any more, and nothing converts the old ones: for any
-tombstone that survived a compaction the value is gone from the store, so its
-digest can never be recomputed. `--compact --forget-deleted`
-(`ais_compact_purge`) is how a user retires them -- it blanks the digest while
-keeping the id, so the record stays suppressed here but the deletion stops
-travelling and stops being testable. The price, which the caller must state: a
-peer that has not synced since can push those records back.
+Salting it with the record's creation ts was tried and reverted. It looked free,
+since both devices read the ts off the record's own line, but two devices that
+independently save the same value stamp it at different times: they computed
+different digests and a delete silently stopped crossing between them. The case it
+still worked for -- a record that had already synced, so both carried the same ts --
+is exactly the case that never needed help. Any future change to this digest must
+survive that test: two devices, same value, different creation times, delete on one.
 
-The complete answer -- an identity not derived from content at all -- needs a wire
-generation change, because it must reach a peer that only knows the record by its
-content. That is a flag day, and this is what is available without one.
+The cost of that constraint is real and is documented in `LAYOUT.md`: the digest is
+a testable trace of a deleted value, kept for the life of the index and exported to
+every peer. `--compact --forget-deleted` (`ais_compact_purge`) is the user's answer
+-- it blanks the digest while keeping the id, so the record stays suppressed here
+but the deletion stops travelling and stops being testable. The price, which the
+caller must state: a peer that has not synced since can push those records back.
+
+Migrating old tombstones is impossible and is not attempted: for any that survived
+a compaction the value is gone from the store, so their digest can never be
+recomputed. A privacy fix therefore cannot work by changing the function -- only by
+forgetting, or by an identity not derived from content at all, which needs a wire
+generation change.
 
 ## Two tombstone types (both must merge)
 There are **two** delete mechanisms today, both id-keyed and untimestamped:

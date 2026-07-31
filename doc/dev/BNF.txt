@@ -80,12 +80,9 @@ INDEX/tomb      -- deletions. REAL DATA, not derived: a deleted record is not in
                    the store, so nothing can rebuild this. Retained for the life
                    of the index (compaction keeps every hash-bearing line), and
                    exported as "D|<ts>|<hash>" so a delete reaches every device.
-                   The hash is a 64-bit FNV-1a of the DELETED VALUE salted with
-                   the record's creation ts (content_hash_salted). Not a
-                   cryptographic hash: a very guessable value can still be
-                   confirmed, but not amortised across the file. Unsalted digests
-                   from older versions are still matched on import. The value
-                   itself is never stored here.
+                   The hash is content_hash() of the DELETED VALUE -- a 64-bit
+                   FNV-1a, not a cryptographic hash, so a guessable value can be
+                   confirmed from it. The value itself is never stored here.
 <tomb_file>    ::= ( <tomb_line> "\n" )*
 <tomb_line>    ::= <id> "|" <ts> "|" <hash>     ? v1 lines were bare <id> ?
 <hash>         ::= [:xdigit:]{16}               ? FNV-1a 64 of the value ?
