@@ -17,6 +17,7 @@ import 'package:qr_flutter/qr_flutter.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:speech_to_text/speech_to_text.dart';
 import 'ais_ffi.dart';
+import 'record_rows.dart';
 import 'add_validation.dart';
 import 'version.dart';
 
@@ -72,6 +73,9 @@ class _RecallPageState extends State<RecallPage> {
   Timer? _debounce;
   AisEngine? _ais;
   List<Hit> _results = const [];
+  // id -> how many FURTHER links that record holds beyond the one shown, so a row
+  // can say so rather than implying the record is just the one value.
+  Map<int, int> _resultExtra = const {};
   // Tags for the current recall/find results, keyed by record id. The recall Hit
   // carries only id+value, so tags are fetched ONCE when results load (here, not
   // in the itemBuilder, which reruns on scroll). Cleared whenever results reset.
@@ -245,13 +249,17 @@ class _RecallPageState extends State<RecallPage> {
     final page = _ais!.recallPage(keys, orMode: _matchAny, after: 0, count: _recallPage);
     // Exclude ids still inside their Undo window, so a live re-query can't
     // resurrect a row the user just swiped away.
-    final r = page.where((h) => !_pendingDelete.contains(h.id)).toList();
+    final g = oneRowPerRecord(
+        page.where((h) => !_pendingDelete.contains(h.id)).toList());
+    final r = g.rows;
+    final extra = g.extra;
     final keysMap = {for (final h in r) h.id: _ais!.keysOf(h.id).trim()};
     setState(() {
       _query = keys;
       _searched = true;
       _textSearch = false; // a fresh key search leaves the text-fallback mode
       _ms = DateTime.now().difference(t0).inMilliseconds;
+      _resultExtra = extra;
       _results = r;
       _resultKeys = keysMap;
       _recallBefore = page.isNotEmpty ? page.last.id : 0;
@@ -273,11 +281,15 @@ class _RecallPageState extends State<RecallPage> {
   void _loadMoreRecall() {
     if (_ais == null || !_recallMore || _textSearch || _query.isEmpty) return;
     final page = _ais!.recallPage(_query, orMode: _matchAny, after: _recallBefore, count: _recallPage);
-    final fresh = page.where((h) => !_pendingDelete.contains(h.id)).toList();
+    final gm = oneRowPerRecord(
+        page.where((h) => !_pendingDelete.contains(h.id)).toList());
+    final fresh = gm.rows;
+    final extra = gm.extra;
     final keysMap = {for (final h in fresh) h.id: _ais!.keysOf(h.id).trim()};
     setState(() {
       _results = [..._results, ...fresh];
       _resultKeys = {..._resultKeys, ...keysMap};
+      _resultExtra = {..._resultExtra, ...extra};
       if (page.isNotEmpty) _recallBefore = page.last.id;
       _recallMore = page.length == _recallPage;
     });
@@ -1555,7 +1567,9 @@ class _RecallPageState extends State<RecallPage> {
     }
     _pendingDelete.add(id);
     setState(() {
-      if (recallHit != null) _results = [..._results]..removeAt(recallIdx);
+      // remove EVERY row of that id: a record can appear more than once across
+      // pages, and removeAt(firstIndex) took the wrong one when it did
+      if (recallHit != null) _results = _results.where((h) => h.id != id).toList();
       if (tlRow != null) _tl = [..._tl]..removeAt(tlIdx);
     });
     var undone = false;
@@ -2087,10 +2101,17 @@ class _RecallPageState extends State<RecallPage> {
           ]),
           // Show the record's tags (fetched once when results loaded), so a recall
           // row reads the same as a timeline row rather than value-only.
+          // Tags, plus a note when the record holds links this row does not show.
+          // Deleting removes the whole record, so the user has to be able to SEE
+          // that there is more to it than the one value in front of them.
           subtitle: Text(
-            (_resultKeys[hit.id]?.isNotEmpty ?? false)
-                ? _resultKeys[hit.id]!
-                : '(no tags)',
+            ((_resultKeys[hit.id]?.isNotEmpty ?? false)
+                    ? _resultKeys[hit.id]!
+                    : '(no tags)') +
+                ((_resultExtra[hit.id] ?? 0) > 0
+                    ? '  ·  +${_resultExtra[hit.id]} more link'
+                        '${_resultExtra[hit.id] == 1 ? '' : 's'}'
+                    : ''),
             style: Theme.of(context)
                 .textTheme
                 .bodyMedium
