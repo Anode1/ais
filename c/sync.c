@@ -413,6 +413,7 @@ static void set_timeout(int fd, int secs) {
 
 int sync_serve(ais *a, int port, const char *token, int timeout_s, int bidir) {
     int srv, cli = -1, rc = -1, one = 1;
+    long survivals0;
     struct sockaddr_in addr;
     size_t tlen = strlen(token);
     uint8_t challenge[24], proof_want[32], proof_got[32];
@@ -445,6 +446,7 @@ int sync_serve(ais *a, int port, const char *token, int timeout_s, int bidir) {
 
     /* Challenge-response: prove the peer knows the token WITHOUT it crossing the wire. Send a
      * fresh random challenge; the peer must return the keyed proof of (token, challenge). */
+    survivals0 = a->survivals;               /* see AIS_SYNC_AGAIN in sync.h */
     if (aisc_random(challenge, sizeof challenge) != AISC_OK) goto done;
     if (write_all(cli, challenge, sizeof challenge) != 0) goto done;
     if (read_all(cli, proof_got, sizeof proof_got) != 0) goto done;
@@ -495,6 +497,10 @@ done:
     if (blob) { aisc_wipe(blob, blen); free(blob); }
     if (cli >= 0) close(cli);
     close(srv);
+    /* Our stream went out BEFORE we read theirs, so a survival decided while
+     * merging it cannot have reached them. They still hold the delete. */
+    if (rc == 0 && a->survivals != survivals0)
+        rc = AIS_SYNC_AGAIN;
     return rc;
 }
 
@@ -619,6 +625,13 @@ int sync_serve_lan(ais *a, int port, int timeout_s, int bidir) {
                             "      Nothing was lost. Run the same command again to finish.\n");
             aisc_wipe(token, sizeof token);
             return 1;
+        }
+        if (rc == AIS_SYNC_AGAIN) {
+            printf("sync: exchanged with a peer. A record here outlived a delete that\n"
+                   "      arrived in this round, and that news could not go out until the\n"
+                   "      next one -- run the same command once more so both devices match.\n");
+            aisc_wipe(token, sizeof token);
+            return 2;
         }
         if (rc != 0) {
             fprintf(stderr, "sync: no peer completed (timeout, wrong token, or error)\n");

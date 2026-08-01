@@ -262,6 +262,7 @@ int store_open(ais *a, const char *dir)
     a->lock_fd = -1;
     a->purge_deletes = 0;
     a->next_id = 1;
+    a->survivals = 0;
 
     n = snprintf(a->dir, sizeof(a->dir), "%s", dir);
     if (n < 0 || (size_t)n >= sizeof(a->dir))

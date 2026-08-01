@@ -224,6 +224,16 @@ void feed_import_from(ais *a, FILE *in)
          * through to the flush below and then to the plain reader, as it always did. */
         if (line[0] == 'D' && line[1] == '|' && strchr(line + 2, '|') != NULL) {
             char *ts = line + 2, *h = strchr(ts, '|');
+            /* Keep STREAM order between the two buffers. A T| run followed by a
+             * D| run would otherwise apply D| first (this branch is tested before
+             * the T| flush below), and a merge that reorders the facts it was
+             * given is a merge whose outcome depends on where the buffers happen
+             * to break -- the same class of thing C|/sts exist to remove, even
+             * though no wrong outcome is reachable from it today. */
+            if (natt > 0) {
+                ais_merge_attach_many(a, patt, natt);
+                natt = 0;
+            }
             *h++ = '\0';
             /* Bounded precision, not just a bounded buffer: a malformed line can
              * carry a field of any length, and it is truncated here. */

@@ -37,6 +37,16 @@ typedef struct ais {
     int  lock_fd;             /* single-writer advisory lock; -1 if not held */
     int  purge_deletes;       /* ais_compact also forgets the delete FACTS (see
                                * ais_compact_purge); 0 for every other caller  */
+    long survivals;           /* records that have beaten an incoming delete on
+                               * THIS handle: bumped whenever a merge records a
+                               * survival in `sts`. A survival is decided while
+                               * an exchange is already half spent -- the host
+                               * sends its stream BEFORE it reads the peer's --
+                               * so the news of it cannot go out until the NEXT
+                               * exchange, and the two devices genuinely still
+                               * differ when this round ends. Sync compares it
+                               * across a round to say "run it again" instead of
+                               * claiming both sides now match. Not persisted. */
 } ais;
 
 /* Open (creating if absent) the INDEX directory `dir`, taking a single-writer
@@ -105,8 +115,11 @@ int  ais_merge_attach(ais *a, const char *hash, const char *key, const char *ts)
 typedef struct { char hash[17]; char key[AIS_KEY_MAX]; char ts[AIS_TS_MAX]; } ais_att_fact;
 
 /* How many attach facts one pass resolves. Smaller than AIS_MERGE_BATCH because a
- * fact carries a whole key, and the caller buffers these on its stack. */
-#define AIS_ATT_BATCH 64
+ * fact carries a whole key (AIS_KEY_MAX), and the caller buffers these on its
+ * stack -- inside feed_import_from, which already carries a line buffer and sits
+ * under the whole import chain. 32 still turns 32 store passes into one; 64 cost
+ * another 17 KB of a budget that is measured in tens. */
+#define AIS_ATT_BATCH 32
 
 /* Apply up to AIS_ATT_BATCH key-attach facts in ONE store pass, each under
  * ais_merge_attach's rule and in the order given. The same problem, and the same

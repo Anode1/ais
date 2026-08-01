@@ -227,7 +227,7 @@ static const char PAGE[] =
  * over the new one -- Timeline rows appearing under an empty Search, which is also
  * what made the interaction test fail about half the time on a cold run. Each
  * loader captures gen before its fetch and drops its result if it has moved. */
-"var view='recall',gen=0;"
+"var view='recall',viewGen=0;"
 /* empty-state call-to-action, reused by every empty view */
 "var addCTA='<button class=primary style=\"margin-top:1rem\" onclick=openSheet()>+ Add</button>';"
 /* accept a comma as an optional tag separator; collapse extra whitespace, so
@@ -283,12 +283,12 @@ static const char PAGE[] =
 /* Recall is keyset-paged like the timeline: `more` appends the next page (id >
  * rcAfter) instead of reloading, so a million-hit query scrolls in one page at a
  * time. Recall emits ascending, so rcAfter tracks the largest id shown. */
-"async function recall(more){var o=$('out');var qq=normkeys($('q').value);var g=gen;"
+"async function recall(more){var o=$('out');var qq=normkeys($('q').value);var g=viewGen;"
 "if(!more){if(!qq)return;rcAfter=0;rcN=0;rcQ=qq;rcOr=($('anyk')&&$('anyk').checked)?'&or=1':'';rcT0=performance.now();o.className='';o.innerHTML=''}"
 "if(!rcQ)return;"
 "var u='/api/get?keys='+encodeURIComponent(rcQ)+rcOr+'&count='+tlPage+(rcAfter>0?'&after='+rcAfter:'');"
 "var L=(await(await fetch(u)).text()).split('\\n').filter(function(s){return s.length});"
-"if(g!=gen)return;"                                  /* the view moved on: drop it */
+"if(g!=viewGen)return;"                                  /* the view moved on: drop it */
 "var mb=$('rcmore');if(mb)mb.remove();"
 "if(!rcN&&!L.length){o.textContent='No results for '+rcQ;o.className='empty';$('count').textContent='0 results';rcMore=false;return}o.className='';"
 "L.forEach(function(ln){var p=ln.indexOf('|'),id=p>=0?ln.slice(0,p):'',v=p>=0?ln.slice(p+1):ln;"
@@ -349,12 +349,12 @@ static const char PAGE[] =
 "return{day:d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate()),time:p(d.getHours())+':'+p(d.getMinutes())}}"
 /* keyset paging: each call fetches `count` records older than the last id shown
  * (tlBefore); 'more' appends, otherwise it reloads from the newest. */
-"async function loadTimeline(more){var o=$('out');var g=gen;"
+"async function loadTimeline(more){var o=$('out');var g=viewGen;"
 "var f=$('tlfrom')?$('tlfrom').value:'',tt=$('tlto')?$('tlto').value:'';"
 "if(!more){tlBefore=0;tlDay=null;tlN=0;o.className='';o.innerHTML=''}"
 "var u='/api/timeline?count='+tlPage+(tlBefore>0?'&before='+tlBefore:'')+(f?'&from='+f:'')+(tt?'&to='+tt:'');"
 "var L=(await(await fetch(u)).text()).split('\\n').filter(function(s){return s.length});"
-"if(g!=gen)return;"                                  /* the view moved on: drop it */
+"if(g!=viewGen)return;"                                  /* the view moved on: drop it */
 "var mb=$('tlmore');if(mb)mb.remove();"
 "if(!tlN&&!L.length){o.innerHTML='<div class=empty><p>Nothing saved yet.</p>'+addCTA+'</div>';return}"
 "L.forEach(function(ln){var r=parseTL(ln),lt=locDT(r.ts),d=lt?lt.day:'';"
@@ -370,11 +370,11 @@ static const char PAGE[] =
 "b.textContent='Load more';b.onclick=pageMore;o.appendChild(b)}}"
 /* Tags keyset-paged too: the cursor is the (count, key) of the last row, in the
  * busiest-first order the engine emits; `more` appends the next slice. */
-"async function loadTags(more){var o=$('out');var g=gen;"
+"async function loadTags(more){var o=$('out');var g=viewGen;"
 "if(!more){tgAfterc=0;tgAfterk='';tgN=0;o.className='';o.innerHTML=''}"
 "var u='/api/tags?count='+tlPage+(tgAfterk?'&afterc='+tgAfterc+'&afterk='+encodeURIComponent(tgAfterk):'');"
 "var L=(await(await fetch(u)).text()).split('\\n').filter(function(s){return s.length});"
-"if(g!=gen)return;"                                  /* the view moved on: drop it */
+"if(g!=viewGen)return;"                                  /* the view moved on: drop it */
 "var mb=$('tgmore');if(mb)mb.remove();"
 "if(!tgN&&!L.length){o.innerHTML='<p class=empty>No tags yet.</p>';$('count').textContent='';tgMore=false;return}"
 "L.forEach(function(ln){var p=ln.indexOf('|'),c=ln.slice(0,p),k=ln.slice(p+1);"
@@ -443,7 +443,7 @@ static const char PAGE[] =
 "window.addEventListener('scroll',function(){"
 "if(window.innerHeight+window.scrollY<document.body.scrollHeight-600)return;"
 "if(document.querySelector('.loadmore'))pageMore()});"
-"function setView(v){delFlush();view=v;gen++;"
+"function setView(v){delFlush();view=v;viewGen++;"
 "[].forEach.call(document.querySelectorAll('#bnav button'),function(b){b.className=(b.dataset.v==v)?'on':''});"
 "$('tlrange').style.display=(v=='timeline')?'flex':'none';"   /* date range only in Timeline */
 "if(v=='recall'){var q=$('q').value.trim();if(q)recall();"
@@ -594,6 +594,7 @@ static const char PAGE[] =
 "syncPoll=setInterval(async function(){var s=(await(await fetch('/api/sync/status')).text()).trim();"
 "if(s=='synced'){clearInterval(syncPoll);syncPoll=null;$('hoststatus').textContent='Synced. Both devices now have the same records.';setView(view)}"
 "else if(s=='half'){clearInterval(syncPoll);syncPoll=null;$('hoststatus').textContent='They got your records, but theirs did not come back. Nothing was lost -- sync again to finish.';setView(view)}"
+"else if(s=='again'){clearInterval(syncPoll);syncPoll=null;$('hoststatus').textContent='Synced, but one more round is needed to match exactly. Nothing was lost -- sync again.';setView(view)}"
 "else if(s=='timeout'){clearInterval(syncPoll);syncPoll=null;$('hoststatus').textContent='No device joined in time. Try again.'}},1500)}"
 "function syncJoinPane(){$('syncpick').style.display='none';$('syncfile').style.display='none';$('syncjoin').hidden=false;$('joinstatus').textContent='';$('jaddr').focus()}"
 /* file export/import: no network -- carry the whole index as one .aisb file */
@@ -1029,6 +1030,7 @@ static void sync_reap(void)
         sync_last = !WIFEXITED(st) ? -2
                   : (WEXITSTATUS(st) == 0) ? 0
                   : (WEXITSTATUS(st) == 2) ? 1        /* half: see sync_status */
+                  : (WEXITSTATUS(st) == 3) ? 2        /* run it again */
                   : -2;
         sync_child = -1;
     }
@@ -1097,9 +1099,11 @@ static void sync_host(ais *a, int fd)
         rc = sync_serve(&fresh, port, token, SERVE_SYNC_TIMEOUT, SERVE_SYNC_BIDIR);
         ais_close(&fresh);
         /* 0 = converged, 2 = half (the peer got ours, we did not get theirs),
-         * 1 = timeout/error. The parent only has an exit status to read, so the
-         * three outcomes need three codes. */
-        _exit(rc == 0 ? 0 : (rc == AIS_SYNC_PARTIAL ? 2 : 1));
+         * 3 = both merged but one more round is needed, 1 = timeout/error. The
+         * parent only has an exit status to read, so each outcome needs a code. */
+        _exit(rc == 0 ? 0
+              : rc == AIS_SYNC_PARTIAL ? 2
+              : rc == AIS_SYNC_AGAIN   ? 3 : 1);
     }
     if (pid < 0) {
         static const char e[] = "HTTP/1.0 500 Internal Server Error\r\n"
@@ -1124,6 +1128,7 @@ static void sync_status(int fd)
     if (sync_child > 0)      s = "waiting\n";
     else if (sync_last == 0) s = "synced\n";
     else if (sync_last == 1) s = "half\n";    /* they got ours, we did not get theirs */
+    else if (sync_last == 2) s = "again\n";   /* both merged; one more round needed */
     else                     s = "timeout\n";
     send_head(fd, "text/plain");
     write_all(fd, s, strlen(s));

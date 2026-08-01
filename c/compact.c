@@ -209,9 +209,10 @@ static long kfile_parse(char *line, const char **tsp, const char **hp, const cha
 }
 
 /* The (id, key) of a ktomb/katt line WITHOUT modifying or copying it. The id is
- * the leading integer; the key is the field after the LAST '|', which is what
- * kfile_parse yields for both shapes it accepts ("id|ts|hash|key" and the legacy
- * "id|key") -- and, like kfile_parse, a line with no key field (no '|' at all, or
+ * the leading integer; the key is the field after the THIRD '|' (or after the
+ * only one, on a legacy line), which is what kfile_parse yields for both shapes
+ * it accepts ("id|ts|hash|key" and the legacy "id|key") -- NOT the last bar: a
+ * hand-edited line with four would then part company with kfile_parse -- and, like kfile_parse, a line with no key field (no '|' at all, or
  * a bare "id|ts|hash") is rejected with -1 so the caller keeps it untouched.
  * *KP points INTO LINE and is not nul-terminated; its length comes back in KLEN,
  * any trailing newline already trimmed.

@@ -1130,6 +1130,11 @@ class _RecallPageState extends State<RecallPage> {
             'Nothing was lost. Sync again to finish.';
         _markSynced();
         break;
+      case 2:
+        msg = 'Synced, but one more round is needed to match exactly. '
+            'Nothing was lost. Sync again.';
+        _markSynced();
+        break;
       case -1:
         msg = 'That address looks wrong. Use http://host:port.';
         break;
@@ -1199,6 +1204,13 @@ class _RecallPageState extends State<RecallPage> {
       case 1:
         msg = 'They got your records, but theirs did not come back. '
             'Nothing was lost. Sync again to finish.';
+        _markSynced();
+        break;
+      case 2:
+        // A record here outlived a delete that arrived in this round; the news
+        // of that could not go out until the next one (see AIS_SYNC_AGAIN).
+        msg = 'Synced, but one more round is needed to match exactly. '
+            'Nothing was lost. Sync again.';
         _markSynced();
         break;
       case -3:

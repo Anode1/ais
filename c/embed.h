@@ -94,11 +94,16 @@ int   ais_embed_serve(void *handle, int port, const char *token);
  * one round (no sender/receiver role). Same return codes. One device hosts
  * (sync_serve), the other joins (sync_pull); either way both end up merged.
  *
- * Same return codes, plus 1 = HALF DONE: one direction completed and the other
- * did not, so records crossed but the two devices are not identical yet. It is
- * positive, not negative, because it is not a failure to retry from scratch --
- * nothing was lost and running it again finishes the job. Reporting it as -2
- * told a user that a backup which had half happened had not happened at all. */
+ * Same return codes, plus two POSITIVE ones. Neither is a failure: nothing was
+ * lost, and running the sync again finishes the job.
+ *   1 = HALF DONE -- one direction completed and the other did not, so records
+ *       crossed but the two devices are not identical yet. Reporting this as -2
+ *       told a user that a backup which had half happened had not happened.
+ *   2 = RUN IT AGAIN -- both directions completed, but a record here outlived a
+ *       delete that arrived in this same round, and that news was decided after
+ *       our own stream had gone out. The peer still has the record deleted; one
+ *       more exchange settles it. Reporting this as 0, under the words "both
+ *       devices now have the same records", was simply untrue. */
 int   ais_embed_sync_pull(void *handle, const char *url, const char *token);
 int   ais_embed_sync_serve(void *handle, int port, const char *token);
 

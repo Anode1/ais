@@ -36,6 +36,7 @@ make -C "$root/c" >/dev/null 2>&1 || { echo "build FAILED -- aborting"; exit 1; 
 echo "CORE  (codeut + cliut -- the must-pass gate; keep green)"
 sub
 layer fail_core "engine (codeut)"       make -C "$root/c" ut
+layer fail_core "ffi stack budget"     sh "$root/tests/stack/run.sh"
 layer fail_core "cli (cliut)"           sh "$root/tests/cli.sh" "$AIS"
 
 echo "GUI  (one engine, many front-ends; absent toolchain = SKIP)"

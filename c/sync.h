@@ -45,6 +45,17 @@ int sync_import_sealed(ais *a, const char *token, const uint8_t *sealed, size_t 
  * had not happened when in fact half of it had. Only ever returned when BIDIR. */
 #define AIS_SYNC_PARTIAL 1
 
+/* Both directions completed, but the two devices are still NOT identical: this
+ * round merged a delete that a local edit beat, and the news of that survival
+ * (`sts`) was decided after our own stream had already been sent. The peer
+ * therefore still has the record deleted, and one more exchange settles it.
+ *
+ * A round that ends this way was reported as a plain success, under the words
+ * "both devices now have the same records" -- which was simply untrue, and for a
+ * feature that stands in for a backup that is the one thing not to be wrong
+ * about. Positive, like AIS_SYNC_PARTIAL: nothing failed and nothing was lost. */
+#define AIS_SYNC_AGAIN 2
+
 /* Serve ONE peer over the LAN: bind PORT, accept a client, check its TOKEN, then send the
  * sealed merge stream and exit (single-shot, ephemeral). TIMEOUT_S bounds the wait. If
  * BIDIR, after sending it also receives and merges the peer's sealed stream (a symmetric

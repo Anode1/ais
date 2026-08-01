@@ -2797,8 +2797,13 @@ static void test_attach_batch_matches_one_at_a_time(void)
         snprintf(f[i].ts, sizeof f[i].ts, "2030-01-01T00:00:00Z");
     }
     CHECK(ais_merge_attach_many(&A, f, AIS_ATT_BATCH) == 0, "attach batch: a full batch applies");
-    CHECK(key_has_id(&A, "tag0", 1) == 1, "attach batch: the first fact landed");
-    CHECK(key_has_id(&A, "tag63", 1) == 1, "attach batch: and the last one");
+    {   /* derived from the constant, not spelled out: hardcoding "tag63" made
+         * this fail the moment AIS_ATT_BATCH was retuned, for no real reason. */
+        char last[32];
+        snprintf(last, sizeof last, "tag%d", AIS_ATT_BATCH - 1);
+        CHECK(key_has_id(&A, "tag0", 1) == 1, "attach batch: the first fact landed");
+        CHECK(key_has_id(&A, last, 1) == 1, "attach batch: and the last one");
+    }
 
     /* replayed: idempotent, and the keys field must not grow a duplicate */
     CHECK(ais_merge_attach_many(&A, f, AIS_ATT_BATCH) == 0, "attach batch: a replay applies");
@@ -2863,6 +2868,127 @@ static void test_half_done_sync_is_not_a_failure(void)
         CHECK(value_present(&B, "Hotel Danieli") == 1,
               "half sync: the records that crossed are merged and kept");
         ais_close(&B);
+    }
+
+    scratch_rm(da);
+    scratch_rm(db);
+}
+
+/* Bringing a deleted record back must apply the arriving KEYS even when the
+ * survival note cannot be written. `sts` takes only the canonical 20-char
+ * timestamp, but a store upgraded from format v2 holds 19-char (no 'Z') and
+ * date-only times and re-exports them verbatim -- and those made the put bail
+ * AFTER the record had already been un-tombstoned, so it came back with the
+ * peer's tags thrown away while the import reported nothing at all. */
+static void test_resurrect_keeps_keys_on_a_legacy_timestamp(void)
+{
+    static const char *forms[] = {
+        "2099-01-01T00:00:00Z",     /* canonical: the note is written */
+        "2099-01-01T00:00:00",      /* pre-v3, no zone */
+        "2099-01-01"                /* date only */
+    };
+    size_t i;
+
+    for (i = 0; i < sizeof forms / sizeof forms[0]; i++) {
+        ais A;
+        const char *da = "/tmp/ais_ut_resur";
+        long id;
+
+        scratch_rm(da);
+        ais_open(&A, da);
+        id = ais_put(&A, "k1", "http://x/legacy");
+        ais_del(&A, id);
+        CHECK(ais_put_at(&A, "k2", "http://x/legacy", forms[i]) == id,
+              "resurrect: an arriving record brings a deleted one back");
+        CHECK(value_present(&A, "http://x/legacy") == 1,
+              "resurrect: and it is live again");
+        CHECK(key_has_id(&A, "k2", id) == 1,
+              "resurrect: with the keys that arrived with it, whatever the ts form");
+        ais_close(&A);
+        scratch_rm(da);
+    }
+}
+
+/* A round that ends with the two devices still different must not claim they
+ * match. The host sends its stream BEFORE it reads the peer's, so a survival
+ * decided while merging the peer's half (a local edit beating their delete)
+ * cannot go out until the next exchange -- the peer still has the record
+ * deleted. That round used to report plain success, under the words "both
+ * devices now have the same records", which was false.
+ *
+ * Set up: both hold the record, the peer deletes it, the host then edits it. */
+static void test_a_round_that_leaves_them_different_says_so(void)
+{
+    ais A, B;
+    const char *da = "/tmp/ais_ut_againA", *db = "/tmp/ais_ut_againB";
+    const char *tok = "0123456789abcdef0123456789abcdef";
+    int port = 47163, rc;
+    pid_t pid;
+
+    signal(SIGPIPE, SIG_IGN);
+    scratch_rm(da);
+    scratch_rm(db);
+
+    /* both devices hold the same record, created well in the past */
+    ais_open(&A, da);
+    ais_put_at(&A, "work", "http://x/keep", "2020-01-01T00:00:00Z");
+    ais_close(&A);
+    ais_open(&B, db);
+    ais_put_at(&B, "work", "http://x/keep", "2020-01-01T00:00:00Z");
+    ais_del(&B, 1);                       /* the peer deletes it ... */
+    ais_close(&B);
+
+    ais_open(&A, da);
+    sleep(1);
+    ais_put(&A, "work urgent", "http://x/keep");   /* ... the host edits it LATER */
+    ais_close(&A);
+
+    pid = fork();
+    if (pid == 0) {                       /* the peer joins */
+        ais cB;
+        ais_open(&cB, db);
+        sync_pull(&cB, "127.0.0.1", port, tok, 5, 1);
+        ais_close(&cB);
+        _exit(0);
+    }
+
+    ais_open(&A, da);
+    rc = sync_serve(&A, port, tok, 5, 1);
+    CHECK(rc == AIS_SYNC_AGAIN,
+          "again: a round whose survival could not be sent asks to be run again");
+    CHECK(value_present(&A, "http://x/keep") == 1,
+          "again: the edited record survived the peer's delete here");
+    ais_close(&A);
+    waitpid(pid, NULL, 0);
+
+    {   /* and the peer really is still behind -- which is why it must be said */
+        ais C;
+        ais_open(&C, db);
+        CHECK(value_present(&C, "http://x/keep") == 0,
+              "again: the peer has not got it yet, so 'both match' would be a lie");
+        ais_close(&C);
+    }
+
+    /* one more exchange settles it, which is exactly what the message asks for */
+    pid = fork();
+    if (pid == 0) {
+        ais cB;
+        ais_open(&cB, db);
+        sync_pull(&cB, "127.0.0.1", port + 1, tok, 5, 1);
+        ais_close(&cB);
+        _exit(0);
+    }
+    ais_open(&A, da);
+    rc = sync_serve(&A, port + 1, tok, 5, 1);
+    CHECK(rc == 0, "again: the next round converges cleanly");
+    ais_close(&A);
+    waitpid(pid, NULL, 0);
+    {
+        ais C;
+        ais_open(&C, db);
+        CHECK(value_present(&C, "http://x/keep") == 1,
+              "again: and the peer now has the record back");
+        ais_close(&C);
     }
 
     scratch_rm(da);
@@ -4429,6 +4555,8 @@ int main(void)
     test_del_under_clears_the_clocks();
     test_attach_batch_matches_one_at_a_time();
     test_half_done_sync_is_not_a_failure();
+    test_a_round_that_leaves_them_different_says_so();
+    test_resurrect_keeps_keys_on_a_legacy_timestamp();
     test_edit_does_not_resurrect_a_removed_tag();
     test_delete_conflict_keeps_a_removed_tag_removed();
     test_losing_delete_is_free();

@@ -82,7 +82,7 @@ static int  add_seek(long id, const char *ts, const char *keys,
 static int  keys_union(char *keys, size_t sz, const char *tok);
 static int  key_fold_stored(const char *tok, char *out, size_t sz);
 static int  store_set_keys(ais *a, long id, const char *keys);
-static int  resurrect_keys(ais *a, long id, const char *want);
+AIS_NOINLINE static int resurrect_keys(ais *a, long id, const char *want);
 static int  keys_contains(const char *keys, const char *tok);
 static int  store_restamp(ais *a, long id, const char *ts);
 static long tag_count_file(const ais *a, const char *path, int dead);
@@ -400,7 +400,19 @@ long ais_put_at_k(ais *a, const char *keys, const char *value, const char *ts,
              * compares against, so the outcome of a tag removal came down to the
              * order the peer bundles were read in. */
             if (ts != NULL) {
-                if (ts[0] != '\0' && sts_set(a, id, ts) != 0) { rc = -1; goto out; }
+                /* A failure here must NOT abandon the put. The record has just
+                 * been un-tombstoned above, so bailing left it resurrected with
+                 * the arriving KEYS never applied -- and the import counted it as
+                 * nothing and said nothing. `sts` takes only the canonical
+                 * 20-char form, so any pre-v3 timestamp (19 chars, no 'Z') or a
+                 * date-only one -- both legal in a store upgraded from format v2,
+                 * both re-exported verbatim -- silently threw the peer's tags
+                 * away. The note is how the survival REACHES other devices; not
+                 * being able to write it is worth a warning, not a lost record. */
+                if (ts[0] != '\0' && sts_set(a, id, ts) != 0)
+                    fprintf(stderr, "ais: warning: record %ld came back, but the time it\n"
+                                    "     came back at could not be recorded; another device\n"
+                                    "     may delete it again on the next sync\n", id);
             } else {
                 char now[AIS_TS_MAX];
                 store_now(now, sizeof now);
@@ -656,7 +668,7 @@ static int keys_union(char *keys, size_t sz, const char *tok)
 /* Replace record ID's key set with WANT, dropping the postings of the keys that
  * are no longer in it. No ktomb is written: this device is not claiming those keys
  * were removed, it is adopting the description of a record it no longer had. */
-static int resurrect_keys(ais *a, long id, const char *want)
+AIS_NOINLINE static int resurrect_keys(ais *a, long id, const char *want)
 {
     struct add_lookup L;
     char *tok, *save;
@@ -1282,6 +1294,7 @@ static int mdel_apply(ais *a, long id, const char *line_ts,
         return 0;                            /* the line already outranks it */
     if (sts_get(a, id, have, sizeof have) == 1 && strcmp(want, have) <= 0)
         return 0;                            /* already recorded, at least this high */
+    a->survivals++;      /* news the peer cannot have yet: see ais.h */
     if (sts_set(a, id, want) != 0)
         fprintf(stderr, "ais: warning: record %ld survived a delete from another\n"
                         "     device, but that could not be recorded; that device\n"

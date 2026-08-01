@@ -42,4 +42,21 @@
  * rather than corrupt-on-read, exactly as v3 did to v2. Upgrade every device. */
 #define AIS_FORMAT_VERSION 4
 
+/* Keep a big, RARELY-TAKEN frame out of its caller's.
+ *
+ * A static function called once is inlined, and its buffers are then reserved on
+ * every call to the caller -- including the calls that never reach the branch it
+ * sits on. On the record path that is the difference between a frame that fits
+ * the 512 KB thread stack the FFI seam runs on and one that does not, so it is
+ * worth saying out loud rather than hoping the optimiser agrees.
+ *
+ * A hint, not a dependency: it compiles to nothing on a toolchain that does not
+ * know it, and the code is correct either way. STYLE.md's "a stock C99 toolchain
+ * builds it" still holds. */
+#if defined(__GNUC__) || defined(__clang__)
+#  define AIS_NOINLINE __attribute__((noinline))
+#else
+#  define AIS_NOINLINE
+#endif
+
 #endif /* AIS_COMMON_H */
