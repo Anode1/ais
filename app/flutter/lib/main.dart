@@ -1183,7 +1183,19 @@ class _RecallPageState extends State<RecallPage> {
           content: Text("Couldn't find your Wi-Fi address. Are you on Wi-Fi?")));
       return;
     }
-    const port = 8766;
+    // 8766 is the default both ends assume, but it can be taken -- by a sync that
+    // has not finished releasing it, or by anything else on the machine. The port
+    // travels in the QR and in the printed address, so the peer does not have to
+    // assume it, and stepping to the next free one turns a dead end ("try again
+    // in a moment", with nothing the user could actually do) into a sync that
+    // simply works.
+    final port = await _freeSyncPort();
+    if (!mounted) return;
+    if (port == 0) {
+      messenger.showSnackBar(const SnackBar(
+          content: Text('No free port for syncing. Close any other sync and try again.')));
+      return;
+    }
     final token = _genToken();
     // Same ais:// pairing link the desktop web host encodes, so one QR format
     // feeds the one deep-link handler (see _handleLink). Another phone scans it
@@ -1239,7 +1251,7 @@ class _RecallPageState extends State<RecallPage> {
         _markSynced();
         break;
       case -3:
-        msg = 'Port 8766 is busy. Is a sync already running? Try again in a moment.';
+        msg = 'The sync port was taken just as we started. Try again.';
         break;
       default:
         msg = 'No device joined in time. Try again.';
@@ -1272,6 +1284,24 @@ class _RecallPageState extends State<RecallPage> {
     final r = Random.secure();
     return List.generate(
         16, (_) => r.nextInt(256).toRadixString(16).padLeft(2, '0')).join();
+  }
+
+  // The first port at or after the default that we can actually bind. Probed by
+  // binding and closing at once: the engine's serve call only reports a busy port
+  // AFTER the dialog has already shown a QR advertising it, which is too late to
+  // put a different number in the code the other device is about to scan.
+  // 0 if the whole small range is taken.
+  Future<int> _freeSyncPort() async {
+    for (var p = 8766; p < 8776; p++) {
+      try {
+        final s = await ServerSocket.bind(InternetAddress.anyIPv4, p);
+        await s.close();
+        return p;
+      } catch (_) {
+        // taken: try the next
+      }
+    }
+    return 0;
   }
 
   // This device's LAN IPv4: prefer a private-range (Wi-Fi/LAN) address over a
