@@ -133,6 +133,14 @@ class _RecallPageState extends State<RecallPage> {
   String _syncFolder = '';
   String _syncFolderSaid = '';   // the last folder-sync problem reported, to not repeat it
 
+  // When this device last synced by ANY route, so the Sync sheet can say so. Sync
+  // IS the backup here (there is no cloud copy and no trash), and a backup you
+  // cannot date is one you cannot trust: "Last synced 3 months ago" is the whole
+  // warning a user gets before losing a phone. Kept BESIDE the index, not inside
+  // it, so it stays this device's own answer -- a peer's copy of the file would
+  // otherwise overwrite it and report a sync this device never made.
+  DateTime? _lastSync;
+
   // Custom-scheme deep links (ais://sync?...). The native side (MainActivity /
   // AppDelegate) pushes live links as 'onLink' and holds a cold-start link for
   // 'getInitialLink'. Absent on desktop, where the calls just throw and are ignored.
@@ -188,6 +196,7 @@ class _RecallPageState extends State<RecallPage> {
       _dir = dir;
       _status = 'Type tags, then Search. Tap Add to save.';
       _syncFolder = _loadSyncFolder();
+      _loadLastSync();
       _loadTimeline(); // open showing recent items, not a blank search pane
       _runFolderSync(silent: true); // pull peer changes on open (opening is the user action)
     } catch (e) {
@@ -632,10 +641,45 @@ class _RecallPageState extends State<RecallPage> {
           children: [
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
-              child: Align(
-                alignment: Alignment.centerLeft,
-                child: Text('Sync with another device',
-                    style: Theme.of(ctx).textTheme.titleMedium),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text('Sync & backup',
+                      style: Theme.of(ctx).textTheme.titleMedium),
+                  const SizedBox(height: 2),
+                  // Said plainly, because it is true and nothing else in the app
+                  // says it: there is no cloud copy and no trash, so a second
+                  // device (or an exported file) IS the backup.
+                  Text(
+                      'Your notes live only on this device. Copying them to '
+                      'another device, or to a file, is what backs them up.',
+                      style: Theme.of(ctx).textTheme.bodySmall),
+                  const SizedBox(height: 6),
+                  Row(
+                    children: [
+                      Icon(
+                          _lastSync == null
+                              ? Icons.warning_amber_rounded
+                              : Icons.check_circle_outline,
+                          size: 16,
+                          color: _lastSync == null
+                              ? Theme.of(ctx).colorScheme.error
+                              : Theme.of(ctx).colorScheme.primary),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: Text(_lastSyncLabel,
+                            style: Theme.of(ctx)
+                                .textTheme
+                                .bodySmall
+                                ?.copyWith(
+                                    color: _lastSync == null
+                                        ? Theme.of(ctx).colorScheme.error
+                                        : null)),
+                      ),
+                    ],
+                  ),
+                ],
               ),
             ),
             // --- Live, over Wi-Fi: the camera/QR pairing path. ---
@@ -740,39 +784,102 @@ class _RecallPageState extends State<RecallPage> {
     } catch (_) {}
   }
 
-  // Pick a shared folder and run the first sync pass. Desktop only for now: mobile
-  // has no arbitrary-folder picker (Android's SAF returns a content:// URI, not a
-  // POSIX path the C engine can open with opendir/fopen, and shared-storage paths
-  // are gated by scoped storage). A device with Syncthing would need a real path;
-  // wiring that safely is future work, so mobile says so plainly rather than half-fail.
+  // Beside the index (<dir>_lastsync), never inside it: see _lastSync.
+  void _loadLastSync() {
+    try {
+      final f = File('${_dir}_lastsync');
+      if (f.existsSync()) {
+        _lastSync = DateTime.tryParse(f.readAsStringSync().trim());
+      } else {
+        _lastSync = null;
+      }
+    } catch (_) {
+      _lastSync = null;
+    }
+  }
+
+  // Every route that converges with another device calls this: Host, Join, a
+  // folder pass, and a file import. One of them being missed is how a screen that
+  // says "never synced" appears on a device that just did.
+  void _markSynced() {
+    _lastSync = DateTime.now();
+    try {
+      File('${_dir}_lastsync').writeAsStringSync(_lastSync!.toIso8601String());
+    } catch (_) {}
+  }
+
+  void _saveLastSync() => _markSynced();
+
+  // "just now" / "3 hours ago" / "12 Mar 2026" -- vague near, exact far, because
+  // near is reassurance and far is a decision.
+  String get _lastSyncLabel {
+    final t = _lastSync;
+    if (t == null) return 'Never synced on this device';
+    final d = DateTime.now().difference(t);
+    if (d.inMinutes < 2) return 'Last synced just now';
+    if (d.inMinutes < 60) return 'Last synced ${d.inMinutes} minutes ago';
+    if (d.inHours < 24) {
+      return 'Last synced ${d.inHours} hour${d.inHours == 1 ? '' : 's'} ago';
+    }
+    if (d.inDays < 30) {
+      return 'Last synced ${d.inDays} day${d.inDays == 1 ? '' : 's'} ago';
+    }
+    return 'Last synced ${t.day} ${_months[t.month - 1]} ${t.year}';
+  }
+
+  // Pick a shared folder and run the first sync pass.
+  //
+  // The folder is REMEMBERED ONLY IF THAT PASS WORKS. It used to be written to
+  // <dir>/syncfolder first: a folder the engine cannot read -- which on Android is
+  // most of them, since a SAF pick lands on shared storage this app has no
+  // permission to opendir() -- was then retried and re-reported at every launch,
+  // and "Stop folder sync" was the only way out of it. A setting the user cannot
+  // tell is broken is worse than one that refuses to be set.
   Future<void> _pickSyncFolder() async {
-    if (_ais == null) return;
+    if (_ais == null || _syncBlocks()) return;
     final messenger = ScaffoldMessenger.of(context);
     String? dir;
     try {
-      dir = await getDirectoryPath(); // desktop; mobile has no arbitrary-folder picker
+      dir = await getDirectoryPath();
     } catch (_) {
       dir = null;
     }
-    if (dir == null || !mounted) {
-      if (dir == null && mounted && (Platform.isAndroid || Platform.isIOS)) {
-        messenger.showSnackBar(const SnackBar(
-            content: Text('Folder sync is desktop-only for now.')));
-      }
+    if (!mounted) return;
+    if (dir == null || dir.isEmpty) return;   // cancelled, or no picker on this platform
+    _tryFolder(dir, messenger);
+  }
+
+  // Run one pass against DIR and keep it only on success. Shared by the picker and
+  // by the "Sync anyway" override, so neither can leave a folder set that does not
+  // work. FORCE accepts a folder that is merely empty (a replaced stick, a share
+  // that was cleared) -- the one refusal the user is entitled to overrule.
+  void _tryFolder(String dir, ScaffoldMessengerState messenger,
+      {bool force = false}) {
+    if (_ais == null) return;
+    final code = _ais!.syncFolderCode(dir, force: force);
+    final problem = AisEngine.syncFolderProblem(code);
+    if (!mounted) return;
+    if (problem == null) {
+      setState(() => _syncFolder = dir);
+      _saveSyncFolder(dir);
+      _syncFolderSaid = '';
+      _lastSync = DateTime.now();
+      _saveLastSync();
+      messenger.showSnackBar(SnackBar(content: Text('Syncing with $dir')));
+      _setView(_view);
       return;
     }
-    setState(() => _syncFolder = dir!);
-    await _saveSyncFolder(dir);
-    final code = _ais!.syncFolderCode(dir);
-    if (!mounted) return;
-    final problem = AisEngine.syncFolderProblem(code);
+    // Forcing hit the same refusal: an older bundled engine has no forcing entry
+    // point, so the button cannot do what it offers.
     messenger.showSnackBar(SnackBar(
-        content: Text(problem ?? 'Syncing with $dir'),
-        action: code == -5
+        content: Text(force && code == -5
+            ? 'This app version cannot override that. Update the app.'
+            : problem),
+        action: (!force && code == -5)
             ? SnackBarAction(
-                label: 'Sync anyway', onPressed: () => _forceFolderSync(dir!))
+                label: 'Use it anyway',
+                onPressed: () => _tryFolder(dir, messenger, force: true))
             : null));
-    if (problem == null) _setView(_view);
   }
 
   // A LAN Host/Join sync runs on a BACKGROUND isolate holding the SAME engine handle;
@@ -798,6 +905,7 @@ class _RecallPageState extends State<RecallPage> {
       // Clear on ANY success, silent or not: otherwise a folder that breaks, gets
       // fixed, and breaks again the same way is never mentioned a second time.
       _syncFolderSaid = '';
+      _markSynced();
       if (mounted) _setView(_view);
     }
     if (!mounted) return;
@@ -825,21 +933,12 @@ class _RecallPageState extends State<RecallPage> {
 
   // The user looked at the folder and wants it used as it now stands (a replaced
   // stick, a share they emptied). Re-establishes it; it still creates nothing.
+  // The same cross-isolate guard as _runFolderSync: this is reachable from a
+  // SnackBar action that outlives the message, so a LAN sync can have started
+  // holding the engine handle in between.
   void _forceFolderSync(String dir) {
-    // The same cross-isolate guard as _runFolderSync: this is reachable from a
-    // SnackBar action that outlives the message, so a LAN sync can have started
-    // holding the engine handle in between.
     if (_ais == null || _syncBlocks()) return;
-    final code = _ais!.syncFolderCode(dir, force: true);
-    final problem = AisEngine.syncFolderProblem(code);
-    if (!mounted) return;
-    if (problem == null) _setView(_view);
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text(code == -5
-            // Forcing returned the same refusal: an older bundled engine has no
-            // forcing entry point, so the button cannot do what it offers.
-            ? 'This app version cannot override that. Update the app.'
-            : (problem ?? 'Syncing with $dir'))));
+    _tryFolder(dir, ScaffoldMessenger.of(context), force: true);
   }
 
   // A small primary-tinted section label for the two sync groups above.
@@ -925,6 +1024,7 @@ class _RecallPageState extends State<RecallPage> {
     switch (rc) {
       case 0:
         msg = 'Merged. This index now includes the file’s records.';
+        _markSynced();
         break;
       case -2:
         msg = 'This file is from an incompatible version.';
@@ -1019,6 +1119,7 @@ class _RecallPageState extends State<RecallPage> {
     switch (rc) {
       case 0:
         msg = 'Synced. Both devices now have the same records.';
+        _markSynced();
         break;
       case -1:
         msg = 'That address looks wrong. Use http://host:port.';
@@ -1083,6 +1184,7 @@ class _RecallPageState extends State<RecallPage> {
     switch (rc) {
       case 0:
         msg = 'Synced. Both devices now have the same records.';
+        _markSynced();
         break;
       case -3:
         msg = 'Port 8766 is busy. Is a sync already running? Try again in a moment.';
@@ -1352,10 +1454,19 @@ class _RecallPageState extends State<RecallPage> {
                           PopupMenuItem(
                             value: 'sync',
                             enabled: _ais != null,
-                            child: const ListTile(
+                            // Named for what a user is looking for. Someone who
+                            // wants their notes safe searches the menu for
+                            // "backup", not "sync", and the badge is the only
+                            // place the app can admit it has never been done.
+                            child: ListTile(
                               contentPadding: EdgeInsets.zero,
-                              leading: Icon(Icons.sync),
-                              title: Text('Sync'),
+                              leading: Icon(_lastSync == null
+                                  ? Icons.sync_problem
+                                  : Icons.sync),
+                              title: const Text('Sync & backup'),
+                              subtitle: _lastSync == null
+                                  ? const Text('Not backed up yet')
+                                  : null,
                             ),
                           ),
                           const PopupMenuItem(
@@ -2742,6 +2853,11 @@ class _SyncWaitDialogState extends State<_SyncWaitDialog> {
               const SizedBox(height: 8),
               Text("Scan with the other phone's camera to join.",
                   style: Theme.of(context).textTheme.bodySmall),
+              const SizedBox(height: 4),
+              Text(
+                  "If the camera won't open it, copy the address and token "
+                  "below and type them into Join on the other device.",
+                  style: Theme.of(context).textTheme.bodySmall),
               const SizedBox(height: 16),
             ],
             if (widget.command != null) ...[
@@ -2752,7 +2868,22 @@ class _SyncWaitDialogState extends State<_SyncWaitDialog> {
                       .textTheme
                       .bodySmall
                       ?.copyWith(fontFamily: 'monospace')),
-              const SizedBox(height: 16),
+              // Selecting monospace text is fiddly on a phone, and the fallback
+              // when a camera refuses the ais:// scheme is retyping 32 hex
+              // characters between two devices. One tap instead.
+              Align(
+                alignment: Alignment.centerLeft,
+                child: TextButton.icon(
+                  icon: const Icon(Icons.copy, size: 16),
+                  label: const Text('Copy'),
+                  onPressed: () {
+                    Clipboard.setData(ClipboardData(text: widget.command!));
+                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                        content: Text('Address and token copied')));
+                  },
+                ),
+              ),
+              const SizedBox(height: 8),
             ],
             Row(mainAxisSize: MainAxisSize.min, children: [
               const SizedBox(

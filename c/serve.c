@@ -600,14 +600,21 @@ static const char PAGE[] =
 "async function fileImport(f){var b=await f.arrayBuffer();var r=await fetch('/api/import-bundle',{method:'POST',body:b});"
 "if((await r.text()).trim()=='merged'){closeSync();setView(view);alert('Imported. Records merged.')}else{alert('Import failed. Is it an .aisb file from Export?')}}"
 /* folder auto-sync: remember the path, run a pass on demand + on load + after a save */
-"function syncFolderSaved(){return localStorage.getItem('aisSyncFolder')||''}"
+/* The saved folder now comes from the SERVER (<index>/syncfolder), not from
+ * localStorage: clearing browser data used to switch off what the user
+ * believed was their backup, and neither the app nor the CLI could see the
+ * setting. syncFolderSaved() answers from a value fetched at load. */
+"var syncFld='';"
+"function syncFolderSaved(){return syncFld}"
+"async function syncFolderLoad(){try{syncFld=(await(await fetch('/api/sync-folder')).text()).trim()}catch(e){syncFld=''}"
+"if(syncFld){$('syncfld').value=syncFld;syncFolderRun(true)}}"
 "async function syncFolderRun(silent,force){var p=($('syncfld').value||'').trim();"
 "if(!p){if(!silent)$('syncfldmsg').textContent='Enter a folder path.';return}"
-"localStorage.setItem('aisSyncFolder',p);if(!silent)$('syncfldmsg').textContent='Syncing...';"
+"if(!silent)$('syncfldmsg').textContent='Syncing...';"
 "$('syncfldany').style.display='none';"
 "try{var r=await fetch('/api/sync-folder'+(force?'?force=1':''),{method:'POST',body:p});"
 "var s=(await r.text()).trim();"
-"if(s=='synced'){syncFldSaid='';$('syncfldmsg').textContent='Synced.';setView(view);return}"
+"if(s=='synced'){syncFldSaid='';syncFld=p;$('syncfldmsg').textContent='Synced.';setView(view);return}"
 /* A background pass reports its failure too. A folder sync that quietly stops
  * working is the exact failure this whole path exists to prevent. */
 "var m={'no such folder':'No such folder. Create it first, or check the drive is plugged in.',"
@@ -645,7 +652,7 @@ static const char PAGE[] =
 "$('fileimp').onchange=function(){if(this.files[0])fileImport(this.files[0]);this.value=''};"
 "$('syncfldbtn').onclick=function(){syncFolderRun(false,0)};"
 "$('syncfldany').onclick=function(){syncFolderRun(false,1)};"
-"if(syncFolderSaved()){$('syncfld').value=syncFolderSaved();syncFolderRun(true)}"
+"syncFolderLoad();"
 "$('syncsheet').addEventListener('click',function(e){if(e.target==$('syncsheet'))closeSync()});"
 "</script>";
 
@@ -658,6 +665,46 @@ static void write_all(int fd, const char *p, size_t n)
         p += w;
         n -= (size_t)w;
     }
+}
+
+/* The shared folder this index syncs with, kept in <index>/syncfolder -- the same
+ * file the app reads and writes, so the page, the app and anything reading the
+ * index agree on one answer. Per-device by nature (it is a mount point on THIS
+ * machine), which is why doc/SYNC.md lists it among the files not to sync. */
+static void serve_save_syncfolder(const ais *a, const char *path)
+{
+    char p[AIS_PATH_MAX];
+    FILE *f;
+
+    if (snprintf(p, sizeof p, "%s/syncfolder", a->dir) >= (int)sizeof p)
+        return;
+    f = fopen(p, "w");
+    if (f == NULL)
+        return;                       /* best-effort: the sync itself has worked */
+    fprintf(f, "%s\n", path);
+    fclose(f);
+}
+
+/* "" when none is set. */
+static void serve_load_syncfolder(const ais *a, char *out, size_t osz)
+{
+    char p[AIS_PATH_MAX];
+    FILE *f;
+    size_t n;
+
+    out[0] = '\0';
+    if (snprintf(p, sizeof p, "%s/syncfolder", a->dir) >= (int)sizeof p)
+        return;
+    f = fopen(p, "r");
+    if (f == NULL)
+        return;
+    if (fgets(out, (int)osz, f) == NULL)
+        out[0] = '\0';
+    fclose(f);
+    n = strlen(out);
+    while (n > 0 && (out[n-1] == '\n' || out[n-1] == '\r' ||
+                     out[n-1] == ' '  || out[n-1] == '\t'))
+        out[--n] = '\0';
 }
 
 static void send_head(int fd, const char *ctype)
@@ -1491,6 +1538,11 @@ static void handle(ais *a, int fd)
     } else if (strcmp(method, "GET") == 0 && strcmp(path, "/api/where") == 0) {
         send_head(fd, "text/plain");          /* the current store (index dir) */
         write_all(fd, a->dir, strlen(a->dir));
+    } else if (strcmp(method, "GET") == 0 && strcmp(path, "/api/sync-folder") == 0) {
+        char sf[AIS_PATH_MAX];                /* "" when none is set */
+        serve_load_syncfolder(a, sf, sizeof sf);
+        send_head(fd, "text/plain");
+        write_all(fd, sf, strlen(sf));
     } else if (strcmp(method, "POST") == 0 && strcmp(path, "/api/store") == 0) {
         /* switch the active index: the body is the new directory. Reopen it,
          * restoring the old one if it cannot be opened (single-threaded, so the
@@ -1561,6 +1613,13 @@ static void handle(ais *a, int fd)
         int frc = (nd[0] == '\0') ? -1
                 : sync_folder_once_force(a, nd, force);
         if (frc == 0) {
+            /* Remember it HERE, in <index>/syncfolder, which is where the app
+             * keeps it and what doc/SYNC.md documents. The page used to hold this
+             * in localStorage alone: clearing browser data silently switched off
+             * what the user believed was their backup, and the CLI and the app
+             * could not see the setting at all. Written only after a pass that
+             * worked, so a bad path is never persisted. */
+            serve_save_syncfolder(a, nd);
             send_head(fd, "text/plain");
             write_all(fd, "synced\n", 7);
         } else {
