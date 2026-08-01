@@ -150,6 +150,20 @@ class _RecallPageState extends State<RecallPage> {
   // (see ios/Runner/AppDelegate.swift). Absent elsewhere, where the call just throws.
   static const _backupChannel = MethodChannel('ais/backup');
 
+  // Hosting shows a QR and waits up to ~2 minutes for the other device to scan
+  // it -- far longer than a phone's screen timeout, so the code the user was
+  // aiming a camera at went dark mid-scan. Held only while the host dialog is up.
+  static const _screenChannel = MethodChannel('ais/screen');
+
+  Future<void> _keepAwake(bool on) async {
+    try {
+      await _screenChannel.invokeMethod<bool>('keepAwake', on);
+    } catch (_) {
+      // desktop, or an older bundle with no handler: the screen just behaves
+      // normally, which is what it did before. Not worth telling the user.
+    }
+  }
+
   @override
   void initState() {
     super.initState();
@@ -1182,6 +1196,7 @@ class _RecallPageState extends State<RecallPage> {
     _flushPendingDeletes(); // commit any in-flight delete BEFORE the sync isolate starts
     final before = _ais!.countLive();   // to say what the merge actually did
     _syncBusy = true;
+    _keepAwake(true);                   // the QR has to stay visible to be scanned
     final fut = _ais!.serveAsync(port, token, bidir: true); // blocks up to ~120s
     final hidden = await showDialog<bool>(
           context: context,
@@ -1198,6 +1213,7 @@ class _RecallPageState extends State<RecallPage> {
         false;
     final rc = await fut;
     _syncBusy = false;
+    _keepAwake(false);                  // release it however the wait ended
     if (!mounted) return;
     // If the user hid the dialog and it then timed out, don't surprise them with
     // a late failure snackbar ~2 min later; a success -- whole or half -- is
