@@ -1,14 +1,22 @@
 # Windows code signing (SignPath, free for open source)
 
+> **STATUS: not wired up, and nothing here runs today.** `release.yml` has four
+> jobs -- `build` (linux-x86_64, linux-arm64, macos-arm64), `android`, and
+> `publish` -- and no Windows runner at all, so there is no `build-windows`
+> artifact and no `sign-windows` job to sign it. No `SIGNPATH_*` variable is set
+> on the repo either. This file is the PLAN for when a Windows build returns
+> (see `doc/dev/DISTRIBUTION.md` for what actually ships now); read it as a
+> to-do, not as a description of the pipeline. Adding the jobs below is part of
+> the work, not a step that is already done.
+
 Unsigned Windows downloads trigger SmartScreen's "Windows protected your PC /
-Unknown publisher". The release workflow can sign the installer with
+Unknown publisher". The release workflow *would* sign the installer with
 **SignPath.io**, which offers **free code signing for OSS projects** -- a good
 fit for AIS (GPL, on GitHub).
 
-Signing is **optional and additive**: the `sign-windows` job in `release.yml`
-runs only when SignPath is configured (the repo variable
-`SIGNPATH_ORGANIZATION_ID` is set). Until then, releases ship unsigned and the
-job is skipped -- nothing breaks.
+Signing is meant to be **optional and additive**: a `sign-windows` job would run
+only when SignPath is configured (the repo variable `SIGNPATH_ORGANIZATION_ID`
+is set), so releases can ship unsigned until then and nothing breaks.
 
 ## One-time setup
 

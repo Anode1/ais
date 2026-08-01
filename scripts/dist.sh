@@ -63,7 +63,9 @@ build_bin() {
     [ -f COPYING ]      && cp COPYING      "$stage/"
     [ -f doc/about.txt ] && cp doc/about.txt "$stage/"
     [ -f doc/USING.txt ] && cp doc/USING.txt "$stage/"
-    [ -f gui/ais.tcl ]  && cp gui/ais.tcl  "$stage/"   # the Tk desktop GUI (needs wish)
+    # (gui/ais.tcl -- the old Tk desktop GUI -- was removed; gui/ now holds only
+    # the ais-web launchers, which start `ais --serve`. The [ -f ] guard meant
+    # this line silently copied nothing for months rather than failing.)
     [ -f man/ais.1 ] && { mkdir -p "$stage/man"; sed "s/@VERSION@/$VERSION/" man/ais.1 > "$stage/man/ais.1"; }
     [ -f "$launcher" ]  && cp "$launcher"  "$stage/"
 
@@ -86,15 +88,16 @@ copy is quarantined and Gatekeeper says "Apple could not verify ais is free of
 malware." Clear the flag once, from this folder in Terminal:
     xattr -dr com.apple.quarantine .
 (or System Settings > Privacy & Security > Open Anyway). If ais still will not
-run, the zip dropped its executable bit: chmod +x ais. The desktop GUI (ais.tcl)
-needs wish (Tcl/Tk).
+run, the zip dropped its executable bit: chmod +x ais. For a graphical view run
+'ais --serve', which opens the GUI in your browser.
 EOF
     else
         cat >> "$stage/README.txt" <<EOF
 
 Linux: if ais will not run, the zip dropped its executable bit: chmod +x ais.
 Put it on your PATH (copy to ~/bin or /usr/local/bin) to use 'ais' anywhere; man
-page in man/ais.1. The desktop GUI (ais.tcl) needs wish (Tcl/Tk).
+page in man/ais.1. For a graphical view run 'ais --serve', which opens the GUI
+in your browser.
 EOF
     fi
 
@@ -104,7 +107,7 @@ EOF
     # runnable files 0755 (a+x).
     find "$stage" -type d -exec chmod 0755 {} +
     find "$stage" -type f -exec chmod 0644 {} +
-    for x in ais ais.tcl "$lname"; do
+    for x in ais "$lname"; do
         [ -f "$stage/$x" ] && chmod 0755 "$stage/$x"
     done
 

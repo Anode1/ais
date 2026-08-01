@@ -23,10 +23,11 @@ The latest stable build for every platform. The link below always points at the 
 
 > **<https://github.com/Anode1/ais/releases/latest>**
 
-- **Windows**: _(temporarily unavailable while the desktop GUI is reworked; use `ais --serve` or the mobile app meanwhile.)_ unzip `…-windows-x86_64.zip` and double-click **`ais-gui.exe`** (the native desktop app). Nothing is installed; to remove it, delete the folder. Prefer a Start-Menu entry? Run `…-installer.exe` instead (per-user, no admin).
+- **Android**: install `ais-<tag>-android.apk` from the release page (you will have to allow installing from your browser, once). `…-android.aab` beside it is the Play Store upload format — it is not installable by hand, so take the `.apk`.
 - **macOS / Linux**: unzip the `…-<os>-<arch>.zip`, then `./ais --serve` opens the GUI in your browser (or use the `ais` CLI; add it to your PATH to use it anywhere).
+- **Windows**: _no Windows build is published at the moment_ while the desktop GUI is reworked, so there is nothing to download on that line yet. Build from source (below), or run the Android app, or reach a machine on your LAN that is running `ais --serve`.
 
-The binaries are not code-signed, so the first run is flagged as an unrecognized download (Windows SmartScreen "unknown publisher"; macOS Gatekeeper "could not verify"). That is a new-and-unsigned notice, not a malware finding. On Windows click **More info ▸ Run anyway** (once per file); on macOS run `xattr -dr com.apple.quarantine .` in the unzipped folder. A copy you build yourself is never flagged.
+The desktop binaries are not code-signed, so the first run is flagged as an unrecognized download (macOS Gatekeeper "could not verify"). That is a new-and-unsigned notice, not a malware finding: on macOS run `xattr -dr com.apple.quarantine .` in the unzipped folder. A copy you build yourself is never flagged. The Android package **is** signed, with the project's own upload key.
 
 ## Verify a download
 
@@ -34,9 +35,6 @@ Each release file ships beside a matching `…zip.sha256`. Download both, then c
 
 ```sh
 shasum -a 256 -c ais-*-*.zip.sha256          # macOS / Linux
-```
-```powershell
-Get-FileHash ais-*-windows-x86_64.zip -Algorithm SHA256   # Windows, compare against the .sha256
 ```
 
 Releases are built in the open by GitHub Actions (`.github/workflows/release.yml`), not on anyone's machine.

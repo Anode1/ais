@@ -20,7 +20,7 @@
          This makes Android's uninstall dialog offer a "Keep app data" checkbox. Not
          noise; do not remove it. -->
     <application
-        android:label="ais"
+        android:label="AIS"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher"
         android:allowBackup="false"
