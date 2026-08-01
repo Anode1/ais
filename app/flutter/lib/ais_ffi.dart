@@ -36,6 +36,8 @@ typedef _BundleC = Int32 Function(Pointer<Void>, Pointer<Utf8>);   // (handle, p
 typedef _BundleD = int Function(Pointer<Void>, Pointer<Utf8>);
 typedef _FoldC = Int32 Function(Pointer<Void>, Pointer<Utf8>, Int32); // (handle, path, force)
 typedef _FoldD = int Function(Pointer<Void>, Pointer<Utf8>, int);
+typedef _CountC = Int64 Function(Pointer<Void>);                  // (handle)
+typedef _CountD = int Function(Pointer<Void>);
 typedef _FreeC = Void Function(Pointer<Utf8>);
 typedef _FreeD = void Function(Pointer<Utf8>);
 typedef _CloseC = Void Function(Pointer<Void>);
@@ -172,6 +174,7 @@ class AisEngine {
       _lib.lookupFunction<_BundleC, _BundleD>('ais_embed_import_bundle');
   late final _BundleD _syncFolder =
       _lib.lookupFunction<_BundleC, _BundleD>('ais_embed_sync_folder');
+  late final _CountD _count = _lib.lookupFunction<_CountC, _CountD>('ais_embed_count');
 
   AisEngine(String indexDir) {
     final dir = indexDir.toNativeUtf8();
@@ -462,6 +465,11 @@ class AisEngine {
       calloc.free(p);
     }
   }
+
+  /// How many LIVE records this index holds; -1 on error. Shown after a sync:
+  /// "Synced" alone does not tell the user whether anything arrived, and here
+  /// the sync IS the backup.
+  int countLive() => _count(_h);
 
   /// Read the plaintext bundle at [path] and merge it into this index (same
   /// last-writer-wins as LAN sync). Returns the C int: 0 = merged, -1 = I/O /

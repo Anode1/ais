@@ -14,6 +14,7 @@
 #include "common.h"
 #include "doc.h"
 #include "embed.h"
+#include "stats.h"   /* ais_count_live: the record count a front-end shows after a sync */
 #include "find.h"
 #include "locate.h"
 #include "secret.h"
@@ -200,6 +201,15 @@ int ais_embed_sync_serve(void *handle, int port, const char *token)
  * so the plaintext bundle carries them as-is (the bundle envelope is open, the
  * secret values remain sealed). NOTE: sync.c is not built on Windows, so both
  * calls are #ifdef'd to a -1 stub there, matching embed_pull/serve. */
+long ais_embed_count(void *handle)
+{
+    long n = 0;
+
+    if (handle == NULL)
+        return -1;
+    return (ais_count_live((ais *)handle, &n) == 0) ? n : -1;
+}
+
 int ais_embed_export_bundle(void *handle, const char *path)
 {
 #ifdef _WIN32

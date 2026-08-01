@@ -75,12 +75,12 @@ static int stats_count_ids(const ais *a, const char *name, long *out)
  * (delete 3 then 1: the head advances past 1 and never comes back). So the tomb
  * is asked per id instead. Memory stays O(1); the tomb is small by nature and
  * tomb_contains early-exits on a hit. Returns 0 on success, -1 on error. */
-static int stats_count_live(const ais *a, long *out)
+int ais_count_live(const ais *a, long *out)
 {
     char spath[AIS_PATH_MAX];
     char line[AIS_LINE_MAX];
     FILE *sf = NULL;
-    long count = 0, prev = 0;
+    long count = 0, maxseen = 0;
     int sn, rc = 0;
 
     *out = 0;
@@ -95,9 +95,19 @@ static int stats_count_live(const ais *a, long *out)
     while (fgets(line, sizeof(line), sf) != NULL) {
         long id = stats_line_id(line);
         int  t;
-        if (id == 0 || id == prev)
-            continue;   /* blank or another link line of the current id */
-        prev = id;
+        /* Count an id the FIRST time it appears, by taking only ids ABOVE the
+         * highest counted so far. Comparing with the PREVIOUS line's id was not
+         * enough: --add appends a continuation line carrying an OLD id at the
+         * END of the store, so the two lines of a multi-link record are not
+         * adjacent and it was counted twice. ("records: 3" for two records, and
+         * the same figure a sync would have reported as arrivals.) First
+         * occurrences ascend -- ids are monotonic and the store is append-only,
+         * and compaction rewrites in store order -- so this counts each exactly
+         * once and skips every continuation, whose id can only be lower or
+         * equal. */
+        if (id == 0 || id <= maxseen)
+            continue;   /* blank, or another link line of an id already counted */
+        maxseen = id;
 
         t = tomb_contains(a, id);
         if (t < 0) { rc = -1; break; }
@@ -165,7 +175,7 @@ int ais_stats(ais *a, FILE *out)
 {
     long records = 0, keys = 0, deleted = 0;
 
-    if (stats_count_live(a, &records) != 0)
+    if (ais_count_live(a, &records) != 0)
         return -1;
     if (stats_count_keys(a, &keys) != 0)
         return -1;

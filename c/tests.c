@@ -2874,6 +2874,32 @@ static void test_half_done_sync_is_not_a_failure(void)
     scratch_rm(db);
 }
 
+/* The record count a front-end shows after a sync. Live ids only: a tombstoned
+ * record must not be counted, or "12 records arrived" would include the ones a
+ * peer deleted. */
+static void test_count_live_counts_only_live_records(void)
+{
+    ais A;
+    const char *da = "/tmp/ais_ut_count";
+    long n = -1;
+
+    scratch_rm(da);
+    ais_open(&A, da);
+    CHECK(ais_count_live(&A, &n) == 0 && n == 0, "count: an empty index holds 0");
+    ais_put(&A, "k", "http://x/1");
+    ais_put(&A, "k", "http://x/2");
+    ais_put(&A, "k", "http://x/3");
+    CHECK(ais_count_live(&A, &n) == 0 && n == 3, "count: three records");
+    ais_del(&A, 2);
+    CHECK(ais_count_live(&A, &n) == 0 && n == 2, "count: a deleted record stops counting");
+    ais_put(&A, "k", "http://x/2");                  /* re-added */
+    CHECK(ais_count_live(&A, &n) == 0 && n == 3, "count: and counts again when it comes back");
+    ais_add(&A, 1, "http://x/1b");                   /* a second LINK, same record */
+    CHECK(ais_count_live(&A, &n) == 0 && n == 3, "count: an extra link is not an extra record");
+    ais_close(&A);
+    scratch_rm(da);
+}
+
 /* Join by NAME, not only by dotted quad. The address a user can actually read off
  * another machine is usually a name -- "mylaptop.local" from mDNS, a router's
  * DHCP name, an /etc/hosts entry -- and every one of them used to fail as the
@@ -4607,6 +4633,7 @@ int main(void)
     test_a_round_that_leaves_them_different_says_so();
     test_resurrect_keeps_keys_on_a_legacy_timestamp();
     test_sync_joins_by_hostname();
+    test_count_live_counts_only_live_records();
     test_edit_does_not_resurrect_a_removed_tag();
     test_delete_conflict_keeps_a_removed_tag_removed();
     test_losing_delete_is_free();

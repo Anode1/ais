@@ -170,6 +170,12 @@ char *ais_embed_display(void *handle, const char *value);
 /* Free a buffer returned by ais_embed_recall() / _timeline() / _tags() / _display(). */
 void  ais_embed_free(char *buf);
 
+/* How many LIVE records the index holds. A front-end shows it after a sync: a
+ * flat "Synced" says nothing about whether anything actually arrived, and sync
+ * IS the backup here, so the count is the confirmation. Returns the count (>= 0),
+ * or -1 on bad args / read error. */
+long  ais_embed_count(void *handle);
+
 /* Release the lock, flush the id counter, free the handle. */
 void  ais_embed_close(void *handle);
 

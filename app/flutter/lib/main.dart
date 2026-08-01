@@ -899,6 +899,7 @@ class _RecallPageState extends State<RecallPage> {
   // Skipped while a LAN sync holds the handle (avoids the same cross-isolate race).
   void _runFolderSync({bool silent = true}) {
     if (_ais == null || _syncFolder.isEmpty || _syncBusy) return;
+    final before = _ais!.countLive();
     final code = _ais!.syncFolderCode(_syncFolder);
     final problem = AisEngine.syncFolderProblem(code);
     if (problem == null) {
@@ -926,8 +927,8 @@ class _RecallPageState extends State<RecallPage> {
                 : null));
       }
     } else if (!silent) {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text('Folder synced')));
+      ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Folder synced.${_mergeDetail(before)}')));
     }
   }
 
@@ -1018,12 +1019,14 @@ class _RecallPageState extends State<RecallPage> {
       initialDirectory: mobile ? null : (await getDownloadsDirectory())?.path,
     );
     if (file == null || _ais == null) return; // cancelled
+    final before = _ais!.countLive();
     final rc = _ais!.importBundle(file.path);
     if (!mounted) return;
     final String msg;
     switch (rc) {
       case 0:
-        msg = 'Merged. This index now includes the file’s records.';
+        msg = 'Merged. This index now includes the file’s records.'
+            '${_mergeDetail(before)}';
         _markSynced();
         break;
       case -2:
@@ -1101,6 +1104,7 @@ class _RecallPageState extends State<RecallPage> {
       return;
     }
     _flushPendingDeletes(); // commit any in-flight delete BEFORE the sync isolate starts
+    final before = _ais!.countLive();   // to say what the merge actually did
     _syncBusy = true;
     final fut = _ais!.pullAsync(url, token, bidir: true);
     final hidden = await showDialog<bool>(
@@ -1122,7 +1126,8 @@ class _RecallPageState extends State<RecallPage> {
     final String msg;
     switch (rc) {
       case 0:
-        msg = 'Synced. Both devices now have the same records.';
+        msg = 'Synced. Both devices now have the same records.'
+            '${_mergeDetail(before)}';
         _markSynced();
         break;
       case 1:
@@ -1175,6 +1180,7 @@ class _RecallPageState extends State<RecallPage> {
         'desktop:  ais --sync http://$ip:$port --token $token';
 
     _flushPendingDeletes(); // commit any in-flight delete BEFORE the sync isolate starts
+    final before = _ais!.countLive();   // to say what the merge actually did
     _syncBusy = true;
     final fut = _ais!.serveAsync(port, token, bidir: true); // blocks up to ~120s
     final hidden = await showDialog<bool>(
@@ -1200,7 +1206,8 @@ class _RecallPageState extends State<RecallPage> {
     final String msg;
     switch (rc) {
       case 0:
-        msg = 'Synced. Both devices now have the same records.';
+        msg = 'Synced. Both devices now have the same records.'
+            '${_mergeDetail(before)}';
         _markSynced();
         break;
       case 1:
@@ -1223,6 +1230,25 @@ class _RecallPageState extends State<RecallPage> {
     }
     messenger.showSnackBar(SnackBar(content: Text(msg)));
     if (rc >= 0) _setView(_view); // a half-done sync still merged theirs
+  }
+
+  // What a sync actually did, in records. "Synced" on its own leaves the user no
+  // way to tell a working backup from one that silently moved nothing -- and a
+  // sync that moves nothing is the normal, correct outcome when both devices are
+  // already in step, so the two have to be told apart in words.
+  String _mergeDetail(int before) {
+    if (_ais == null || before < 0) return '';
+    final after = _ais!.countLive();
+    if (after < 0) return '';
+    if (after > before) {
+      final n = after - before;
+      return ' $n new record${n == 1 ? '' : 's'} arrived.';
+    }
+    if (after < before) {
+      final n = before - after;
+      return ' $n record${n == 1 ? '' : 's'} deleted elsewhere were removed here.';
+    }
+    return ' Nothing new: both devices were already in step.';
   }
 
   // A random 128-bit token as 32 hex chars (the peer must supply the same one).
