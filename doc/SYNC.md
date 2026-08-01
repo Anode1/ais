@@ -98,7 +98,9 @@ On the phone, scan that with the ordinary camera app. The phone recognizes the l
 AIS, and AIS asks you to confirm the sync (a link can come from anywhere, and syncing shares
 this device's records) before it joins. The app bundles no QR scanner: your phone's own
 camera does the reading, and AIS just registers the `ais://` link. If you would rather not
-scan, Join still accepts the address and token typed by hand.
+scan, Join still accepts the address and token typed by hand -- and the address
+may be a NAME as well as a number, so `http://mylaptop.local:8766` works wherever
+that name resolves (mDNS, your router's DHCP names, `/etc/hosts`).
 
 This carries both the records (values, keys, deletions) and the `doc` blob FILES, so a
 synced document opens on the peer. If two devices independently saved different documents

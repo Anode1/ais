@@ -1055,7 +1055,9 @@ class _RecallPageState extends State<RecallPage> {
               controller: urlCtrl,
               autofocus: !scanned, // don't pop the keyboard when it's already filled
               decoration: const InputDecoration(
-                  labelText: 'Address', hintText: 'http://192.168.1.5:8766'),
+                  labelText: 'Address',
+                  hintText: 'http://192.168.1.5:8766',
+                  helperText: 'An address or a name, e.g. mylaptop.local'),
             ),
             TextField(
               controller: tokCtrl,

@@ -24,6 +24,7 @@
 #  include <sys/socket.h>
 #  include <netinet/in.h>
 #  include <arpa/inet.h>
+#  include <netdb.h>          /* getaddrinfo: join by hostname, not only a dotted quad */
 #  include <sys/stat.h>
 #  include <sys/time.h>
 #  include <dirent.h>
@@ -515,7 +516,27 @@ int sync_pull(ais *a, const char *host, int port, const char *token, int timeout
     memset(&addr, 0, sizeof addr);
     addr.sin_family = AF_INET;
     addr.sin_port = htons((unsigned short)port);
-    if (inet_pton(AF_INET, host, &addr.sin_addr) != 1) return -1;
+    if (inet_pton(AF_INET, host, &addr.sin_addr) != 1) {
+        /* Not a dotted quad, so resolve it. Only a literal was accepted before,
+         * which meant the names people actually have for their own machines --
+         * "mylaptop.local" from mDNS, a router's DHCP name, an /etc/hosts entry
+         * -- failed as the generic "could not sync", indistinguishable from a
+         * wrong token or the host not running. getaddrinfo covers all three and
+         * costs nothing on the literal path, which inet_pton has already taken. */
+        struct addrinfo hints, *res = NULL;
+        char portstr[16];
+        int gai;
+
+        memset(&hints, 0, sizeof hints);
+        hints.ai_family = AF_INET;               /* the wire is IPv4 (see sync.h) */
+        hints.ai_socktype = SOCK_STREAM;
+        snprintf(portstr, sizeof portstr, "%d", port);
+        gai = getaddrinfo(host, portstr, &hints, &res);
+        if (gai != 0 || res == NULL)
+            return -1;
+        addr.sin_addr = ((struct sockaddr_in *)res->ai_addr)->sin_addr;
+        freeaddrinfo(res);
+    }
 
     /* Recreate the socket each attempt: after a failed connect(), BSD/macOS will not
      * let you connect() the same fd again (only Linux retries an unconnected fd cleanly). */

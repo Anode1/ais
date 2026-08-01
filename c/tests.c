@@ -2874,6 +2874,55 @@ static void test_half_done_sync_is_not_a_failure(void)
     scratch_rm(db);
 }
 
+/* Join by NAME, not only by dotted quad. The address a user can actually read off
+ * another machine is usually a name -- "mylaptop.local" from mDNS, a router's
+ * DHCP name, an /etc/hosts entry -- and every one of them used to fail as the
+ * same generic "could not sync" as a wrong token or a host that was not running.
+ * "localhost" is the one name guaranteed to resolve on any machine that can run
+ * this test at all. */
+static void test_sync_joins_by_hostname(void)
+{
+    ais B;
+    const char *da = "/tmp/ais_ut_hostA", *db = "/tmp/ais_ut_hostB";
+    const char *tok = "0123456789abcdef0123456789abcdef";
+    int port = 47165, rc;
+    pid_t pid;
+
+    scratch_rm(da);
+    scratch_rm(db);
+    {
+        ais A;
+        ais_open(&A, da);
+        ais_put(&A, "venice", "Hotel Danieli");
+        ais_close(&A);
+    }
+
+    pid = fork();
+    if (pid == 0) {
+        ais cA;
+        ais_open(&cA, da);
+        sync_serve(&cA, port, tok, 5, 0);
+        ais_close(&cA);
+        _exit(0);
+    }
+
+    ais_open(&B, db);
+    rc = sync_pull(&B, "localhost", port, tok, 5, 0);
+    CHECK(rc == 0, "hostname: a peer named by hostname is reached, not refused");
+    CHECK(value_present(&B, "Hotel Danieli") == 1, "hostname: and its records merge");
+    ais_close(&B);
+    waitpid(pid, NULL, 0);
+
+    /* a name that cannot resolve still fails, and fails fast */
+    ais_open(&B, db);
+    CHECK(sync_pull(&B, "no-such-host.invalid", port, tok, 5, 0) != 0,
+          "hostname: a name that does not resolve is still a failure");
+    ais_close(&B);
+
+    scratch_rm(da);
+    scratch_rm(db);
+}
+
 /* Bringing a deleted record back must apply the arriving KEYS even when the
  * survival note cannot be written. `sts` takes only the canonical 20-char
  * timestamp, but a store upgraded from format v2 holds 19-char (no 'Z') and
@@ -4557,6 +4606,7 @@ int main(void)
     test_half_done_sync_is_not_a_failure();
     test_a_round_that_leaves_them_different_says_so();
     test_resurrect_keeps_keys_on_a_legacy_timestamp();
+    test_sync_joins_by_hostname();
     test_edit_does_not_resurrect_a_removed_tag();
     test_delete_conflict_keeps_a_removed_tag_removed();
     test_losing_delete_is_free();
