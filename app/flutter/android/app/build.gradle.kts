@@ -42,6 +42,13 @@ android {
                 storePassword = keystoreProperties.getProperty("storePassword")
                 keyAlias = keystoreProperties.getProperty("keyAlias")
                 keyPassword = keystoreProperties.getProperty("keyPassword")
+                // v2 is enough for Play, but v3 is what makes it possible to
+                // ROTATE this key later without every installed copy refusing the
+                // update. AGP leaves v3 off by default, so the shipped APKs have
+                // been v2-only; turning it on costs nothing and cannot be added
+                // retroactively to signatures already in the wild.
+                enableV2Signing = true
+                enableV3Signing = true
             }
         }
     }
@@ -53,6 +60,17 @@ android {
                 signingConfigs.getByName("release")
             else
                 signingConfigs.getByName("debug")
+
+            // R8 / resource shrinking is deliberately OFF, not overlooked. Dart is
+            // compiled AOT and the engine ships as native .so, so almost the whole
+            // download is code R8 never touches; what it could shrink is the thin
+            // Kotlin layer, worth a rounding error. Against that it can strip
+            // reflectively-reached classes -- speech_to_text reaches Android's
+            // SpeechRecognizer service -- and the failure would appear only at
+            // runtime, on a user's phone, in the release build alone. Bad trade
+            // until there is a device test that would catch it.
+            isMinifyEnabled = false
+            isShrinkResources = false
         }
     }
 
