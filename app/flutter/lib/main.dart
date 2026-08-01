@@ -443,7 +443,21 @@ class _RecallPageState extends State<RecallPage> {
     // prompt on Android/iOS. _voice stays false on desktop or if denied.
     if (!_voice) {
       try {
-        _voice = await _speech.initialize();
+        // onError also carries the case below that matters most: a device with no
+        // OFFLINE language model refuses an on-device session rather than falling
+        // back to the cloud, and without a listener that arrives as silence the
+        // user reads as a broken button.
+        _voice = await _speech.initialize(onError: (e) {
+          if (!mounted) return;
+          final noModel = e.errorMsg.contains('language') ||
+              e.errorMsg.contains('no_match') ||
+              e.errorMsg.contains('not_available');
+          setState(() => _status = noModel
+              ? 'Dictation needs an offline language pack for your language. '
+                  'Install it in your phone settings (AIS never sends audio away), '
+                  'or type instead.'
+              : 'Could not hear that. Try again, or type instead.');
+        });
       } catch (_) {
         _voice = false;
       }
@@ -453,10 +467,22 @@ class _RecallPageState extends State<RecallPage> {
         return;
       }
     }
-    await _speech.listen(onResult: (r) {
-      _q.text = r.recognizedWords;
-      if (r.finalResult) _recall();
-    });
+    // ON-DEVICE ONLY. The package default is onDevice: false, which streams the
+    // audio to the platform's cloud recogniser -- Google's, on Android. Every
+    // promise this app makes says otherwise: PRIVACY.md ("does not transmit
+    // personal data to the developer or to third parties"), the store listing
+    // ("your data never leaves your phone unless you sync it yourself") and the
+    // iOS mic usage string ("Audio is not recorded or sent anywhere"). A search
+    // phrase is as revealing as the records it finds, so the default is not a
+    // default we can take: a device with no local recogniser gets no dictation
+    // and is told why, rather than quietly sending the audio away.
+    await _speech.listen(
+      onResult: (r) {
+        _q.text = r.recognizedWords;
+        if (r.finalResult) _recall();
+      },
+      listenOptions: SpeechListenOptions(onDevice: true),
+    );
   }
 
   bool _isUrl(String v) => v.startsWith('http://') || v.startsWith('https://');

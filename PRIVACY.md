@@ -74,6 +74,15 @@ The app uses device storage to keep your index on the device, and local-network
 access only for the optional device-to-device sync described above. These
 permissions are not used to send data off your device for any other purpose.
 
+**Microphone.** The app asks for the microphone only when you tap the mic button
+to dictate a search, and only for as long as you are dictating. Speech is
+recognised **on the device**: the app requests on-device recognition explicitly
+and does not fall back to a cloud recogniser, so your audio and the words it
+becomes are not sent to us or to anyone else. If your phone has no offline
+language pack installed for your language, dictation simply does not work and the
+app says so, rather than sending the audio away. Nothing is recorded or stored:
+the recognised words go into the search box, and that is all.
+
 ## Children's privacy
 
 The app is a general-purpose utility, is not directed at children, and does not
@@ -81,8 +90,12 @@ knowingly collect data from anyone, including children.
 
 ## Changes to this policy
 
-If this policy changes, the updated version will be posted at this URL with a new
-"Last updated" date.
+This policy lives at:
+
+https://github.com/Anode1/ais/blob/main/PRIVACY.md
+
+If it changes, the updated version is posted there with a new "Last updated" date.
+That is the address given to the app stores, so it is the one to check.
 
 ## Contact
 

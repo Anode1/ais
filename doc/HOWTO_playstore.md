@@ -37,9 +37,16 @@ step 2.
 
 ```sh
 cd app/flutter
-flutter build appbundle --release
+flutter build appbundle --release $(sh tool/version.sh)
 # output: build/app/outputs/bundle/release/app-release.aab
 ```
+
+> **Warning -- pass the version flags.** Without them the build takes pubspec's
+> placeholder (`+14`) and emits **versionCode 14**. Play already holds a far
+> higher one (it is `git rev-list --count HEAD`, which only ever goes up), and a
+> versionCode that is not greater than the last upload is rejected outright.
+> This is the same command `.github/workflows/release.yml` runs; see
+> `doc/dev/VERSIONING.md`.
 
 > **Warning -- a local release build is DEBUG-signed unless you set up the key.**
 > When `android/key.properties` is absent, `android/app/build.gradle.kts` falls

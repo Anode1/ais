@@ -9,10 +9,12 @@
 // The defaults mirror pubspec.yaml's `version:` so a plain `flutter build`,
 // `flutter run` or `dart analyze` with no defines still shows something sane --
 // they are a fallback, not the source of truth. Keep them in step with pubspec
-// when the tag moves; nothing else reads them.
+// when the tag moves; nothing else reads them. (They had drifted five releases
+// behind, so a flagless build showed 0.3.9 while the store showed 0.3.14 --
+// harmless in itself, but it is the About screen a bug report quotes.)
 const String kAppVersion =
-    String.fromEnvironment('APP_VERSION', defaultValue: '0.3.9');
-const String kAppBuild = String.fromEnvironment('APP_BUILD', defaultValue: '9');
+    String.fromEnvironment('APP_VERSION', defaultValue: '0.3.14');
+const String kAppBuild = String.fromEnvironment('APP_BUILD', defaultValue: '14');
 
 /// The standard `1.2.3 (456)` display form.
 String get appVersionLabel => '$kAppVersion ($kAppBuild)';
