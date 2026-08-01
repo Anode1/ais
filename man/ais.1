@@ -74,7 +74,10 @@ is the command.
 .PP
 The store is append-only plain text and the index is navigable plain files, so
 the whole index can be read, grepped, rsynced, and repaired by hand. Re-filing a
-value already saved is idempotent.
+value already saved is idempotent: the keys given are ADDED to the record that
+already holds it. Re-filing a value that was DELETED brings the record back with
+only the keys given, not the ones it carried before it was deleted -- a deleted
+record's tags go with it, and what returns is what you have just described.
 .SH OPTIONS
 .TP
 .BI \-f " DIR"
@@ -143,7 +146,9 @@ best-effort shreds the blob. Requires the crypto module
 .B \-y
 Assume yes for
 .BR \-\-del / \-\-del-under / \-\-untag / \-\-compact
-(no prompt).
+(no prompt). With
+.B \-\-sync-folder
+it also accepts a remembered folder that now holds no device bundles (see there).
 .TP
 .B \-d
 Debug tracing to standard error.
@@ -351,6 +356,15 @@ no two devices need be reachable at the same instant, so this is the set-and-for
 cross-network path (the LAN
 .B \-\-sync
 is the live, both-here alternative).
+FOLDER must already exist:
+.B ais
+will not create it, because a typo or an unplugged drive would then look exactly like a
+working sync that never receives anything. For the same reason, a folder this device has
+synced with before is refused if it now holds no device bundle at all: an empty folder is
+what an unmounted drive and an emptied share both look like. Check the folder, then pass
+.B \-y
+to sync with it as it now stands. Each failure says which it was
+(missing, not a folder, unreadable, empty, or not writable), because the remedies differ.
 .TP
 .B \-\-init
 Create a local
@@ -447,10 +461,38 @@ ids carrying more than one value line.
 .I tomb
 Tombstoned (deleted) ids.
 .TP
+.I mts
+When each record was last edited on THIS device, so an edit made after another
+device deleted the record is not undone by that delete on the next sync. Real
+data, not rebuildable.
+.TP
+.I sts
+Which records have already survived a delete made elsewhere, so the other devices
+are told once and stop resending it. Real data, not rebuildable.
+.TP
+.I ktomb
+When a key was detached from a record, so the removal propagates.
+Real data, not rebuildable.
+.TP
+.I katt
+When a key was attached to a record that already existed, so a re-attach can
+out-rank an earlier detach. Real data, not rebuildable.
+.TP
 .I blobs/<timestamp>.txt
 Documents saved by
 .B \-\-doc
 (\fB.aisc\fR when encrypted; real data, not rebuildable).
+.PP
+Only
+.IR idx/ ,
+.I off
+and
+.I next_id
+are rebuildable from
+.IR store ;
+everything else above is real data. The per-device files
+.RI ( lock ", " foldsync ", " syncfolder ", " syncid )
+are meaningless on another machine and must not be copied to one.
 .PP
 Outside the index, in your home AIS dir:
 .TP

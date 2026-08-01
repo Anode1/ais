@@ -21,6 +21,7 @@
 #include <getopt.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <errno.h>
 #include <string.h>
 
 #include "ais.h"
@@ -547,7 +548,43 @@ int main(int argc, char **argv)
         case CMD_SYNCFOLDER:                      /* one export+import pass over a shared folder */
             if (optind >= argc)
                 die("usage: ais --sync-folder FOLDER  (a folder a mover like Syncthing keeps in sync)");
-            if (sync_folder_once(&a, argv[optind]) != 0) { ais_close(&a); die("folder sync failed"); }
+            {
+                int frc = sync_folder_once_force(&a, argv[optind], assume_yes);
+                int err = errno;
+                if (frc != 0)
+                    ais_close(&a);
+                switch (frc) {
+                case AIS_FOLDER_MISSING:
+                    die("no such folder: %s\n"
+                        "       create it first, or check the drive is plugged in.\n"
+                        "       (ais will not create it: a typo would look like a\n"
+                        "        working backup that never receives anything)",
+                        argv[optind]);
+                    break;
+                case AIS_FOLDER_NOTDIR:
+                    die("not a folder: %s", argv[optind]);
+                    break;
+                case AIS_FOLDER_STAT:
+                    die("cannot read folder: %s: %s", argv[optind], strerror(err));
+                    break;
+                case AIS_FOLDER_STRANGER:
+                    die("no device bundles in: %s\n"
+                        "       we have synced with that folder before and it is empty now,\n"
+                        "       so the drive may not be mounted, or it was emptied or replaced.\n"
+                        "       check it, then pass -y to sync with it as it is now.",
+                        argv[optind]);
+                    break;
+                case AIS_FOLDER_NOWRITE:
+                    die("cannot write into: %s\n"
+                        "       anything the folder had to offer was merged, but this\n"
+                        "       device's own bundle could not be written -- the drive may be\n"
+                        "       read-only or full, so the other devices will not see this one.",
+                        argv[optind]);
+                    break;
+                case 0: break;
+                default: die("folder sync failed"); break;
+                }
+            }
             printf("synced folder: %s\n", argv[optind]);
             break;
         case CMD_FIND:

@@ -17,7 +17,6 @@
 /* Sealed-plaintext protocol version, the very first byte of every unsealed payload.
  * A future format bumps this; a peer that reads a byte it does not recognize fails
  * LOUDLY (-2 from sync_import_sealed) instead of mis-parsing binary as records. */
-#define AIS_SYNC_PROTO 1
 
 #if !defined(_WIN32) && defined(__has_include) && __has_include("crypto/monocypher.h")
 #  define SYNC_HAVE 1
@@ -62,64 +61,6 @@ int sync_parse_url(const char *url, char *host, size_t hostsz, int *port)
 
 #ifdef SYNC_HAVE
 
-/* Append one blob's "B|blobs/<name>|<size>\n" header plus its raw bytes to MS.
- * Returns 0, or -1 on an I/O / path / cap error (running total kept in *TOTAL). */
-static int export_one_blob(FILE *ms, const char *dir, const char *name, size_t *total)
-{
-    char path[AIS_PATH_MAX];
-    FILE *bf;
-    long sz;
-    char buf[8192];
-    size_t n;
-
-    if (snprintf(path, sizeof path, "%s/blobs/%s", dir, name) >= (int)sizeof path)
-        return -1;
-    bf = fopen(path, "rb");
-    if (bf == NULL)
-        return -1;
-    if (fseek(bf, 0, SEEK_END) != 0 || (sz = ftell(bf)) < 0 || fseek(bf, 0, SEEK_SET) != 0) {
-        fclose(bf);
-        return -1;
-    }
-    /* account header + content against the shared cap before writing anything */
-    *total += (size_t)snprintf(buf, sizeof buf, "B|blobs/%s|%ld\n", name, sz) + (size_t)sz;
-    if (*total > AIS_SYNC_MAX_BLOB) { fclose(bf); return -1; }
-    if (fprintf(ms, "B|blobs/%s|%ld\n", name, sz) < 0) { fclose(bf); return -1; }
-    while ((n = fread(buf, 1, sizeof buf, bf)) > 0)
-        if (fwrite(buf, 1, n, ms) != n) { fclose(bf); return -1; }
-    if (ferror(bf)) { fclose(bf); return -1; }
-    fclose(bf);
-    return 0;
-}
-
-/* Walk <dir>/blobs/, emitting each regular file as a "B|" section into MS.
- * A missing blobs/ dir is fine (no section). Returns 0, or -1 on error/overflow. */
-static int export_blobs(FILE *ms, const char *dir, size_t *total)
-{
-    char blobsdir[AIS_PATH_MAX];
-    DIR *d;
-    struct dirent *de;
-    int rc = 0;
-
-    if (snprintf(blobsdir, sizeof blobsdir, "%s/blobs", dir) >= (int)sizeof blobsdir)
-        return -1;
-    d = opendir(blobsdir);
-    if (d == NULL)
-        return 0;                              /* no blobs/ -> no blob section */
-    while (rc == 0 && (de = readdir(d)) != NULL) {
-        char path[AIS_PATH_MAX];
-        struct stat st;
-        if (strcmp(de->d_name, ".") == 0 || strcmp(de->d_name, "..") == 0)
-            continue;
-        if (snprintf(path, sizeof path, "%s/%s", blobsdir, de->d_name) >= (int)sizeof path)
-            { rc = -1; break; }
-        if (stat(path, &st) != 0 || !S_ISREG(st.st_mode))
-            continue;                          /* skip non-regular entries */
-        rc = export_one_blob(ms, dir, de->d_name, total);
-    }
-    closedir(d);
-    return rc;
-}
 
 /* Assemble the raw (UNSEALED) bundle: version byte + blob sections + merge stream,
  * the shared core both the file bundle (plaintext) and LAN sync (which seals this)
@@ -127,7 +68,7 @@ static int export_blobs(FILE *ms, const char *dir, size_t *total)
 int sync_export_plain(ais *a, uint8_t **out, size_t *out_len)
 {
     char *buf = NULL;
-    size_t blen = 0, total = 1;                /* the version byte counts toward the cap */
+    size_t blen = 0;
     FILE *ms;
     uint8_t ver = AIS_SYNC_PROTO;
 
@@ -137,13 +78,9 @@ int sync_export_plain(ais *a, uint8_t **out, size_t *out_len)
     if (ms == NULL)
         return -1;
     if (fwrite(&ver, 1, 1, ms) != 1) { fclose(ms); free(buf); return -1; }
-    if (export_blobs(ms, a->dir, &total) != 0) {
-        fprintf(stderr, "sync: index too large (blobs exceed %lu-byte cap)\n",
-                (unsigned long)AIS_SYNC_MAX_BLOB);
-        fclose(ms);
-        free(buf);
-        return -1;
-    }
+    /* feed_export emits the blob sections itself, so calling export_blobs here
+     * shipped every document TWICE: it doubled each bundle and halved the usable
+     * size cap, which failed a large document outright. */
     feed_export(a, ms);
     if (fclose(ms) != 0) { free(buf); return -1; }
     if (blen > AIS_SYNC_MAX_BLOB) {            /* cap the plain side too (the import side matches) */
@@ -342,11 +279,25 @@ int sync_import_plain(ais *a, const uint8_t *data, size_t len)
     if (!a || !data)
         return -1;
 
-    /* version gate: a byte we do not recognize is a LOUD failure (-2), never a
-     * silent mis-parse of binary as records. */
-    if (len < 1 || data[0] != AIS_SYNC_PROTO)
+    /* Which container is this? The app's bundle is a version byte followed by
+     * exactly the bytes `ais --export` writes, so refusing everything without
+     * that byte meant the app could not read a single file the CLI produced --
+     * on a product whose promise is "plain files, yours, portable". Sniff instead.
+     *
+     * The framed device bundle is still refused: it has a binary header, so
+     * reading it as records would invent them. And the whole 0x00-0x1F range
+     * stays reserved for future container versions, so those still fail LOUDLY
+     * rather than being taken for text. */
+    if (len < 1)
         return -2;
-    off = 1;                                    /* past the version byte */
+    if (len >= 4 && memcmp(data, "AISB", 4) == 0)
+        return -2;                              /* a folder-sync bundle, not an interchange file */
+    if (data[0] == AIS_SYNC_PROTO)
+        off = 1;                                /* past the version byte */
+    else if (data[0] < 0x20)
+        return -2;                              /* a container version we do not know */
+    else
+        off = 0;                                /* a bare merge stream, or a --dump */
 
     /* Blob section: each "B|relpath|size\n" header is followed by <size> raw
      * bytes. The first line that does not start with "B|" ends the section and
@@ -896,12 +847,97 @@ static int atomic_write(const char *dir, const char *path, const uint8_t *data, 
     return 0;
 }
 
+/* Folders this device has already synced with, one absolute path per line in
+ * INDEX/foldsync. The point is to tell "a folder I have never used" (fine, first
+ * pass) apart from "the folder I have been backing up to, which no longer holds
+ * my bundle" (an unmounted drive, a wiped share, a replaced USB stick). Existence
+ * cannot make that distinction: an unmounted drive's mount point is an ordinary
+ * empty directory, which is exactly what a working folder looks like on day one. */
+/* The canonical path, or "" when it cannot be trusted as a key. A path that does
+ * not resolve, or that contains the newline this file uses as its separator, is
+ * simply not remembered: a memory that can match the WRONG folder is worse than
+ * no memory at all. (realpath's contract is a PATH_MAX buffer; AIS_PATH_MAX is
+ * PATH_MAX here, and the assert keeps that from drifting.) */
+static void fold_canon(const char *folder, char *out, size_t outsz)
+{
+    char buf[AIS_PATH_MAX];
+
+    out[0] = '\0';
+    if (AIS_PATH_MAX < 4096)
+        return;
+    if (realpath(folder, buf) == NULL)
+        return;
+    if (strchr(buf, '\n') != NULL)
+        return;
+    snprintf(out, outsz, "%s", buf);
+}
+
+static int fold_known(const ais *a, const char *canon)
+{
+    char path[AIS_PATH_MAX], line[AIS_PATH_MAX];
+    FILE *f;
+    int found = 0;
+
+    if (canon[0] == '\0')
+        return 0;
+    if (snprintf(path, sizeof path, "%s/foldsync", a->dir) >= (int)sizeof path)
+        return 0;
+    f = fopen(path, "r");
+    if (f == NULL)
+        return 0;
+    while (!found && fgets(line, sizeof line, f) != NULL) {
+        char *nl = strchr(line, '\n');
+        if (nl != NULL) *nl = '\0';
+        if (strcmp(line, canon) == 0) found = 1;
+    }
+    fclose(f);
+    return found;
+}
+
+static void fold_remember(const ais *a, const char *canon)
+{
+    char path[AIS_PATH_MAX];
+    FILE *f;
+
+    if (canon[0] == '\0' || fold_known(a, canon))
+        return;
+    if (snprintf(path, sizeof path, "%s/foldsync", a->dir) >= (int)sizeof path)
+        return;
+    f = fopen(path, "a");
+    if (f == NULL)
+        return;                                /* best effort: this is a warning aid */
+    fprintf(f, "%s\n", canon);
+    fclose(f);
+}
+
+/* Does FOLDER hold any device bundle at all? */
+static int folder_has_bundle(const char *folder)
+{
+    DIR *d = opendir(folder);
+    struct dirent *de;
+    int found = 0;
+
+    if (d == NULL)
+        return -1;
+    while (!found && (de = readdir(d)) != NULL)
+        if (is_bundle_name(de->d_name))
+            found = 1;
+    closedir(d);
+    return found;
+}
+
 /* One folder-sync pass. Import every well-formed peer bundle, then (re)write our own
  * <id>.aisb atomically. Heals a device-id clone: if our own file carries a nonce that
- * isn't ours, a sibling device shares our id, so regenerate ours. Returns 0, or -1. */
-int sync_folder_once(ais *a, const char *folder) {
+ * isn't ours, a sibling device shares our id, so regenerate ours.
+ * Returns 0 or one of the AIS_FOLDER_* codes in sync.h. */
+int sync_folder_once(ais *a, const char *folder)
+{
+    return sync_folder_once_force(a, folder, 0);
+}
+
+int sync_folder_once_force(ais *a, const char *folder, int force) {
     struct sync_ident s;
-    char own_name[32], own_path[AIS_PATH_MAX];
+    char own_name[32], own_path[AIS_PATH_MAX], canon[AIS_PATH_MAX];
     uint8_t fnonce[16];
     uint64_t fseq = 0;
     uint8_t *bundle = NULL;
@@ -911,10 +947,47 @@ int sync_folder_once(ais *a, const char *folder) {
     int rc = -1;
 
     if (!a || !folder) return -1;
-    if (mkdir(folder, 0777) != 0 && errno != EEXIST) return -1;
+    {
+        /* The folder must ALREADY exist. Creating it turned a typo, or an SD card
+         * that was not mounted, into a brand-new empty directory that this device
+         * happily "synced" with forever -- reporting success while nothing ever
+         * arrived from the other side. Sync is the backup here, so a silent
+         * no-op is the worst outcome available. Refuse instead; a first-time
+         * user creating the folder themselves is a far cheaper cost. */
+        struct stat st;
+        if (stat(folder, &st) != 0)
+            /* Only ENOENT means "not there". EACCES, ELOOP, EIO and -- the one that
+             * matters here -- ENOTCONN from a stale FUSE mount are real conditions
+             * with real remedies, and telling that user to create a folder that
+             * already exists sends them the wrong way. */
+            return (errno == ENOENT) ? AIS_FOLDER_MISSING : AIS_FOLDER_STAT;
+        if (!S_ISDIR(st.st_mode))
+            return AIS_FOLDER_NOTDIR;
+    }
     if (ident_load(a, &s) != 0) return -1;
     snprintf(own_name, sizeof own_name, "%s.aisb", s.id);
     snprintf(own_path, sizeof own_path, "%s/%s", folder, own_name);
+
+    /* The folder exists and is a directory -- which is also true of an unmounted
+     * drive's mount point and of a share somebody emptied. If we have synced here
+     * before, it must still hold at least one device bundle.
+     *
+     * ANY bundle, deliberately, not this device's own. Our own file's name follows
+     * our device id, and the clone-heal below changes that id whenever a copied
+     * index turns up -- which the recommended whole-directory Syncthing setup makes
+     * an ordinary event. Keying on our own name meant that one heal made every
+     * other remembered folder look wiped, and told the user their drive was
+     * unplugged when it was sitting there intact. An empty folder is the honest
+     * signal: it is what a wipe, an unmounted drive, and a mount point that has had
+     * a filesystem mounted over it all look like. */
+    fold_canon(folder, canon, sizeof canon);
+    if (!force && fold_known(a, canon)) {
+        int has = folder_has_bundle(folder);
+        if (has < 0)
+            return AIS_FOLDER_STAT;      /* unreadable: errno says why, not "failed" */
+        if (has == 0)
+            return AIS_FOLDER_STRANGER;
+    }
 
     /* Clone heal: our own file was written either by a DIFFERENT nonce (another device
      * cloned our id after we diverged) or by our SAME nonce but advanced PAST our last
@@ -955,8 +1028,11 @@ int sync_folder_once(ais *a, const char *folder) {
     if (sync_export_framed(a, s.nonce, s.seq, &bundle, &blen) != 0) return -1;
     rc = atomic_write(folder, own_path, bundle, blen);
     free(bundle);
-    if (rc == 0) ident_save(a, &s);
-    return rc;
+    if (rc != 0)
+        return AIS_FOLDER_NOWRITE;   /* read-only remount, full disk: imports already applied */
+    ident_save(a, &s);
+    fold_remember(a, canon);
+    return 0;
 }
 
 #else  /* no POSIX buffer streams or no crypto: transport unavailable */
@@ -1013,5 +1089,7 @@ int sync_device_new(ais *a, char *id_hex, size_t idsz, uint8_t nonce[16])
 { (void)a; (void)id_hex; (void)idsz; (void)nonce; return -1; }
 int sync_folder_once(ais *a, const char *folder)
 { (void)a; (void)folder; fprintf(stderr, "sync: this build lacks folder sync (needs POSIX + crypto)\n"); return -1; }
+int sync_folder_once_force(ais *a, const char *folder, int force)
+{ (void)force; return sync_folder_once(a, folder); }
 
 #endif

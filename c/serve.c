@@ -201,7 +201,8 @@ static const char PAGE[] =
 "<p class=muted style='margin:1rem 0 .4rem;font-size:.85rem'>Or auto-sync a shared folder. Best with Syncthing; a versioning cloud may keep deleted items:</p>"
 "<div style='display:flex;gap:.5rem'><input id=syncfld placeholder='/path/to/shared/folder' autocomplete=off style='flex:1'>"
 "<button id=syncfldbtn class=getbtn>Sync</button></div>"
-"<p id=syncfldmsg class=muted style='margin:.4rem 0 0;font-size:.8rem'></p></div>"
+"<p id=syncfldmsg class=muted style='margin:.4rem 0 0;font-size:.8rem'></p>"
+"<button id=syncfldany class=getbtn style='display:none;margin-top:.4rem'>Sync with it anyway</button></div>"
 "<input id=fileimp type=file accept='.aisb' hidden>"
 /* Host pane: address + token to read off, a QR to scan, and a live status line. */
 "<div id=synchost hidden>"
@@ -221,7 +222,12 @@ static const char PAGE[] =
 "</div></div>"
 "<script>"
 "var $=function(i){return document.getElementById(i)};"
-"var view='recall';"
+/* `gen` counts view switches. Every loader below appends to #out AFTER an await,
+ * so a response that lands once the user has moved on repaints the old view's rows
+ * over the new one -- Timeline rows appearing under an empty Search, which is also
+ * what made the interaction test fail about half the time on a cold run. Each
+ * loader captures gen before its fetch and drops its result if it has moved. */
+"var view='recall',gen=0;"
 /* empty-state call-to-action, reused by every empty view */
 "var addCTA='<button class=primary style=\"margin-top:1rem\" onclick=openSheet()>+ Add</button>';"
 /* accept a comma as an optional tag separator; collapse extra whitespace, so
@@ -277,11 +283,12 @@ static const char PAGE[] =
 /* Recall is keyset-paged like the timeline: `more` appends the next page (id >
  * rcAfter) instead of reloading, so a million-hit query scrolls in one page at a
  * time. Recall emits ascending, so rcAfter tracks the largest id shown. */
-"async function recall(more){var o=$('out');var qq=normkeys($('q').value);"
+"async function recall(more){var o=$('out');var qq=normkeys($('q').value);var g=gen;"
 "if(!more){if(!qq)return;rcAfter=0;rcN=0;rcQ=qq;rcOr=($('anyk')&&$('anyk').checked)?'&or=1':'';rcT0=performance.now();o.className='';o.innerHTML=''}"
 "if(!rcQ)return;"
 "var u='/api/get?keys='+encodeURIComponent(rcQ)+rcOr+'&count='+tlPage+(rcAfter>0?'&after='+rcAfter:'');"
 "var L=(await(await fetch(u)).text()).split('\\n').filter(function(s){return s.length});"
+"if(g!=gen)return;"                                  /* the view moved on: drop it */
 "var mb=$('rcmore');if(mb)mb.remove();"
 "if(!rcN&&!L.length){o.textContent='No results for '+rcQ;o.className='empty';$('count').textContent='0 results';rcMore=false;return}o.className='';"
 "L.forEach(function(ln){var p=ln.indexOf('|'),id=p>=0?ln.slice(0,p):'',v=p>=0?ln.slice(p+1):ln;"
@@ -304,8 +311,9 @@ static const char PAGE[] =
  * it -- never on Undo, which just re-shows the row (nothing was deleted). */
 "var delTimer=null,delRow=null,delCommit=null,delUndoFn=null;"
 "function hideToast(){$('toast').hidden=true}"
+"function toastClaim(){if(syncFldTimer){clearTimeout(syncFldTimer);syncFldTimer=null}$('toastundo').hidden=false}"
 "function delFlush(){if(delTimer){clearTimeout(delTimer);delTimer=null}if(delCommit){var f=delCommit;delCommit=null;delRow=null;delUndoFn=null;f();if(syncFolderSaved())syncFolderRun(true)}hideToast()}"
-"function delRec(id){delFlush();$('toast').firstChild.textContent='Deleted';"                       /* commit any prior pending delete first */
+"function delRec(id){delFlush();toastClaim();$('toast').firstChild.textContent='Deleted';"                       /* commit any prior pending delete first */
 "var row=document.querySelector('.hit[data-id=\"'+id+'\"]');if(row)row.style.display='none';delRow=row;"
 "delCommit=function(){fetch('/api/del?id='+id,{method:'POST'})};"
 "$('toast').hidden=false;delTimer=setTimeout(delFlush,5000)}"
@@ -341,11 +349,12 @@ static const char PAGE[] =
 "return{day:d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate()),time:p(d.getHours())+':'+p(d.getMinutes())}}"
 /* keyset paging: each call fetches `count` records older than the last id shown
  * (tlBefore); 'more' appends, otherwise it reloads from the newest. */
-"async function loadTimeline(more){var o=$('out');"
+"async function loadTimeline(more){var o=$('out');var g=gen;"
 "var f=$('tlfrom')?$('tlfrom').value:'',tt=$('tlto')?$('tlto').value:'';"
 "if(!more){tlBefore=0;tlDay=null;tlN=0;o.className='';o.innerHTML=''}"
 "var u='/api/timeline?count='+tlPage+(tlBefore>0?'&before='+tlBefore:'')+(f?'&from='+f:'')+(tt?'&to='+tt:'');"
 "var L=(await(await fetch(u)).text()).split('\\n').filter(function(s){return s.length});"
+"if(g!=gen)return;"                                  /* the view moved on: drop it */
 "var mb=$('tlmore');if(mb)mb.remove();"
 "if(!tlN&&!L.length){o.innerHTML='<div class=empty><p>Nothing saved yet.</p>'+addCTA+'</div>';return}"
 "L.forEach(function(ln){var r=parseTL(ln),lt=locDT(r.ts),d=lt?lt.day:'';"
@@ -361,10 +370,11 @@ static const char PAGE[] =
 "b.textContent='Load more';b.onclick=pageMore;o.appendChild(b)}}"
 /* Tags keyset-paged too: the cursor is the (count, key) of the last row, in the
  * busiest-first order the engine emits; `more` appends the next slice. */
-"async function loadTags(more){var o=$('out');"
+"async function loadTags(more){var o=$('out');var g=gen;"
 "if(!more){tgAfterc=0;tgAfterk='';tgN=0;o.className='';o.innerHTML=''}"
 "var u='/api/tags?count='+tlPage+(tgAfterk?'&afterc='+tgAfterc+'&afterk='+encodeURIComponent(tgAfterk):'');"
 "var L=(await(await fetch(u)).text()).split('\\n').filter(function(s){return s.length});"
+"if(g!=gen)return;"                                  /* the view moved on: drop it */
 "var mb=$('tgmore');if(mb)mb.remove();"
 "if(!tgN&&!L.length){o.innerHTML='<p class=empty>No tags yet.</p>';$('count').textContent='';tgMore=false;return}"
 "L.forEach(function(ln){var p=ln.indexOf('|'),c=ln.slice(0,p),k=ln.slice(p+1);"
@@ -389,7 +399,7 @@ static const char PAGE[] =
  * type-to-confirm -- it destroys records that are NOT on this screen, because
  * each one also disappears from every other tag it is filed under. */
 /* Finds its own row, so both front ends expose the same untagKey(key,count). */
-"function untagKey(k){delFlush();"
+"function untagKey(k){delFlush();toastClaim();"
 "var row=null,acts=null;"
 "[].forEach.call(document.querySelectorAll('.taglink'),function(b){"
 "if(b.textContent==k){row=b.parentNode;acts=row.nextSibling}});"
@@ -433,7 +443,7 @@ static const char PAGE[] =
 "window.addEventListener('scroll',function(){"
 "if(window.innerHeight+window.scrollY<document.body.scrollHeight-600)return;"
 "if(document.querySelector('.loadmore'))pageMore()});"
-"function setView(v){delFlush();view=v;"
+"function setView(v){delFlush();view=v;gen++;"
 "[].forEach.call(document.querySelectorAll('#bnav button'),function(b){b.className=(b.dataset.v==v)?'on':''});"
 "$('tlrange').style.display=(v=='timeline')?'flex':'none';"   /* date range only in Timeline */
 "if(v=='recall'){var q=$('q').value.trim();if(q)recall();"
@@ -591,12 +601,37 @@ static const char PAGE[] =
 "if((await r.text()).trim()=='merged'){closeSync();setView(view);alert('Imported. Records merged.')}else{alert('Import failed. Is it an .aisb file from Export?')}}"
 /* folder auto-sync: remember the path, run a pass on demand + on load + after a save */
 "function syncFolderSaved(){return localStorage.getItem('aisSyncFolder')||''}"
-"async function syncFolderRun(silent){var p=($('syncfld').value||'').trim();"
+"async function syncFolderRun(silent,force){var p=($('syncfld').value||'').trim();"
 "if(!p){if(!silent)$('syncfldmsg').textContent='Enter a folder path.';return}"
 "localStorage.setItem('aisSyncFolder',p);if(!silent)$('syncfldmsg').textContent='Syncing...';"
-"try{var r=await fetch('/api/sync-folder',{method:'POST',body:p});var ok=(await r.text()).trim()=='synced';"
-"if(!silent){$('syncfldmsg').textContent=ok?'Synced.':'Sync failed (check the path).';if(ok)setView(view)}}"
-"catch(e){if(!silent)$('syncfldmsg').textContent='Sync failed.'}}"
+"$('syncfldany').style.display='none';"
+"try{var r=await fetch('/api/sync-folder'+(force?'?force=1':''),{method:'POST',body:p});"
+"var s=(await r.text()).trim();"
+"if(s=='synced'){syncFldSaid='';$('syncfldmsg').textContent='Synced.';setView(view);return}"
+/* A background pass reports its failure too. A folder sync that quietly stops
+ * working is the exact failure this whole path exists to prevent. */
+"var m={'no such folder':'No such folder. Create it first, or check the drive is plugged in.',"
+"'not a folder':'That path is a file, not a folder.',"
+"'cannot read that folder':'That folder cannot be read. Check the drive and permissions.',"
+"'folder empty':'That folder holds no device copies at all, though we have synced with it before. The drive may not be mounted, or it was emptied or replaced.',"
+"'cannot write':'Merged what was there, but could not write into that folder: it may be read-only or full.'};"
+"var msg=m[s]||'Sync failed.';$('syncfldmsg').textContent=msg;"
+"$('syncfldany').style.display=(s=='folder empty')?'':'none';"
+/* The Sync sheet is hidden most of the time, so a message written only there is
+ * no report at all -- a background pass would fail into an invisible panel while
+ * the user went on believing the folder was their backup. Say it out loud. */
+"syncFolderAlert(msg)}"
+"catch(e){syncFolderAlert('Sync failed.');$('syncfldmsg').textContent='Sync failed.'}}"
+/* Once per problem: the pass runs on load and after every save, and repeating the
+ * same sentence on each one would train the user to ignore it. */
+"var syncFldSaid='',syncFldTimer=null;"
+/* This toast is shared with delete/undo, so hand it back: without clearing the
+ * timer a later Deleted toast vanished early, and without restoring the button
+ * that delete was offered with no Undo at all. */
+"function syncFolderAlert(msg){if(msg==syncFldSaid)return;syncFldSaid=msg;"
+"var t=$('toast');t.firstChild.textContent=msg;$('toastundo').hidden=true;t.hidden=false;"
+"if(syncFldTimer)clearTimeout(syncFldTimer);"
+"syncFldTimer=setTimeout(function(){syncFldTimer=null;t.hidden=true;$('toastundo').hidden=false},6000)}"
 "async function syncJoinGo(){var url=$('jaddr').value.trim(),tok=$('jtok').value.trim();"
 "if(!url||!tok){$('joinstatus').textContent='Enter an address and a token.';return}"
 "$('joinstatus').textContent='Syncing...';"
@@ -608,7 +643,8 @@ static const char PAGE[] =
 "$('synchostbtn').onclick=syncHost;$('syncjoinbtn').onclick=syncJoinPane;$('jgo').onclick=syncJoinGo;"
 "$('expbtn').onclick=fileExport;$('impbtn').onclick=function(){$('fileimp').click()};"
 "$('fileimp').onchange=function(){if(this.files[0])fileImport(this.files[0]);this.value=''};"
-"$('syncfldbtn').onclick=function(){syncFolderRun(false)};"
+"$('syncfldbtn').onclick=function(){syncFolderRun(false,0)};"
+"$('syncfldany').onclick=function(){syncFolderRun(false,1)};"
 "if(syncFolderSaved()){$('syncfld').value=syncFolderSaved();syncFolderRun(true)}"
 "$('syncsheet').addEventListener('click',function(e){if(e.target==$('syncsheet'))closeSync()});"
 "</script>";
@@ -1094,6 +1130,9 @@ static void handle(ais *a, int fd)
     char *method, *path, *query, *body, *keys = nokeys, *sp;
     int want_or = 0;                      /* "Match any key" -> AIS_OR; default AND+relax */
     int enc = 0;                          /* ?enc=1 -> encrypt the value before storing */
+#ifdef SERVE_HAVE_SYNC
+    int force = 0;                        /* ?force=1 -> accept a remembered folder gone empty */
+#endif
     int forget = 0;                       /* ?forget=1 -> compaction also drops the
                                            * tombstone hashes (see /api/compact)   */
     long reqid = 0;                       /* ?id= for /api/del and /api/update      */
@@ -1238,6 +1277,10 @@ static void handle(ais *a, int fd)
             enc = (query[4] == '1');
         } else if (strncmp(query, "forget=", 7) == 0) {
             forget = (query[7] == '1');
+#ifdef SERVE_HAVE_SYNC
+        } else if (strncmp(query, "force=", 6) == 0) {
+            force = (query[6] == '1');       /* sync a remembered folder that is now empty */
+#endif
         } else if (strncmp(query, "id=", 3) == 0) {
             reqid = atol(query + 3);
         } else if (strncmp(query, "before=", 7) == 0) {
@@ -1513,13 +1556,30 @@ static void handle(ais *a, int fd)
         while (bl > 0 && (nd[bl-1] == '\r' || nd[bl-1] == '\n' ||
                           nd[bl-1] == ' '  || nd[bl-1] == '\t'))
             nd[--bl] = '\0';
-        if (nd[0] != '\0' && sync_folder_once(a, nd) == 0) {
+        /* NB: parsed in the query loop above -- by the time an endpoint runs, the
+         * loop has walked `query` to NULL, so reading it here always saw nothing. */
+        int frc = (nd[0] == '\0') ? -1
+                : sync_folder_once_force(a, nd, force);
+        if (frc == 0) {
             send_head(fd, "text/plain");
             write_all(fd, "synced\n", 7);
         } else {
-            static const char e[] = "HTTP/1.0 400 Bad Request\r\n"
-                "Connection: close\r\n\r\nfolder sync failed\n";
-            write_all(fd, e, sizeof(e) - 1);
+            /* Name the reason. "Sync failed (check the path)" is the same lie the
+             * auto-create was: the user cannot tell a typo from an unmounted drive
+             * from a read-only share, and each has a different remedy. */
+            const char *why;
+            char head[256];
+            switch (frc) {
+            case AIS_FOLDER_MISSING:   why = "no such folder"; break;
+            case AIS_FOLDER_NOTDIR:    why = "not a folder";   break;
+            case AIS_FOLDER_STAT:      why = "cannot read that folder"; break;
+            case AIS_FOLDER_STRANGER:  why = "folder empty";  break;
+            case AIS_FOLDER_NOWRITE:   why = "cannot write";   break;
+            default:                   why = "folder sync failed"; break;
+            }
+            snprintf(head, sizeof head, "HTTP/1.0 400 Bad Request\r\n"
+                     "Connection: close\r\n\r\n%s\n", why);
+            write_all(fd, head, strlen(head));
         }
     } else if (strcmp(method, "POST") == 0 && strcmp(path, "/api/import-bundle") == 0) {
         /* Upload a plaintext .aisb bundle and merge it (same tombstone-union LWW

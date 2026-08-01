@@ -92,6 +92,14 @@ push those records back. Both pages ask it as a **separate** question from
 `/api/sync/host`, `/api/sync/status`, `/api/sync/join`, `/api/sync-folder`,
 `/api/export-bundle`, `/api/import-bundle`, `/api/store`. See `SYNC.md`.
 
+`POST /api/sync-folder` takes the folder path as the body and answers `synced`, or
+**400 with the reason as the body**: `no such folder`, `not a folder`, `cannot read
+that folder`, `folder empty` (synced here before, no device bundles in it now), or
+`cannot write`. Each has a different remedy, so a front end must show which one it
+got; a flat "sync failed" is what let a broken folder sync pass for a working
+backup. `?force=1` accepts the `folder empty` case, and is the web equivalent of
+the CLI's `-y`. Nothing else creates the folder or bypasses a check.
+
 `/api/store` switches the active index and persists the choice via
 `ais_default_set`, which writes the developer's REAL `~/.ais/config`. Any test
 touching it must snapshot and restore that file — `tests/gui/serve.sh` does, and

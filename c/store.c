@@ -46,6 +46,40 @@ static int ts_digits(const char *p, int i, int n)
  * common and must not be mistaken for a save time. A malformed date simply
  * fails here and the line is read as a dateless v1 record -- the id, keys and
  * value are never lost, only the date is dropped. */
+/* One second later, on the canonical "YYYY-MM-DDThh:mm:ssZ" form. Plain civil
+ * arithmetic rather than timegm()/mktime(): the string is already UTC, so there is
+ * no zone to consult, and the two libc calls that could do this are respectively
+ * non-standard and local-time. Returns 0, or -1 if TS is not that exact form. */
+static int atoi_n(const char *p, int off, int n)
+{
+    int v = 0;
+    while (n-- > 0)
+        v = v * 10 + (p[off++] - '0');
+    return v;
+}
+
+int store_ts_next_second(const char *ts, char *out, size_t outsz)
+{
+    static const int mdays[12] = {31,28,31,30,31,30,31,31,30,31,30,31};
+    int y, mo, d, h, mi, se, last;
+
+    if (ts == NULL || strlen(ts) != 20 || !store_looks_like_ts(ts))
+        return -1;
+    y  = atoi_n(ts, 0, 4);  mo = atoi_n(ts, 5, 2);  d  = atoi_n(ts, 8, 2);
+    h  = atoi_n(ts, 11, 2); mi = atoi_n(ts, 14, 2); se = atoi_n(ts, 17, 2);
+    if (mo < 1 || mo > 12 || d < 1)
+        return -1;
+
+    if (++se > 59) { se = 0; if (++mi > 59) { mi = 0; if (++h > 23) { h = 0;
+        last = mdays[mo - 1];
+        if (mo == 2 && ((y % 4 == 0 && y % 100 != 0) || y % 400 == 0))
+            last = 29;
+        if (++d > last) { d = 1; if (++mo > 12) { mo = 1; y++; } }
+    } } }
+    return (snprintf(out, outsz, "%04d-%02d-%02dT%02d:%02d:%02dZ",
+                     y, mo, d, h, mi, se) == 20) ? 0 : -1;
+}
+
 int store_looks_like_ts(const char *p)
 {
     int i;

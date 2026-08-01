@@ -180,10 +180,10 @@ int tomb_remove(const ais *a, long id)
     return 0;
 }
 
-/* Parse a ktomb line IN PLACE: "id|ts|hash|key" (or legacy "id|key"). Returns the id
+/* Parse a ktomb/katt line IN PLACE: "id|ts|hash|key" (or legacy "id|key"). Returns the id
  * (>= 0), sets the TSP/HP/KP out-pointers to the fields (ts/hash "" for a legacy line), or -1 if
  * there is no key field. Keys never contain '|' (key_encode), nor do ts/hash. */
-static long ktomb_parse(char *line, const char **tsp, const char **hp, const char **kp)
+static long kfile_parse(char *line, const char **tsp, const char **hp, const char **kp)
 {
     char *b1, *b2, *b3, *e;
 
@@ -208,11 +208,50 @@ static long ktomb_parse(char *line, const char **tsp, const char **hp, const cha
     return atol(line);
 }
 
+/* The (id, key) of a ktomb/katt line WITHOUT modifying or copying it. The id is
+ * the leading integer; the key is the field after the LAST '|', which is what
+ * kfile_parse yields for both shapes it accepts ("id|ts|hash|key" and the legacy
+ * "id|key") -- and, like kfile_parse, a line with no key field (no '|' at all, or
+ * a bare "id|ts|hash") is rejected with -1 so the caller keeps it untouched.
+ * *KP points INTO LINE and is not nul-terminated; its length comes back in KLEN,
+ * any trailing newline already trimmed.
+ *
+ * This exists so the rewrite path can match a line without the second
+ * AIS_LINE_MAX buffer a parse-a-copy needs: kfile_remove sits under the primary
+ * save path (katt_set), whose chain has to fit the 512 KB thread stack the FFI
+ * seam runs on, and two line-sized buffers to look at two fields was the largest
+ * single frame on it. */
+static long kfile_peek(const char *line, const char **kp, size_t *klen)
+{
+    const char *bars[3], *p, *k, *e;
+    int n = 0;
+
+    for (p = line; *p != '\0'; p++)
+        if (*p == '|') {
+            if (n < 3)
+                bars[n] = p;
+            n++;
+        }
+    if (n == 1)
+        k = bars[0] + 1;                     /* legacy "id|key" */
+    else if (n >= 3)
+        k = bars[2] + 1;                     /* "id|ts|hash|key" */
+    else
+        return -1;                           /* no key field */
+    e = k + strlen(k);
+    while (e > k && (e[-1] == '\n' || e[-1] == '\r'))
+        e--;
+    *kp = k;
+    *klen = (size_t)(e - k);
+    return atol(line);
+}
+
 /* KEY is stored and compared in its key_encode() form throughout this file. That
  * is the identity the postings use, so a detach of "doc" matches a stored "Doc"
  * (a raw strcmp did not, and compaction then RESURRECTED the key it had removed);
- * and encoding folds the '|' that would otherwise split the ktomb line itself. */
-int ktomb_append(const ais *a, long id, const char *ts, const char *hash, const char *key)
+ * and encoding folds the '|' that would otherwise split the line itself. */
+static int kfile_append(const ais *a, const char *file, long id, const char *ts,
+                        const char *hash, const char *key)
 {
     char path[AIS_PATH_MAX];
     char enc[AIS_KEY_MAX];
@@ -220,7 +259,7 @@ int ktomb_append(const ais *a, long id, const char *ts, const char *hash, const 
 
     if (key_encode(key, enc, sizeof enc) != 0)
         return -1;
-    if (compact_path(a, "ktomb", path, sizeof(path)) != 0)
+    if (compact_path(a, file, path, sizeof(path)) != 0)
         return -1;
     fp = fopen(path, "a");
     if (fp == NULL)
@@ -231,20 +270,20 @@ int ktomb_append(const ais *a, long id, const char *ts, const char *hash, const 
     return 0;
 }
 
-int ktomb_each(const ais *a, ktomb_cb cb, void *ctx)
+static int kfile_each(const ais *a, const char *file, ktomb_cb cb, void *ctx)
 {
     char path[AIS_PATH_MAX], line[AIS_LINE_MAX];
     FILE *fp;
     int rc = 0;
 
-    if (compact_path(a, "ktomb", path, sizeof(path)) != 0)
+    if (compact_path(a, file, path, sizeof(path)) != 0)
         return -1;
     fp = fopen(path, "r");
     if (fp == NULL)
         return (errno == ENOENT) ? 0 : -1;
     while (fgets(line, sizeof(line), fp) != NULL) {
         const char *ts, *h, *k;
-        long id = ktomb_parse(line, &ts, &h, &k);
+        long id = kfile_parse(line, &ts, &h, &k);
         if (id < 0 || k == NULL)
             continue;
         rc = cb(id, ts, h, k, ctx);
@@ -255,7 +294,7 @@ int ktomb_each(const ais *a, ktomb_cb cb, void *ctx)
     return rc;
 }
 
-int ktomb_contains(const ais *a, long id, const char *key)
+static int kfile_contains(const ais *a, const char *file, long id, const char *key)
 {
     char path[AIS_PATH_MAX];
     char line[AIS_LINE_MAX];
@@ -266,7 +305,7 @@ int ktomb_contains(const ais *a, long id, const char *key)
     if (key_encode(key, enc, sizeof enc) != 0)
         return -1;
 
-    if (compact_path(a, "ktomb", path, sizeof(path)) != 0)
+    if (compact_path(a, file, path, sizeof(path)) != 0)
         return -1;
     fp = fopen(path, "r");
     if (fp == NULL)
@@ -274,7 +313,7 @@ int ktomb_contains(const ais *a, long id, const char *key)
 
     while (fgets(line, sizeof(line), fp) != NULL) {
         const char *ts, *h, *k = NULL;
-        if (ktomb_parse(line, &ts, &h, &k) == id && k != NULL && strcmp(k, enc) == 0) {
+        if (kfile_parse(line, &ts, &h, &k) == id && k != NULL && strcmp(k, enc) == 0) {
             found = 1;
             break;
         }
@@ -283,10 +322,12 @@ int ktomb_contains(const ais *a, long id, const char *key)
     return found;
 }
 
-/* Like ktomb_contains, but also copies the detach-ts of (ID,KEY) into TS (the
- * LAST matching entry = latest append; "" for a legacy no-ts entry). Returns 1
- * if detached, 0 if not, -1 on error. Lets a re-attach LWW against the detach. */
-int ktomb_lookup(const ais *a, long id, const char *key, char *ts, size_t tsz)
+/* Like kfile_contains, but also copies the ts of (ID,KEY) into TS (the LAST
+ * matching entry = latest append; "" for a legacy no-ts entry). Returns 1 if the
+ * pair is recorded, 0 if not, -1 on error. This is what lets an attach and a
+ * detach LWW against each other. */
+static int kfile_lookup(const ais *a, const char *file, long id, const char *key,
+                        char *ts, size_t tsz)
 {
     char path[AIS_PATH_MAX];
     char line[AIS_LINE_MAX];
@@ -299,7 +340,7 @@ int ktomb_lookup(const ais *a, long id, const char *key, char *ts, size_t tsz)
 
     if (ts != NULL && tsz > 0)
         ts[0] = '\0';
-    if (compact_path(a, "ktomb", path, sizeof(path)) != 0)
+    if (compact_path(a, file, path, sizeof(path)) != 0)
         return -1;
     fp = fopen(path, "r");
     if (fp == NULL)
@@ -307,7 +348,7 @@ int ktomb_lookup(const ais *a, long id, const char *key, char *ts, size_t tsz)
 
     while (fgets(line, sizeof(line), fp) != NULL) {
         const char *kts, *h, *k = NULL;
-        if (ktomb_parse(line, &kts, &h, &k) == id && k != NULL && strcmp(k, enc) == 0) {
+        if (kfile_parse(line, &kts, &h, &k) == id && k != NULL && strcmp(k, enc) == 0) {
             found = 1;                        /* keep scanning: last wins */
             if (ts != NULL && tsz > 0 && kts != NULL) {
                 strncpy(ts, kts, tsz - 1);
@@ -319,18 +360,23 @@ int ktomb_lookup(const ais *a, long id, const char *key, char *ts, size_t tsz)
     return found;
 }
 
-int ktomb_remove(const ais *a, long id, const char *key)
+/* Drop (ID,KEY), or every entry for ID when KEY is NULL. Returns 0 (including
+ * when nothing matched), or -1 on error. */
+static int kfile_remove(const ais *a, const char *file, long id, const char *key)
 {
     char path[AIS_PATH_MAX], tmp[AIS_PATH_MAX];
-    char orig[AIS_LINE_MAX], work[AIS_LINE_MAX];
+    char orig[AIS_LINE_MAX];
     char enc[AIS_KEY_MAX];
     FILE *in, *out;
+    size_t elen = 0;
     long kept = 0;
     int removed = 0;
 
-    if (key_encode(key, enc, sizeof enc) != 0)
+    if (key != NULL && key_encode(key, enc, sizeof enc) != 0)
         return -1;
-    if (compact_path(a, "ktomb", path, sizeof(path)) != 0)
+    if (key != NULL)
+        elen = strlen(enc);
+    if (compact_path(a, file, path, sizeof(path)) != 0)
         return -1;
     in = fopen(path, "r");
     if (in == NULL)
@@ -346,9 +392,11 @@ int ktomb_remove(const ais *a, long id, const char *key)
         return -1;
     }
     while (fgets(orig, sizeof(orig), in) != NULL) {
-        const char *ts, *h, *k = NULL;
-        snprintf(work, sizeof(work), "%s", orig);   /* parse a copy; emit orig */
-        if (ktomb_parse(work, &ts, &h, &k) == id && k != NULL && strcmp(k, enc) == 0) {
+        const char *k = NULL;
+        size_t klen = 0;
+        /* matched in place; the line is emitted verbatim, so nothing may write to it */
+        if (kfile_peek(orig, &k, &klen) == id && k != NULL &&
+            (key == NULL || (klen == elen && memcmp(k, enc, klen) == 0))) {
             removed = 1;
             continue;                                /* drop this pair */
         }
@@ -376,9 +424,281 @@ int ktomb_remove(const ais *a, long id, const char *key)
     return 0;
 }
 
+static int kfile_active(const ais *a, const char *file)
+{
+    char path[AIS_PATH_MAX];
+    struct stat st;
+
+    if (compact_path(a, file, path, sizeof(path)) != 0)
+        return -1;
+    if (stat(path, &st) != 0)
+        return (errno == ENOENT) ? 0 : -1;
+    return st.st_size > 0;
+}
+
+/* The two key-level files, same shape, opposite sign: ktomb says a key was taken
+ * OFF a record, katt says it was put ON one. Both are (id, ts, record hash, key),
+ * so they share every accessor above and differ only in what they mean and in how
+ * they are written -- ktomb is an append-only log of removals, katt one entry per
+ * pair (the time it was last attached), so katt_set replaces rather than appends. */
+int ktomb_append(const ais *a, long id, const char *ts, const char *hash, const char *key)
+{ return kfile_append(a, "ktomb", id, ts, hash, key); }
+int ktomb_each(const ais *a, ktomb_cb cb, void *ctx)  { return kfile_each(a, "ktomb", cb, ctx); }
+int ktomb_contains(const ais *a, long id, const char *key)
+{ return kfile_contains(a, "ktomb", id, key); }
+int ktomb_lookup(const ais *a, long id, const char *key, char *ts, size_t tsz)
+{ return kfile_lookup(a, "ktomb", id, key, ts, tsz); }
+int ktomb_remove(const ais *a, long id, const char *key)
+{ return kfile_remove(a, "ktomb", id, key); }
+int ktomb_active(const ais *a)                        { return kfile_active(a, "ktomb"); }
+
+int katt_set(const ais *a, long id, const char *ts, const char *hash, const char *key)
+{
+    if (kfile_remove(a, "katt", id, key) != 0)   /* one entry per pair: when, not a log */
+        return -1;
+    return kfile_append(a, "katt", id, ts, hash, key);
+}
+int katt_add(const ais *a, long id, const char *ts, const char *hash, const char *key)
+{ return kfile_append(a, "katt", id, ts, hash, key); }
+int katt_lookup(const ais *a, long id, const char *key, char *ts, size_t tsz)
+{ return kfile_lookup(a, "katt", id, key, ts, tsz); }
+int katt_each(const ais *a, ktomb_cb cb, void *ctx)   { return kfile_each(a, "katt", cb, ctx); }
+int katt_forget(const ais *a, long id, const char *key)
+{ return kfile_remove(a, "katt", id, key); }
+int katt_active(const ais *a)                         { return kfile_active(a, "katt"); }
+
 /* 1 if anything is deleted at all, 0 if the tomb is empty/absent, -1 on error.
  * A cheap stat, so read paths can skip per-id liveness checks entirely on the
  * common index where nothing has ever been deleted. */
+/* MTS -- when each record was last edited HERE, one fixed-width slot per id.
+ *
+ * Merging compares a peer's delete against the record's timestamp, and that
+ * timestamp was its creation time -- so an edit made AFTER a remote delete lost
+ * to it. Adding a tag two seconds after another device deleted the record threw
+ * the tag away with the record, which contradicts the rule the resurrect path
+ * already sets: a later user action beats an earlier delete. An edit is a later
+ * user action.
+ *
+ * Why the store line's ts is left alone. The exported A| line carries ONE
+ * timestamp for the record and its whole key set, and the import side hands that
+ * same timestamp to attach_wins. Raising it therefore does not merely outrank
+ * record deletes, it outranks KEY deletes: a device that removed a tag would see
+ * it come back the moment any other device touched the record for an unrelated
+ * reason, and the ktomb proving the removal would be erased. So the edit clock
+ * stays LOCAL, and only a record that actually survives a delete is restamped
+ * (ais_merge_del) -- the existing, understood re-add behaviour, and the way the
+ * decision reaches the other devices at all.
+ *
+ * Shape: slot k = id k, AIS_TS_MAX-1 chars plus a newline, blank = never edited,
+ * exactly like the "off" accelerator. Fixed width buys an O(1) seek in and out,
+ * no parsing, no allocation on the record path, and a file bounded by the highest
+ * id rather than by the number of edits ever made.
+ *
+ * One-second timestamps mean an edit and a delete inside the SAME second still
+ * resolve to the delete (ties are sticky, MERGE.md). That is the clock's limit,
+ * not this file's. */
+/* A canonical timestamp is exactly "YYYY-MM-DDThh:mm:ssZ". AIS_TS_MAX is the
+ * BUFFER size (with slack), not the string length, so the slot is sized from the
+ * string: a slot wider than the data would misalign every later entry. */
+#define MTS_TS_LEN 20
+#define MTS_W (MTS_TS_LEN + 1)      /* the timestamp plus '\n' */
+
+static int slot_set(const ais *a, const char *file, long id, const char *ts)
+{
+    char path[AIS_PATH_MAX], slot[MTS_W + 1];
+    FILE *f;
+    long want;
+
+    if (id <= 0 || ts == NULL || (int)strlen(ts) != MTS_TS_LEN)
+        return -1;
+    if (compact_path(a, file, path, sizeof path) != 0)
+        return -1;
+    f = fopen(path, "r+");
+    if (f == NULL) {
+        f = fopen(path, "w");            /* first one in this index */
+        if (f == NULL)
+            return -1;
+    }
+    /* Seeking past the end leaves a hole that reads back as NUL, not as the blank
+     * slot readers expect, so pad explicitly. */
+    if (fseek(f, 0, SEEK_END) != 0) { fclose(f); return -1; }
+    want = (id - 1) * (long)MTS_W;
+    while (ftell(f) < want) {
+        memset(slot, ' ', MTS_W - 1);
+        slot[MTS_W - 1] = '\n';
+        if (fwrite(slot, 1, MTS_W, f) != MTS_W) { fclose(f); return -1; }
+    }
+    if (fseek(f, want, SEEK_SET) != 0) { fclose(f); return -1; }
+    snprintf(slot, sizeof slot, "%s\n", ts);
+    if (fwrite(slot, 1, MTS_W, f) != MTS_W) { fclose(f); return -1; }
+    return (fclose(f) == 0) ? 0 : -1;
+}
+
+/* Forget an id's edit time. Called when the record dies: delete is delete, and a
+ * timestamp recording when the user last touched something they removed is exactly
+ * the residue the index promises not to keep. */
+static int slot_clear(const ais *a, const char *file, long id)
+{
+    char path[AIS_PATH_MAX], slot[MTS_W];
+    FILE *f;
+    int rc;
+
+    if (id <= 0)
+        return 0;
+    if (compact_path(a, file, path, sizeof path) != 0)
+        return -1;
+    f = fopen(path, "r+");
+    if (f == NULL)
+        return (errno == ENOENT) ? 0 : -1;
+    if (fseek(f, (id - 1) * (long)MTS_W, SEEK_SET) != 0) { fclose(f); return 0; }
+    memset(slot, ' ', MTS_W - 1);
+    slot[MTS_W - 1] = '\n';
+    rc = (fwrite(slot, 1, MTS_W, f) == MTS_W) ? 0 : -1;
+    return (fclose(f) == 0) ? rc : -1;
+}
+
+static int slot_get(const ais *a, const char *file, long id, char *out, size_t outsz)
+{
+    char path[AIS_PATH_MAX], slot[MTS_W + 1];
+    FILE *f;
+
+    if (outsz > 0)
+        out[0] = '\0';
+    if (id <= 0)
+        return 0;
+    if (compact_path(a, file, path, sizeof path) != 0)
+        return -1;
+    f = fopen(path, "r");
+    if (f == NULL)
+        return (errno == ENOENT) ? 0 : -1;
+    {   /* A length that is not a whole number of slots means a torn write: every
+         * slot after the tear is misaligned, so the file cannot be read at all.
+         * "off" gets the same treatment from off_consistent(). */
+        struct stat st;
+        if (fstat(fileno(f), &st) != 0 || (st.st_size % MTS_W) != 0) {
+            fclose(f);
+            return 0;
+        }
+    }
+    if (fseek(f, (id - 1) * (long)MTS_W, SEEK_SET) != 0) { fclose(f); return 0; }
+    if (fread(slot, 1, MTS_W, f) != MTS_W) { fclose(f); return 0; }   /* beyond the file */
+    fclose(f);
+    if (slot[0] == ' ' || slot[0] == '\0')
+        return 0;                                                     /* never edited */
+    if (slot[MTS_W - 1] != '\n')
+        return 0;                                                     /* not a whole slot */
+    slot[MTS_W - 1] = '\0';
+    /* Validate before anyone can act on it. Unlike "off" -- a pure accelerator
+     * whose worst failure is a fallback scan -- this value can be written into a
+     * store line by the restamp, where a stray '|' or newline would split the
+     * record and lose its value. A damaged slot must read as "never edited". */
+    if (!store_looks_like_ts(slot) || strlen(slot) != MTS_TS_LEN ||
+        strpbrk(slot, "|\r\n") != NULL)
+        return 0;
+    snprintf(out, outsz, "%s", slot);
+    return 1;
+}
+
+/* MTS: when the user last touched the record here. STS: the time this record was
+ * restamped to after SURVIVING a peer's delete -- exported so the peer converges,
+ * but deliberately kept OUT of the store line.
+ *
+ * Writing it into the line instead made the outcome depend on the order the
+ * import happened to read peer bundles in: a K| detach arriving after the delete
+ * in the same pass compared against the raised line and lost, one arriving before
+ * it compared against the creation time and won, and which of those you got was
+ * readdir order. The line keeps its own meaning; only the export is raised. */
+static int slot_forget_dead(const ais *a, const char *file);
+
+int mts_set(const ais *a, long id, const char *ts)   { return slot_set(a, "mts", id, ts); }
+int mts_clear(const ais *a, long id)                 { return slot_clear(a, "mts", id); }
+int mts_get(const ais *a, long id, char *o, size_t n){ return slot_get(a, "mts", id, o, n); }
+/* Does this index hold ANY survival at all? A cheap stat, so the export can skip
+ * the per-record seek on the overwhelmingly common index that has none. */
+int sts_active(const ais *a)
+{
+    char path[AIS_PATH_MAX];
+    struct stat st;
+
+    if (compact_path(a, "sts", path, sizeof path) != 0)
+        return -1;
+    if (stat(path, &st) != 0)
+        return (errno == ENOENT) ? 0 : -1;
+    return (st.st_size > 0) ? 1 : 0;
+}
+
+int sts_set(const ais *a, long id, const char *ts)   { return slot_set(a, "sts", id, ts); }
+int sts_clear(const ais *a, long id)                 { return slot_clear(a, "sts", id); }
+int sts_get(const ais *a, long id, char *o, size_t n){ return slot_get(a, "sts", id, o, n); }
+
+int mts_forget_dead(const ais *a)
+{
+    int rc = slot_forget_dead(a, "mts");
+    return (slot_forget_dead(a, "sts") != 0) ? -1 : rc;
+}
+
+/* The timestamp an EXPORT should carry: the later of the line's own time and any
+ * delete this record has survived. */
+void sts_effective(const ais *a, long id, const char *line_ts, char *out, size_t outsz)
+{
+    char sv[AIS_TS_MAX];
+
+    snprintf(out, outsz, "%s", line_ts != NULL ? line_ts : "");
+    if (sts_get(a, id, sv, sizeof sv) == 1 && sv[0] != '\0' && strcmp(sv, out) > 0)
+        snprintf(out, outsz, "%s", sv);
+}
+
+/* The timestamp a DELETE is judged against: the latest of the record's creation
+ * time, its last local edit, and any delete it has already survived.
+ *
+ * The last of those matters as much as the first two. A record that came back
+ * here because a peer's copy outranked a tombstone has a line still carrying its
+ * creation time, so without folding `sts` in, the very next D| -- the same one,
+ * relayed round the mesh -- deleted it again, and the record ping-ponged forever
+ * between the device that edited it and every device that had not. */
+void mts_effective(const ais *a, long id, const char *add_ts, char *out, size_t outsz)
+{
+    char t[AIS_TS_MAX];
+
+    snprintf(out, outsz, "%s", add_ts != NULL ? add_ts : "");
+    if (mts_get(a, id, t, sizeof t) == 1 && t[0] != '\0' && strcmp(t, out) > 0)
+        snprintf(out, outsz, "%s", t);
+    if (sts_get(a, id, t, sizeof t) == 1 && t[0] != '\0' && strcmp(t, out) > 0)
+        snprintf(out, outsz, "%s", t);
+}
+
+/* Compaction drops the deleted records; their edit times go with them. One pass
+ * over fixed-width slots, no allocation -- the record path stays stack-and-stream
+ * (STYLE.md). A purged tombstone keeps its id, so its slot is cleared too. */
+static int slot_forget_dead(const ais *a, const char *file)
+{
+    char path[AIS_PATH_MAX], slot[MTS_W];
+    FILE *f;
+    long id = 1;
+    int rc = 0;
+
+    if (compact_path(a, file, path, sizeof path) != 0)
+        return -1;
+    f = fopen(path, "r+");
+    if (f == NULL)
+        return (errno == ENOENT) ? 0 : -1;
+    for (; ; id++) {
+        if (fseek(f, (id - 1) * (long)MTS_W, SEEK_SET) != 0) break;
+        if (fread(slot, 1, MTS_W, f) != MTS_W) break;        /* end of the file */
+        if (slot[0] == ' ' || slot[0] == '\0')
+            continue;                                        /* already blank */
+        if (tomb_contains(a, id) != 1)
+            continue;   /* live -- or unreadable, which must not read as "blank it" */
+        memset(slot, ' ', MTS_W - 1);
+        slot[MTS_W - 1] = '\n';
+        if (fseek(f, (id - 1) * (long)MTS_W, SEEK_SET) != 0 ||
+            fwrite(slot, 1, MTS_W, f) != MTS_W) { rc = -1; break; }
+    }
+    if (fclose(f) != 0)
+        rc = -1;
+    return rc;
+}
+
 int tomb_active(const ais *a)
 {
     char path[AIS_PATH_MAX];
@@ -391,17 +711,6 @@ int tomb_active(const ais *a)
     return st.st_size > 0;
 }
 
-int ktomb_active(const ais *a)
-{
-    char path[AIS_PATH_MAX];
-    struct stat st;
-
-    if (compact_path(a, "ktomb", path, sizeof(path)) != 0)
-        return -1;
-    if (stat(path, &st) != 0)
-        return (errno == ENOENT) ? 0 : -1;
-    return st.st_size > 0;
-}
 
 /* Recursively remove a directory tree. Returns 0, or -1 on error. Bounded by
  * the index's directory depth (idx/<p>/<key>), not by data size. */
@@ -621,7 +930,7 @@ static int ktomb_keep_hashed_x(ais *a, int purge)
     while (fgets(line, sizeof line, in) != NULL) {
         const char *ts, *h, *k;
         snprintf(work, sizeof work, "%s", line);
-        if (ktomb_parse(work, &ts, &h, &k) < 0 || k == NULL || h[0] == '\0')
+        if (kfile_parse(work, &ts, &h, &k) < 0 || k == NULL || h[0] == '\0')
             continue;
         if (purge) {
             /* Blank the hash so the detach stops travelling and stops being
@@ -636,6 +945,43 @@ static int ktomb_keep_hashed_x(ais *a, int purge)
     }
     if (fclose(in) != 0) { fclose(out); remove(tmp); return -1; }
     if (fflush(out) != 0 || fclose(out) != 0) { remove(tmp); return -1; }
+    if (rename(tmp, path) != 0) { remove(tmp); return -1; }
+    return 0;
+}
+
+/* katt records WHEN a key was attached, so an entry is only worth keeping while
+ * that is still true: drop the ones whose record is gone and the ones whose key
+ * has since been detached, or the export would go on advertising an attach that
+ * no longer exists. Atomic. Returns 0, or -1. */
+static int katt_keep_attached(ais *a)
+{
+    char path[AIS_PATH_MAX], tmp[AIS_PATH_MAX], line[AIS_LINE_MAX], work[AIS_LINE_MAX];
+    FILE *in, *out;
+    long kept = 0;
+
+    if (compact_path(a, "katt", path, sizeof path) != 0)
+        return -1;
+    in = fopen(path, "r");
+    if (in == NULL)
+        return (errno == ENOENT) ? 0 : -1;
+    if (snprintf(tmp, sizeof tmp, "%s.new", path) >= (int)sizeof tmp) { fclose(in); return -1; }
+    out = fopen(tmp, "w");
+    if (out == NULL) { fclose(in); return -1; }
+    while (fgets(line, sizeof line, in) != NULL) {
+        const char *ts, *h, *k;
+        long id;
+        snprintf(work, sizeof work, "%s", line);
+        id = kfile_parse(work, &ts, &h, &k);
+        if (id < 0 || k == NULL || h[0] == '\0')
+            continue;
+        if (tomb_contains(a, id) != 0 || ktomb_contains(a, id, k) != 0)
+            continue;
+        fputs(line, out);
+        kept++;
+    }
+    if (fclose(in) != 0) { fclose(out); remove(tmp); return -1; }
+    if (fflush(out) != 0 || fclose(out) != 0) { remove(tmp); return -1; }
+    if (kept == 0) { remove(tmp); return (unlink(path) != 0 && errno != ENOENT) ? -1 : 0; }
     if (rename(tmp, path) != 0) { remove(tmp); return -1; }
     return 0;
 }
@@ -737,6 +1083,10 @@ static int compact_locked(ais *a)
     if (tomb_keep_hashed_x(a, a->purge_deletes) != 0)
         goto cleanup;
     if (ktomb_keep_hashed_x(a, a->purge_deletes) != 0)
+        goto cleanup;
+    if (katt_keep_attached(a) != 0)    /* nor an attach time its attachment */
+        goto cleanup;
+    if (mts_forget_dead(a) != 0)       /* an edit time must not outlive its record */
         goto cleanup;
 
     /* next_id must NEVER regress. Ids are permanent per-device handles, and the

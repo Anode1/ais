@@ -12,7 +12,8 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "compact.h"      /* tomb_contains / tomb_each -- merge export */
+#include "compact.h"
+#include "sync.h"      /* AIS_SYNC_PROTO -- an app bundle is these lines behind one byte */      /* tomb_contains / tomb_each -- merge export */
 #include "doc.h"
 #include "feed.h"
 #include "win.h"        /* mkdir() shim on native Windows */
@@ -177,8 +178,28 @@ static int feed_take_blob(ais *a, const char *rel, long want, FILE *in)
 void feed_import_from(ais *a, FILE *in)
 {
     char line[AIS_LINE_MAX];
+    ais_del_fact pend[AIS_MERGE_BATCH];   /* D| facts awaiting one shared store pass */
+    int  npend = 0;
+    ais_att_fact patt[AIS_ATT_BATCH];     /* T| facts likewise (ais_merge_attach_many) */
+    int  natt = 0;
     long n = 0, skipped = 0;
     int  from_dump;
+    char cts[AIS_TS_MAX], chash[17];      /* one pending C| (a raised A|'s true time) */
+
+    cts[0] = '\0';
+    chash[0] = '\0';
+
+    /* A bundle written by the app or the web GUI is a version byte followed by
+     * exactly these lines. Without this, that byte glued itself to the first line,
+     * which then matched no verb and fell through to the plain "keys|value"
+     * reader: the record was stored under a junk key with its timestamp swallowed
+     * into the value, and the import reported success. Silent wrong data, from a
+     * file the user was entitled to think we speak. */
+    {
+        int c0 = getc(in);
+        if (c0 != EOF && c0 != AIS_SYNC_PROTO)
+            ungetc(c0, in);
+    }
 
     /* A line is one of: a merge-stream "A|ts|keys|value" (add) or "D|ts|hash" (delete),
      * or a plain "keys|value" (legacy dump / hand-edit -> an add with no ts). Keys never
@@ -191,26 +212,98 @@ void feed_import_from(ais *a, FILE *in)
         if (line[0] == '\0' || line[0] == '#')
             continue;
 
+        /* D|ts|hash -- BUFFERED, and so tested before anything else. Resolving one
+         * means scanning the store for the value it names, and doing that per line
+         * made an import cost O(deletes x records); a whole batch resolves in one
+         * pass (ais_merge_del_many). Tested first because every other line either
+         * writes a record or reads one, and must see the tomb the pending deletes
+         * write: an add can resurrect the very record a D| names, or raise its edit
+         * clock, and a K| detach asks whether the record is still live. So the batch
+         * spans a RUN of D| lines -- which is all of them in practice, since an
+         * export emits every add before the first delete. A malformed D| falls
+         * through to the flush below and then to the plain reader, as it always did. */
+        if (line[0] == 'D' && line[1] == '|' && strchr(line + 2, '|') != NULL) {
+            char *ts = line + 2, *h = strchr(ts, '|');
+            *h++ = '\0';
+            /* Bounded precision, not just a bounded buffer: a malformed line can
+             * carry a field of any length, and it is truncated here. */
+            snprintf(pend[npend].hash, sizeof pend[npend].hash, "%.*s",
+                     (int)(sizeof pend[npend].hash - 1), h);
+            snprintf(pend[npend].ts, sizeof pend[npend].ts, "%.*s",
+                     (int)(sizeof pend[npend].ts - 1), ts);
+            if (++npend == AIS_MERGE_BATCH) {          /* buffer full: resolve them */
+                ais_merge_del_many(a, pend, npend);
+                npend = 0;
+            }
+            continue;
+        }
+        if (npend > 0) {                               /* the run ended here */
+            ais_merge_del_many(a, pend, npend);
+            npend = 0;
+        }
+
+        /* T|ts|hash|key -- BUFFERED for the same reason as D|, and tested here so
+         * the pending deletes above are already applied (an attach asks whether the
+         * record is still live). An export emits every attach in one run, from one
+         * katt pass, so in practice this is a single batch per bundle. A malformed
+         * T| falls through to the flush below and then to the plain reader. */
+        if (line[0] == 'T' && line[1] == '|') {
+            char *ts = line + 2, *h, *k;
+            h = strchr(ts, '|');
+            k = (h != NULL) ? strchr(h + 1, '|') : NULL;
+            if (h != NULL && k != NULL) {
+                *h++ = '\0';                           /* ts | */
+                *k++ = '\0';                           /* hash | key */
+                snprintf(patt[natt].hash, sizeof patt[natt].hash, "%.*s",
+                         (int)(sizeof patt[natt].hash - 1), h);
+                snprintf(patt[natt].key, sizeof patt[natt].key, "%.*s",
+                         (int)(sizeof patt[natt].key - 1), k);
+                snprintf(patt[natt].ts, sizeof patt[natt].ts, "%.*s",
+                         (int)(sizeof patt[natt].ts - 1), ts);
+                if (++natt == AIS_ATT_BATCH) {         /* buffer full: resolve them */
+                    ais_merge_attach_many(a, patt, natt);
+                    natt = 0;
+                }
+                continue;
+            }
+        }
+        if (natt > 0) {                                /* the run ended here */
+            ais_merge_attach_many(a, patt, natt);
+            natt = 0;
+        }
+
+        if (line[0] == 'C' && line[1] == '|') {        /* C|true ts|hash */
+            /* The true time of the A| line that follows, which exports at a time
+             * raised to beat a peer's tombstone. Held in ONE slot: it names the
+             * very next record, and the exporter emits it immediately before. */
+            char *ts = line + 2, *h = strchr(ts, '|');
+            if (h != NULL) {
+                *h++ = '\0';
+                snprintf(cts, sizeof cts, "%.*s", (int)(sizeof cts - 1), ts);
+                snprintf(chash, sizeof chash, "%.*s", (int)(sizeof chash - 1), h);
+                continue;
+            }
+        }
         if (line[0] == 'A' && line[1] == '|') {        /* A|ts|keys|value */
             char *ts = line + 2, *k, *v;
             k = strchr(ts, '|');
             v = (k != NULL) ? strchr(k + 1, '|') : NULL;
             if (k != NULL && v != NULL) {
+                const char *ats;
                 *k++ = '\0';
                 *v++ = '\0';
-                if (ais_put_at(a, k, v, ts[0] ? ts : NULL) >= 0)
+                ats = ts[0] ? ts : NULL;
+                if (cts[0] != '\0') {          /* a C| named this record's true time */
+                    char h[17];
+                    content_hash(v, h);
+                    if (strcmp(h, chash) == 0)
+                        ats = cts;
+                    cts[0] = '\0';             /* one A| spends the slot either way */
+                }
+                if (ais_put_at_k(a, k, v, ts[0] ? ts : NULL, ats) >= 0)
                     n++;
                 continue;
             }                                          /* else: legacy keys "A" -> below */
-        }
-        if (line[0] == 'D' && line[1] == '|') {        /* D|ts|hash */
-            char *ts = line + 2, *h;
-            h = strchr(ts, '|');
-            if (h != NULL) {
-                *h++ = '\0';
-                ais_merge_del(a, h, ts);
-                continue;
-            }
         }
         if (line[0] == 'K' && line[1] == '|') {        /* K|ts|hash|key (detach a tag) */
             char *ts = line + 2, *h, *k;
@@ -330,6 +423,10 @@ void feed_import_from(ais *a, FILE *in)
         }
         n++;
     }
+    if (npend > 0)                                     /* end of stream: the last batch */
+        ais_merge_del_many(a, pend, npend);
+    if (natt > 0)                                      /* likewise the pending attaches */
+        ais_merge_attach_many(a, patt, natt);
     if (skipped > 0)
         fprintf(stderr, "imported %ld, skipped %ld\n", n, skipped);
     else
@@ -342,7 +439,7 @@ void feed_import(ais *a) { feed_import_from(a, stdin); }
  * record, then D|ts|hash for every content-addressed tombstone. Adds precede deletes so
  * a delete in the same stream applies after its add. The inverse of merge-aware import;
  * this is what `ais --export` serves over the wire. */
-struct exp_ctx { ais *a; FILE *out; int hasktomb; };
+struct exp_ctx { ais *a; FILE *out; int hasktomb; int hassts; };
 /* Effective keys: drop any locally-detached (ktomb'd) key, so the export never carries
  * a removed tag that a peer would re-attach. Only run when ktomb has entries. */
 static void exp_eff_keys(ais *a, long id, const char *keys, char *out, size_t outsz)
@@ -377,10 +474,21 @@ static int exp_live(long id, const char *ts, const char *keys, const char *value
 {
     struct exp_ctx *E = vp;
     const char *k = keys;
+    const char *tstrue = ts;              /* the line's own time, never raised */
     char eff[AIS_LINE_MAX];
+    char ets[AIS_TS_MAX];
 
     if (tomb_contains(E->a, id) != 0)
         return 0;
+    /* A record that has survived a peer's delete must reach that peer NEWER than
+     * its tombstone, or the peer keeps the delete and sends it back every round.
+     * The raise lives here rather than in the store line: see compact.h. Gated,
+     * like the ktomb work below: most indexes have no survivals at all, and the
+     * export should not open a file per record to discover that. */
+    if (E->hassts) {
+        sts_effective(E->a, id, ts, ets, sizeof ets);
+        ts = ets;
+    }
     if (E->hasktomb) {
         exp_eff_keys(E->a, id, keys, eff, sizeof eff);
         k = eff;
@@ -405,6 +513,18 @@ static int exp_live(long id, const char *ts, const char *keys, const char *value
             return 0;
         }
     }
+    /* The raise decides one thing only: this record beats that peer's tombstone.
+     * The importer hands the A| timestamp to the key-attach comparison as well,
+     * so a raised line also outranked every peer's key tombstone and re-attached
+     * tags they had deliberately removed. C| carries the line's TRUE time beside
+     * it, keyed to this value's hash, for the importer to answer key questions
+     * with; a peer that predates the verb skips the line and converges exactly as
+     * it does today. Keyed to the FIRST value because the rest go out as M|. */
+    if (E->hassts && strcmp(ts, tstrue) != 0) {
+        char h[17];
+        content_hash(value, h);
+        fprintf(E->out, "C|%s|%s\n", tstrue, h);
+    }
     fprintf(E->out, "A|%s|%s|%s\n", ts, k, value);
     return 0;
 }
@@ -422,6 +542,14 @@ static int exp_kdead(long id, const char *ts, const char *hash, const char *key,
     (void)id;
     if (hash[0] != '\0' && key[0] != '\0')       /* only content-addressed detaches carry */
         fprintf(E->out, "K|%s|%s|%s\n", ts, hash, key);
+    return 0;
+}
+static int exp_kborn(long id, const char *ts, const char *hash, const char *key, void *vp)
+{
+    struct exp_ctx *E = vp;
+    (void)id;
+    if (hash[0] != '\0' && key[0] != '\0')
+        fprintf(E->out, "T|%s|%s|%s\n", ts, hash, key);
     return 0;
 }
 /* Emit every file under <dir>/blobs/ as a "B|blobs/<name>|<size>\n" header plus
@@ -471,10 +599,16 @@ void feed_export(ais *a, FILE *out)
     E.a = a;
     E.out = out;
     E.hasktomb = (ktomb_active(a) > 0);
+    E.hassts   = (sts_active(a) > 0);   /* one stat, not a seek per record */
     export_blobs_stream(out, a->dir);        /* bodies first: a record may point at one */
     store_each_record(a, exp_live, &E);
     tomb_each(a, exp_dead, &E);
     ktomb_each(a, exp_kdead, &E);            /* key-detaches propagate as K| lines (I1) */
+    /* and key-attaches as T|, AFTER the A| lines: the record has to exist on the
+     * far side before a key can be attached to it. Only keys put on a record that
+     * already existed are in katt, so an index that has never re-tagged anything
+     * emits none. */
+    katt_each(a, exp_kborn, &E);
 }
 
 /* CLI --doc: stream stdin (any size, bounded memory) into a blob, then put its

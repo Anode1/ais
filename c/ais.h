@@ -58,14 +58,65 @@ long ais_put(ais *a, const char *keys, const char *value);
  * wins; NULL/now always wins). The merge primitive shared by put and --import. */
 long ais_put_at(ais *a, const char *keys, const char *value, const char *ts);
 
+/* ais_put_at with the KEY-attach decision on its own clock. TS answers the
+ * record-vs-tombstone question; ATTACH_TS is what attaching a key competes
+ * against a prior detach with. They are the same value except when the exporter
+ * RAISED the record's timestamp to survive a peer's delete: that raise must not
+ * also outrank key tombstones, so the line's true time travels beside it as the
+ * C| verb and arrives here. ais_put_at passes TS for both. */
+long ais_put_at_k(ais *a, const char *keys, const char *value, const char *ts,
+                  const char *attach_ts);
+
 /* Apply an incoming deletion (content HASH, delete-time TS) under last-write-wins:
  * tombstone the local record whose value hashes to HASH iff the delete is at least as
  * new as that record's add-ts and it is not already deleted. No-op if absent. 0/-1. */
 int  ais_merge_del(ais *a, const char *hash, const char *ts);
 
+/* One delete fact off the wire: the content hash (16 hex digits, content_hash)
+ * and the delete time. */
+typedef struct { char hash[17]; char ts[AIS_TS_MAX]; } ais_del_fact;
+
+/* How many facts one pass resolves. Fixed at compile time: the caller buffers
+ * this many on its stack and flushes, so the merge stays bounded by struct sizes
+ * and never by the size of the stream. */
+#define AIS_MERGE_BATCH 256
+
+/* Apply up to AIS_MERGE_BATCH delete facts in ONE store pass, each under
+ * ais_merge_del's rule and in the order given. Resolving a hash means scanning
+ * the store for the value it names, so one scan per fact made an import cost
+ * O(deletes x records) -- minutes on a phone syncing with a peer that has
+ * deleted a lot. 0, or -1 if any fact could not be recorded. */
+int  ais_merge_del_many(ais *a, const ais_del_fact *facts, int n);
+
 /* Apply a remote key-detach (K|ts|hash|key): find the record by value-hash and detach
  * KEY under last-write-wins (folder sync I1). Idempotent. Returns 0, or -1 on bad args. */
 int  ais_merge_detach(ais *a, const char *hash, const char *key, const char *ts);
+
+/* Apply a remote key-attach (T|ts|hash|key), the mirror of ais_merge_detach: attach
+ * KEY to the record whose value hashes to HASH iff TS is strictly newer than any
+ * detach of it here. The A| line carries one timestamp for the whole record, so this
+ * is the only way a key attached AFTER the record was created can out-rank a detach
+ * some device made in between -- without it a detached key could never be re-attached
+ * anywhere in the mesh. Idempotent. Returns 0, or -1 on bad args. */
+int  ais_merge_attach(ais *a, const char *hash, const char *key, const char *ts);
+
+/* One key-attach fact off the wire: the record's content hash, the key, and when
+ * the key went on. */
+typedef struct { char hash[17]; char key[AIS_KEY_MAX]; char ts[AIS_TS_MAX]; } ais_att_fact;
+
+/* How many attach facts one pass resolves. Smaller than AIS_MERGE_BATCH because a
+ * fact carries a whole key, and the caller buffers these on its stack. */
+#define AIS_ATT_BATCH 64
+
+/* Apply up to AIS_ATT_BATCH key-attach facts in ONE store pass, each under
+ * ais_merge_attach's rule and in the order given. The same problem, and the same
+ * shape of fix, as ais_merge_del_many: resolving a hash means scanning the store,
+ * and a T| is emitted for every key attached after its record was created -- on an
+ * index whose tags were added as it grew, that is most of them -- so one scan per
+ * fact made importing an ordinary bundle cost O(attaches x records). Applying can
+ * rewrite a line's keys field but never its VALUE, so the hash->id map that one
+ * pass builds stays valid for the whole batch. 0, or -1 on bad arguments. */
+int  ais_merge_attach_many(ais *a, const ais_att_fact *facts, int n);
 
 /* Apply an incoming additional link (M|): attach VALUE to the record whose first
  * value hashes to HASH. Idempotent; a hash this index does not hold is a no-op.

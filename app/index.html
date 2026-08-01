@@ -102,7 +102,10 @@
 
 <script>
 var $ = function (i) { return document.getElementById(i); };
-var view = 'recall';
+// `gen` counts view switches. Each loader below paints into #out AFTER an await,
+// so a response landing once the user has moved on repaints the old view's rows
+// over the new one. Loaders capture gen before their fetch and drop a stale result.
+var view = 'recall', gen = 0;
 var tlBefore = 0, tlDay = null, tlN = 0, tlPage = 100;  // timeline keyset paging
 
 // fillVal: append V to NODE, turning every embedded http(s) URL into a real link
@@ -314,9 +317,10 @@ async function edSave() {
 
 async function recall() {
   var q = $('q').value.trim(); if (!q) return;
-  var t0 = performance.now();
+  var t0 = performance.now(), g = gen;
   var oo = $('anyk') && $('anyk').checked ? '&or=1' : '';
   var t = await (await fetch('/api/get?keys=' + encodeURIComponent(q) + oo)).text();
+  if (g != gen) return;                 // the view moved on: drop it
   render(t, q, performance.now() - t0);
 }
 
@@ -343,12 +347,13 @@ function locDT(ts) {
 // keyset paging: fetch `count` records older than the last id shown (tlBefore);
 // 'more' appends a page, otherwise reload from the newest.
 async function loadTimeline(more) {
-  var out = $('out');
+  var out = $('out'), g = gen;
   var f = $('tlfrom') ? $('tlfrom').value : '', tt = $('tlto') ? $('tlto').value : '';
   if (!more) { tlBefore = 0; tlDay = null; tlN = 0; out.innerHTML = ''; }
   var u = '/api/timeline?count=' + tlPage + (tlBefore > 0 ? '&before=' + tlBefore : '')
         + (f ? '&from=' + f : '') + (tt ? '&to=' + tt : '');
   var lines = (await (await fetch(u)).text()).split('\n').filter(function (s){ return s.length; });
+  if (g != gen) return;                 // the view moved on: drop it
   var mb = $('tlmore'); if (mb) mb.remove();
   if (!tlN && !lines.length) { out.innerHTML = '<p class="empty">Nothing saved yet.</p>'; return; }
   lines.forEach(function (ln) {
@@ -388,7 +393,9 @@ function setCount(text){
   else $('count').textContent = text;
 }
 async function loadTags() {
+  var g = gen;
   var t = await (await fetch('/api/tags')).text();
+  if (g != gen) return;                 // the view moved on: drop it
   var lines = t.split('\n').filter(function (s){ return s.length; });
   var out = $('out'); out.innerHTML = '';
   setCount(lines.length + ' tag' + (lines.length==1?'':'s'));
@@ -474,7 +481,7 @@ async function openDelUnder(key) {
 function closeDel(){ $('dsheet').hidden = true; dsKey = ''; }
 function setView(v) {
   delFlush();
-  view = v;
+  view = v; gen++;
   [].forEach.call(document.querySelectorAll('#bnav button'), function (b) {
     b.className = (b.dataset.v == v) ? 'on' : '';
   });

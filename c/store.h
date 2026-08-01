@@ -54,6 +54,9 @@ int store_now(char *buf, size_t bufsz);
  * which would shift every field right and turn the value into a key. */
 int store_looks_like_ts(const char *p);
 
+/* One second after TS ("YYYY-MM-DDThh:mm:ssZ"), same form. 0, or -1 on a bad TS. */
+int store_ts_next_second(const char *ts, char *out, size_t outsz);
+
 /* Append one record line "id|ts|keys|value\n" to INDEX/store (a "" ts falls
  * back to the legacy "id|keys|value" form). Returns 0 on success, -1 on error. */
 int store_append(const ais *a, long id, const char *ts,

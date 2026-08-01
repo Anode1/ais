@@ -112,8 +112,16 @@ int   ais_embed_import_bundle(void *handle, const char *path);
 
 /* Folder auto-sync: one export+import pass over a shared FOLDER (a Syncthing / cloud
  * folder). Each device owns a framed <id>.aisb; the merge is conflict-free and a
- * torn/partial peer file is rejected. Returns 0, or -1 (bad args / not built). */
+ * torn/partial peer file is rejected.
+ *
+ * Returns 0, or one of the AIS_FOLDER_* codes (sync.h): -2 no such folder, -3 not a
+ * folder, -4 unreadable, -5 we have synced here before and our own bundle is gone
+ * (an unmounted drive, an emptied share), -6 the merge applied but our bundle could
+ * not be written; -1 anything else. A front end must SHOW which: the remedies differ,
+ * and reporting a plain failure for all of them is how a dead sync goes unnoticed.
+ * FORCE (0/1) accepts the -5 folder and re-establishes it. It creates nothing. */
 int   ais_embed_sync_folder(void *handle, const char *folder);
+int   ais_embed_sync_folder_force(void *handle, const char *folder, int force);
 
 /* One timeline page as "id|ts|keys|value\n" lines: the COUNT records with id <
  * BEFORE_ID (BEFORE_ID <= 0 = from newest; COUNT <= 0 = default), newest first,

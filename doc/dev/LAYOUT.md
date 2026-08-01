@@ -14,6 +14,14 @@ is hashed: every file is plain text, readable, greppable, repairable by hand.
       off             id->offset accelerator: line k = byte offset of id k
       multi           ids carrying >1 value line (from add)
       tomb            tombstones: deleted ids, one per line
+      mts             when each record was last edited HERE: one fixed-width slot per id
+      sts             the time a record must EXPORT at after surviving a peer's delete
+      ktomb           key-detaches: id|ts|hash|key, one line per removal
+      katt            key-attaches: the same line, for a key put on a record that
+                      already existed -- ktomb's mirror image
+      foldsync        DEVICE-LOCAL: shared folders this device has synced with, one
+                      absolute path per line (never synced, never exported)
+      syncfolder      DEVICE-LOCAL: the folder the GUI syncs with (written by the app)
       blobs/<timestamp>.txt  documents saved by `doc` (real data; not rebuildable)
       lock            writers' advisory flock (per op; reads lock-free)
 
@@ -25,6 +33,82 @@ encoded keys. `value` is the literal resource: a URL, URI, absolute path, or a
 path relative to INDEX (relative keeps the whole INDEX portable). Because ids are
 monotonic, the store is physically in id order.
 
+### mts -- the edit clock, and why it stays local
+
+One fixed-width slot per id, exactly like `off`: 20 characters of timestamp plus a
+newline at offset `(id-1)*21`, blank means never edited. O(1) in and out, no
+parsing, nothing allocated, and the file is bounded by the highest id rather than
+by the number of edits ever made. A deleted record's slot is blanked (delete is
+delete, including the note of when it was last touched), and compaction blanks any
+that were missed.
+
+It exists because merging compared a peer's delete against the record's *creation*
+time. A record created Monday, deleted on the phone Tuesday and re-tagged on the
+laptop Wednesday looked like a Monday record against a Tuesday delete, so
+Wednesday's edit was destroyed. That contradicts the rule the resurrect path
+already sets: a later user action beats an earlier delete, and an edit is a later
+user action. Every local way of changing a record stamps it: `--update`, `--set`,
+`--add`, and re-saving a value the index already holds, which is how a tag gets
+attached and what every GUI save path calls. An import does not: an arriving
+record carries its own time.
+
+That applies to an arriving `M|` link too, though it lands through the same
+`--add` the local path uses (`add_link`'s LOCAL flag is what separates them).
+Stamping it made a record's fate depend on WHEN its bundle was read: given the
+same `M|` and `D|` facts in two peer bundles, a folder sync resolved the delete
+one way or the other by `readdir` order -- the very non-determinism `C|` and
+`sts` exist to remove.
+
+**It is never exported, and that is the whole point of keeping it separate.** The
+exported `A|` line carries ONE timestamp for the record and its entire key set,
+and the import side hands that same timestamp to `attach_wins`. Raising it would
+not merely outrank record deletes, it would outrank KEY deletes: a device that
+removed a tag would see it come back the moment any other device touched the
+record for an unrelated reason, and the `ktomb` proving the removal would be
+erased. For the same reason `mts_effective` answers only the record-delete
+question (`ais_merge_del`), not `K|` detaches, which are targeted statements about
+one key that an unrelated edit says nothing about.
+
+What travels instead is `sts`, a second file of the same shape: the time a record
+must export at, once it has survived a peer's delete. Without it the decision would
+be local only -- the deleting device would keep its tombstone and send it back every
+round, and the record would flap in and out on every device but this one. The raise
+does not answer key questions on the far side either: the export sends the line's
+true time with it, as `C|`, and only key attaches read that (MERGE.md).
+
+Three rules keep that raise from doing damage:
+
+- **One second past the tombstone, not up to the edit time.** Beating that one
+  tombstone is the whole job, and the exported timestamp also decides key attaches,
+  so every further second sweeps up unrelated key tombstones on other devices.
+- **Out of the store line.** Written into the line, a `K|` detach arriving later in
+  the same import pass compared against the raised value and lost, while one
+  arriving earlier compared against the creation time and won -- and which you got
+  was the order `readdir` returned the peer bundles in. It also rewrote the whole
+  store and dropped the `off` accelerator on every sync round.
+- **A record that comes back adopts the key set it was just described with**, not
+  the one it was deleted with, or the stale field re-advertises tags other devices
+  removed (see MERGE.md).
+
+Both files are cleared for an id the moment its record dies, by either delete path,
+and compaction blanks any that were missed.
+
+The slot is validated before anything acts on it. `off` can afford to be trusted:
+it is a pure accelerator whose worst failure is a fallback scan. This value can be
+sent as a record's exported timestamp, and the resurrect path writes an incoming one
+into a store line, where a stray delimiter or newline would split the record and lose
+its value, so a slot that is not exactly a canonical
+timestamp reads as "never edited".
+
+Restamping on *every* edit instead of keeping a sidecar would be five lines, and
+fails for the same reason the export does: it feeds the key-attach comparison. It
+would not have disturbed "Recent", which pages by id (`ais_timeline` walks ids
+downward), only the displayed date.
+
+One-second timestamps mean an edit and a delete inside the same second still
+resolve to the delete, since ties are sticky. That is the clock's limit, not this
+file's.
+
 **The keys field is authoritative, and every key-attach must reach it.** The store
 is the source of truth and `idx/` is a rebuildable accelerator, so a key that lives
 only in a posting list does not exist as far as the store is concerned: compaction
@@ -34,9 +118,9 @@ rewrites the record's lines in place (all of them: every line of a multi-line
 record repeats the same keys field), the same rewrite compaction and
 `ais_set_value` perform. This is the one exception to append-only besides
 compaction and the in-place value edit; it is cheap because it is rare (a re-put
-with new keys, or `--update`), and the alternative -- a durable "key added" file
-mirroring `ktomb` -- would add a fourth store file and a merge-stream type to
-express something the keys field already says. Attach is folded first (`|` and
+with new keys, or `--update`). The keys field stays the authority on WHICH keys a
+record carries; `katt` (below) records only when a later one went on, which the
+field cannot say. Attach is folded first (`|` and
 control bytes to `_`, as `keys_attach_only` does for a put): a stored key shares
 the line's `|` delimiter, so a raw `a|b` would shift the value into the wrong
 field, and a raw newline would end the line and drop the value.
@@ -45,8 +129,17 @@ Detach is NOT symmetric. It removes the posting and records a `ktomb` entry, and
 the key stays in the keys field until compaction strips it (`compact_visible_keys`).
 So the keys field is the authoritative record of what has been ATTACHED, not the
 live key set: a detached-but-not-yet-compacted key is still in it, and `ktomb` is
-what makes the removal true and lets it propagate to peers (I1). An attach needs no
-tombstone because the rewritten keys field propagates on its own in the `A|` line.
+what makes the removal true and lets it propagate to peers (I1).
+
+The keys field propagates the attach itself, in the `A|` line -- but not WHEN. The
+line carries one timestamp, the record's, so a key put on later looked exactly like
+one the record was born with, and lost to any detach in between: once a key had been
+removed anywhere in the mesh, no device could put it back. `katt` is the answer and
+the exact mirror of `ktomb`, same `id|ts|hash|key` line and the same accessors
+(`kfile_*` in compact.c): one entry per pair, written only for an attach to a record
+that ALREADY existed, dropped when the key is detached or the record deleted, and
+swept by compaction. It travels as `T|` (MERGE.md) and is what an incoming `K|` has
+to beat.
 
 **A record may have NO keys.** `untag KEY` leaves one behind whenever `KEY` was a
 record's only key, and the store represents that as an empty keys field. Such a
@@ -247,7 +340,11 @@ reads a document from stdin, writes it to `blobs/<timestamp>.txt` (named by loca
 time, so `ls blobs/` reads chronologically; a same-second doc gets a `-N`
 suffix), and `put`s that relative path as the value. The engine stays
 oblivious -- it stores a path like any other; the front-end (feed.c) owns blob
-placement. `blobs/` is the only REAL DATA besides `store` (not rebuildable);
+placement. `blobs/` is REAL DATA, not rebuildable -- as are `tomb`, `ktomb`, `katt`,
+`mts` and `sts` (lose `sts` and a record that survived a peer's delete is simply
+deleted again on the next sync; lose `katt` and a tag put back on is removed again by
+the peer that removed it); only
+`idx/`, `off`, `multi` and `next_id` can be rebuilt from `store`.
 `find` searches the path, not the blob's contents (tags-only). `ais --where`
 prints the index dir so a front-end can resolve `blobs/<timestamp>.txt`.
 

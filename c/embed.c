@@ -259,14 +259,19 @@ int ais_embed_import_bundle(void *handle, const char *path)
 
 int ais_embed_sync_folder(void *handle, const char *folder)
 {
+    return ais_embed_sync_folder_force(handle, folder, 0);
+}
+
+int ais_embed_sync_folder_force(void *handle, const char *folder, int force)
+{
 #ifdef _WIN32
-    (void)handle; (void)folder;                 /* sync.c (folder pass) not built on Windows */
+    (void)handle; (void)folder; (void)force;    /* sync.c (folder pass) not built on Windows */
     return -1;
 #else
     ais *a = handle;
     if (a == NULL || folder == NULL)
         return -1;
-    return sync_folder_once(a, folder);         /* import peers, (re)write own; clone-heal */
+    return sync_folder_once_force(a, folder, force);  /* import peers, (re)write own; clone-heal */
 #endif
 }
 

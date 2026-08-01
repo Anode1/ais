@@ -16,6 +16,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>          /* clock() -- the batched-import cost test */
 #include <unistd.h>
 #include <sys/stat.h>      /* mkdir (canonicalize a scratch dir via realpath) */
 #include <sys/wait.h>      /* waitpid -- the forked socket-transport test */
@@ -27,6 +28,9 @@
 #include "key.h"
 #include "post.h"
 #include "store.h"
+#include <dirent.h>
+#include <fcntl.h>
+#include <sys/file.h>
 #include "compact.h"
 #include "stats.h"
 #include "find.h"
@@ -2285,12 +2289,58 @@ static void test_export_stream(void)
 }
 
 /* A value is "present" if its record exists and is not tombstoned. */
+/* How many lines the store holds, for tests that assert a rewrite did not split
+ * or duplicate a record. */
+static long store_count_lines(const char *dir)
+{
+    char path[AIS_PATH_MAX], line[AIS_LINE_MAX];
+    FILE *f;
+    long n = 0;
+
+    snprintf(path, sizeof path, "%s/store", dir);
+    f = fopen(path, "r");
+    if (f == NULL)
+        return -1;
+    while (fgets(line, sizeof line, f) != NULL)
+        n++;
+    fclose(f);
+    return n;
+}
+
 static int value_present(ais *a, const char *value)
 {
     long id;
     if (store_find_value(a, value, &id) != 1)
         return 0;
     return tomb_contains(a, id) == 0;
+}
+
+/* Is KEY attached to ID, as the RECALL path sees it (the posting list, filtered by
+ * the key tombstones)? A detached key lingers in the store's keys field until the
+ * next compaction, so reading the field would answer the wrong question. */
+struct khit { long want; int found; };
+
+static int khit_cb(long id, void *ctx)
+{
+    struct khit *k = ctx;
+    if (id == k->want)
+        k->found = 1;
+    return 0;
+}
+
+static int key_has_id(ais *a, const char *key, long id)
+{
+    char buf[AIS_LINE_MAX];
+    char *keys[1];
+    struct khit k;
+
+    snprintf(buf, sizeof buf, "%s", key);
+    keys[0] = buf;
+    k.want = id;
+    k.found = 0;
+    if (ais_get(a, keys, 1, AIS_AND, khit_cb, &k) != 0)
+        return -1;
+    return k.found;
 }
 
 /* Round-trip: export index A's merge stream and import it into B; B must converge to
@@ -2428,6 +2478,857 @@ static void test_sync_socket(void)
     scratch_rm(db);
 }
 
+/* A folder sync must never CREATE its target. A typo, or an unplugged drive whose
+ * mount point is an empty directory, would otherwise look exactly like a working
+ * backup: every run reports success, writes a bundle nobody will ever read, and
+ * the user finds out when they need the data. Refusing costs one mkdir; not
+ * refusing costs the index. */
+static void test_sync_folder_refuses_to_create(void)
+{
+    ais A;
+    const char *da = "/tmp/ais_ut_fldnc";
+    const char *missing = "/tmp/ais_ut_fld_absent";
+    const char *afile = "/tmp/ais_ut_fld_isfile";
+    struct stat st;
+    FILE *f;
+
+    scratch_rm(da); scratch_rm(missing); remove(afile);
+    ais_open(&A, da);
+    ais_put(&A, "k", "v");
+
+    CHECK(sync_folder_once(&A, missing) == -2, "folder: a missing folder is refused, not created");
+    CHECK(stat(missing, &st) != 0,             "folder: and it really was not created");
+
+    f = fopen(afile, "w");
+    if (f != NULL) { fputs("x", f); fclose(f); }
+    CHECK(sync_folder_once(&A, afile) == -3,   "folder: a plain file is refused");
+
+    CHECK(mkdir(missing, 0777) == 0 && sync_folder_once(&A, missing) == 0,
+          "folder: once the folder exists, the same call works");
+
+    ais_close(&A);
+    scratch_rm(da); scratch_rm(missing); remove(afile);
+}
+
+/* Existence is NOT the test that matters. An unmounted drive's mount point, and a
+ * share somebody emptied, are both ordinary empty directories -- indistinguishable
+ * from a folder on its first day. What separates them is memory: if we have synced
+ * here before, our own bundle must still be in it. */
+static void test_sync_folder_notices_a_vanished_bundle(void)
+{
+    ais A;
+    const char *da = "/tmp/ais_ut_fldv";
+    const char *fld = "/tmp/ais_ut_fldv_shared";
+    char own[AIS_PATH_MAX];
+    struct stat st;
+
+    scratch_rm(da); scratch_rm(fld);
+    mkdir(fld, 0777);
+    ais_open(&A, da);
+    ais_put(&A, "k", "v");
+
+    CHECK(sync_folder_once(&A, fld) == 0, "vanished: the first pass succeeds");
+    CHECK(sync_folder_once(&A, fld) == 0, "vanished: and so does a second");
+
+    /* the drive is swapped / the share is wiped: still a directory, still empty */
+    {
+        DIR *d = opendir(fld);
+        struct dirent *de;
+        if (d != NULL) {
+            while ((de = readdir(d)) != NULL) {
+                if (strchr(de->d_name, '.') == NULL || de->d_name[0] == '.')
+                    continue;
+                snprintf(own, sizeof own, "%s/%s", fld, de->d_name);
+                remove(own);
+            }
+            closedir(d);
+        }
+    }
+    CHECK(stat(fld, &st) == 0 && S_ISDIR(st.st_mode), "vanished: it is still a directory");
+    CHECK(sync_folder_once(&A, fld) == -5,
+          "vanished: a folder we have used, now without our bundle, is refused");
+    CHECK(sync_folder_once_force(&A, fld, 1) == 0,
+          "vanished: and the user can accept it as it now is");
+    CHECK(sync_folder_once(&A, fld) == 0, "vanished: which re-establishes it");
+
+    ais_close(&A);
+    scratch_rm(da); scratch_rm(fld);
+}
+
+/* A folder we have NEVER synced with is not suspicious for being empty: that is
+ * every folder's first day, and refusing it would make the feature unusable. */
+static void test_sync_folder_first_use_is_fine(void)
+{
+    ais A;
+    const char *da = "/tmp/ais_ut_fldf";
+    const char *f1 = "/tmp/ais_ut_fldf_one", *f2 = "/tmp/ais_ut_fldf_two";
+
+    scratch_rm(da); scratch_rm(f1); scratch_rm(f2);
+    mkdir(f1, 0777); mkdir(f2, 0777);
+    ais_open(&A, da);
+    ais_put(&A, "k", "v");
+
+    CHECK(sync_folder_once(&A, f1) == 0, "first-use: an empty folder syncs");
+    CHECK(sync_folder_once(&A, f2) == 0, "first-use: a SECOND empty folder also syncs");
+    CHECK(sync_folder_once(&A, f1) == 0, "first-use: and the first still works");
+
+    ais_close(&A);
+    scratch_rm(da); scratch_rm(f1); scratch_rm(f2);
+}
+
+/* An EDIT made after a peer's delete must survive the merge.
+ *
+ * Merging compares a delete's timestamp against the record's, and the record's
+ * was its CREATION time -- so a record created Monday, deleted by the phone on
+ * Tuesday, and re-tagged on the laptop Wednesday still lost: the delete looked
+ * newer than Monday. That contradicts the rule the re-add fix already
+ * established, that a later user action beats an earlier delete. An edit is a
+ * later user action.
+ *
+ * The fix keeps two clocks: the store line's ts stays the creation time (the
+ * timeline orders by it), and the "mts" sidecar carries the last local edit.
+ * Merging, and the export, use the later of the two. */
+static void test_edit_beats_earlier_delete(void)
+{
+    ais A, B;
+    const char *da = "/tmp/ais_ut_edA", *db = "/tmp/ais_ut_edB";
+    const char *fld = "/tmp/ais_ut_ed_fld";
+    long id;
+
+    scratch_rm(da); scratch_rm(db); scratch_rm(fld);
+    mkdir(fld, 0777);
+    ais_open(&A, da); ais_open(&B, db);
+
+    /* both devices hold the same record (same value => same content hash) */
+    ais_put_at(&A, "reading", "http://x/note", "2020-01-01T00:00:00Z");
+    id = ais_put_at(&B, "reading", "http://x/note", "2020-01-01T00:00:00Z");
+    CHECK(id > 0, "edit-vs-delete: both devices hold the record");
+
+    ais_del(&B, id);                          /* the phone deletes it ... */
+    sleep(1);                                 /* ... and a second later ... */
+    ais_update(&A, 1, "reading important");   /* ... the laptop re-tags it */
+
+    CHECK(sync_folder_once(&B, fld) == 0, "edit-vs-delete: phone exports the delete");
+    CHECK(sync_folder_once(&A, fld) == 0, "edit-vs-delete: laptop merges it");
+
+    CHECK(value_present(&A, "http://x/note") == 1,
+          "edit-vs-delete: the later EDIT survives the earlier remote delete");
+
+    /* and the surviving record carries the edit, not just the value */
+    CHECK(sync_folder_once(&B, fld) == 0, "edit-vs-delete: phone syncs back");
+    CHECK(value_present(&B, "http://x/note") == 1,
+          "edit-vs-delete: the record returns to the device that deleted it");
+
+    ais_close(&A); ais_close(&B);
+    scratch_rm(da); scratch_rm(db); scratch_rm(fld);
+}
+
+/* The edit clock is one FIXED-WIDTH slot per id, so it is bounded by the highest
+ * id rather than by the number of edits ever made, and a deleted record's slot is
+ * blanked: delete is delete, including the note of when it was last touched. */
+static void test_mts_slots(void)
+{
+    ais A;
+    const char *da = "/tmp/ais_ut_mtsA";
+    char path[AIS_PATH_MAX], m[AIS_TS_MAX] = "";
+    struct stat st;
+    long id2;
+
+    scratch_rm(da);
+    ais_open(&A, da);
+    ais_put(&A, "k", "keep-me");                 /* id 1 */
+    id2 = ais_put(&A, "k", "drop-me");           /* id 2 */
+    ais_update(&A, 1, "k one");
+    ais_update(&A, 1, "k two");
+    ais_update(&A, 1, "k three");
+    ais_update(&A, id2, "k gone");
+
+    snprintf(path, sizeof path, "%s/mts", da);
+    CHECK(stat(path, &st) == 0, "mts: the file exists after edits");
+    CHECK(st.st_size == 42, "mts: FIVE edits over two ids still occupy two slots");
+    CHECK(mts_get(&A, 1, m, sizeof m) == 1 && m[0] != '\0', "mts: the live record has an edit time");
+
+    ais_del(&A, id2);
+    CHECK(mts_get(&A, id2, m, sizeof m) == 0, "mts: deleting a record forgets when it was edited");
+
+    CHECK(ais_compact(&A) == 0, "mts: compaction succeeds");
+    CHECK(stat(path, &st) == 0 && st.st_size == 42, "mts: the file does not grow with compaction");
+    CHECK(mts_get(&A, 1, m, sizeof m) == 1 && m[0] != '\0',
+          "mts: the live record's edit time survived compaction");
+    CHECK(mts_get(&A, id2, m, sizeof m) == 0, "mts: and the dead one is still blank");
+
+    /* an id never edited reads as "no edit", not as garbage */
+    ais_put(&A, "k", "never-edited");
+    CHECK(mts_get(&A, 3, m, sizeof m) == 0, "mts: an unedited record has no edit time");
+
+    ais_close(&A);
+    scratch_rm(da);
+}
+
+/* Every LOCAL way of changing a record counts as an edit, not just --update.
+ * Re-saving a value that is already in the index is how a tag gets attached, and
+ * it is what every GUI save path calls. */
+static void test_mts_all_edit_paths(void)
+{
+    ais A;
+    const char *da = "/tmp/ais_ut_mtsE";
+    char m[AIS_TS_MAX] = "";
+    long id;
+
+    scratch_rm(da);
+    ais_open(&A, da);
+
+    id = ais_put(&A, "one", "http://x/p");
+    mts_clear(&A, id);
+    ais_put(&A, "two", "http://x/p");              /* re-save = attach a tag */
+    CHECK(mts_get(&A, id, m, sizeof m) == 1, "edit paths: a re-save with a new tag is an edit");
+
+    mts_clear(&A, id);
+    ais_add(&A, id, "http://x/p2");                /* a second link */
+    CHECK(mts_get(&A, id, m, sizeof m) == 1, "edit paths: --add is an edit");
+
+    mts_clear(&A, id);
+    ais_set_value(&A, id, "http://x/p2", "http://x/p3");
+    CHECK(mts_get(&A, id, m, sizeof m) == 1, "edit paths: --set is an edit");
+
+    mts_clear(&A, id);
+    ais_update(&A, id, "three");
+    CHECK(mts_get(&A, id, m, sizeof m) == 1, "edit paths: --update is an edit");
+
+    /* a MERGE is not a local edit: an incoming record carries its own time */
+    mts_clear(&A, id);
+    ais_put_at(&A, "four", "http://x/p", "2030-01-01T00:00:00Z");
+    CHECK(mts_get(&A, id, m, sizeof m) == 0, "edit paths: an import is not a local edit");
+
+    ais_close(&A);
+    scratch_rm(da);
+}
+
+/* An arriving M| link is a fact the SENDING device already timed, so it must not
+ * touch the local edit clock. Stamping it made a record's fate depend on when its
+ * bundle happened to be read: the same M| and D| facts, split across two peer
+ * bundles, resolved one way or the other by readdir order. */
+static void test_incoming_link_is_not_a_local_edit(void)
+{
+    ais A;
+    const char *da = "/tmp/ais_ut_mlink";
+    char m[AIS_TS_MAX] = "", h[17];
+    long id;
+
+    scratch_rm(da);
+    ais_open(&A, da);
+
+    id = ais_put_at(&A, "k", "http://x/base", "2020-01-01T00:00:00Z");
+    content_hash("http://x/base", h);
+    mts_clear(&A, id);
+
+    CHECK(ais_merge_addval(&A, h, "http://x/second") == 0, "m-link: the link merges");
+    CHECK(mts_get(&A, id, m, sizeof m) == 0, "m-link: an arriving link is not a local edit");
+
+    /* the local --add of a second link still IS one, so the clock still works */
+    CHECK(ais_add(&A, id, "http://x/third") == 0, "m-link: a local --add succeeds");
+    CHECK(mts_get(&A, id, m, sizeof m) == 1, "m-link: a local --add is still an edit");
+
+    ais_close(&A);
+    scratch_rm(da);
+}
+
+/* Delete is delete, by whichever door. --del-under tombstones through a different
+ * path from --del, and left the edit clock and the key-attach notes behind: the
+ * next export then carried T| lines asserting a key was attached to a record the
+ * SAME stream tombstones, which every peer pays a store pass for and re-propagates. */
+static void test_del_under_clears_the_clocks(void)
+{
+    ais A;
+    FILE *tmp;
+    char buf[4096], m[AIS_TS_MAX] = "", att[AIS_TS_MAX] = "";
+    size_t n;
+    const char *da = "/tmp/ais_ut_dunder";
+    long id;
+
+    scratch_rm(da);
+    ais_open(&A, da);
+
+    id = ais_put(&A, "work", "http://x/1");
+    ais_put(&A, "work later", "http://x/1");       /* re-save: attaches, so katt+mts exist */
+    CHECK(mts_get(&A, id, m, sizeof m) == 1, "del-under: the re-save stamped the edit clock");
+    CHECK(katt_lookup(&A, id, "later", att, sizeof att) == 1,
+          "del-under: and noted when the tag went on");
+
+    CHECK(ais_del_key(&A, "work") >= 0, "del-under: the delete runs");
+    CHECK(mts_get(&A, id, m, sizeof m) == 0, "del-under: the edit clock is cleared");
+    CHECK(katt_lookup(&A, id, "later", att, sizeof att) == 0,
+          "del-under: and so are the attach notes");
+
+    tmp = tmpfile();
+    CHECK(tmp != NULL, "del-under: tmpfile opened");
+    feed_export(&A, tmp);
+    rewind(tmp);
+    n = fread(buf, 1, sizeof buf - 1, tmp);
+    buf[n] = '\0';
+    fclose(tmp);
+    CHECK(strstr(buf, "D|") != NULL, "del-under: the export carries the tombstone");
+    CHECK(strstr(buf, "T|") == NULL,
+          "del-under: and no attach note for a record it deletes");
+
+    ais_close(&A);
+    scratch_rm(da);
+}
+
+/* A batch of attach facts must land exactly as the same facts applied one at a
+ * time -- including a batch filled to AIS_ATT_BATCH, where the buffer flushes
+ * mid-run, and a replay, which sync repeats by design. */
+static void test_attach_batch_matches_one_at_a_time(void)
+{
+    ais A;
+    ais_att_fact f[AIS_ATT_BATCH];
+    const char *da = "/tmp/ais_ut_attb";
+    char h[17];
+    int i;
+
+    scratch_rm(da);
+    ais_open(&A, da);
+    ais_put_at(&A, "base", "http://x/batch", "2020-01-01T00:00:00Z");
+    content_hash("http://x/batch", h);
+
+    for (i = 0; i < AIS_ATT_BATCH; i++) {
+        snprintf(f[i].hash, sizeof f[i].hash, "%s", h);
+        snprintf(f[i].key, sizeof f[i].key, "tag%d", i);
+        snprintf(f[i].ts, sizeof f[i].ts, "2030-01-01T00:00:00Z");
+    }
+    CHECK(ais_merge_attach_many(&A, f, AIS_ATT_BATCH) == 0, "attach batch: a full batch applies");
+    CHECK(key_has_id(&A, "tag0", 1) == 1, "attach batch: the first fact landed");
+    CHECK(key_has_id(&A, "tag63", 1) == 1, "attach batch: and the last one");
+
+    /* replayed: idempotent, and the keys field must not grow a duplicate */
+    CHECK(ais_merge_attach_many(&A, f, AIS_ATT_BATCH) == 0, "attach batch: a replay applies");
+    CHECK(key_has_id(&A, "tag0", 1) == 1, "attach batch: the replay changed nothing");
+
+    CHECK(ais_merge_attach_many(&A, f, AIS_ATT_BATCH + 1) == -1,
+          "attach batch: more than a batch is refused, not truncated");
+    CHECK(ais_merge_attach_many(&A, f, 0) == 0, "attach batch: an empty batch is a no-op");
+
+    ais_close(&A);
+    scratch_rm(da);
+}
+
+/* The edit clock must NOT ride out on the wire. The exported A| timestamp also
+ * decides key-attach conflicts, so sending an edit time would let an unrelated
+ * edit on one device resurrect a tag another device deliberately removed -- and
+ * destroy the ktomb that proves the removal. */
+static void test_edit_does_not_resurrect_a_removed_tag(void)
+{
+    ais A, B;
+    const char *da = "/tmp/ais_ut_ktA", *db = "/tmp/ais_ut_ktB";
+    const char *fld = "/tmp/ais_ut_kt_fld";
+
+    scratch_rm(da); scratch_rm(db); scratch_rm(fld);
+    mkdir(fld, 0777);
+    ais_open(&A, da); ais_open(&B, db);
+    ais_put_at(&A, "work reading", "http://x/doc", "2020-01-01T00:00:00Z");
+    ais_put_at(&B, "work reading", "http://x/doc", "2020-01-01T00:00:00Z");
+
+    ais_update(&B, 1, "-work");                 /* B removes the tag on purpose */
+    sleep(1);
+    ais_update(&A, 1, "important");             /* A adds a DIFFERENT tag, later */
+
+    CHECK(sync_folder_once(&A, fld) == 0, "ktomb: A exports");
+    CHECK(sync_folder_once(&B, fld) == 0, "ktomb: B merges it");
+    CHECK(sync_folder_once(&A, fld) == 0, "ktomb: and A merges B back");
+
+    CHECK(key_has_id(&B, "work", 1) == 0, "ktomb: the removed tag stays removed on B");
+    CHECK(key_has_id(&A, "work", 1) == 0, "ktomb: and the removal reaches A");
+    CHECK(key_has_id(&A, "important", 1) == 1, "ktomb: while the unrelated new tag lives");
+
+    ais_close(&A); ais_close(&B);
+    scratch_rm(da); scratch_rm(db); scratch_rm(fld);
+}
+
+/* An edit that beats a delete must beat it on EVERY device, not just the one that
+ * made it -- otherwise the record flaps in and out as the tombstone comes back
+ * round after round. Three devices, and the middle one never edits anything. */
+static void test_surviving_edit_reaches_the_whole_mesh(void)
+{
+    ais A, B, C;
+    const char *da = "/tmp/ais_ut_hbA", *db = "/tmp/ais_ut_hbB", *dc = "/tmp/ais_ut_hbC";
+    const char *f1 = "/tmp/ais_ut_hb_f1", *f2 = "/tmp/ais_ut_hb_f2";
+    int round;
+
+    scratch_rm(da); scratch_rm(db); scratch_rm(dc);
+    scratch_rm(f1); scratch_rm(f2);
+    mkdir(f1, 0777); mkdir(f2, 0777);
+    ais_open(&A, da); ais_open(&B, db); ais_open(&C, dc);
+
+    ais_put_at(&A, "reading", "http://x/hub", "2020-01-01T00:00:00Z");
+    ais_put_at(&B, "reading", "http://x/hub", "2020-01-01T00:00:00Z");
+    ais_del(&B, 1);                             /* B deletes */
+    sleep(1);
+    ais_update(&A, 1, "reading important");     /* A edits, later */
+
+    for (round = 0; round < 3; round++) {       /* A <-> B <-> C */
+        sync_folder_once(&A, f1); sync_folder_once(&B, f1);
+        sync_folder_once(&B, f2); sync_folder_once(&C, f2);
+    }
+
+    CHECK(value_present(&A, "http://x/hub") == 1, "mesh: the editor keeps the record");
+    CHECK(value_present(&B, "http://x/hub") == 1, "mesh: the deleter gets it back");
+    CHECK(value_present(&C, "http://x/hub") == 1, "mesh: and it reaches a device that did neither");
+
+    ais_close(&A); ais_close(&B); ais_close(&C);
+    scratch_rm(da); scratch_rm(db); scratch_rm(dc);
+    scratch_rm(f1); scratch_rm(f2);
+}
+
+/* The delete-conflict version of the tag test above, which is the one that broke:
+ * a record that survives a delete gets restamped, and the restamp raises the very
+ * timestamp that decides key attaches. A record coming back from a peer must come
+ * back as the PEER describes it, or the stale keys field it was deleted with
+ * re-advertises tags another device removed -- at the new, later timestamp, which
+ * outranks their ktombs everywhere. */
+static void test_delete_conflict_keeps_a_removed_tag_removed(void)
+{
+    ais A, B;
+    const char *da = "/tmp/ais_ut_dcA", *db = "/tmp/ais_ut_dcB";
+    const char *fld = "/tmp/ais_ut_dc_fld";
+    int round;
+
+    scratch_rm(da); scratch_rm(db); scratch_rm(fld);
+    mkdir(fld, 0777);
+    ais_open(&A, da); ais_open(&B, db);
+    ais_put_at(&A, "work reading", "http://x/doc", "2020-01-01T00:00:00Z");
+    ais_put_at(&B, "work reading", "http://x/doc", "2020-01-01T00:00:00Z");
+
+    ais_del(&A, 1);                             /* A deletes the record */
+    sleep(1);
+    ais_update(&B, 1, "-work");                 /* B removes a tag on purpose */
+    sleep(1);
+    ais_update(&B, 1, "extra");                 /* and edits, so B's copy wins */
+
+    for (round = 0; round < 3; round++) {
+        sync_folder_once(&A, fld);
+        sync_folder_once(&B, fld);
+    }
+
+    CHECK(value_present(&A, "http://x/doc") == 1, "delete-conflict: the edited record wins");
+    CHECK(value_present(&B, "http://x/doc") == 1, "delete-conflict: on both devices");
+    CHECK(key_has_id(&A, "extra", 1) == 1, "delete-conflict: with the tag added after the delete");
+    CHECK(key_has_id(&B, "work", 1) == 0, "delete-conflict: the removed tag stays removed on B");
+    CHECK(key_has_id(&A, "work", 1) == 0, "delete-conflict: and does NOT come back on A");
+
+    ais_close(&A); ais_close(&B);
+    scratch_rm(da); scratch_rm(db); scratch_rm(fld);
+}
+
+/* A delete that simply loses on creation time changes nothing, so it must not
+ * rewrite the store. It did -- on every sync round, forever, dropping the "off"
+ * accelerator each time: tens of megabytes written to say nothing. */
+static void test_losing_delete_is_free(void)
+{
+    ais A;
+    const char *da = "/tmp/ais_ut_lfA";
+    char offp[AIS_PATH_MAX], storep[AIS_PATH_MAX], h[17];
+    struct stat before, after;
+    struct stat obefore, oafter;
+    int i;
+
+    scratch_rm(da);
+    ais_open(&A, da);
+    for (i = 0; i < 20; i++) {
+        char v[64];
+        snprintf(v, sizeof v, "http://x/%d", i);
+        ais_put_at(&A, "k", v, "2030-01-01T00:00:00Z");   /* newer than the delete below */
+    }
+    snprintf(offp, sizeof offp, "%s/off", da);
+    snprintf(storep, sizeof storep, "%s/store", da);
+    CHECK(stat(offp, &obefore) == 0, "losing-delete: the off accelerator exists");
+    stat(storep, &before);
+
+    content_hash("http://x/3", h);
+    for (i = 0; i < 5; i++)
+        ais_merge_del(&A, h, "2020-01-01T00:00:00Z");     /* stale: loses every time */
+
+    CHECK(value_present(&A, "http://x/3") == 1, "losing-delete: the record survives");
+    CHECK(stat(offp, &oafter) == 0, "losing-delete: and the off accelerator is still there");
+    CHECK(obefore.st_ino == oafter.st_ino, "losing-delete: the same off file, not a rebuilt one");
+    stat(storep, &after);
+    /* st_ino, not mtime+size: a restamp writes byte-identical content in the same
+     * second, so only the rename shows. */
+    CHECK(before.st_ino == after.st_ino, "losing-delete: the store was not rewritten");
+
+    ais_close(&A);
+    scratch_rm(da);
+}
+
+/* A damaged edit slot must read as "never edited". It is not a pure accelerator:
+ * the restamp writes it into a store line, where a stray delimiter or newline
+ * would split the record and lose its value. */
+static void test_mts_rejects_a_damaged_slot(void)
+{
+    ais A;
+    const char *da = "/tmp/ais_ut_mtsD";
+    char path[AIS_PATH_MAX], m[AIS_TS_MAX] = "", h[17];
+    FILE *f;
+
+    scratch_rm(da);
+    ais_open(&A, da);
+    ais_put_at(&A, "k", "http://x/one", "2020-01-01T00:00:00Z");
+    ais_update(&A, 1, "k two");                    /* creates the slot */
+
+    snprintf(path, sizeof path, "%s/mts", da);
+    f = fopen(path, "r+");
+    CHECK(f != NULL, "damaged: the slot file is there");
+    if (f != NULL) {
+        fwrite("abc\n2099-01-01T00:00", 1, 20, f);  /* a newline inside the slot */
+        fclose(f);
+    }
+    CHECK(mts_get(&A, 1, m, sizeof m) == 0, "damaged: a malformed slot reads as no edit");
+
+    content_hash("http://x/one", h);
+    ais_merge_del(&A, h, "2030-01-01T00:00:00Z");  /* newer: must simply delete */
+    CHECK(value_present(&A, "http://x/one") == 0, "damaged: the delete still resolves");
+
+    /* The corruption this produced was a SPLIT line whose id is the number the
+     * second half starts with -- 2099, not 2. Reading id 2 could never fail. */
+    CHECK(ais_record(&A, 2099, NULL, NULL) <= 0, "damaged: no phantom record was created");
+    CHECK(store_count_lines(da) == 1, "damaged: the store still holds exactly one line");
+
+    ais_close(&A);
+    scratch_rm(da);
+}
+
+/* Delete is delete however it arrives: a peer's delete must forget the edit time
+ * too, and a deleted record must not accept a new link. */
+static void test_merge_delete_forgets_and_add_refuses(void)
+{
+    ais A;
+    const char *da = "/tmp/ais_ut_mdA";
+    char m[AIS_TS_MAX] = "", h[17];
+
+    scratch_rm(da);
+    ais_open(&A, da);
+    ais_put_at(&A, "k", "http://x/gone", "2020-01-01T00:00:00Z");
+    ais_update(&A, 1, "k edited");
+    CHECK(mts_get(&A, 1, m, sizeof m) == 1, "merge-del: the edit time is recorded");
+
+    content_hash("http://x/gone", h);
+    ais_merge_del(&A, h, "2030-01-01T00:00:00Z");
+    CHECK(value_present(&A, "http://x/gone") == 0, "merge-del: the peer's delete wins");
+    CHECK(mts_get(&A, 1, m, sizeof m) == 0, "merge-del: and it forgets when the record was touched");
+
+    CHECK(ais_add(&A, 1, "http://x/second") != 0, "merge-del: --add refuses a deleted record");
+    CHECK(mts_get(&A, 1, m, sizeof m) == 0, "merge-del: so nothing re-stamps it either");
+
+    ais_close(&A);
+    scratch_rm(da);
+}
+
+/* Re-adding a deleted value describes the record afresh, whoever re-adds it. The
+ * keys it had when it was deleted are a relic: kept, they are re-advertised at the
+ * record's new timestamp and outrank the key tombstones of devices that removed
+ * them. The rule has to be the same locally, or the local relic is the one that
+ * gets exported as authoritative while every peer's live tag is dropped. */
+static void test_readd_adopts_the_new_keys(void)
+{
+    ais A;
+    const char *da = "/tmp/ais_ut_raA";
+
+    scratch_rm(da);
+    ais_open(&A, da);
+    ais_put(&A, "one two three", "http://x/re");
+    ais_del(&A, 1);
+    ais_put(&A, "four", "http://x/re");             /* the same value, back again */
+
+    CHECK(value_present(&A, "http://x/re") == 1, "re-add: the record is back");
+    CHECK(key_has_id(&A, "four", 1) == 1,        "re-add: under the key it was re-added with");
+    CHECK(key_has_id(&A, "one", 1) == 0,         "re-add: and NOT under the old ones");
+    CHECK(key_has_id(&A, "three", 1) == 0,       "re-add: none of them");
+
+    ais_close(&A);
+    scratch_rm(da);
+}
+
+/* C|: a record raised to survive a peer's delete exports at the raised time, and
+ * the importer used that one timestamp for the key attaches too -- so the raise
+ * outranked every peer's key tombstone. C| carries the line's TRUE time beside
+ * the raised A|, and only key attaches read it. */
+static void test_true_ts_verb_shields_key_tombstones(void)
+{
+    ais D;
+    struct idvec v;
+    FILE *t;
+    const char *dir = "/tmp/ais_ut_ctrue";
+    char h[17], h2[17];
+
+    scratch_rm(dir);
+    ais_open(&D, dir);
+    ais_put_at(&D, "work reading", "http://x/ct", "2020-01-01T00:00:00Z");
+    ais_put_at(&D, "work reading", "http://x/ct2", "2020-01-01T00:00:00Z");
+    content_hash("http://x/ct", h);
+    content_hash("http://x/ct2", h2);
+    ais_merge_detach(&D, h,  "work", "2020-06-01T00:00:00Z");   /* the tag is removed */
+    ais_merge_detach(&D, h2, "work", "2020-06-01T00:00:00Z");
+    query(&D, AIS_AND, &v, 1, "work"); CHECK(v.n == 0, "C|: both tags start detached");
+
+    /* the first record arrives from a peer whose copy survived a delete: its A|
+     * carries the raised time, the C| before it the record's real one */
+    t = tmpfile();
+    fprintf(t, "C|2020-01-01T00:00:00Z|%s\n", h);
+    fprintf(t, "A|2021-01-01T00:00:00Z|work reading|http://x/ct\n");
+    rewind(t); feed_import_from(&D, t); fclose(t);
+    query(&D, AIS_AND, &v, 1, "work");
+    CHECK(v.n == 0, "C|: a raised A| does not re-attach a tag this device removed");
+    CHECK(value_present(&D, "http://x/ct") == 1, "C|: and the record itself is untouched");
+
+    /* the second arrives WITHOUT a C|, so its own time answers the key question
+     * and genuinely beats the detach -- the pre-existing rule, unchanged */
+    t = tmpfile();
+    fprintf(t, "A|2021-01-01T00:00:00Z|work reading|http://x/ct2\n");
+    rewind(t); feed_import_from(&D, t); fclose(t);
+    query(&D, AIS_AND, &v, 1, "work");
+    CHECK(v.n == 1, "C|: an A| with no C| still attaches on its own timestamp");
+
+    /* a C| naming a different record is spent by the A| it precedes, not applied */
+    ais_merge_detach(&D, h2, "work", "2022-01-01T00:00:00Z");
+    t = tmpfile();
+    fprintf(t, "C|2020-01-01T00:00:00Z|%s\n", h);
+    fprintf(t, "A|2023-01-01T00:00:00Z|work reading|http://x/ct2\n");
+    fprintf(t, "A|2023-01-01T00:00:00Z|work reading|http://x/ct\n");
+    rewind(t); feed_import_from(&D, t); fclose(t);
+    query(&D, AIS_AND, &v, 1, "work");
+    { long w[2] = {1, 2}; CHECK(ids_eq(&v, w, 2),
+          "C|: a hash that does not match is ignored, and the slot is spent"); }
+
+    ais_close(&D);
+    scratch_rm(dir);
+}
+
+/* A peer that predates C| and T| skips both lines (the unknown-verb rule) and must
+ * land exactly where it lands today: the raised A| re-attaching the tag, and the
+ * re-attach never reaching it. Same two streams, the new verbs filtered out. */
+static void test_old_peer_ignores_the_new_verbs(void)
+{
+    ais N, O;
+    struct idvec v;
+    FILE *t, *f;
+    char line[AIS_LINE_MAX], h[17], h2[17];
+    const char *dn = "/tmp/ais_ut_cnew", *dopath = "/tmp/ais_ut_cold";
+    int pass;
+
+    scratch_rm(dn); scratch_rm(dopath);
+    ais_open(&N, dn); ais_open(&O, dopath);
+    content_hash("http://x/mv", h);
+    content_hash("http://x/mv2", h2);
+    for (pass = 0; pass < 2; pass++) {
+        ais *D = pass ? &O : &N;
+        ais_put_at(D, "work reading", "http://x/mv",  "2020-01-01T00:00:00Z");
+        ais_put_at(D, "work reading", "http://x/mv2", "2020-01-01T00:00:00Z");
+        ais_merge_detach(D, h,  "work", "2020-06-01T00:00:00Z");
+        ais_merge_detach(D, h2, "work", "2020-06-01T00:00:00Z");
+    }
+
+    t = tmpfile();                    /* a raised export, plus a peer's later re-attach */
+    fprintf(t, "C|2020-01-01T00:00:00Z|%s\n", h);
+    fprintf(t, "A|2021-01-01T00:00:00Z|work reading|http://x/mv\n");
+    fprintf(t, "T|2021-01-01T00:00:00Z|%s|work\n", h2);
+    rewind(t); feed_import_from(&N, t);
+
+    rewind(t);                        /* the same stream as an older ais reads it */
+    f = tmpfile();
+    while (fgets(line, sizeof line, t) != NULL)
+        if (strncmp(line, "C|", 2) != 0 && strncmp(line, "T|", 2) != 0)
+            fputs(line, f);
+    fclose(t);
+    rewind(f); feed_import_from(&O, f); fclose(f);
+
+    CHECK(key_has_id(&N, "work", 1) == 0, "mixed version: the peer that reads C| keeps its removal");
+    CHECK(key_has_id(&O, "work", 1) == 1,
+          "mixed version: the peer that skips C| lands exactly where it does today");
+    CHECK(key_has_id(&N, "work", 2) == 1, "mixed version: the peer that reads T| takes the re-attach");
+    CHECK(key_has_id(&O, "work", 2) == 0,
+          "mixed version: the peer that skips T| keeps the detach, as it does today");
+    query(&O, AIS_AND, &v, 1, "reading");
+    CHECK(v.n == 2 && value_present(&O, "http://x/mv") == 1 && value_present(&N, "http://x/mv") == 1,
+          "mixed version: the records converge on both");
+
+    ais_close(&N); ais_close(&O);
+    scratch_rm(dn); scratch_rm(dopath);
+}
+
+/* THE FORMER KNOWN LIMIT, kept as the regression guard for what closed it. A
+ * detach stamped at or before a delete's second, on a device the raising one has
+ * never heard from -- here A syncs with C only, so C's delete reaches it while
+ * B's detach never does. The raised A| used to answer the key question too, so it
+ * re-attached the tag on the relay and destroyed the ktomb that would have
+ * carried the removal to A. C| now carries the record's true time beside the
+ * raise, the relay keeps its ktomb, and the detach reaches A on the round after.
+ * That extra hop is why this needs a fourth round: the relay must resurrect the
+ * record before it can apply the detach to it and pass it on. */
+static void test_known_limit_restamp_outranks_an_unseen_detach(void)
+{
+    ais A, B, C;
+    const char *da = "/tmp/ais_ut_klA", *db = "/tmp/ais_ut_klB", *dc = "/tmp/ais_ut_klC";
+    const char *f1 = "/tmp/ais_ut_kl_f1", *f2 = "/tmp/ais_ut_kl_f2";
+    int round;
+
+    scratch_rm(da); scratch_rm(db); scratch_rm(dc); scratch_rm(f1); scratch_rm(f2);
+    mkdir(f1, 0777); mkdir(f2, 0777);
+    ais_open(&A, da); ais_open(&B, db); ais_open(&C, dc);
+    ais_put_at(&A, "work reading", "http://x/lim", "2020-01-01T00:00:00Z");
+    ais_put_at(&B, "work reading", "http://x/lim", "2020-01-01T00:00:00Z");
+    ais_put_at(&C, "work reading", "http://x/lim", "2020-01-01T00:00:00Z");
+
+    ais_update(&B, 1, "-work");                 /* B removes the tag */
+    sleep(1);
+    ais_del(&C, 1);                             /* C deletes the record */
+    sleep(1);
+    ais_update(&A, 1, "later");                 /* A edits, so A's copy survives */
+
+    for (round = 0; round < 4; round++) {       /* A <-> C via f1, C <-> B via f2 */
+        sync_folder_once(&A, f1); sync_folder_once(&C, f1);
+        sync_folder_once(&C, f2); sync_folder_once(&B, f2);
+    }
+
+    CHECK(value_present(&A, "http://x/lim") == 1 && value_present(&B, "http://x/lim") == 1,
+          "known-limit: the record itself converges everywhere");
+    CHECK(key_has_id(&A, "work", 1) == 0,
+          "known-limit: the detach now reaches the device that never saw it");
+    CHECK(key_has_id(&B, "work", 1) == 0,
+          "known-limit: the device that removed it keeps it removed");
+
+    ais_close(&A); ais_close(&B); ais_close(&C);
+    scratch_rm(da); scratch_rm(db); scratch_rm(dc); scratch_rm(f1); scratch_rm(f2);
+}
+
+/* The invariant the minimal raise buys: a detach stamped LATER than the delete
+ * wins on every device, whatever order the devices reach the folder in. The raise
+ * goes one second past the tombstone and no further, so it cannot reach a key
+ * tombstone that came after it. Sweeping the orders is the point -- this used to
+ * come down to which device published first, and to which peer bundle readdir
+ * happened to return first inside a single pass. */
+static void test_later_detach_holds_in_every_sync_order(void)
+{
+    static const char *orders[6][3] = {
+        {"A","B","C"}, {"A","C","B"}, {"B","A","C"},
+        {"B","C","A"}, {"C","A","B"}, {"C","B","A"}
+    };
+    int perm;
+
+    for (perm = 0; perm < 6; perm++) {
+        ais D[3];
+        const char *dirs[3] = {"/tmp/ais_ut_soA", "/tmp/ais_ut_soB", "/tmp/ais_ut_soC"};
+        const char *fld = "/tmp/ais_ut_so_fld";
+        char label[96];
+        int i, round;
+
+        for (i = 0; i < 3; i++) scratch_rm(dirs[i]);
+        scratch_rm(fld);
+        mkdir(fld, 0777);
+        for (i = 0; i < 3; i++) {
+            ais_open(&D[i], dirs[i]);
+            ais_put_at(&D[i], "work reading", "http://x/so", "2020-01-01T00:00:00Z");
+        }
+        ais_del(&D[2], 1);                     /* C deletes ... */
+        sleep(1);
+        ais_update(&D[1], 1, "-work");         /* ... B removes a tag AFTER that ... */
+        sleep(1);
+        ais_update(&D[0], 1, "later");         /* ... A edits, so the record survives */
+
+        for (round = 0; round < 4; round++)
+            for (i = 0; i < 3; i++)
+                sync_folder_once(&D[orders[perm][i][0] - 'A'], fld);
+
+        snprintf(label, sizeof label, "sync order %s%s%s: the later detach holds everywhere",
+                 orders[perm][0], orders[perm][1], orders[perm][2]);
+        CHECK(key_has_id(&D[0], "work", 1) == 0 &&
+              key_has_id(&D[1], "work", 1) == 0 &&
+              key_has_id(&D[2], "work", 1) == 0, label);
+        snprintf(label, sizeof label, "sync order %s%s%s: and the record itself survives",
+                 orders[perm][0], orders[perm][1], orders[perm][2]);
+        CHECK(value_present(&D[0], "http://x/so") == 1 &&
+              value_present(&D[1], "http://x/so") == 1 &&
+              value_present(&D[2], "http://x/so") == 1, label);
+
+        for (i = 0; i < 3; i++) ais_close(&D[i]);
+        for (i = 0; i < 3; i++) scratch_rm(dirs[i]);
+        scratch_rm(fld);
+    }
+}
+
+/* THE RE-ATTACH BUG. Once a key had been detached anywhere in the mesh, no device
+ * could ever put it back: a K| was judged against the record's creation time, and a
+ * detach is by construction at or after that, so the peer's K| kept re-applying and
+ * undid the attach even on the device that made it. katt gives the key its own
+ * attach time, which an incoming K| must now beat, and T| carries it to the peers. */
+static void test_reattach_after_a_detach_propagates(void)
+{
+    ais A, B;
+    const char *da = "/tmp/ais_ut_raA", *db = "/tmp/ais_ut_raB";
+    const char *fld = "/tmp/ais_ut_ra_fld";
+    int round;
+
+    scratch_rm(da); scratch_rm(db); scratch_rm(fld);
+    mkdir(fld, 0777);
+    ais_open(&A, da); ais_open(&B, db);
+    ais_put_at(&A, "work reading", "http://x/ra", "2020-01-01T00:00:00Z");
+    ais_put_at(&B, "work reading", "http://x/ra", "2020-01-01T00:00:00Z");
+
+    ais_update(&B, 1, "-work");                  /* B removes the tag ... */
+    for (round = 0; round < 2; round++) {
+        sync_folder_once(&B, fld); sync_folder_once(&A, fld);
+    }
+    CHECK(key_has_id(&A, "work", 1) == 0, "re-attach: the removal reaches A");
+
+    sleep(1);
+    ais_update(&A, 1, "work");                   /* ... and A puts it back, later */
+    CHECK(key_has_id(&A, "work", 1) == 1, "re-attach: A shows it again locally");
+
+    for (round = 0; round < 3; round++) {
+        sync_folder_once(&A, fld); sync_folder_once(&B, fld);
+    }
+    CHECK(key_has_id(&A, "work", 1) == 1, "re-attach: and still does after syncing");
+    CHECK(key_has_id(&B, "work", 1) == 1, "re-attach: the device that removed it has it back");
+    CHECK(ktomb_contains(&A, 1, "work") == 0 && ktomb_contains(&B, 1, "work") == 0,
+          "re-attach: and neither device still holds a tombstone for the key");
+
+    CHECK(ais_compact(&A) == 0 && ais_compact(&B) == 0, "re-attach: both compact");
+    for (round = 0; round < 2; round++) {
+        sync_folder_once(&A, fld); sync_folder_once(&B, fld);
+    }
+    CHECK(key_has_id(&A, "work", 1) == 1 && key_has_id(&B, "work", 1) == 1,
+          "re-attach: and it survives compaction on both");
+
+    ais_close(&A); ais_close(&B);
+    scratch_rm(da); scratch_rm(db); scratch_rm(fld);
+}
+
+/* A delete issued AFTER the last edit must still win -- the edit clock must not turn
+ * every edited record into one that cannot be deleted from another device. */
+static void test_later_delete_still_wins(void)
+{
+    ais A, B;
+    const char *da = "/tmp/ais_ut_ldA", *db = "/tmp/ais_ut_ldB";
+    const char *fld = "/tmp/ais_ut_ld_fld";
+    long id;
+
+    scratch_rm(da); scratch_rm(db); scratch_rm(fld);
+    mkdir(fld, 0777);
+    ais_open(&A, da); ais_open(&B, db);
+    ais_put_at(&A, "reading", "http://x/other", "2020-01-01T00:00:00Z");
+    id = ais_put_at(&B, "reading", "http://x/other", "2020-01-01T00:00:00Z");
+
+    ais_update(&A, 1, "reading edited");      /* the laptop edits ... */
+    sleep(1);
+    ais_del(&B, id);                          /* ... and THEN the phone deletes */
+
+    CHECK(sync_folder_once(&B, fld) == 0, "later-delete: phone exports the delete");
+    CHECK(sync_folder_once(&A, fld) == 0, "later-delete: laptop merges it");
+    CHECK(value_present(&A, "http://x/other") == 0,
+          "later-delete: a delete newer than the edit still removes the record");
+
+    ais_close(&A); ais_close(&B);
+    scratch_rm(da); scratch_rm(db); scratch_rm(fld);
+}
+
 /* ---- folder auto-sync (spec v1): a framed bundle per device in a shared folder ---- */
 
 /* Two devices sync through a shared folder and converge (live records both ways, a
@@ -2439,6 +3340,7 @@ static void test_sync_folder(void)
     const char *fld = "/tmp/ais_ut_fld_sync";
 
     scratch_rm(da); scratch_rm(db); scratch_rm(fld);
+    mkdir(fld, 0777);        /* the folder must EXIST: sync refuses to create one */
     ais_open(&A, da); ais_open(&B, db);
     ais_put(&A, "venice", "Hotel Danieli");
     ais_put(&A, "paris", "Cafe de Flore");     /* A id 2 */
@@ -2535,6 +3437,7 @@ static void test_sync_clone_heal(void)
     int i;
 
     scratch_rm(da); scratch_rm(db); scratch_rm(fld);
+    mkdir(fld, 0777);        /* the folder must EXIST: sync refuses to create one */
     ais_open(&A, da); ais_open(&B, db);
     ais_put(&A, "ka", "from A");
     ais_put(&B, "kb", "from B");
@@ -2971,6 +3874,308 @@ static void test_record_too_long(void)
     scratch_rm(dir);
 }
 
+/* Deletes arrive batched (one store pass per run of D| lines), so pin that the batch
+ * changes nothing: an add and a delete for one value in a SINGLE stream resolve by
+ * timestamp, in either arrival order. */
+static void test_merge_del_batch_lww_in_one_stream(void)
+{
+    ais a;
+    FILE *s;
+    const char *dir = "/tmp/ais_ut_batch_lww";
+    char h[17];
+
+    scratch_rm(dir);
+    ais_open(&a, dir);
+    ais_put_at(&a, "k", "here-then-deleted", "2020-01-01T00:00:00Z");
+    ais_put_at(&a, "k", "here-then-readded", "2020-01-01T00:00:00Z");
+    ais_put_at(&a, "k", "here-then-stays-dead", "2020-01-01T00:00:00Z");
+
+    s = tmpfile();
+    fprintf(s, "A|2020-01-01T00:00:00Z|k|add-then-newer-del\n");
+    content_hash("add-then-newer-del", h);
+    fprintf(s, "D|2025-01-01T00:00:00Z|%s\n", h);
+    fprintf(s, "A|2030-01-01T00:00:00Z|k|add-then-older-del\n");
+    content_hash("add-then-older-del", h);
+    fprintf(s, "D|2025-01-01T00:00:00Z|%s\n", h);
+    content_hash("del-then-add-absent", h);        /* nothing here to delete yet */
+    fprintf(s, "D|2030-01-01T00:00:00Z|%s\n", h);
+    fprintf(s, "A|2020-01-01T00:00:00Z|k|del-then-add-absent\n");
+    content_hash("here-then-deleted", h);
+    fprintf(s, "D|2025-01-01T00:00:00Z|%s\n", h);
+    content_hash("here-then-readded", h);          /* delete, then a NEWER re-add */
+    fprintf(s, "D|2025-01-01T00:00:00Z|%s\n", h);
+    fprintf(s, "A|2030-01-01T00:00:00Z|k|here-then-readded\n");
+    content_hash("here-then-stays-dead", h);       /* delete, then an OLDER re-add */
+    fprintf(s, "D|2025-01-01T00:00:00Z|%s\n", h);
+    fprintf(s, "A|2022-01-01T00:00:00Z|k|here-then-stays-dead\n");
+    rewind(s);
+    feed_import_from(&a, s);
+    fclose(s);
+
+    CHECK(value_present(&a, "add-then-newer-del") == 0,
+          "batch-lww: add then a newer delete, same stream -> deleted");
+    CHECK(value_present(&a, "add-then-older-del") == 1,
+          "batch-lww: add then an older delete -> kept");
+    CHECK(value_present(&a, "del-then-add-absent") == 1,
+          "batch-lww: a delete for a value not held yet bites nothing");
+    CHECK(value_present(&a, "here-then-deleted") == 0,
+          "batch-lww: a newer delete removes a value already held");
+    CHECK(value_present(&a, "here-then-readded") == 1,
+          "batch-lww: delete then a newer re-add resurrects");
+    CHECK(value_present(&a, "here-then-stays-dead") == 0,
+          "batch-lww: delete then an older re-add stays deleted");
+
+    ais_close(&a);
+    scratch_rm(dir);
+}
+
+/* The batch boundary: more deletes than one buffer holds must all apply (two flushes),
+ * and a delete whose value only arrives LATER in the same stream must still bite
+ * nothing -- the run is resolved before the add that follows it, exactly as when each
+ * delete was resolved on its own line. */
+static void test_merge_del_batch_boundary(void)
+{
+    ais a;
+    FILE *s;
+    const char *dir = "/tmp/ais_ut_batch_edge";
+    const int n = AIS_MERGE_BATCH + 44;            /* deliberately over one buffer */
+    char val[64], h[17];
+    int i, live = 0;
+
+    scratch_rm(dir);
+    ais_open(&a, dir);
+    for (i = 0; i < n; i++) {
+        snprintf(val, sizeof val, "edge-%d", i);
+        ais_put_at(&a, "k", val, "2020-01-01T00:00:00Z");
+    }
+
+    s = tmpfile();
+    for (i = 0; i < n; i++) {
+        snprintf(val, sizeof val, "edge-%d", i);
+        content_hash(val, h);
+        fprintf(s, "D|2030-01-01T00:00:00Z|%s\n", h);
+        if (i == AIS_MERGE_BATCH - 1) {            /* straddles the flush */
+            content_hash("arrives-later", h);
+            fprintf(s, "D|2030-01-01T00:00:00Z|%s\n", h);
+        }
+    }
+    fprintf(s, "A|2020-01-01T00:00:00Z|k|arrives-later\n");
+    rewind(s);
+    feed_import_from(&a, s);
+    fclose(s);
+
+    for (i = 0; i < n; i++) {
+        snprintf(val, sizeof val, "edge-%d", i);
+        live += value_present(&a, val);
+    }
+    CHECK(live == 0, "batch-edge: every delete applied across the buffer boundary");
+    CHECK(value_present(&a, "arrives-later") == 1,
+          "batch-edge: a delete resolves before the add that follows it");
+
+    ais_close(&a);
+    scratch_rm(dir);
+}
+
+/* Batching must not touch the delete-vs-edit rules: inside one batch, a delete older
+ * than the local edit leaves the record alive and records the time it now exports at
+ * (sts), while a delete newer than the edit still removes it. */
+static void test_merge_del_batch_keeps_the_edit_clock(void)
+{
+    ais a;
+    FILE *s;
+    const char *dir = "/tmp/ais_ut_batch_mts";
+    char val[64], h[17], got[AIS_TS_MAX];
+    long survivor, doomed;
+    int i;
+
+    scratch_rm(dir);
+    ais_open(&a, dir);
+    survivor = ais_put_at(&a, "k", "edited-here", "2020-01-01T00:00:00Z");
+    doomed   = ais_put_at(&a, "k", "edited-then-deleted", "2020-01-01T00:00:00Z");
+    ais_update(&a, survivor, "fresh");             /* a LOCAL edit: mts = now */
+    ais_update(&a, doomed, "fresh");
+
+    s = tmpfile();
+    for (i = 0; i < 100; i++) {                    /* padding: the facts share one pass */
+        snprintf(val, sizeof val, "absent-%d", i);
+        content_hash(val, h);
+        fprintf(s, "D|2030-01-01T00:00:00Z|%s\n", h);
+    }
+    content_hash("edited-here", h);                /* older than the edit: loses */
+    fprintf(s, "D|2025-01-01T00:00:00Z|%s\n", h);
+    content_hash("edited-then-deleted", h);        /* newer than the edit: wins */
+    fprintf(s, "D|2035-01-01T00:00:00Z|%s\n", h);
+    rewind(s);
+    feed_import_from(&a, s);
+    fclose(s);
+
+    CHECK(value_present(&a, "edited-here") == 1,
+          "batch-mts: an edit newer than the delete keeps the record");
+    CHECK(sts_get(&a, survivor, got, sizeof got) == 1 &&
+          strcmp(got, "2025-01-01T00:00:01Z") == 0,
+          "batch-mts: the survivor exports one second past the tombstone");
+    CHECK(value_present(&a, "edited-then-deleted") == 0,
+          "batch-mts: a delete newer than the edit still wins");
+    CHECK(mts_get(&a, doomed, got, sizeof got) == 0,
+          "batch-mts: the deleted record's edit time is forgotten");
+
+    ais_close(&a);
+    scratch_rm(dir);
+}
+
+/* Re-importing a stream changes nothing the second time -- sync repeats by design,
+ * and a batch flush must not turn a replay into new work. */
+static void test_merge_del_batch_idempotent(void)
+{
+    ais a;
+    FILE *s;
+    const char *dir = "/tmp/ais_ut_batch_idem";
+    char path[AIS_PATH_MAX], line[AIS_LINE_MAX], h[17];
+    FILE *t;
+    long tomb_first = 0, tomb_again = 0, lines_first, lines_again;
+    int i;
+
+    scratch_rm(dir);
+    ais_open(&a, dir);
+    ais_put_at(&a, "k", "kept", "2030-01-01T00:00:00Z");
+    ais_put_at(&a, "k", "killed", "2020-01-01T00:00:00Z");
+
+    s = tmpfile();
+    fprintf(s, "A|2020-01-01T00:00:00Z|k|from-the-wire\n");
+    content_hash("killed", h);
+    fprintf(s, "D|2025-01-01T00:00:00Z|%s\n", h);
+    content_hash("kept", h);                       /* older than the local add: loses */
+    fprintf(s, "D|2025-01-01T00:00:00Z|%s\n", h);
+    content_hash("from-the-wire", h);
+    fprintf(s, "D|2019-01-01T00:00:00Z|%s\n", h);  /* older than its own add: loses */
+    rewind(s);
+    feed_import_from(&a, s);
+    lines_first = store_count_lines(dir);
+    snprintf(path, sizeof path, "%s/tomb", dir);
+    for (i = 0; i < 2; i++) {
+        t = fopen(path, "r");
+        if (t != NULL) {
+            long *n = (i == 0) ? &tomb_first : &tomb_again;
+            while (fgets(line, sizeof line, t) != NULL)
+                (*n)++;
+            fclose(t);
+        }
+        if (i == 0) { rewind(s); feed_import_from(&a, s); }   /* the same stream again */
+    }
+    fclose(s);
+    lines_again = store_count_lines(dir);
+
+    CHECK(tomb_first == 1 && tomb_again == 1, "batch-idem: the replay adds no tombstone");
+    CHECK(lines_first == lines_again, "batch-idem: the replay adds no store line");
+    CHECK(value_present(&a, "kept") == 1 && value_present(&a, "from-the-wire") == 1 &&
+          value_present(&a, "killed") == 0, "batch-idem: the outcome is unchanged");
+
+    ais_close(&a);
+    scratch_rm(dir);
+}
+
+/* A batch is applied in STREAM order, not in store order: when two facts name two
+ * values of ONE record, the tombstone must carry the first fact's hash, which is the
+ * one that travels onward to the peers. */
+static void test_merge_del_many_keeps_stream_order(void)
+{
+    ais a;
+    const char *dir = "/tmp/ais_ut_batch_order";
+    ais_del_fact f[2];
+    char path[AIS_PATH_MAX], line[AIS_LINE_MAX], second[17];
+    FILE *t;
+    long id;
+    int carried = 0;
+
+    scratch_rm(dir);
+    ais_open(&a, dir);
+    id = ais_put_at(&a, "k", "head-value", "2020-01-01T00:00:00Z");
+    ais_add(&a, id, "tail-value");                 /* one record, two store lines */
+
+    content_hash("tail-value", second);            /* the SECOND line, named FIRST */
+    snprintf(f[0].hash, sizeof f[0].hash, "%s", second);
+    snprintf(f[0].ts, sizeof f[0].ts, "%s", "2030-01-01T00:00:00Z");
+    content_hash("head-value", f[1].hash);
+    snprintf(f[1].ts, sizeof f[1].ts, "%s", "2030-01-01T00:00:00Z");
+    CHECK(ais_merge_del_many(&a, f, 2) == 0, "batch-order: the batch applied");
+
+    snprintf(path, sizeof path, "%s/tomb", dir);
+    t = fopen(path, "r");
+    if (t != NULL) {
+        while (fgets(line, sizeof line, t) != NULL)
+            if (strstr(line, second) != NULL)
+                carried = 1;
+        fclose(t);
+    }
+    CHECK(carried == 1, "batch-order: the tombstone carries the first fact's hash");
+    CHECK(value_present(&a, "head-value") == 0, "batch-order: the record is gone");
+
+    CHECK(ais_merge_del_many(&a, f, 0) == 0, "batch-order: an empty batch is a no-op");
+    CHECK(ais_merge_del_many(&a, f, AIS_MERGE_BATCH + 1) == -1,
+          "batch-order: more than one buffer holds is refused");
+    CHECK(ais_merge_del_many(&a, NULL, 1) == -1, "batch-order: no facts is refused");
+
+    ais_close(&a);
+    scratch_rm(dir);
+}
+
+/* The point of the batch: a run of D| lines costs ONE store pass, not one per line.
+ * Measured against the same deletes resolved one at a time on the same index and
+ * machine -- the shape the import had before, and the one that made a sync with a
+ * peer that had deleted a lot take minutes. */
+static void test_merge_del_batch_is_one_pass(void)
+{
+    ais a;
+    FILE *s, *f;
+    const char *dir = "/tmp/ais_ut_batch_speed";
+    const int records = 4000, deletes = AIS_MERGE_BATCH + 44;
+    char path[AIS_PATH_MAX], val[64], h[17];
+    clock_t t0, batched, one_at_a_time;
+    int i, live = 0;
+
+    scratch_rm(dir);
+    ais_open(&a, dir);
+    snprintf(path, sizeof path, "%s/store", dir);   /* written directly: 4000 puts would
+                                                     * dominate the measurement */
+    f = fopen(path, "w");
+    if (f == NULL) { CHECK(0, "batch-speed: scratch store"); ais_close(&a); return; }
+    for (i = 1; i <= records; i++)
+        fprintf(f, "%d|2020-01-01T00:00:00Z|bulk|bulk-%d\n", i, i);
+    fclose(f);
+
+    s = tmpfile();
+    for (i = 0; i < deletes; i++) {
+        snprintf(val, sizeof val, "bulk-%d", 1 + i * (records / deletes));
+        content_hash(val, h);
+        fprintf(s, "D|2030-01-01T00:00:00Z|%s\n", h);
+    }
+    rewind(s);
+    t0 = clock();
+    feed_import_from(&a, s);
+    batched = clock() - t0;
+    fclose(s);
+
+    for (i = 0; i < deletes; i++) {
+        snprintf(val, sizeof val, "bulk-%d", 1 + i * (records / deletes));
+        live += value_present(&a, val);
+    }
+    CHECK(live == 0, "batch-speed: every delete in the stream applied");
+
+    t0 = clock();                                   /* the same seeks, one call each */
+    for (i = 0; i < deletes; i++) {
+        snprintf(val, sizeof val, "bulk-%d", 1 + i * (records / deletes));
+        content_hash(val, h);
+        ais_merge_del(&a, h, "2030-01-01T00:00:00Z");
+    }
+    one_at_a_time = clock() - t0;
+
+    CHECK(one_at_a_time > 0 && batched * 4 < one_at_a_time,
+          "batch-speed: the batched run costs a fraction of one scan per delete");
+
+    ais_close(&a);
+    scratch_rm(dir);
+}
+
 /* Deferred behavior (decision A): a multi-value record (ais_add) survives a merge, but its
  * values un-group into separate records on the peer. Pin it so a future change is noticed. */
 static void test_merge_multivalue(void)
@@ -3031,8 +4236,30 @@ static void test_sync_url(void)
     CHECK(sync_parse_url("http://", host, sizeof host, &port) == -1, "url: empty host rejected");
 }
 
+/* The scratch indexes below live at FIXED /tmp paths, so two copies of this
+ * binary running at once delete each other's fixtures -- which shows up as a
+ * scatter of unrelated failures (the sleep-driven sync tests worst of all) and
+ * reads exactly like a real regression. It cost one false alarm already. Hold a
+ * lock for the run instead of renaming a hundred literals; the suite is seconds
+ * long, so serialising costs nothing and the lock cannot go stale (the kernel
+ * drops it when the process dies). */
+static void serialise_runs(void)
+{
+    static const char *lock = "/tmp/ais_ut.lock";
+    int fd = open(lock, O_CREAT | O_RDWR, 0666);
+
+    if (fd < 0)
+        return;                       /* no lock is better than no tests */
+    if (flock(fd, LOCK_EX | LOCK_NB) == 0)
+        return;                       /* free: keep fd open for the process lifetime */
+    printf("  .. another ais_ut is running; waiting for it (shared /tmp fixtures)\n");
+    fflush(stdout);
+    flock(fd, LOCK_EX);
+}
+
 int main(void)
 {
+    serialise_runs();
     printf("AIS regression tests (make ut)\n");
     printf("content:\n");
     test_content_hash();
@@ -3041,6 +4268,13 @@ int main(void)
     test_merge_roundtrip();
     test_merge_lww();
     test_merge_multivalue();
+    printf("merge deletes (batched: one store pass per run of D| lines):\n");
+    test_merge_del_batch_lww_in_one_stream();
+    test_merge_del_batch_boundary();
+    test_merge_del_batch_keeps_the_edit_clock();
+    test_merge_del_batch_idempotent();
+    test_merge_del_many_keeps_stream_order();
+    test_merge_del_batch_is_one_pass();
     printf("store bounds:\n");
     test_record_too_long();
     printf("sync url:\n");
@@ -3131,6 +4365,28 @@ int main(void)
     printf("sync transport (socket, forked loopback):\n");
     test_sync_socket();
     printf("folder sync (two devices converge through a shared folder):\n");
+    test_edit_beats_earlier_delete();
+    test_mts_slots();
+    test_mts_all_edit_paths();
+    test_incoming_link_is_not_a_local_edit();
+    test_del_under_clears_the_clocks();
+    test_attach_batch_matches_one_at_a_time();
+    test_edit_does_not_resurrect_a_removed_tag();
+    test_delete_conflict_keeps_a_removed_tag_removed();
+    test_losing_delete_is_free();
+    test_mts_rejects_a_damaged_slot();
+    test_merge_delete_forgets_and_add_refuses();
+    test_readd_adopts_the_new_keys();
+    test_true_ts_verb_shields_key_tombstones();
+    test_old_peer_ignores_the_new_verbs();
+    test_known_limit_restamp_outranks_an_unseen_detach();
+    test_later_detach_holds_in_every_sync_order();
+    test_reattach_after_a_detach_propagates();
+    test_surviving_edit_reaches_the_whole_mesh();
+    test_later_delete_still_wins();
+    test_sync_folder_refuses_to_create();
+    test_sync_folder_notices_a_vanished_bundle();
+    test_sync_folder_first_use_is_fine();
     test_sync_folder();
     printf("folder sync B2 (torn/corrupt frame rejected):\n");
     test_sync_frame_reject();

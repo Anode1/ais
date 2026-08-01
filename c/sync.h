@@ -76,6 +76,11 @@ int sync_device_new(ais *a, char *id_hex, size_t idsz, uint8_t nonce[16]);
 int sync_export_framed(ais *a, const uint8_t nonce[16], uint64_t seq,
                        uint8_t **out, size_t *out_len);
 
+/* The first byte of a plain bundle: the container version. A file WITHOUT it is
+ * a bare merge stream (what `ais --export` and `--dump` write) and is accepted
+ * too -- see sync_import_plain. */
+#define AIS_SYNC_PROTO 1
+
 /* Verify a framed bundle and merge it. -1 = short/truncated/corrupt (REJECTED before
  * any merge), -2 = unknown frame version, 0 = merged. NONCE_OUT / SEQ_OUT (optional)
  * get the writer's nonce and write-sequence. DATA owned by caller. */
@@ -83,8 +88,37 @@ int sync_import_framed(ais *a, const uint8_t *data, size_t len,
                        uint8_t nonce_out[16], uint64_t *seq_out);
 
 /* One folder-sync pass: import every well-formed peer <id>.aisb in FOLDER, then write
- * our own atomically; heals a device-id clone (nonce mismatch). 0 on success, -1 on error. */
+ * our own atomically; heals a device-id clone (nonce mismatch).
+ *
+ * The folder is never CREATED, and a folder we have synced with before is never
+ * silently accepted once it holds no device bundle at all. Both refusals exist
+ * because sync IS the backup here: a pass that reports success while writing into
+ * a typo, an unmounted drive, or an emptied share is the one failure the user
+ * cannot detect until the data is needed.
+ *
+ *   0                       synced
+ *   AIS_FOLDER_MISSING      no such folder (or a dangling symlink)
+ *   AIS_FOLDER_NOTDIR       the path exists but is not a directory
+ *   AIS_FOLDER_STAT         it could not be examined; errno says why
+ *   AIS_FOLDER_STRANGER     we synced here before and it now holds no device
+ *                           bundle at all: an unmounted drive, or an emptied share
+ *   AIS_FOLDER_NOWRITE      imports may have applied, but our bundle could not be written
+ *   -1                      any other failure
+ *
+ * FORCE (the -y path) accepts an empty remembered folder and re-establishes it; it
+ * does not create anything and does not bypass the other checks.
+ *
+ * Known limit: a folder is identified by its PATH, never by the filesystem behind
+ * it. The very first pass into an unmounted mount point therefore succeeds and
+ * writes into the underlying directory. */
+#define AIS_FOLDER_MISSING   (-2)
+#define AIS_FOLDER_NOTDIR    (-3)
+#define AIS_FOLDER_STAT      (-4)
+#define AIS_FOLDER_STRANGER  (-5)
+#define AIS_FOLDER_NOWRITE   (-6)
+
 int sync_folder_once(ais *a, const char *folder);
+int sync_folder_once_force(ais *a, const char *folder, int force);
 
 /* Parse a sync URL into HOST (bounded by HOSTSZ) and *PORT: "http(s)://host[:port][/path]"
  * or "host[:port]"; a missing or out-of-range port defaults to AIS_SYNC_PORT. Pure string
