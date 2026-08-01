@@ -2812,6 +2812,63 @@ static void test_attach_batch_matches_one_at_a_time(void)
     scratch_rm(da);
 }
 
+/* A bidirectional exchange whose SECOND leg never happens is half done, not
+ * failed: the records that did cross are merged and kept. Reported as a plain
+ * error, that told a user whose sync IS their backup that nothing had been
+ * copied when in fact one whole direction had.
+ *
+ * Forced deterministically: the host offers a two-way exchange, the peer takes
+ * the one-way half and leaves. The host's read of the peer's stream then hits a
+ * clean EOF on a closed socket -- no timing involved. */
+static void test_half_done_sync_is_not_a_failure(void)
+{
+    ais A;
+    const char *da = "/tmp/ais_ut_halfA", *db = "/tmp/ais_ut_halfB";
+    const char *tok = "0123456789abcdef0123456789abcdef";
+    int port = 47161, rc;
+    pid_t pid;
+
+    signal(SIGPIPE, SIG_IGN);        /* the peer leaves mid-exchange, by design */
+    scratch_rm(da);
+    scratch_rm(db);
+    {   /* B exists and is empty; A has the record that must reach it */
+        ais B;
+        ais_open(&B, db);
+        ais_close(&B);
+    }
+    ais_open(&A, da);
+    ais_put(&A, "venice", "Hotel Danieli");
+    ais_close(&A);
+
+    pid = fork();
+    if (pid == 0) {                  /* peer: pull ONE way, merge, and go */
+        ais cB;
+        ais_open(&cB, db);
+        sync_pull(&cB, "127.0.0.1", port, tok, 5, 0);
+        ais_close(&cB);
+        _exit(0);
+    }
+
+    ais_open(&A, da);
+    rc = sync_serve(&A, port, tok, 5, 1);        /* host offers BOTH directions */
+    CHECK(rc == AIS_SYNC_PARTIAL,
+          "half sync: a peer that takes our records and leaves is reported as half done");
+    CHECK(rc != 0, "half sync: and not as a full convergence");
+    ais_close(&A);
+    waitpid(pid, NULL, 0);
+
+    {   /* the half that DID happen is real: the record is on the peer */
+        ais B;
+        ais_open(&B, db);
+        CHECK(value_present(&B, "Hotel Danieli") == 1,
+              "half sync: the records that crossed are merged and kept");
+        ais_close(&B);
+    }
+
+    scratch_rm(da);
+    scratch_rm(db);
+}
+
 /* The edit clock must NOT ride out on the wire. The exported A| timestamp also
  * decides key-attach conflicts, so sending an edit time would let an unrelated
  * edit on one device resurrect a tag another device deliberately removed -- and
@@ -4371,6 +4428,7 @@ int main(void)
     test_incoming_link_is_not_a_local_edit();
     test_del_under_clears_the_clocks();
     test_attach_batch_matches_one_at_a_time();
+    test_half_done_sync_is_not_a_failure();
     test_edit_does_not_resurrect_a_removed_tag();
     test_delete_conflict_keeps_a_removed_tag_removed();
     test_losing_delete_is_free();

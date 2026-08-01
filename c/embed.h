@@ -92,7 +92,13 @@ int   ais_embed_serve(void *handle, int port, const char *token);
 /* The direction-less "Sync": like pull/serve, but a SYMMETRIC exchange -- after
  * the one-way transfer each side also sends the other way, so BOTH converge in
  * one round (no sender/receiver role). Same return codes. One device hosts
- * (sync_serve), the other joins (sync_pull); either way both end up merged. */
+ * (sync_serve), the other joins (sync_pull); either way both end up merged.
+ *
+ * Same return codes, plus 1 = HALF DONE: one direction completed and the other
+ * did not, so records crossed but the two devices are not identical yet. It is
+ * positive, not negative, because it is not a failure to retry from scratch --
+ * nothing was lost and running it again finishes the job. Reporting it as -2
+ * told a user that a backup which had half happened had not happened at all. */
 int   ais_embed_sync_pull(void *handle, const char *url, const char *token);
 int   ais_embed_sync_serve(void *handle, int port, const char *token);
 

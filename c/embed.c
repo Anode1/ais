@@ -140,14 +140,17 @@ static int embed_pull(void *handle, const char *url, const char *token, int bidi
 #else
     ais *a = handle;
     char host[128];
-    int port;
+    int port, r;
 
     if (a == NULL || url == NULL || token == NULL)
         return -1;                          /* bad args */
     signal(SIGPIPE, SIG_IGN);               /* a dropped peer must not kill the host app */
     if (sync_parse_url(url, host, sizeof host, &port) != 0)
         return -1;                          /* malformed url */
-    if (sync_pull(a, host, port, token, 10, bidir) != 0)   /* 10s LAN timeout */
+    r = sync_pull(a, host, port, token, 10, bidir);         /* 10s LAN timeout */
+    if (r == AIS_SYNC_PARTIAL)
+        return 1;                           /* we merged theirs; they did not get ours */
+    if (r != 0)
         return -2;                          /* unreachable, wrong token, or timeout */
     return 0;                               /* merged (and, if bidir, sent back) */
 #endif
@@ -173,6 +176,7 @@ static int embed_serve(void *handle, int port, const char *token, int bidir)
     signal(SIGPIPE, SIG_IGN);               /* a peer that vanishes mid-write must not kill the app */
     r = sync_serve(a, port, token, 120, bidir);   /* wait up to 120s for one peer */
     if (r == -2) return -3;                 /* the port is busy (bind failed) -- fast, not a timeout */
+    if (r == AIS_SYNC_PARTIAL) return 1;    /* they got ours; we did not get theirs */
     if (r != 0)  return -2;                 /* no peer completed: timeout, wrong token, or error */
     return 0;                               /* a peer pulled (and, if bidir, we merged theirs) */
 #endif

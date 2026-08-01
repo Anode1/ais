@@ -37,16 +37,26 @@ int sync_export_sealed(ais *a, const char *token, uint8_t **out, size_t *out_len
  * so unauthenticated bytes never reach the store. Returns 0, or -1. */
 int sync_import_sealed(ais *a, const char *token, const uint8_t *sealed, size_t len);
 
+/* HALF a bidirectional exchange succeeded: THIS device merged the peer's records
+ * (so nothing was lost and the data is here), but the other direction did not
+ * complete, so the peer has not got ours. Distinct from -1 because the two need
+ * opposite advice: -1 means try again, this means try again to finish copying
+ * the other way -- and reporting it as a plain failure told a user their backup
+ * had not happened when in fact half of it had. Only ever returned when BIDIR. */
+#define AIS_SYNC_PARTIAL 1
+
 /* Serve ONE peer over the LAN: bind PORT, accept a client, check its TOKEN, then send the
  * sealed merge stream and exit (single-shot, ephemeral). TIMEOUT_S bounds the wait. If
  * BIDIR, after sending it also receives and merges the peer's sealed stream (a symmetric
  * full-state exchange -- both converge in one round, no sender/receiver role). 0 on a
- * served client, -1 on error/timeout/auth failure. POSIX + crypto only. */
+ * fully converged exchange, AIS_SYNC_PARTIAL when the peer got our records but we
+ * did not get theirs, -1 on error/timeout/auth failure. POSIX + crypto only. */
 int sync_serve(ais *a, int port, const char *token, int timeout_s, int bidir);
 
 /* Pull from a peer at HOST:PORT: send TOKEN, receive the sealed stream, unseal + merge.
  * If BIDIR, after merging it also seals and sends its own stream back so the peer
- * converges too. TIMEOUT_S bounds I/O. 0, or -1 on error/timeout/auth failure. */
+ * converges too. TIMEOUT_S bounds I/O. 0 when both converged, AIS_SYNC_PARTIAL when
+ * we merged theirs but could not send ours back, -1 on error/timeout/auth failure. */
 int sync_pull(ais *a, const char *host, int port, const char *token, int timeout_s, int bidir);
 
 /* High-level CLI wrappers (these also generate the token and print the pairing line). */

@@ -593,6 +593,7 @@ static const char PAGE[] =
 "if(syncPoll)clearInterval(syncPoll);"
 "syncPoll=setInterval(async function(){var s=(await(await fetch('/api/sync/status')).text()).trim();"
 "if(s=='synced'){clearInterval(syncPoll);syncPoll=null;$('hoststatus').textContent='Synced. Both devices now have the same records.';setView(view)}"
+"else if(s=='half'){clearInterval(syncPoll);syncPoll=null;$('hoststatus').textContent='They got your records, but theirs did not come back. Nothing was lost -- sync again to finish.';setView(view)}"
 "else if(s=='timeout'){clearInterval(syncPoll);syncPoll=null;$('hoststatus').textContent='No device joined in time. Try again.'}},1500)}"
 "function syncJoinPane(){$('syncpick').style.display='none';$('syncfile').style.display='none';$('syncjoin').hidden=false;$('joinstatus').textContent='';$('jaddr').focus()}"
 /* file export/import: no network -- carry the whole index as one .aisb file */
@@ -644,6 +645,7 @@ static const char PAGE[] =
 "$('joinstatus').textContent='Syncing...';"
 "var r=await fetch('/api/sync/join',{method:'POST',body:url+'\\n'+tok});var s=(await r.text()).trim();"
 "if(s=='merged'){$('joinstatus').textContent='Synced. Both devices now have the same records.';setView(view)}"
+"else if(s=='half'){$('joinstatus').textContent='Got their records, but yours did not reach them. Nothing was lost -- sync again to finish.';setView(view)}"
 "else if(s=='bad url')$('joinstatus').textContent='That address looks wrong. Use http://host:port.';"
 "else $('joinstatus').textContent='Could not sync. Same Wi-Fi? Check the host is waiting and the token is right.'}"
 "$('syncbtn').onclick=openSync;$('synccancel').onclick=closeSync;"
@@ -1010,7 +1012,7 @@ static int serve_asset(int fd, const char *name)
 #define SERVE_SYNC_TIMEOUT 120    /* seconds the host child waits for one peer    */
 
 static volatile sig_atomic_t sync_child = -1;   /* live Host child pid, or -1 (one at a time) */
-static volatile sig_atomic_t sync_last  = -2;   /* last Host outcome: 0 served, else not      */
+static volatile sig_atomic_t sync_last  = -2;   /* last Host outcome: 0 served, 1 half, else not */
 
 /* Reap the Host child if it has finished so it leaves no zombie, remembering its
  * outcome (the child exits 0 when a peer synced, non-zero on timeout/error).
@@ -1024,7 +1026,10 @@ static void sync_reap(void)
     if (pid <= 0)
         return;
     if (waitpid(pid, &st, WNOHANG) == pid) {
-        sync_last = (WIFEXITED(st) && WEXITSTATUS(st) == 0) ? 0 : -2;
+        sync_last = !WIFEXITED(st) ? -2
+                  : (WEXITSTATUS(st) == 0) ? 0
+                  : (WEXITSTATUS(st) == 2) ? 1        /* half: see sync_status */
+                  : -2;
         sync_child = -1;
     }
 }
@@ -1091,7 +1096,10 @@ static void sync_host(ais *a, int fd)
             _exit(1);
         rc = sync_serve(&fresh, port, token, SERVE_SYNC_TIMEOUT, SERVE_SYNC_BIDIR);
         ais_close(&fresh);
-        _exit(rc == 0 ? 0 : 1);                /* 0 = a peer synced; 1 = timeout/error */
+        /* 0 = converged, 2 = half (the peer got ours, we did not get theirs),
+         * 1 = timeout/error. The parent only has an exit status to read, so the
+         * three outcomes need three codes. */
+        _exit(rc == 0 ? 0 : (rc == AIS_SYNC_PARTIAL ? 2 : 1));
     }
     if (pid < 0) {
         static const char e[] = "HTTP/1.0 500 Internal Server Error\r\n"
@@ -1115,6 +1123,7 @@ static void sync_status(int fd)
     sync_reap();
     if (sync_child > 0)      s = "waiting\n";
     else if (sync_last == 0) s = "synced\n";
+    else if (sync_last == 1) s = "half\n";    /* they got ours, we did not get theirs */
     else                     s = "timeout\n";
     send_head(fd, "text/plain");
     write_all(fd, s, strlen(s));
@@ -1146,8 +1155,11 @@ static void sync_join(ais *a, char *body, int fd)
     }
     rc = sync_pull(a, host, port, tok, 10, SERVE_SYNC_BIDIR);   /* 10s LAN timeout */
     send_head(fd, "text/plain");
-    if (rc == 0) write_all(fd, "merged\n", 7);
-    else         write_all(fd, "could not connect or wrong token\n", 33);
+    /* "half" is a SUCCESS with an unfinished second leg: their records are here.
+     * Folding it into the error told the user nothing had been copied. */
+    if (rc == 0)                        write_all(fd, "merged\n", 7);
+    else if (rc == AIS_SYNC_PARTIAL)    write_all(fd, "half\n", 5);
+    else                                write_all(fd, "could not connect or wrong token\n", 33);
 }
 #endif /* SERVE_HAVE_SYNC */
 

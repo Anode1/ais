@@ -468,6 +468,12 @@ int sync_serve(ais *a, int port, const char *token, int timeout_s, int bidir) {
             unsigned char rlen[4];
             uint8_t *rblob = NULL;
             size_t rblen = 0;
+            /* Our stream is already on the wire and the peer merges it, so from
+             * here on the exchange is at least HALF done. Say so: a failure to
+             * read their half back is not "nothing happened", and reporting it
+             * as one told the user their records had not reached the other
+             * device when they had. */
+            rc = AIS_SYNC_PARTIAL;
             if (read_all(cli, rlen, 4) == 0) {
                 rblen = ((size_t)rlen[0] << 24) | ((size_t)rlen[1] << 16)
                       | ((size_t)rlen[2] << 8) | (size_t)rlen[3];
@@ -537,10 +543,16 @@ int sync_pull(ais *a, const char *host, int port, const char *token, int timeout
     if (rc == 0 && bidir) {
         /* symmetric exchange: seal and send our own stream back so the peer
          * converges too. Our index now includes what we just merged; the peer
-         * re-merges idempotently. */
+         * re-merges idempotently.
+         *
+         * The local merge above has ALREADY succeeded, so a failure from here is
+         * partial, not total: this device has the peer's records and keeps them.
+         * Returning -1 here reported a sync that had half worked as one that had
+         * not worked at all -- the wrong half to lie about, since the user is
+         * being told whether their data is safe. */
         uint8_t *mine = NULL;
         size_t mlen = 0;
-        rc = -1;
+        rc = AIS_SYNC_PARTIAL;
         if (sync_export_sealed(a, token, &mine, &mlen) == 0 && mlen > 0) {
             unsigned char slen[4];
             slen[0] = (unsigned char)(mlen >> 24);
@@ -597,10 +609,22 @@ int sync_serve_lan(ais *a, int port, int timeout_s, int bidir) {
            bidir ? "--sync" : "--import", ip, port, token);
     fflush(stdout);
 
-    if (sync_serve(a, port, token, timeout_s, bidir) != 0) {
-        fprintf(stderr, "sync: no peer completed (timeout, wrong token, or error)\n");
-        aisc_wipe(token, sizeof token);
-        return -1;
+    {
+        int rc = sync_serve(a, port, token, timeout_s, bidir);
+        if (rc == AIS_SYNC_PARTIAL) {
+            /* The peer HAS our records -- our stream went out and it merged --
+             * we just never got its half back. Reported as a failure, that read
+             * as "nothing was copied", which is the opposite of what happened. */
+            fprintf(stderr, "sync: the other device got your records, but its own did not come back.\n"
+                            "      Nothing was lost. Run the same command again to finish.\n");
+            aisc_wipe(token, sizeof token);
+            return 1;
+        }
+        if (rc != 0) {
+            fprintf(stderr, "sync: no peer completed (timeout, wrong token, or error)\n");
+            aisc_wipe(token, sizeof token);
+            return -1;
+        }
     }
     printf("sync: a peer pulled and merged successfully.\n");
     aisc_wipe(token, sizeof token);
@@ -625,6 +649,16 @@ int sync_pull_url(ais *a, const char *url, const char *token, int timeout_s, int
         if (rc == -2) {                        /* version byte mismatch: loud, actionable */
             fprintf(stderr, "sync: the other device runs a different AIS version -- update both.\n");
             return -1;
+        }
+        if (rc == AIS_SYNC_PARTIAL) {
+            /* Half done, and the half that worked is the half that matters here:
+             * this device HAS the peer's records. Do not call that a failure --
+             * but do not call it "converged" either, which is what sent a user
+             * away believing both devices matched when only one had changed. */
+            fprintf(stderr, "sync: got %s:%d's records, but could not send yours back.\n"
+                            "      Nothing was lost. Run the same command again to finish.\n",
+                    host, port);
+            return 1;
         }
         if (rc != 0) {
             fprintf(stderr, "sync: exchange with %s:%d failed (wrong token, timeout, or no server there)\n",

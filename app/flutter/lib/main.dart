@@ -1114,11 +1114,20 @@ class _RecallPageState extends State<RecallPage> {
     final rc = await fut;
     _syncBusy = false;
     if (!mounted) return;
-    if (hidden && rc != 0) return; // don't surprise with a late failure snackbar
+    // rc < 0, not rc != 0: a HALF-done sync (1) did move records and needs an
+    // action from the user, so it is announced even from a hidden dialog.
+    if (hidden && rc < 0) return; // don't surprise with a late failure snackbar
     final String msg;
     switch (rc) {
       case 0:
         msg = 'Synced. Both devices now have the same records.';
+        _markSynced();
+        break;
+      case 1:
+        // Half done. Their records ARE here, so this is not a failure and must
+        // not read as one -- but the other device is still missing ours.
+        msg = 'Got their records, but yours did not reach them. '
+            'Nothing was lost. Sync again to finish.';
         _markSynced();
         break;
       case -1:
@@ -1128,7 +1137,7 @@ class _RecallPageState extends State<RecallPage> {
         msg = 'Could not sync. Same Wi-Fi? Check the host is waiting and the token is right.';
     }
     messenger.showSnackBar(SnackBar(content: Text(msg)));
-    if (rc == 0) _setView(_view); // refresh with merged records
+    if (rc >= 0) _setView(_view); // a half-done sync still merged theirs
   }
 
   // Host: wait for another device to join; both converge (bidirectional). The
@@ -1178,12 +1187,18 @@ class _RecallPageState extends State<RecallPage> {
     _syncBusy = false;
     if (!mounted) return;
     // If the user hid the dialog and it then timed out, don't surprise them with
-    // a late failure snackbar ~2 min later; a success is still worth announcing.
-    if (hidden && rc != 0) return;
+    // a late failure snackbar ~2 min later; a success -- whole or half -- is
+    // still worth announcing.
+    if (hidden && rc < 0) return;
     final String msg;
     switch (rc) {
       case 0:
         msg = 'Synced. Both devices now have the same records.';
+        _markSynced();
+        break;
+      case 1:
+        msg = 'They got your records, but theirs did not come back. '
+            'Nothing was lost. Sync again to finish.';
         _markSynced();
         break;
       case -3:
@@ -1193,7 +1208,7 @@ class _RecallPageState extends State<RecallPage> {
         msg = 'No device joined in time. Try again.';
     }
     messenger.showSnackBar(SnackBar(content: Text(msg)));
-    if (rc == 0) _setView(_view);
+    if (rc >= 0) _setView(_view); // a half-done sync still merged theirs
   }
 
   // A random 128-bit token as 32 hex chars (the peer must supply the same one).

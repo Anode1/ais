@@ -409,6 +409,7 @@ class AisEngine {
 
   /// Pull + merge a peer's `ais --export --serve` over the LAN (sync: Receive).
   /// Runs off the UI isolate (it blocks on the network). Returns 0 = merged,
+  /// 1 = HALF done (bidir only: we merged theirs, they did not get ours),
   /// -1 = bad URL/args, -2 = could not connect / wrong token / timeout.
   Future<int> pullAsync(String url, String token, {bool bidir = false}) {
     final addr = _h.address;
@@ -430,8 +431,9 @@ class AisEngine {
 
   /// Serve this index to one LAN peer that pulls with `ais --import` (sync:
   /// Send). Blocks up to ~120s for one peer, so run it off the UI isolate.
-  /// Returns 0 = a peer pulled and merged, -1 = bad args, -2 = no peer
-  /// completed (timeout / wrong token / error), -3 = the port is already in use.
+  /// Returns 0 = a peer pulled and merged, 1 = HALF done (bidir only: they got
+  /// ours, we did not get theirs), -1 = bad args, -2 = no peer completed
+  /// (timeout / wrong token / error), -3 = the port is already in use.
   Future<int> serveAsync(int port, String token, {bool bidir = false}) {
     final addr = _h.address;
     final name = bidir ? 'ais_embed_sync_serve' : 'ais_embed_serve';
