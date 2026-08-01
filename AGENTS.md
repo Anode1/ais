@@ -26,9 +26,25 @@ These four are the contract. Do not change behavior without changing them first.
     make hooks  # enable the pre-push hook (runs codeut-asan + codeut-ubsan before a push)
     make clean
 
-`make ut` runs two groups: CORE (codeut + cliut -- keep green, the commit gate)
-and GUI (uiut + the wrapper build-checks; a layer whose toolchain is absent SKIPs).
+`make ut` runs two groups: CORE (codeut + cliut + the FFI stack budget -- keep
+green, the commit gate) and GUI (uiut + the wrapper build-checks + the native
+Flutter sync UI; a layer whose toolchain is absent SKIPs).
 A green CORE with a red or skipped GUI is fine to commit. Full layout in `tests/README.md`.
+
+Two layers exist because something broke without anything noticing:
+
+- **`tests/stack/`** measures how much STACK the engine needs at the FFI seam,
+  which is a Dart isolate thread of about 512 KB, not a process's 8 MB. A change
+  once doubled the primary save path's frame and every test stayed green; on a
+  phone that is the app dying when the user saves a note. Do not measure this
+  with `ulimit -s` on the CLI -- `main()`'s own frame is ~141 KB the app never
+  pays, so it overstates the need by a third.
+- **`tests/gui/flutter-sync.sh`** drives the real Host/Join UI against a CLI
+  peer. The harness existed but was wired into nothing, so when the Sync control
+  moved into the overflow menu it silently stopped testing sync at all, for
+  weeks, while the merge code underneath was being rewritten. It opens the sheet
+  by keyboard (Ctrl+Shift+S) precisely so a layout change cannot quietly
+  disconnect it again.
 
 Before tagging a release, run `make codeut-asan` and `make codeut-ubsan`: they
 rebuild the engine tests with the compiler's sanitizers so memory errors (overflow,
