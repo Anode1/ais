@@ -307,5 +307,26 @@ ok "compact: forget=1 also drops the delete facts" "cleaned and forgotten" \
 okno() { case "$3" in *"$2"*) fail=$((fail+1)); echo "  FAIL $1";; *) pass=$((pass+1)); echo "  ok   $1";; esac; }
 okno "compact: nothing is left to test a guess against" "cmpf" "$(cat "$IDX/tomb" 2>/dev/null)"
 
+# --- folder sync over HTTP: each refusal names its own cause, and the page's
+#     "Sync with it anyway" really reaches the engine. That button was dead once,
+#     because the query loop consumes `query` before an endpoint ever reads it,
+#     and nothing here noticed.
+FS="${TMPDIR:-/tmp}/ais_serve_fld.$$"
+rm -rf "$FS"
+ok "sync-folder: a missing folder is named"  "no such folder" \
+   "$(curl -s -X POST --data-binary "$FS" "$B/api/sync-folder")"
+printf 'x' > "$FS"
+ok "sync-folder: a file is named"            "not a folder" \
+   "$(curl -s -X POST --data-binary "$FS" "$B/api/sync-folder")"
+rm -f "$FS"; mkdir -p "$FS"
+ok "sync-folder: an existing folder syncs"   "synced" \
+   "$(curl -s -X POST --data-binary "$FS" "$B/api/sync-folder")"
+rm -f "$FS"/*.aisb
+ok "sync-folder: a remembered folder gone empty is refused" "folder empty" \
+   "$(curl -s -X POST --data-binary "$FS" "$B/api/sync-folder")"
+ok "sync-folder: and force=1 accepts it (the page's Sync anyway)" "synced" \
+   "$(curl -s -X POST --data-binary "$FS" "$B/api/sync-folder?force=1")"
+rm -rf "$FS"
+
 echo "serve: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]

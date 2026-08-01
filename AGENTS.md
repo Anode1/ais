@@ -48,6 +48,20 @@ than guess at layout (`AIS_NO_OPEN=1` keeps `--serve` from opening a browser):
 Always run ais against a `/tmp` or personal `~/.ais` index, never the repo's own.
 See `tests/shot/README.md`.
 
+**Never open a window on the real display.** Anything that can show a window --
+the Flutter desktop build, the win32 GUI under wine, a browser -- runs on a
+virtual X server. A shell here inherits `DISPLAY=:0` and `WAYLAND_DISPLAY`, each
+command is a fresh shell so exports do not persist, and GTK prefers Wayland, so
+overriding `DISPLAY` alone still lands on the developer's screen. Neutralise both,
+inline, every time:
+
+    env -u WAYLAND_DISPLAY -u XDG_SESSION_TYPE GDK_BACKEND=x11 DISPLAY=:99 \
+        xvfb-run -a flutter run -d linux
+
+Browsers take `--headless=new --ozone-platform=headless` instead; `make uiut`
+already does this. If a check cannot run headless, say so rather than falling
+back to a real display.
+
 The text store is the source of truth; the index (`idx/`, `tomb`, `next_id`) is
 rebuildable from it and disposable.
 

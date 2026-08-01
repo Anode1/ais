@@ -1050,5 +1050,176 @@ ok      "newline-value: refused with a clear message" "multiple lines" "$nlout"
 okempty "newline-value: nothing was stored"           "$("$AIS" -f "$NL" --dump 2>/dev/null)"
 rm -rf "$NL"
 
+# --- folder sync must never invent its target -------------------------------
+#     A typo, or an unplugged drive whose mount point is an empty directory,
+#     used to be silently created: every run said "synced folder", wrote a
+#     bundle nobody would read, and the user believed they had a backup. The
+#     failure only surfaces when the data is needed, which is too late.
+FS=$(mktemp -d "${TMPDIR:-/tmp}/ais_fs.XXXXXX") || exit 2
+"$AIS" -f "$FS" -v 'http://x/one' reading >/dev/null
+GONE="${TMPDIR:-/tmp}/ais_fs_absent.$$"
+rm -rf "$GONE"
+fsout=$("$AIS" -f "$FS" --sync-folder "$GONE" 2>&1); fsrc=$?
+ok      "sync-folder: a missing folder is named in the error" "no such folder" "$fsout"
+okeq    "sync-folder: and it fails, loudly"                   "1" "$fsrc"
+if [ -d "$GONE" ]; then gone=exists; else gone=absent; fi
+okeq    "sync-folder: it did NOT create the folder"        "absent" "$gone"
+printf 'x\n' > "$GONE"
+fsout=$("$AIS" -f "$FS" --sync-folder "$GONE" 2>&1)
+ok      "sync-folder: a plain file is refused too"            "not a folder" "$fsout"
+rm -f "$GONE"; mkdir -p "$GONE"
+fsout=$("$AIS" -f "$FS" --sync-folder "$GONE" 2>&1)
+ok      "sync-folder: once the folder exists, it works"       "synced folder" "$fsout"
+rm -rf "$FS" "$GONE"
+
+# --- an EDIT after a remote DELETE is a later user action, and wins ----------
+#     Merging compares a delete against the record's CREATION time, so re-tagging
+#     something another device had deleted lost silently on the next sync: the
+#     user's most recent action was the one thrown away. The "mts" sidecar
+#     carries the last local edit; merge and export use the later of the two.
+EA=$(mktemp -d "${TMPDIR:-/tmp}/ais_ea.XXXXXX") || exit 2
+EB=$(mktemp -d "${TMPDIR:-/tmp}/ais_eb.XXXXXX") || exit 2
+EF=$(mktemp -d "${TMPDIR:-/tmp}/ais_ef.XXXXXX") || exit 2
+"$AIS" -f "$EA" -v 'http://x/edit-me' reading >/dev/null
+"$AIS" -f "$EB" -v 'http://x/edit-me' reading >/dev/null
+"$AIS" -f "$EB" --del 1 -y >/dev/null 2>&1            # the phone deletes it
+sleep 1
+"$AIS" -f "$EA" --update 1 important >/dev/null 2>&1  # a second later, the laptop re-tags
+"$AIS" -f "$EB" --sync-folder "$EF" >/dev/null
+"$AIS" -f "$EA" --sync-folder "$EF" >/dev/null
+ok      "edit-vs-delete: the later edit survives the earlier remote delete" \
+        "edit-me" "$("$AIS" -f "$EA" reading 2>&1)"
+ok      "edit-vs-delete: the added tag came with it" \
+        "edit-me" "$("$AIS" -f "$EA" important 2>&1)"
+rm -rf "$EA" "$EB" "$EF"
+
+# --- the same, through the PRIMARY save form --------------------------------
+#     `ais -v VALUE KEY` on a value the index already holds is how a tag gets
+#     attached, and it is what every GUI save path calls. Protecting only
+#     --update/--set left the common command losing edits exactly as before.
+PA=$(mktemp -d "${TMPDIR:-/tmp}/ais_pa.XXXXXX") || exit 2
+PB=$(mktemp -d "${TMPDIR:-/tmp}/ais_pb.XXXXXX") || exit 2
+PF=$(mktemp -d "${TMPDIR:-/tmp}/ais_pf.XXXXXX") || exit 2
+"$AIS" -f "$PA" -v 'http://x/save-me' reading >/dev/null
+"$AIS" -f "$PB" -v 'http://x/save-me' reading >/dev/null
+"$AIS" -f "$PB" --del 1 -y >/dev/null 2>&1
+sleep 1
+"$AIS" -f "$PA" -v 'http://x/save-me' important >/dev/null   # re-save = attach a tag
+"$AIS" -f "$PB" --sync-folder "$PF" >/dev/null
+"$AIS" -f "$PA" --sync-folder "$PF" >/dev/null
+ok      "put-path: a re-save after a remote delete survives" \
+        "save-me" "$("$AIS" -f "$PA" reading 2>&1)"
+ok      "put-path: with the tag it was saved under" \
+        "save-me" "$("$AIS" -f "$PA" important 2>&1)"
+rm -rf "$PA" "$PB" "$PF"
+
+# --- an unrelated edit must NOT bring back a tag another device removed ------
+#     The exported timestamp decides key attaches as well as record deletes, so
+#     an edit clock that rode out on the wire resurrected deliberately removed
+#     tags mesh-wide and destroyed the ktomb proving the removal.
+KA=$(mktemp -d "${TMPDIR:-/tmp}/ais_ka.XXXXXX") || exit 2
+KB=$(mktemp -d "${TMPDIR:-/tmp}/ais_kb.XXXXXX") || exit 2
+KF=$(mktemp -d "${TMPDIR:-/tmp}/ais_kf.XXXXXX") || exit 2
+"$AIS" -f "$KA" -v 'http://x/doc' work reading >/dev/null
+"$AIS" -f "$KB" -v 'http://x/doc' work reading >/dev/null
+sleep 1                                               # timestamps are per-second
+"$AIS" -f "$KB" --update 1 -- -work >/dev/null 2>&1   # B removes a tag on purpose
+sleep 1
+"$AIS" -f "$KA" --update 1 important >/dev/null 2>&1  # A adds a DIFFERENT tag, later
+"$AIS" -f "$KA" --sync-folder "$KF" >/dev/null
+"$AIS" -f "$KB" --sync-folder "$KF" >/dev/null
+"$AIS" -f "$KA" --sync-folder "$KF" >/dev/null
+okempty "removed-tag: stays removed on the device that removed it" \
+        "$("$AIS" -f "$KB" work 2>/dev/null)"
+okempty "removed-tag: and the removal reaches the other device" \
+        "$("$AIS" -f "$KA" work 2>/dev/null)"
+ok      "removed-tag: while the unrelated new tag lives" \
+        "doc" "$("$AIS" -f "$KA" important 2>&1)"
+
+# --- and a tag put BACK on must propagate too --------------------------------
+#     A detach used to win for ever: it was judged against the record's creation
+#     time, which it always beats, so the peer's K| undid the re-attach on the
+#     very device that made it. The attach now carries its own time (T|).
+sleep 1
+"$AIS" -f "$KA" --update 1 work >/dev/null 2>&1        # A puts the tag back, later
+ok      "re-attach: the device that re-attached shows it" \
+        "doc" "$("$AIS" -f "$KA" work 2>&1)"
+okeq    "re-attach: and its export says when the tag went back on" \
+        "1" "$("$AIS" -f "$KA" --export 2>/dev/null | grep -c '^T|.*|work$')"
+for r in 1 2 3; do
+    "$AIS" -f "$KA" --sync-folder "$KF" >/dev/null 2>&1
+    "$AIS" -f "$KB" --sync-folder "$KF" >/dev/null 2>&1
+done
+ok      "re-attach: it survives the sync that used to undo it" \
+        "doc" "$("$AIS" -f "$KA" work 2>&1)"
+ok      "re-attach: and reaches the device that had removed it" \
+        "doc" "$("$AIS" -f "$KB" work 2>&1)"
+okempty "re-attach: no key tombstone is left behind" \
+        "$(cat "$KA/ktomb" "$KB/ktomb" 2>/dev/null)"
+rm -rf "$KA" "$KB" "$KF"
+
+# --- a removed tag stays removed even when a DELETE is in the mix ------------
+#     The record that survives a delete gets restamped, and that timestamp also
+#     decides key attaches: a record coming back from a peer used to bring its
+#     old keys field with it and re-advertise tags another device had removed.
+DA=$(mktemp -d "${TMPDIR:-/tmp}/ais_da.XXXXXX") || exit 2
+DB=$(mktemp -d "${TMPDIR:-/tmp}/ais_db.XXXXXX") || exit 2
+DF=$(mktemp -d "${TMPDIR:-/tmp}/ais_df.XXXXXX") || exit 2
+"$AIS" -f "$DA" -v 'http://x/doc2' work reading >/dev/null
+"$AIS" -f "$DB" -v 'http://x/doc2' work reading >/dev/null
+sleep 1
+"$AIS" -f "$DA" --del 1 -y >/dev/null 2>&1              # A deletes
+sleep 1
+"$AIS" -f "$DB" --update 1 -- -work >/dev/null 2>&1     # B removes a tag
+sleep 1
+"$AIS" -f "$DB" --update 1 extra >/dev/null 2>&1        # B edits, so B's copy wins
+for r in 1 2 3; do
+    "$AIS" -f "$DA" --sync-folder "$DF" >/dev/null 2>&1
+    "$AIS" -f "$DB" --sync-folder "$DF" >/dev/null 2>&1
+done
+ok      "delete-conflict: the edited record wins"        "doc2" "$("$AIS" -f "$DA" extra 2>&1)"
+okempty "delete-conflict: the removed tag stays removed" "$("$AIS" -f "$DB" work 2>/dev/null)"
+okempty "delete-conflict: and does not come back on the other device" \
+        "$("$AIS" -f "$DA" work 2>/dev/null)"
+okeq    "delete-conflict: the survivor exports its true time beside the raise" \
+        "1" "$("$AIS" -f "$DB" --export 2>/dev/null | grep -c '^C|')"
+rm -rf "$DA" "$DB" "$DF"
+
+# --- but a delete NEWER than the edit must still win ------------------------
+#     The sidecar must not make an edited record undeletable from another device.
+LA=$(mktemp -d "${TMPDIR:-/tmp}/ais_la.XXXXXX") || exit 2
+LB=$(mktemp -d "${TMPDIR:-/tmp}/ais_lb.XXXXXX") || exit 2
+LF=$(mktemp -d "${TMPDIR:-/tmp}/ais_lf.XXXXXX") || exit 2
+"$AIS" -f "$LA" -v 'http://x/kill-me' reading >/dev/null
+"$AIS" -f "$LB" -v 'http://x/kill-me' reading >/dev/null
+"$AIS" -f "$LA" --update 1 important >/dev/null 2>&1  # the laptop edits ...
+sleep 1
+"$AIS" -f "$LB" --del 1 -y >/dev/null 2>&1            # ... and THEN the phone deletes
+"$AIS" -f "$LB" --sync-folder "$LF" >/dev/null
+"$AIS" -f "$LA" --sync-folder "$LF" >/dev/null
+okempty "later-delete: a delete newer than the edit still removes the record" \
+        "$("$AIS" -f "$LA" reading 2>/dev/null)"
+rm -rf "$LA" "$LB" "$LF"
+
+# --- an export with more deletes than one import batch holds -----------------
+#     A run of D| lines is resolved a batch at a time (ais_merge_del_many), so a
+#     peer that has deleted a lot exercises the flush at the buffer boundary AND
+#     at end of stream. Every delete must still land, and the live records stay.
+BA=$(mktemp -d "${TMPDIR:-/tmp}/ais_bba.XXXXXX") || exit 2
+BB=$(mktemp -d "${TMPDIR:-/tmp}/ais_bbb.XXXXXX") || exit 2
+i=1; while [ $i -le 300 ]; do echo "http://x/gone-$i"; i=$((i + 1)); done > "$BA/doomed.txt"
+printf 'http://x/keep-1\nhttp://x/keep-2\n' > "$BA/alive.txt"
+for d in "$BA" "$BB"; do
+    "$AIS" -f "$d" -v - doomed < "$BA/doomed.txt" >/dev/null 2>&1
+    "$AIS" -f "$d" -v - alive  < "$BA/alive.txt"  >/dev/null 2>&1
+done
+"$AIS" -f "$BA" --del-under doomed -y >/dev/null 2>&1
+"$AIS" -f "$BA" --export > "$BA/stream" 2>/dev/null
+okeq    "batch: the export carries 300 deletes" "300" "$(grep -c '^D|' "$BA/stream")"
+"$AIS" -f "$BB" --import < "$BA/stream" >/dev/null 2>&1
+okempty "batch: every delete crossed into the peer" "$("$AIS" -f "$BB" doomed 2>/dev/null)"
+ok      "batch: the live records are untouched" "keep-2" "$("$AIS" -f "$BB" alive 2>/dev/null)"
+rm -rf "$BA" "$BB"
+
 echo "---- $pass passed, $fail failed"
 [ "$fail" -eq 0 ]

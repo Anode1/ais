@@ -34,6 +34,8 @@ typedef _ServeC = Int32 Function(Pointer<Void>, Int32, Pointer<Utf8>);
 typedef _ServeD = int Function(Pointer<Void>, int, Pointer<Utf8>);
 typedef _BundleC = Int32 Function(Pointer<Void>, Pointer<Utf8>);   // (handle, path)
 typedef _BundleD = int Function(Pointer<Void>, Pointer<Utf8>);
+typedef _FoldC = Int32 Function(Pointer<Void>, Pointer<Utf8>, Int32); // (handle, path, force)
+typedef _FoldD = int Function(Pointer<Void>, Pointer<Utf8>, int);
 typedef _FreeC = Void Function(Pointer<Utf8>);
 typedef _FreeD = void Function(Pointer<Utf8>);
 typedef _CloseC = Void Function(Pointer<Void>);
@@ -474,12 +476,53 @@ class AisEngine {
   /// One folder-sync pass over [folder] (a Syncthing / cloud folder): import every
   /// peer's framed bundle, then (re)write our own; heals a device-id clone. Returns
   /// true on success.
-  bool syncFolder(String folder) {
+  bool syncFolder(String folder) => syncFolderCode(folder) == 0;
+
+  /// The same pass, keeping the engine's reason for a failure. 0 = synced; the
+  /// negative codes are AIS_FOLDER_* (see c/sync.h) and each has its own remedy,
+  /// so the UI must show WHICH rather than a flat "sync failed". [force] accepts a
+  /// folder we have synced with before that now holds no device copies at all.
+  ///
+  /// The forcing entry point is looked up lazily, in a try/catch: an older bundled
+  /// libais.so does not export it, and an eager binding would take the class down
+  /// at field initialisation instead of degrading to the plain call.
+  int syncFolderCode(String folder, {bool force = false}) {
     final p = folder.toNativeUtf8();
     try {
-      return _syncFolder(_h, p) == 0;
+      if (force) {
+        try {
+          final f = _lib.lookupFunction<_FoldC, _FoldD>('ais_embed_sync_folder_force');
+          return f(_h, p, 1);
+        } catch (_) {
+          /* old engine: fall through to the plain pass */
+        }
+      }
+      return _syncFolder(_h, p);
     } finally {
       calloc.free(p);
+    }
+  }
+
+  /// A human sentence for a [syncFolderCode] result, or null when it succeeded.
+  static String? syncFolderProblem(int code) {
+    switch (code) {
+      case 0:
+        return null;
+      case -2:
+        return 'No such folder. Check the drive is plugged in.';
+      case -3:
+        return 'That path is a file, not a folder.';
+      case -4:
+        return 'That folder cannot be read. Check the drive and permissions.';
+      case -5:
+        return 'That folder holds no device copies at all, though we have synced '
+            'with it before. The drive may not be mounted, or it was emptied or '
+            'replaced.';
+      case -6:
+        return 'Merged what was there, but could not write into that folder: '
+            'it may be read-only or full.';
+      default:
+        return 'Folder sync failed.';
     }
   }
 

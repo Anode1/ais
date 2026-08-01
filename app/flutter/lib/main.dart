@@ -131,6 +131,7 @@ class _RecallPageState extends State<RecallPage> {
   // open, after a save/delete, and on the explicit "Sync now" control -- no
   // background polling. Empty = off.
   String _syncFolder = '';
+  String _syncFolderSaid = '';   // the last folder-sync problem reported, to not repeat it
 
   // Custom-scheme deep links (ais://sync?...). The native side (MainActivity /
   // AppDelegate) pushes live links as 'onLink' and holds a cold-start link for
@@ -190,7 +191,12 @@ class _RecallPageState extends State<RecallPage> {
       _loadTimeline(); // open showing recent items, not a blank search pane
       _runFolderSync(silent: true); // pull peer changes on open (opening is the user action)
     } catch (e) {
-      _status = 'cannot open index: $e';
+      // The likeliest real cause is a shared index folder (Syncthing) that a
+      // newer AIS on another device has already upgraded: the engine refuses it
+      // rather than resolve deletes the old way and undo edits made over there.
+      // Say what to do; "cannot open index: <errno>" reads like data loss.
+      _status = 'This library was written by a newer version of AIS. '
+          'Your data is safe and unchanged: update this app to open it.\n($e)';
     }
     // Speech is initialized lazily on the first mic tap (see _listen), so the
     // permission prompt is tied to a user gesture rather than app launch.
@@ -731,11 +737,16 @@ class _RecallPageState extends State<RecallPage> {
     }
     setState(() => _syncFolder = dir!);
     await _saveSyncFolder(dir);
-    final ok = _ais!.syncFolder(dir);
+    final code = _ais!.syncFolderCode(dir);
     if (!mounted) return;
+    final problem = AisEngine.syncFolderProblem(code);
     messenger.showSnackBar(SnackBar(
-        content: Text(ok ? 'Syncing with $dir' : 'Could not sync to that folder')));
-    if (ok) _setView(_view);
+        content: Text(problem ?? 'Syncing with $dir'),
+        action: code == -5
+            ? SnackBarAction(
+                label: 'Sync anyway', onPressed: () => _forceFolderSync(dir!))
+            : null));
+    if (problem == null) _setView(_view);
   }
 
   // A LAN Host/Join sync runs on a BACKGROUND isolate holding the SAME engine handle;
@@ -755,12 +766,54 @@ class _RecallPageState extends State<RecallPage> {
   // Skipped while a LAN sync holds the handle (avoids the same cross-isolate race).
   void _runFolderSync({bool silent = true}) {
     if (_ais == null || _syncFolder.isEmpty || _syncBusy) return;
-    final ok = _ais!.syncFolder(_syncFolder);
-    if (ok && mounted) _setView(_view);
-    if (!silent && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(ok ? 'Folder synced' : 'Folder sync failed')));
+    final code = _ais!.syncFolderCode(_syncFolder);
+    final problem = AisEngine.syncFolderProblem(code);
+    if (problem == null) {
+      // Clear on ANY success, silent or not: otherwise a folder that breaks, gets
+      // fixed, and breaks again the same way is never mentioned a second time.
+      _syncFolderSaid = '';
+      if (mounted) _setView(_view);
     }
+    if (!mounted) return;
+    // A FAILURE is always reported, even from a background pass. Silence is what
+    // let a folder sync quietly stop working while the user believed it was their
+    // backup; only success is allowed to be quiet.
+    if (problem != null) {
+      // Once per problem: this pass runs at open and after every save, and the
+      // same sentence on each one is noise the user learns to swipe away.
+      if (problem != _syncFolderSaid) {
+        _syncFolderSaid = problem;
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text(problem),
+            action: code == -5
+                ? SnackBarAction(
+                    label: 'Sync anyway',
+                    onPressed: () => _forceFolderSync(_syncFolder))
+                : null));
+      }
+    } else if (!silent) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('Folder synced')));
+    }
+  }
+
+  // The user looked at the folder and wants it used as it now stands (a replaced
+  // stick, a share they emptied). Re-establishes it; it still creates nothing.
+  void _forceFolderSync(String dir) {
+    // The same cross-isolate guard as _runFolderSync: this is reachable from a
+    // SnackBar action that outlives the message, so a LAN sync can have started
+    // holding the engine handle in between.
+    if (_ais == null || _syncBlocks()) return;
+    final code = _ais!.syncFolderCode(dir, force: true);
+    final problem = AisEngine.syncFolderProblem(code);
+    if (!mounted) return;
+    if (problem == null) _setView(_view);
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(code == -5
+            // Forcing returned the same refusal: an older bundled engine has no
+            // forcing entry point, so the button cannot do what it offers.
+            ? 'This app version cannot override that. Update the app.'
+            : (problem ?? 'Syncing with $dir'))));
   }
 
   // A small primary-tinted section label for the two sync groups above.

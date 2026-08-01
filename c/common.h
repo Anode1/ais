@@ -22,14 +22,24 @@
  * so 0 is the "absent" sentinel. 11 digits hold offsets up to ~90 GB. */
 #define AIS_OFF_WIDTH     12   /* 11-digit (offset+1) + '\n'            */
 
-/* On-disk format version (INDEX/version). Bump only if the canonical store
- * format changes; derived files (idx/off/multi) are rebuilt by compact.
+/* On-disk format version (INDEX/version). Bump when an OLDER binary reading this
+ * index would get the data wrong; derived files (idx/off/multi) are rebuilt by
+ * compact and never justify a bump.
  *   v1: id|keys|value
  *   v2: id|ts|keys|value          (ts = local save time, no zone)
  *   v3: ts is UTC ISO-8601 with a trailing 'Z' (canonical across devices).
- * A v3 reader still reads v1/v2 lines (old ts kept as-is); a v2 reader would
- * misread a 'Z' timestamp, so v3 indexes carry version 3 and old binaries
- * refuse them rather than corrupt-on-read. */
-#define AIS_FORMAT_VERSION 3
+ *   v4: mts/sts/katt carry real data (LAYOUT.md). The store LINE is unchanged,
+ *       which is why this looked like it needed no bump -- but the meaning of a
+ *       delete now depends on those files: a v3 binary ignores mts, so a record
+ *       edited after another device deleted it loses the edit and the record,
+ *       silently, on the next sync; and ignoring sts makes it re-send a
+ *       tombstone the mesh already settled, every round, forever. An index is
+ *       shared verbatim by whole-folder sync (Syncthing), which is the setup
+ *       doc/SYNC.md recommends, so this is reachable by an ordinary user with
+ *       one un-upgraded device. Refusing to open is the only protection an old
+ *       binary can apply, since only its own check runs.
+ * A v4 reader still reads v1/v2/v3 lines; an older binary refuses a v4 index
+ * rather than corrupt-on-read, exactly as v3 did to v2. Upgrade every device. */
+#define AIS_FORMAT_VERSION 4
 
 #endif /* AIS_COMMON_H */

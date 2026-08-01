@@ -17,10 +17,11 @@ There are two no-cloud paths, and you can use both:
                 (so a delete made elsewhere cannot undo a later edit)
     sts         real data: which records have already survived a delete made
                 elsewhere, so the other devices are told once and stop resending
-                (an older AIS ignores this file; upgrade every device before
-                relying on it, or a downgraded one can delete such a record again)
+    katt        real data: when a tag was put on a record that already existed,
+                so re-adding a tag another device removed actually sticks
+    ktomb       real data: which tags were taken off, so a removal propagates
     blobs/      real data: documents saved by `doc`
-    version     on-disk format version
+    version     on-disk format version (see below)
     next_id     rebuildable from store
     idx/, off   rebuildable from store (the search index)
     lock        per-device, ephemeral: never sync this one
@@ -30,6 +31,13 @@ There are two no-cloud paths, and you can use both:
                 (a second device would start syncing to the first one's path)
     syncid      per-device identity; it is copied by a whole-folder sync, which
                 is why a cloned identity heals itself on the next folder pass
+
+**Update every device before sharing one index folder between them.** `mts`, `sts`
+and `katt` decide what a delete means, and an AIS older than 0.3.15 does not know
+they exist: it would undo an edit you made on another device after that device's
+delete, silently. So an index this version has opened is marked format v4, and an
+older AIS refuses to open it and says to update instead. Nothing is damaged and
+nothing is lost by that refusal: update the lagging device and it opens normally.
 
 Simplest reliable rule: **sync the whole folder and ignore the per-device files.**
 Everything else stays internally consistent because Syncthing keeps it identical on

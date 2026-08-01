@@ -290,8 +290,17 @@ int store_open(ais *a, const char *dir)
         if (v < 0)
             goto fail;
         if (v > AIS_FORMAT_VERSION) {
-            fprintf(stderr, "ais: index format v%ld is newer than this ais "
-                            "(format v%d); upgrade ais\n", v, AIS_FORMAT_VERSION);
+            /* Named plainly: this is reached by an ordinary user whose devices
+             * share one index folder and who has upgraded only one of them. The
+             * index is intact -- this ais is the old part -- and saying so is
+             * what stops someone "fixing" it by deleting files. */
+            fprintf(stderr,
+                    "ais: this index was written by a newer ais (format v%ld; "
+                    "this one speaks v%d).\n"
+                    "     Your data is fine and nothing has been changed. Update ais "
+                    "on this device\n"
+                    "     to open it -- opening it with this version could undo edits "
+                    "made on the others.\n", v, AIS_FORMAT_VERSION);
             goto fail;
         }
         /* Stamp a new (v0) index, and upgrade an older one in place: once this
