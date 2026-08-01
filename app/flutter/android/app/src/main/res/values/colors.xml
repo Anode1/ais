@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- The adaptive icon's background layer: the same blue as the artwork
+         (icons/ais-512.png), so the foreground's own rounded-rect edge is
+         invisible against it and the launcher's mask cuts a clean shape.
+         Matches the app's seed colour in lib/main.dart (0xFF1A0DAB). -->
+    <color name="ic_launcher_background">#1A0DAB</color>
+</resources>
