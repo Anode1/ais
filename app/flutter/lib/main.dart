@@ -977,8 +977,14 @@ class _RecallPageState extends State<RecallPage> {
     final messenger = ScaffoldMessenger.of(context);
 
     if (Platform.isAndroid || Platform.isIOS) {
+      // Dated, so a user who exports monthly ends up with a series they can tell
+      // apart, not one file that silently replaces last month's copy.
+      final now = DateTime.now();
+      final stamp = '${now.year.toString().padLeft(4, '0')}'
+          '${now.month.toString().padLeft(2, '0')}'
+          '${now.day.toString().padLeft(2, '0')}';
       final tmp = await getTemporaryDirectory();
-      final path = '${tmp.path}/ais-export.aisb';
+      final path = '${tmp.path}/ais-backup-$stamp.aisb';
       final rc = _ais!.exportBundle(path);
       if (!mounted) return;
       if (rc != 0) {
@@ -987,8 +993,22 @@ class _RecallPageState extends State<RecallPage> {
         return;
       }
       try {
-        await SharePlus.instance.share(
-            ShareParams(files: [XFile(path)], text: 'AIS export'));
+        final result = await SharePlus.instance.share(
+            ShareParams(files: [XFile(path)], text: 'AIS backup'));
+        if (!mounted) return;
+        // This file sits in the CACHE directory -- the only place an app can
+        // write before the user picks a destination -- and the OS may delete it
+        // whenever it likes. So a share the user dismissed has left them with
+        // nothing, and saying "exported" there would be the exact false
+        // reassurance this whole screen exists to avoid.
+        if (result.status == ShareResultStatus.success) {
+          _markSynced();
+          messenger.showSnackBar(const SnackBar(
+              content: Text('Backup saved. Keep it somewhere off this device.')));
+        } else {
+          messenger.showSnackBar(const SnackBar(
+              content: Text('Not saved anywhere yet: pick a destination to keep the backup.')));
+        }
       } catch (_) {
         if (mounted) {
           messenger.showSnackBar(
@@ -1004,15 +1024,18 @@ class _RecallPageState extends State<RecallPage> {
       acceptedTypeGroups: const [
         XTypeGroup(label: 'AIS bundle', extensions: ['aisb'])
       ],
-      suggestedName: 'ais-export.aisb',
+      suggestedName: 'ais-backup.aisb',
       initialDirectory: downloads?.path,
     );
     if (location == null || _ais == null) return; // cancelled
     final rc = _ais!.exportBundle(location.path);
     if (!mounted) return;
+    // A file the user chose the location of IS saved, so unlike the mobile
+    // share-sheet path this can say so plainly -- and it counts as a backup.
+    if (rc == 0) _markSynced();
     messenger.showSnackBar(SnackBar(
         content: Text(rc == 0
-            ? 'Exported to ${location.path}'
+            ? 'Backup saved to ${location.path}'
             : 'Could not write the file. Check the folder path.')));
   }
 
