@@ -27,12 +27,15 @@ SHOTS="$WORK/shots"; mkdir -p "$SHOTS"         # the "sync" link and dialogs at 
 PROOF_CLI="PROOF-from-cli-42"                  # seeded on the peer, must reach the app
 PROOF_APP="PROOF-from-app-99"                  # seeded on the app, must reach the peer
 
-# Click targets for the pinned 1280x720 window at (0,0), tuned against the fixed
-# store path above (the "sync" link follows the store-path text, so the path must
-# be fixed for these to hold). Re-tune from $SHOTS if the layout changes; or
-# graduate to integration_test Keys (see README) if it churns often.
-SYNC_LINK="271 142"                            # the "sync" link on the main screen
-JOIN_BTN="831 405"                             # "Join" in the role sheet
+# The Sync sheet is opened by KEYBOARD (Ctrl+Shift+S), not by clicking. It used to
+# be a pixel coordinate for an inline "sync" link; that control moved into the ⋮
+# overflow menu and the click started landing on a record row instead, so this
+# test drove the wrong screen and asserted nothing for weeks without failing
+# loudly. A shortcut does not move when the layout does. The remaining
+# coordinates are inside the dialogs, which are centred on the pinned 1280x720
+# window -- re-tune them from $SHOTS if a dialog changes, or graduate to
+# integration_test Keys (see README) if they churn.
+JOIN_BTN="831 405"                             # "Join / scan a nearby device" in the sheet
 ADDR_FIELD="640 327"                           # "Address" field (pre-filled "http://")
 TOKEN_FIELD="640 367"                          # "Token" field
 SYNC_CONFIRM="823 456"                          # "Sync" (confirm) in the Join dialog
@@ -108,7 +111,7 @@ shot() { step=$((step+1)); import -window root "$SHOTS/$(printf '%02d' $step)-$1
 tap()  { xdotool mousemove --sync $1 click 1; sleep 0.6; shot "$2"; }
 
 shot start
-tap "$SYNC_LINK"   sync-sheet          # open the role sheet
+xdotool key --clearmodifiers ctrl+shift+s; sleep 0.6; shot sync-sheet   # open Sync & backup
 tap "$JOIN_BTN"    join-dialog         # choose Join
 tap "$ADDR_FIELD"  addr-focus          # focus Address (pre-filled "http://")
 xdotool key --clearmodifiers ctrl+a    # select-all so the type replaces, not appends
@@ -120,6 +123,14 @@ sleep "$((TIMEOUT>10?10:TIMEOUT))"; shot done
 
 # --- assert: the record crossed in BOTH directions --------------------------
 rc=0
+# A layout drift shows up here first: if the sheet never opened, the clicks below
+# it went somewhere arbitrary and the sync failure that follows is a symptom, not
+# the cause. Say which it was.
+if ! grep -q "$PROOF_CLI" "$APPDIR/store" && ! grep -q "$PROOF_APP" "$PEER/store"; then
+  echo "NOTE: nothing crossed at all -- check $SHOTS/02-sync-sheet.png actually shows"
+  echo "      the Sync & backup sheet. If it does not, the Ctrl+Shift+S binding or the"
+  echo "      dialog coordinates below it have drifted from lib/main.dart."
+fi
 grep -q "$PROOF_CLI" "$APPDIR/store" || { echo "FAIL: app never received $PROOF_CLI"; rc=1; }
 grep -q "$PROOF_APP" "$PEER/store"   || { echo "FAIL: peer never received $PROOF_APP"; rc=1; }
 if [ "$rc" = 0 ]; then echo "PASS: records converged both ways (screenshots in $SHOTS)"; else cat "$HOSTLOG"; fi

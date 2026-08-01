@@ -1387,6 +1387,24 @@ class _RecallPageState extends State<RecallPage> {
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
+    // Ctrl+Shift+S opens Sync & backup from anywhere. Two reasons, both real:
+    // a desktop user should not have to hunt a mouse through an overflow menu
+    // for the one action that protects their data, and the headless UI test
+    // (uitest/run.sh) needs an entry point that does not move when the layout
+    // does -- it was driving a pixel coordinate for a control that had since
+    // moved into the ⋮ menu, so it had been testing nothing for weeks.
+    return CallbackShortcuts(
+      bindings: <ShortcutActivator, VoidCallback>{
+        const SingleActivator(LogicalKeyboardKey.keyS,
+            control: true, shift: true): () {
+          if (_ais != null) _syncSheet();
+        },
+      },
+      child: Focus(autofocus: true, child: _buildScaffold(cs)),
+    );
+  }
+
+  Widget _buildScaffold(ColorScheme cs) {
     // Views (Search/Timeline/Tags) live in the bottom NavigationBar below; the
     // header is just search + Get + the store row.
     return Scaffold(

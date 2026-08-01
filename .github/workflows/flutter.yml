@@ -1,0 +1,65 @@
+# The Flutter app's own gate.
+#
+# Until this existed, nothing ran `flutter analyze` or `flutter test` outside a
+# release build: the only Flutter job in the repo was the tagged `android` job in
+# release.yml, which builds but never tests. So a Dart regression was found by
+# tagging a release -- the most expensive moment to find one -- and the widget
+# tests under app/flutter/test/ were run by hand or not at all.
+#
+# Pinned to a Flutter VERSION, not `stable`. The Android SDK levels and the NDK
+# come from `flutter.compileSdkVersion` / `flutter.ndkVersion` in
+# android/app/build.gradle.kts, so a channel that moves underneath us silently
+# changes what ships. release.yml still tracks stable; this job is the one that
+# tells us a version bump is coming before it lands in an artifact.
+
+name: flutter
+
+on:
+  push:
+    branches: [main]
+    paths: ['app/flutter/**', '.github/workflows/flutter.yml']
+  pull_request:
+    paths: ['app/flutter/**', '.github/workflows/flutter.yml']
+  workflow_dispatch:
+
+jobs:
+  analyze-and-test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: app/flutter
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.44.1'
+          channel: stable
+          cache: true
+
+      - name: pub get
+        run: flutter pub get
+
+      # `lib` only: tool/ holds standalone verification scripts that print to
+      # stdout on purpose, and their avoid_print infos are not a signal.
+      - name: analyze
+        run: flutter analyze lib
+
+      - name: test
+        run: flutter test
+
+      # The version the About screen falls back to when a build passes no
+      # --dart-define. It had drifted five releases behind pubspec, so a bug
+      # report quoted a version that was never shipped. Cheap to keep honest.
+      - name: version.dart defaults match pubspec
+        run: |
+          pv=$(sed -n 's/^version: *\([0-9.]*\)+\([0-9]*\).*/\1 \2/p' pubspec.yaml)
+          pname=$(echo "$pv" | cut -d' ' -f1)
+          pcode=$(echo "$pv" | cut -d' ' -f2)
+          dname=$(sed -n "s/.*APP_VERSION', defaultValue: '\([^']*\)'.*/\1/p" lib/version.dart)
+          dcode=$(sed -n "s/.*APP_BUILD', defaultValue: '\([^']*\)'.*/\1/p" lib/version.dart)
+          echo "pubspec: $pname+$pcode   version.dart: $dname+$dcode"
+          if [ "$pname" != "$dname" ] || [ "$pcode" != "$dcode" ]; then
+            echo "::error::lib/version.dart defaults ($dname+$dcode) do not match pubspec.yaml ($pname+$pcode)"
+            exit 1
+          fi

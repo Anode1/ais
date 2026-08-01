@@ -45,6 +45,7 @@ layer fail_gui  "web render (uiut)"     sh "$root/tests/gui/ui.sh" "$AIS"
 layer fail_gui  "web interact (uiut)"   sh "$root/tests/gui/inter.sh" "$AIS"
 layer fail_gui  "native windows ui"     sh "$root/tests/gui/windows.sh"
 layer fail_gui  "flutter app"           sh "$root/tests/gui/flutter.sh"
+layer fail_gui  "flutter sync ui"       sh "$root/tests/gui/flutter-sync.sh"
 
 bar
 cs=$([ $fail_core -eq 0 ] && echo PASS || echo FAIL)
