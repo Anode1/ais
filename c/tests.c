@@ -2025,6 +2025,28 @@ static void test_crypto(void)
     rc = aisc_decrypt(file, flen, (const unsigned char *)"nope", 4, NULL, 0, &out, &olen);
     CHECK(rc == AISC_E_AUTH, "crypto: wrong password is rejected (AEAD auth)");
 
+    /* A hostile KDF cost must be refused BEFORE the KDF runs. The parameters come
+     * straight out of the file and the auth tag cannot reject them first, so one
+     * flipped byte used to buy an unbounded Argon2id: passes had no upper bound
+     * at all (only < 1 was refused), and the memory cap was 2 GiB, which Linux
+     * overcommits and then OOM-kills. On a phone that is the app dying while
+     * opening a note. Both must fail fast and cleanly. */
+    {
+        unsigned char sp[4], sm[4];
+        memcpy(sp, file + 13, 4); memcpy(sm, file + 9, 4);
+        file[13] = 0xFF; file[14] = 0xFF; file[15] = 0xFF; file[16] = 0xFF;
+        rc = aisc_decrypt(file, flen, pw, sizeof pw - 1, NULL, 0, &out, &olen);
+        CHECK(rc == AISC_E_FORMAT, "crypto: an absurd passes count is refused, not run");
+        memcpy(file + 13, sp, 4);
+        file[9] = 0xFF; file[10] = 0xFF; file[11] = 0x1F; file[12] = 0x00;  /* ~2 GiB */
+        rc = aisc_decrypt(file, flen, pw, sizeof pw - 1, NULL, 0, &out, &olen);
+        CHECK(rc == AISC_E_FORMAT, "crypto: a 2 GiB memory cost is refused, not allocated");
+        memcpy(file + 9, sm, 4);
+        rc = aisc_decrypt(file, flen, pw, sizeof pw - 1, NULL, 0, &out, &olen);
+        CHECK(rc == AISC_OK, "crypto: and the untouched header still decrypts");
+        if (out) { aisc_wipe(out, olen); free(out); out = NULL; }
+    }
+
     file[flen - 1] ^= 0x01;                    /* flip a bit of the Poly1305 tag */
     rc = aisc_decrypt(file, flen, pw, sizeof pw - 1, NULL, 0, &out, &olen);
     CHECK(rc == AISC_E_AUTH, "crypto: tampering is detected");

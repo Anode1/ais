@@ -57,8 +57,20 @@
 #define AISC_TAG_LEN    16
 #define AISC_KDF_ARGON2ID 0x02
 
-/* Refuse implausible KDF memory from an untrusted header (DoS guard): 2 GiB. */
-#define AISC_MAX_BLOCKS (2u * 1024u * 1024u)
+/* Refuse implausible KDF cost from an untrusted header. Both bounds are DoS
+ * guards, and both are load-bearing: the KDF runs on parameters taken straight
+ * out of the file, BEFORE the authentication tag can reject it, so a corrupted
+ * byte or a hostile blob arriving over sync gets to choose the work we do.
+ *
+ * 256 MiB, not 2 GiB. The writer only ever emits 64 MiB (aisc_default_kdf), and
+ * Linux overcommits, so a 2 GiB allocation succeeds and then meets the kernel's
+ * OOM killer when it is touched. On a phone that is the note-taking app being
+ * killed. Four times the default is generous and survivable.
+ *
+ * The passes bound was simply missing: only `passes < 1` was refused, so
+ * passes = 0xFFFFFFFF was a permanent hang on one flipped byte. */
+#define AISC_MAX_BLOCKS (256u * 1024u)   /* 256 MiB, in 1 KiB blocks */
+#define AISC_MAX_PASSES 16u              /* the default is 3         */
 
 void aisc_wipe(void *p, size_t n) { crypto_wipe(p, n); }
 
@@ -113,7 +125,8 @@ static int derive_key(uint8_t key[32],
                       const uint8_t *pw, size_t pw_len,
                       const uint8_t *kf, size_t kf_len,
                       const uint8_t salt[AISC_SALT_LEN], aisc_kdf k) {
-    if (k.mem_blocks < 8u || k.mem_blocks > AISC_MAX_BLOCKS || k.passes < 1u)
+    if (k.mem_blocks < 8u || k.mem_blocks > AISC_MAX_BLOCKS ||
+        k.passes < 1u || k.passes > AISC_MAX_PASSES)
         return AISC_E_FORMAT;
 
     size_t work_len = (size_t)k.mem_blocks * 1024u;
