@@ -631,9 +631,16 @@ int main(int argc, char **argv)
             {
                 char sp[AIS_PATH_MAX];
                 FILE *sf;
+                int peered = 0;
                 if (snprintf(sp, sizeof sp, "%s/syncid", a.dir) < (int)sizeof sp &&
-                    (sf = fopen(sp, "r")) != NULL) {
-                    fclose(sf);
+                    (sf = fopen(sp, "r")) != NULL) { fclose(sf); peered = 1; }
+                /* syncid is the FOLDER protocol's identity and a LAN round never
+                 * writes it, so keying only on it made this warning invisible to
+                 * exactly the users most likely to need it. */
+                if (!peered &&
+                    snprintf(sp, sizeof sp, "%s/synced", a.dir) < (int)sizeof sp &&
+                    (sf = fopen(sp, "r")) != NULL) { fclose(sf); peered = 1; }
+                if (peered) {
                     fprintf(stderr,
                         "ais: note -- this index syncs, and --set does not propagate. "
                         "The peer still holds the old value and will feed it back; "

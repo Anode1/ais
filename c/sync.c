@@ -14,6 +14,21 @@
 #include "feed.h"
 #include "sync.h"
 
+/* Mark this index as having a sync peer. `syncid` is the FOLDER protocol's device
+ * identity and is never written by a LAN round, so anything keyed on it is blind
+ * to every LAN user: --set's "this index syncs" warning fired for nobody who
+ * paired two phones, which is most of them. A separate marker keeps the folder
+ * protocol's identity semantics untouched. */
+static void sync_mark_peered(ais *a)
+{
+    char path[AIS_PATH_MAX];
+    FILE *f;
+    if (snprintf(path, sizeof path, "%s/synced", a->dir) >= (int)sizeof path) return;
+    f = fopen(path, "w");
+    if (f != NULL) fclose(f);          /* presence is the whole signal */
+}
+
+
 /* Sealed-plaintext protocol version, the very first byte of every unsealed payload.
  * A future format bumps this; a peer that reads a byte it does not recognize fails
  * LOUDLY (-2 from sync_import_sealed) instead of mis-parsing binary as records. */
@@ -669,6 +684,7 @@ int sync_serve_lan(ais *a, int port, int timeout_s, int bidir) {
             return -1;
         }
     }
+    sync_mark_peered(a);
     printf("sync: a peer pulled and merged successfully.\n");
     aisc_wipe(token, sizeof token);
     return 0;
@@ -709,6 +725,7 @@ int sync_pull_url(ais *a, const char *url, const char *token, int timeout_s, int
             return -1;
         }
     }
+    sync_mark_peered(a);
     printf("sync: %s %s:%d\n", bidir ? "converged with" : "merged from", host, port);
     return 0;
 }

@@ -112,5 +112,27 @@ if [ -n "$TOK" ]; then
     fi
 fi
 
+# --- --set must warn on a LAN-synced index, not only a folder-synced one -------
+#     An in-place edit has no representation in the merge stream, so the peer
+#     keeps the old value and feeds it back and BOTH end up on both devices. The
+#     warning that says so was keyed on `syncid`, which is the FOLDER protocol's
+#     device identity and is never written by a LAN round. So the documented
+#     safety net existed for nobody who paired two phones, which is most people.
+if [ -f "$W/b/synced" ]; then
+    pass=$((pass+1)); echo "  ok   set-warn: a LAN round marks the index as peered"
+else
+    fail=$((fail+1)); echo "  FAIL set-warn: no peer marker after a LAN sync"
+fi
+sid=$("$AIS" -f "$W/b" --dump 2>/dev/null | grep 'from-b' | cut -d'|' -f1)
+if [ -n "$sid" ]; then
+    sw=$("$AIS" -f "$W/b" --set "$sid" -v 'http://from-b' -v 'http://from-b-edited' 2>&1)
+    ok  "set-warn: and --set says the edit will not propagate" "does not propagate" "$sw"
+fi
+# an index that has never synced must stay quiet: the warning has to mean something
+"$AIS" -f "$W/lone" -v 'http://solo' lonetag >/dev/null 2>&1
+lid=$("$AIS" -f "$W/lone" --dump 2>/dev/null | cut -d'|' -f1)
+lw=$("$AIS" -f "$W/lone" --set "$lid" -v 'http://solo' -v 'http://solo2' 2>&1)
+no      "set-warn: an unsynced index is not warned"  "does not propagate" "$lw"
+
 echo "  ---- sync: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]
