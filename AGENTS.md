@@ -44,7 +44,20 @@ Two layers exist because something broke without anything noticing:
   moved into the overflow menu it silently stopped testing sync at all, for
   weeks, while the merge code underneath was being rewritten. It opens the sheet
   by keyboard (Ctrl+Shift+S) precisely so a layout change cannot quietly
-  disconnect it again.
+  disconnect it again. It needs the Linux desktop toolchain (clang, ninja,
+  libgtk-3-dev), which cannot be installed on Pop!_OS without downgrading the
+  running desktop's Wayland libraries -- so there it SKIPs, and the Android
+  layer below is the one that actually runs.
+- **`tests/gui/flutter-sync-android.sh`** does the same job against the SHIPPED
+  artifact: it builds the debug APK for the device's ABI, hands the app an
+  `ais://` pairing link (the scan-to-pair path), taps through the prefilled Join
+  dialog, and asserts records cross in BOTH directions against a CLI peer on the
+  host (the emulator reaches it at 10.0.2.2). Assertions read the app's private
+  index back with `run-as`. It SKIPs unless a device is attached; set
+  `AIS_ANDROID_BOOT=1` to have it boot an AVD headlessly, and
+  `AIS_ANDROID_CLEAR=1` for a clean-room run (that DELETES the emulator's index,
+  hence opt-in). Match the APK's `--target-platform` to the device ABI or the app
+  dies on launch with a missing `libflutter.so`, which reads like a product bug.
 
 Before tagging a release, run `make codeut-asan` and `make codeut-ubsan`: they
 rebuild the engine tests with the compiler's sanitizers so memory errors (overflow,
