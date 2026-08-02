@@ -86,7 +86,7 @@ android/Details	android	Details	LOW	GAP?	-	-
 android/Edit tags	android	Edit tags	MED	GAP?	-	-
 android/Edit value	android	Edit value	LOW	GAP?	-	-
 android/Export to a file	android	Export to a file	LOW	GAP?	-	-
-android/Host a sync	android	Host a sync	HIGH	GAP	-	the app NEVER hosts in any test: the android script has the CLI host and the app join. serve.sh's /api/sync/host is the desktop web GUI, not the app.
+android/Host a sync	android	Host a sync	HIGH	COVERED	-	flutter-host-android.sh: app hosts, CLI joins via adb forward, wrong token refused, both directions (1->15)
 android/Import from a file	android	Import from a file	LOW	GAP?	-	-
 android/Join a sync	android	Join a sync	HIGH	COVERED	-	flutter-sync-android.sh: real APK, deep link, both directions converge (needs a device; AIS_ANDROID_BOOT=1 boots the AVD)
 android/Join / scan a nearby device	android	Join / scan a nearby device	LOW	COVERED?	-	app/flutter/uitest/run.sh:38

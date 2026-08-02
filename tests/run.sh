@@ -50,6 +50,7 @@ layer fail_gui  "native windows ui"     sh "$root/tests/gui/windows.sh"
 layer fail_gui  "flutter app"           sh "$root/tests/gui/flutter.sh"
 layer fail_gui  "flutter sync ui"       sh "$root/tests/gui/flutter-sync.sh"
 layer fail_gui  "flutter sync (android)" sh "$root/tests/gui/flutter-sync-android.sh"
+layer fail_gui  "flutter host (android)"  sh "$root/tests/gui/flutter-host-android.sh"
 
 bar
 cs=$([ $fail_core -eq 0 ] && echo PASS || echo FAIL)
