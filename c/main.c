@@ -927,6 +927,23 @@ int main(int argc, char **argv)
 
     /* ---- save (put mode): -v or -i ---- */
     if (nval > 0 || interactive || encrypt) {
+        /* A key beginning '-' cannot be stored: '-key' is the DETACH operator
+         * in this grammar (ais --update ID -KEY), and put shares the posting
+         * pass with update, so such a token is dropped before it can emit a
+         * detach on a brand-new record. That is correct, but it used to be
+         * SILENT: `ais -v note -- -todo` stored an untagged, unfindable
+         * record and exited 0. Say so instead. */
+        {
+            int ki;
+            for (ki = optind; ki < argc; ki++)
+                if (argv[ki][0] == '-' && argv[ki][1] != '\0')
+                die("a key cannot begin with '-' (that is the detach operator): %s",
+                    argv[ki]);
+            for (ki = 0; ki < nexk; ki++)
+                if (exkeys[ki][0] == '-' && exkeys[ki][1] != '\0')
+                die("a key cannot begin with '-' (that is the detach operator): %s",
+                    exkeys[ki]);
+        }
         if (collect_keys(argv, optind, argc, exkeys, nexk, keys, sizeof(keys)) != 0)
             die("key list too long");
         build_keys(project, keys, full, sizeof(full));
