@@ -14,7 +14,7 @@
 // harmless in itself, but it is the About screen a bug report quotes.)
 const String kAppVersion =
     String.fromEnvironment('APP_VERSION', defaultValue: '0.3.16');
-const String kAppBuild = String.fromEnvironment('APP_BUILD', defaultValue: '15');
+const String kAppBuild = String.fromEnvironment('APP_BUILD', defaultValue: '16');
 
 /// The standard `1.2.3 (456)` display form.
 String get appVersionLabel => '$kAppVersion ($kAppBuild)';
