@@ -15,6 +15,11 @@ working on it. Read it, then `doc/dev/STYLE.md` and `doc/dev/LAYOUT.md`.
 
 These four are the contract. Do not change behavior without changing them first.
 
+Not the contract, but read it before writing any GUI test: **`doc/dev/GUI_TESTING.md`**
+-- how to drive a front-end automatically (headless browser, Flutter by deep link
+and keyboard, a real APK on an emulator). Every trap in it was paid for once
+already.
+
 ## Build and test
 
     make        # build ./c/ais            (run from repo root; delegates to c/)
@@ -87,9 +92,10 @@ inline, every time:
     env -u WAYLAND_DISPLAY -u XDG_SESSION_TYPE GDK_BACKEND=x11 DISPLAY=:99 \
         xvfb-run -a flutter run -d linux
 
-Browsers take `--headless=new --ozone-platform=headless` instead; `make uiut`
-already does this. If a check cannot run headless, say so rather than falling
-back to a real display.
+Browsers take `--headless=new --ozone-platform=headless` instead, and the Android
+emulator takes `-no-window` (no X server at all); `make uiut` already does this.
+If a check cannot run headless, say so rather than falling back to a real
+display. Recipes for all three are in `doc/dev/GUI_TESTING.md`.
 
 The text store is the source of truth; the index (`idx/`, `tomb`, `next_id`) is
 rebuildable from it and disposable.

@@ -11,6 +11,7 @@ GUI is still in progress. The layers also have their own targets (`codeut`, `cli
 | Layer | What it covers | Where |
 |-------|----------------|-------|
 | engine (codeut) | the `ais.h` API directly: key/store/get/add/del, compact, find, timeline, crypto + secret marker | `c/tests.c` (`make codeut`) |
+| ffi stack budget | that the save and import paths still fit the ~512 KB stack a Dart isolate gives the engine | `tests/stack/` |
 | cli (cliut) | the real binary: streaming stdin (`-v -`), pipelines, argv, index discovery | `tests/cli.sh` (`make cliut`) |
 
 **GUI -- the front-ends over the one engine. May lag; absent toolchain SKIPs.**
@@ -22,6 +23,8 @@ GUI is still in progress. The layers also have their own targets (`codeut`, `cli
 | web interact (uiut) | click-and-assert: type a query, press Enter, assert the seeded record renders -- driven by a C CDP client | `tests/gui/inter.sh` (+ `cdp.c`, `cdptest.c`) | yes (needs Chrome + cc); else SKIP |
 | native windows ui | that `win32/ais-gui.c` still compiles against the engine | `tests/gui/windows.sh` | only with MinGW-w64 (CI); else SKIP |
 | flutter app | `dart analyze` of `app/flutter` (FFI binding + widgets); `flutter test` if a `test/` dir exists | `tests/gui/flutter.sh` | analyze if Dart present; else SKIP |
+| flutter sync ui | the real Host/Join UI on the **Linux desktop** build, against a CLI peer | `tests/gui/flutter-sync.sh` | needs clang + ninja + libgtk-3-dev; else SKIP |
+| flutter sync (android) | the real Host/Join UI on the **shipped APK**: `ais://` pairing link, then records cross both ways | `tests/gui/flutter-sync-android.sh` | needs adb + an attached device; else SKIP |
 
 ## Running
 
@@ -31,6 +34,16 @@ GUI is still in progress. The layers also have their own targets (`codeut`, `cli
     make ut       # EVERYTHING, every layer PASS / FAIL / SKIP, with a summary -- run before commit
 
 Or a single GUI layer directly, e.g. `sh tests/gui/serve.sh ./c/ais`.
+
+The two device-driving layers are opt-in beyond a plain run:
+
+    AIS_ANDROID_BOOT=1  sh tests/gui/flutter-sync-android.sh   # boot an AVD headlessly first
+    AIS_ANDROID_CLEAR=1 sh tests/gui/flutter-sync-android.sh   # wipe the app's index first (DESTRUCTIVE)
+
+**How to write one of these is in `doc/dev/GUI_TESTING.md`** -- driving Flutter
+by deep link and keyboard rather than by pixel, reaching the host from an
+emulator, reading a device's private index back, and why every one of those
+matters.
 
 `make ut` prints two groups and a final line like:
 
@@ -57,7 +70,11 @@ contract; a GUI can be merged once its own layer goes green.
 - a `--serve` *interaction* (type, press a key, assert the result) -> a case in
   `tests/gui/cdptest.c`, driven by the C CDP client (`make uiut`).
 - a whole new front-end layer -> a `tests/gui/<name>.sh` (exit 0/1/77) and one
-  `layer fail_gui ...` line in `tests/run.sh`.
+  `layer fail_gui ...` line in `tests/run.sh`. Wire it in the SAME day: the
+  Flutter sync harness sat unwired for weeks and silently stopped testing
+  anything when a control moved.
+- a Flutter interaction on a real device -> `tests/gui/flutter-sync-android.sh`,
+  and read `doc/dev/GUI_TESTING.md` first.
 
 ## Click-and-assert: the C CDP client
 
@@ -73,3 +90,7 @@ is absent. Set `AIS_CDP_DEBUG=1` to trace the CDP frames.
 
 Not covered: visual/screenshot diffing and cross-browser (Firefox/Safari). For a
 still image of the GUI, `tests/shot/shot.sh` (shell only) lets an agent SEE it.
+
+`inter.sh` once failed about half the time on a cold run, and it was right to:
+the page painted async results into `#out` without re-checking that the view was
+still the one that asked for them. Read a flaky GUI test before rerunning it.

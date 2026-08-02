@@ -1,5 +1,9 @@
 # GUI conventions (web, Flutter, native desktop)
 
+> This file is what the surfaces must LOOK like. How to drive and test them
+> without a human clicking -- headless browser, Flutter by deep link and
+> keyboard, a real APK on an emulator -- is `doc/dev/GUI_TESTING.md`.
+
 One product across surfaces: the same vocabulary and order on the web GUI (`c/serve.c`),
 the PWA (`app/index.html` + `app/app.css`, served when `$AIS_WEB` points at `app/`),
 the Flutter app (`app/flutter/lib/main.dart`), and the native Win32 app (`win32/ais-gui.c`).
