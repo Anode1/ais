@@ -81,8 +81,17 @@ int sync_export_plain(ais *a, uint8_t **out, size_t *out_len)
     if (fwrite(&ver, 1, 1, ms) != 1) { fclose(ms); free(buf); return -1; }
     /* feed_export emits the blob sections itself, so calling export_blobs here
      * shipped every document TWICE: it doubled each bundle and halved the usable
-     * size cap, which failed a large document outright. */
-    feed_export(a, ms);
+     * size cap, which failed a large document outright.
+     *
+     * CAPPED as it streams. This buffer grows in memory, so the size check after
+     * fclose below can only fire once the whole thing has already been allocated
+     * -- fine for the record text, hopeless for documents, where a large blobs/
+     * is an OOM before it is ever a refusal. */
+    if (feed_export_capped(a, ms, AIS_SYNC_MAX_BLOB) != 0) {
+        fclose(ms);
+        free(buf);
+        return -1;
+    }
     if (fclose(ms) != 0) { free(buf); return -1; }
     if (blen > AIS_SYNC_MAX_BLOB) {            /* cap the plain side too (the import side matches) */
         fprintf(stderr, "sync: index too large (%zu bytes > %lu-byte cap)\n",

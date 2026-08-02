@@ -2900,6 +2900,239 @@ static void test_count_live_counts_only_live_records(void)
     scratch_rm(da);
 }
 
+/* Re-attaching a key must leave exactly ONE entry, and must never leave none.
+ * katt_set was a remove followed by an append: a crash between the two left the
+ * pair with no attach time at all, and without it a peer's older detach wins and
+ * takes the key away again. One rewrite + rename means the file holds the old
+ * entry or the new one, never neither. */
+static void test_attach_time_is_replaced_atomically(void)
+{
+    ais A;
+    const char *da = "/tmp/ais_ut_kattatomic";
+    char path[AIS_PATH_MAX], line[AIS_LINE_MAX], ts1[AIS_TS_MAX], ts2[AIS_TS_MAX];
+    FILE *f;
+    long id, hits = 0;
+
+    scratch_rm(da);
+    ais_open(&A, da);
+    id = ais_put(&A, "base", "http://x/atomic");
+    ais_put(&A, "base later", "http://x/atomic");         /* attach: writes an entry */
+    CHECK(katt_lookup(&A, id, "later", ts1, sizeof ts1) == 1,
+          "kattatomic: the attach time is recorded");
+
+    sleep(1);
+    ais_put(&A, "base later", "http://x/atomic");         /* re-save: replaces it */
+    CHECK(katt_lookup(&A, id, "later", ts2, sizeof ts2) == 1,
+          "kattatomic: still recorded after a re-save");
+
+    /* exactly one line for this pair -- a replace that appended without removing
+     * would leave two, and lookups would then depend on which was read last */
+    snprintf(path, sizeof path, "%s/katt", da);
+    f = fopen(path, "r");
+    CHECK(f != NULL, "kattatomic: the katt file exists");
+    while (fgets(line, sizeof line, f) != NULL)
+        if (strstr(line, "|later") != NULL)
+            hits++;
+    fclose(f);
+    CHECK(hits == 1, "kattatomic: exactly one entry for the pair, not two");
+
+    ais_close(&A);
+    scratch_rm(da);
+}
+
+/* The fixed-width edit/survival clocks are pure POSITION -- slot k is id k+1 --
+ * so a file whose length is not a whole number of slots shifts every id after the
+ * ragged point onto another record's timestamp. slot_get refuses a misaligned
+ * file, which keeps a wrong answer from being given, but a later write used to
+ * pad from wherever the file ended and carry the misalignment forward for ever.
+ * And clearing a slot past the end used to extend the file with a hole to record
+ * that a just-deleted record has no edit time, which its absence already says. */
+static void test_edit_clock_survives_a_ragged_file(void)
+{
+    ais a;
+    const char *dir = "/tmp/ais_ut_slots";
+    char path[AIS_PATH_MAX], got[AIS_TS_MAX];
+    struct stat st;
+    FILE *f;
+    long id1, id2;
+
+    scratch_rm(dir);
+    ais_open(&a, dir);
+    id1 = ais_put(&a, "k", "http://x/one");
+    id2 = ais_put(&a, "k", "http://x/two");
+    ais_put(&a, "k more", "http://x/one");         /* an edit: stamps id1's slot */
+    CHECK(mts_get(&a, id1, got, sizeof got) == 1, "slots: an edit is recorded");
+    ais_close(&a);
+
+    /* tear the file mid-slot, as an interrupted write would */
+    snprintf(path, sizeof path, "%s/mts", dir);
+    f = fopen(path, "a");
+    CHECK(f != NULL, "slots: opened the clock file to damage it");
+    fputs("2026-01", f);                            /* a partial slot */
+    fclose(f);
+
+    ais_open(&a, dir);
+    ais_put(&a, "k other", "http://x/two");         /* an edit on the SECOND record */
+    CHECK(stat(path, &st) == 0 && st.st_size % 21 == 0,
+          "slots: the next write squares the file back up to whole slots");
+    CHECK(mts_get(&a, id2, got, sizeof got) == 1,
+          "slots: and the edit lands on the right id, not shifted by the tear");
+
+    /* clearing a slot beyond the end must not grow the file to reach it */
+    {
+        long before, after;
+        stat(path, &st);
+        before = (long)st.st_size;
+        mts_clear(&a, 100000);                      /* an id far past anything here */
+        stat(path, &st);
+        after = (long)st.st_size;
+        CHECK(after == before,
+              "slots: clearing an absent slot does not balloon the file");
+    }
+    ais_close(&a);
+    scratch_rm(dir);
+}
+
+/* The document cap has to bite BEFORE the bytes are written, not after. A bundle
+ * assembles in memory, so checking the total at the end means a huge blobs/ is
+ * fully allocated before being refused -- on a phone that is an OOM kill instead
+ * of a message. Checked here by capping small and asserting the export both fails
+ * and stops writing.
+ *
+ * feed_export (uncapped) must still emit everything: the CLI's --export goes to a
+ * pipe or a file the user chose, where there is no memory ceiling to respect. */
+static void test_the_document_cap_stops_before_writing(void)
+{
+    ais a;
+    const char *dir = "/tmp/ais_ut_blobcap";
+    char bp[AIS_PATH_MAX];
+    FILE *bf, *tmp;
+    long capped_len, full_len;
+    int i;
+
+    scratch_rm(dir);
+    ais_open(&a, dir);
+    ais_put(&a, "doc", "blobs/big.txt");
+
+    snprintf(bp, sizeof bp, "%s/blobs", dir);
+    mkdir(bp, 0777);
+    snprintf(bp, sizeof bp, "%s/blobs/big.txt", dir);
+    bf = fopen(bp, "wb");
+    CHECK(bf != NULL, "blobcap: wrote a document to export");
+    for (i = 0; i < 4096; i++)
+        fputc('x', bf);                       /* 4 KB of body */
+    fclose(bf);
+
+    tmp = tmpfile();
+    CHECK(tmp != NULL, "blobcap: tmpfile opened");
+    CHECK(feed_export_capped(&a, tmp, 1024) == -1,
+          "blobcap: a document over the cap is refused");
+    fseek(tmp, 0, SEEK_END);
+    capped_len = ftell(tmp);
+    fclose(tmp);
+    CHECK(capped_len < 4096,
+          "blobcap: and its body was never written (refused before, not after)");
+
+    tmp = tmpfile();
+    CHECK(tmp != NULL, "blobcap: second tmpfile opened");
+    CHECK(feed_export_capped(&a, tmp, 0) == 0, "blobcap: uncapped still exports");
+    fseek(tmp, 0, SEEK_END);
+    full_len = ftell(tmp);
+    fclose(tmp);
+    CHECK(full_len > 4096, "blobcap: and it carries the whole document");
+
+    ais_close(&a);
+    scratch_rm(dir);
+}
+
+/* A compaction that FAILS must leave `multi` describing the store that is still
+ * there. It used to be truncated at the start of the pass, before the store was
+ * committed by rename, so a run killed in between left it empty against the old
+ * store -- and an empty `multi` makes the export emit each value of a multi-value
+ * record as its own A|, so one record lands on every peer as several. `off` is
+ * size-checked and id-verified on use; `multi` has no such guard and
+ * compact_recover does not rebuild it. */
+static void test_a_failed_compaction_leaves_multi_intact(void)
+{
+    ais a;
+    const char *dir = "/tmp/ais_ut_multikeep";
+    char sn[AIS_PATH_MAX];
+    long id;
+    FILE *tmp;
+    char buf[4096];
+    size_t n;
+
+    scratch_rm(dir);
+    ais_open(&a, dir);
+    id = ais_put(&a, "doc", "http://x/first-link");
+    CHECK(ais_add(&a, id, "http://x/second-link") == 0, "multikeep: a two-value record");
+
+    /* force the compaction to fail, the same way the rollback test does */
+    snprintf(sn, sizeof sn, "%s/store.new", dir);
+    CHECK(mkdir(sn, 0777) == 0, "multikeep: planted store.new to force failure");
+    CHECK(ais_compact(&a) != 0, "multikeep: compaction fails as injected");
+    rmdir(sn);
+
+    /* the record must still export as ONE record: an A| and an M|, not two A| */
+    tmp = tmpfile();
+    CHECK(tmp != NULL, "multikeep: tmpfile opened");
+    feed_export(&a, tmp);
+    rewind(tmp);
+    n = fread(buf, 1, sizeof buf - 1, tmp);
+    buf[n] = '\0';
+    fclose(tmp);
+    CHECK(strstr(buf, "M|") != NULL,
+          "multikeep: the second value still travels as a LINK, not a new record");
+    CHECK(strstr(buf, "A|") != NULL, "multikeep: and the record itself is exported");
+
+    ais_close(&a);
+    scratch_rm(dir);
+}
+
+/* A torn last line must not swallow the NEXT record. A record can be 64 KB
+ * against stdio's 4 KB buffer, so an append is several writes; interrupted, it
+ * leaves a line with no newline, and appending onto that fused two records into
+ * one. The first lost its value, the second became unreachable, and the next
+ * compaction wrote the fusion back permanently -- two records gone from one torn
+ * write. Damage has to stay local (STYLE.md). */
+static void test_a_torn_last_line_does_not_eat_the_next_record(void)
+{
+    ais A;
+    const char *da = "/tmp/ais_ut_torn";
+    char path[AIS_PATH_MAX];
+    FILE *f;
+    long n = 0;
+
+    scratch_rm(da);
+    ais_open(&A, da);
+    ais_put(&A, "k1", "value one");
+    ais_put(&A, "k2", "value two");
+    ais_close(&A);
+
+    /* tear the tail: an id and a partial timestamp, no newline */
+    snprintf(path, sizeof path, "%s/store", da);
+    f = fopen(path, "a");
+    CHECK(f != NULL, "torn: opened the store to damage it");
+    fputs("3|2026-01-01T00:00", f);          /* deliberately unterminated */
+    fclose(f);
+
+    ais_open(&A, da);
+    CHECK(ais_put(&A, "k4", "value four") > 0, "torn: the next save still succeeds");
+    CHECK(value_present(&A, "value four") == 1,
+          "torn: and its record is readable, not fused into the torn line");
+    CHECK(value_present(&A, "value one") == 1, "torn: earlier records are untouched");
+    CHECK(value_present(&A, "value two") == 1, "torn: both of them");
+
+    /* and compaction must not turn the damage into permanent loss */
+    CHECK(ais_compact(&A) == 0, "torn: compaction runs over the damaged store");
+    CHECK(value_present(&A, "value four") == 1, "torn: the record survives compaction");
+    CHECK(value_present(&A, "value one") == 1, "torn: so do the earlier ones");
+    CHECK(ais_count_live(&A, &n) == 0 && n >= 3,
+          "torn: nothing was swallowed (3 real records still live)");
+    ais_close(&A);
+    scratch_rm(da);
+}
+
 /* Join by NAME, not only by dotted quad. The address a user can actually read off
  * another machine is usually a name -- "mylaptop.local" from mDNS, a router's
  * DHCP name, an /etc/hosts entry -- and every one of them used to fail as the
@@ -4632,6 +4865,11 @@ int main(void)
     test_half_done_sync_is_not_a_failure();
     test_a_round_that_leaves_them_different_says_so();
     test_resurrect_keeps_keys_on_a_legacy_timestamp();
+    test_attach_time_is_replaced_atomically();
+    test_edit_clock_survives_a_ragged_file();
+    test_the_document_cap_stops_before_writing();
+    test_a_failed_compaction_leaves_multi_intact();
+    test_a_torn_last_line_does_not_eat_the_next_record();
     test_sync_joins_by_hostname();
     test_count_live_counts_only_live_records();
     test_edit_does_not_resurrect_a_removed_tag();

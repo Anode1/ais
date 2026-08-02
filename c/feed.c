@@ -570,11 +570,20 @@ static int exp_kborn(long id, const char *ts, const char *hash, const char *key,
  * for bundles (which is why documents survived a folder sync but not an export);
  * the two should be unified once sync.c's copy can be reached from here.
  * Returns 0; a missing blobs/ dir is not an error. */
-static int export_blobs_stream(FILE *out, const char *dir)
+/* CAP is a running ceiling on the bytes written, or 0 for none. It is checked
+ * BEFORE each document is streamed, not after the lot: a bundle assembles into
+ * memory (open_memstream, sync.c), so testing the total at the end means a
+ * multi-gigabyte blobs/ is fully allocated before being rejected -- an OOM kill
+ * on a phone rather than a message. Refusing costs one stat's worth of work.
+ * Returns 0, or -1 once the cap would be passed (the caller abandons the whole
+ * bundle; a partial one must never be sent). */
+static int export_blobs_stream(FILE *out, const char *dir, size_t cap)
 {
     char blobsdir[AIS_PATH_MAX], path[AIS_PATH_MAX], buf[8192];
     DIR *d;
     struct dirent *de;
+    size_t total = 0;
+    int rc = 0;
 
     if (snprintf(blobsdir, sizeof blobsdir, "%s/blobs", dir) >= (int)sizeof blobsdir)
         return 0;
@@ -594,23 +603,39 @@ static int export_blobs_stream(FILE *out, const char *dir)
             continue;
         if (fseek(bf, 0, SEEK_END) != 0 || (sz = ftell(bf)) < 0 ||
             fseek(bf, 0, SEEK_SET) != 0) { fclose(bf); continue; }
+        if (cap > 0 && (total > cap || (size_t)sz > cap - total)) {
+            fclose(bf);
+            fprintf(stderr, "sync: documents exceed the %lu-byte transfer cap\n",
+                    (unsigned long)cap);
+            rc = -1;
+            break;
+        }
+        total += (size_t)sz;
         fprintf(out, "B|blobs/%s|%ld\n", de->d_name, sz);
         while ((n = fread(buf, 1, sizeof buf, bf)) > 0)
             fwrite(buf, 1, n, out);
         fclose(bf);
     }
     closedir(d);
-    return 0;
+    return rc;
 }
 
 void feed_export(ais *a, FILE *out)
+{
+    /* The CLI's `--export` goes to a pipe or a file the user chose, where there
+     * is no memory ceiling to respect; only the in-memory bundle needs one. */
+    feed_export_capped(a, out, 0);
+}
+
+int feed_export_capped(ais *a, FILE *out, size_t blob_cap)
 {
     struct exp_ctx E;
     E.a = a;
     E.out = out;
     E.hasktomb = (ktomb_active(a) > 0);
     E.hassts   = (sts_active(a) > 0);   /* one stat, not a seek per record */
-    export_blobs_stream(out, a->dir);        /* bodies first: a record may point at one */
+    if (export_blobs_stream(out, a->dir, blob_cap) != 0)   /* bodies first: a record may point at one */
+        return -1;
     store_each_record(a, exp_live, &E);
     tomb_each(a, exp_dead, &E);
     ktomb_each(a, exp_kdead, &E);            /* key-detaches propagate as K| lines (I1) */
@@ -619,6 +644,7 @@ void feed_export(ais *a, FILE *out)
      * already existed are in katt, so an index that has never re-tagged anything
      * emits none. */
     katt_each(a, exp_kborn, &E);
+    return 0;
 }
 
 /* CLI --doc: stream stdin (any size, bounded memory) into a blob, then put its

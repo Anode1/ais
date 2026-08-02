@@ -425,6 +425,58 @@ static int kfile_remove(const ais *a, const char *file, long id, const char *key
     return 0;
 }
 
+/* Replace the entry for (ID, KEY) with a fresh one, in ONE rewrite: build a temp
+ * file holding every OTHER line plus the new one, then rename it over the
+ * original. kfile_remove followed by kfile_append did the same job in two steps,
+ * and a crash between them left the pair with no entry at all -- katt is real,
+ * non-rebuildable data (when a key went onto a record), and losing an entry lets
+ * a peer's older K| detach win and take the key away again. One rename means the
+ * file only ever holds the old entry or the new one. Returns 0, or -1 on error. */
+static int kfile_replace(const ais *a, const char *file, long id,
+                         const char *ts, const char *hash, const char *key)
+{
+    char path[AIS_PATH_MAX], tmp[AIS_PATH_MAX];
+    char orig[AIS_LINE_MAX];
+    char enc[AIS_KEY_MAX];
+    FILE *in, *out;
+    size_t elen;
+
+    if (key == NULL || key_encode(key, enc, sizeof enc) != 0)
+        return -1;
+    elen = strlen(enc);
+    if (compact_path(a, file, path, sizeof(path)) != 0)
+        return -1;
+    if (snprintf(tmp, sizeof(tmp), "%s.tmp", path) >= (int)sizeof(tmp))
+        return -1;
+
+    out = fopen(tmp, "w");
+    if (out == NULL)
+        return -1;
+
+    in = fopen(path, "r");                   /* absent is fine: we are creating it */
+    if (in != NULL) {
+        while (fgets(orig, sizeof(orig), in) != NULL) {
+            const char *k = NULL;
+            size_t klen = 0;
+            if (kfile_peek(orig, &k, &klen) == id && k != NULL &&
+                klen == elen && memcmp(k, enc, klen) == 0)
+                continue;                    /* the entry being replaced */
+            fputs(orig, out);
+        }
+        fclose(in);
+    }
+    fprintf(out, "%ld|%s|%s|%s\n", id, ts ? ts : "", hash ? hash : "", enc);
+    if (fclose(out) != 0) {
+        unlink(tmp);
+        return -1;
+    }
+    if (rename(tmp, path) != 0) {
+        unlink(tmp);
+        return -1;
+    }
+    return 0;
+}
+
 static int kfile_active(const ais *a, const char *file)
 {
     char path[AIS_PATH_MAX];
@@ -455,9 +507,10 @@ int ktomb_active(const ais *a)                        { return kfile_active(a, "
 
 int katt_set(const ais *a, long id, const char *ts, const char *hash, const char *key)
 {
-    if (kfile_remove(a, "katt", id, key) != 0)   /* one entry per pair: when, not a log */
-        return -1;
-    return kfile_append(a, "katt", id, ts, hash, key);
+    /* One entry per pair (when, not a log), written as a single atomic rewrite --
+     * remove-then-append could be interrupted between the two and lose the pair
+     * entirely. See kfile_replace. */
+    return kfile_replace(a, "katt", id, ts, hash, key);
 }
 int katt_add(const ais *a, long id, const char *ts, const char *hash, const char *key)
 { return kfile_append(a, "katt", id, ts, hash, key); }
@@ -521,8 +574,26 @@ static int slot_set(const ais *a, const char *file, long id, const char *ts)
             return -1;
     }
     /* Seeking past the end leaves a hole that reads back as NUL, not as the blank
-     * slot readers expect, so pad explicitly. */
+     * slot readers expect, so pad explicitly.
+     *
+     * Pad from a slot BOUNDARY, not from wherever the file happens to end. These
+     * files are pure position -- slot k IS id k+1 -- so a length that is not a
+     * whole number of slots shifts every id after it by the remainder, and each
+     * one then reads another record's timestamp. slot_get already refuses a
+     * misaligned file (so the damage shows up as "never edited" rather than as
+     * the wrong answer), but padding from a ragged end would carry the
+     * misalignment forward for good instead of squaring it up. A partial trailing
+     * slot can only be a torn write, and it describes at most one id. */
     if (fseek(f, 0, SEEK_END) != 0) { fclose(f); return -1; }
+    {
+        long end = ftell(f);
+        if (end < 0) { fclose(f); return -1; }
+        if (end % (long)MTS_W != 0) {
+            long aligned = end - (end % (long)MTS_W);
+            if (fflush(f) != 0 || ftruncate(fileno(f), aligned) != 0 ||
+                fseek(f, 0, SEEK_END) != 0) { fclose(f); return -1; }
+        }
+    }
     want = (id - 1) * (long)MTS_W;
     while (ftell(f) < want) {
         memset(slot, ' ', MTS_W - 1);
@@ -551,6 +622,12 @@ static int slot_clear(const ais *a, const char *file, long id)
     f = fopen(path, "r+");
     if (f == NULL)
         return (errno == ENOENT) ? 0 : -1;
+    /* Nothing to clear beyond the end: the slot is already absent, and writing
+     * there would extend the file with a hole (and, for a high id, grow it to
+     * id * MTS_W of mostly nothing) to record that a record we just deleted has
+     * no edit time -- which is what its absence already says. */
+    if (fseek(f, 0, SEEK_END) != 0) { fclose(f); return 0; }
+    if (ftell(f) <= (id - 1) * (long)MTS_W) { fclose(f); return 0; }
     if (fseek(f, (id - 1) * (long)MTS_W, SEEK_SET) != 0) { fclose(f); return 0; }
     memset(slot, ' ', MTS_W - 1);
     slot[MTS_W - 1] = '\n';
@@ -991,6 +1068,8 @@ static int compact_locked(ais *a)
 {
     char storepath[AIS_PATH_MAX];
     char newpath[AIS_PATH_MAX];
+    char offp[AIS_PATH_MAX], offnew[AIS_PATH_MAX];
+    char multip[AIS_PATH_MAX], multinew[AIS_PATH_MAX];
     char idxpath[AIS_PATH_MAX];
     char idxbak[AIS_PATH_MAX];
     struct compact_ctx c;
@@ -1041,16 +1120,26 @@ static int compact_locked(ais *a)
     if (c.out == NULL)
         goto cleanup;
 
-    {
-        char offp[AIS_PATH_MAX], multip[AIS_PATH_MAX];
-        if (compact_path(a, "off", offp, sizeof(offp)) != 0 ||
-            compact_path(a, "multi", multip, sizeof(multip)) != 0)
-            goto cleanup;
-        c.off_out = fopen(offp, "w");        /* truncate + rebuild from scratch */
-        c.multi_out = fopen(multip, "w");
-        if (c.off_out == NULL || c.multi_out == NULL)
-            goto cleanup;
-    }
+    /* Build the new off/multi BESIDE the old ones, never over them. Truncating
+     * them here -- before the store is committed by the rename below -- meant a
+     * compaction killed mid-pass left them emptied against the still-old store.
+     * `off` survives that (off_consistent size-checks it and store_value_at
+     * re-verifies the id, so a bad one only costs a scan), but `multi` has no
+     * such check and compact_recover does not rebuild it: with it empty, the
+     * export reads multi_contains()==0 for a genuinely multi-value record and
+     * emits each of its values as a separate A|, so ONE record arrives on every
+     * peer as several. Renamed after the store, they can only ever describe a
+     * store that is already in place. */
+    if (compact_path(a, "off", offp, sizeof(offp)) != 0 ||
+        compact_path(a, "multi", multip, sizeof(multip)) != 0)
+        goto cleanup;
+    if (snprintf(offnew, sizeof offnew, "%s.new", offp) >= (int)sizeof offnew ||
+        snprintf(multinew, sizeof multinew, "%s.new", multip) >= (int)sizeof multinew)
+        goto cleanup;
+    c.off_out = fopen(offnew, "w");
+    c.multi_out = fopen(multinew, "w");
+    if (c.off_out == NULL || c.multi_out == NULL)
+        goto cleanup;
 
     if (store_each_record(a, compact_line, &c) != 0 || c.error)
         goto cleanup;
@@ -1075,6 +1164,12 @@ static int compact_locked(ais *a)
         goto cleanup;
     staged = 0;                              /* committed: the fresh idx/ is now authoritative,
                                               * never roll back to the old index past here */
+    /* Only now, with the store they describe in place. A failure here leaves the
+     * OLD off/multi against the NEW store, which is the one direction that is
+     * safe: off is size-checked and id-verified on use, and a multi that names
+     * ids the store still holds only forces the slow path. */
+    if (rename(offnew, offp) != 0 || rename(multinew, multip) != 0)
+        goto cleanup;
     compact_rmtree(idxbak);                  /* best-effort: a leftover idx.bak only costs the
                                               * next compaction one rebuild-from-store pass */
 
@@ -1116,6 +1211,8 @@ cleanup:
         fclose(c.multi_out);
     if (rc != 0) {
         unlink(newpath);                 /* drop store.new if it was not committed */
+        unlink(offnew);                  /* and the half-built accelerators beside it */
+        unlink(multinew);
         if (staged) {                    /* pre-commit failure: restore the original index
                                           * so a failed compaction leaves keyed reads working */
             compact_rmtree(idxpath);     /* discard the half-built fresh idx/ */

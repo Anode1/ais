@@ -391,9 +391,40 @@ int store_append(const ais *a, long id, const char *ts,
 
     if (store_path(a, "store", path, sizeof(path)) != 0)
         return -1;
-    fp = fopen(path, "a");
+    fp = fopen(path, "a+");
     if (fp == NULL)
         return -1;
+
+    /* NEVER append onto an unterminated last line.
+     *
+     * A record can be 64 KB (AIS_LINE_MAX) against stdio's 4 KB buffer, so one
+     * append is several write() calls; a power cut or ENOSPC between them leaves
+     * a partial line with no newline. Append mode then writes the NEXT record
+     * straight onto its end, and the two fuse into one line: store_parse reads
+     * the leading id and takes the rest -- including the whole of the following
+     * record -- as one value. The second record becomes unreachable, and the
+     * next compaction rewrites the fused line verbatim, destroying it for good.
+     * Two records lost from one torn write, silently.
+     *
+     * The newline is added rather than the tail truncated. A store is meant to be
+     * hand-editable, and an editor that leaves no final newline is ordinary; that
+     * last line is then a COMPLETE record that truncating would delete. Closing
+     * the line keeps a good record good, and leaves a genuinely torn one as its
+     * own short line -- damaged, but damaged alone, which is the whole promise in
+     * STYLE.md ("corruption must stay local and recoverable").
+     *
+     * No fsync: it would cost a disk flush on every save to narrow a window this
+     * already makes survivable, and compact.c's rename commit takes the same view. */
+    if (fseek(fp, 0, SEEK_END) == 0) {
+        long sz = ftell(fp);
+        if (sz > 0 && fseek(fp, sz - 1, SEEK_SET) == 0) {
+            int last = fgetc(fp);
+            if (fseek(fp, 0, SEEK_END) == 0 && last != EOF && last != '\n')
+                fputc('\n', fp);
+        }
+        if (fseek(fp, 0, SEEK_END) != 0) { fclose(fp); return -1; }
+    }
+
     if (ts != NULL && ts[0] != '\0')
         fprintf(fp, "%ld|%s|%s|%s\n", id, ts, keys, value);   /* v2 */
     else

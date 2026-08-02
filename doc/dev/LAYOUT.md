@@ -244,6 +244,37 @@ continuations are scattered); the fast path skips these and scans, so multi-valu
 records are always read in full. Both files rebuild from `store` -- delete them,
 `compact`, and nothing is lost.
 
+**Both are staged and renamed AFTER the store's own rename, never truncated in
+place.** They are accelerators, but a WRONG one is not merely slow: with `multi`
+empty against a store that still holds the continuation lines, the export reads
+`multi_contains()==0` for a genuinely multi-value record and emits each of its
+values as its own `A|`, so one record arrives on every peer as several. Rebuilding
+them before the store was committed meant a compaction killed in between left
+exactly that state, and `compact_recover` restores only `idx/`. Renaming after the
+store means they can only ever describe a store that is already in place; the one
+surviving failure -- the OLD pair against the NEW store -- is safe, because `off`
+is size-checked (`off_consistent`) and id-verified on use and a stale `multi` only
+forces the slow path.
+
+### Appending to the store: never onto an unterminated line
+A record can be `AIS_LINE_MAX` (64 KB) against stdio's 4 KB buffer, so one append
+is several `write()` calls, and a power cut or `ENOSPC` between them leaves a line
+with no newline. Append mode would then write the NEXT record straight onto its
+end and the two fuse: `store_parse` reads the leading id and takes everything
+after it -- including the whole following record -- as one value. The second
+record becomes unreachable and the next compaction writes the fusion back
+verbatim, destroying it permanently. Two records lost from one torn write.
+
+`store_append` therefore checks the final byte and closes the line first. It ADDS
+a newline rather than truncating the tail: a store is meant to be hand-editable,
+an editor that leaves no final newline is ordinary, and that last line is then a
+complete record truncation would delete. A genuinely torn line survives as its own
+short line -- damaged, but damaged alone, which is the promise in STYLE.md.
+
+There is no `fsync` on this path: it would cost a disk flush on every save to
+narrow a window this already makes survivable, and compaction's rename commit
+takes the same view.
+
 ### tomb -- tombstones
 `del(id)` appends the id to `tomb`. `get`/`dump` merge it out (suppress ids
 present in `tomb`). Compaction drops the deleted record's BODY from the store but

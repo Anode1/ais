@@ -25,6 +25,14 @@ void feed_import_from(ais *a, FILE *in);
  * D|ts|hash for tombstones. The inverse of merge-aware import; what --export serves. */
 void feed_export(ais *a, FILE *out);
 
+/* feed_export with a ceiling on the DOCUMENT bytes it writes (0 = none), checked
+ * as it goes rather than after the fact. A bundle is assembled in memory, so an
+ * after-the-fact check means allocating the whole of a huge blobs/ before
+ * refusing it -- which on a phone is an OOM kill, not an error message.
+ * Returns 0, or -1 if the cap was reached; on -1 the output is INCOMPLETE and the
+ * caller must discard it, never send it. */
+int  feed_export_capped(ais *a, FILE *out, size_t blob_cap);
+
 /* Like feed_import, but confirm each record first: show "keys | value" and read
  * a [y/N] answer from the terminal (/dev/tty, or $AIS_TTY for scripting/tests).
  * Only y/Y takes the record; N -- the default, including a bare Enter -- skips.
