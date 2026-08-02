@@ -13,7 +13,7 @@
 // behind, so a flagless build showed 0.3.9 while the store showed 0.3.14 --
 // harmless in itself, but it is the About screen a bug report quotes.)
 const String kAppVersion =
-    String.fromEnvironment('APP_VERSION', defaultValue: '0.3.15');
+    String.fromEnvironment('APP_VERSION', defaultValue: '0.3.16');
 const String kAppBuild = String.fromEnvironment('APP_BUILD', defaultValue: '15');
 
 /// The standard `1.2.3 (456)` display form.
