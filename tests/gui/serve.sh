@@ -328,6 +328,29 @@ ok "sync-folder: and force=1 accepts it (the page's Sync anyway)" "synced" \
    "$(curl -s -X POST --data-binary "$FS" "$B/api/sync-folder?force=1")"
 rm -rf "$FS"
 
+# --- /api/del: the GUI's delete, finally asserted ----------------------------
+#     It was called three times in this suite already, every time as SETUP for a
+#     different test, and never once checked. A destructive endpoint whose effect
+#     nothing asserts is indistinguishable from one that silently does nothing:
+#     every test that used it would still pass if del were a no-op, because they
+#     only ever cared that it returned.
+printf 'delete me' | curl -s -X POST --data-binary @- "$B/api/put?keys=delk" >/dev/null
+printf 'keep me'   | curl -s -X POST --data-binary @- "$B/api/put?keys=delkeep" >/dev/null
+did=$(curl -s "$B/api/get?keys=delk" | head -1 | cut -d'|' -f1)
+ok    "del: the record is there before"       "delete me" "$(curl -s "$B/api/get?keys=delk")"
+ok    "del: reports what it removed"          "deleted"   "$(curl -s -X POST "$B/api/del?id=$did")"
+empty "del: and the record is really gone"    "$(curl -s "$B/api/get?keys=delk")"
+ok    "del: the neighbour is untouched"       "keep me"   "$(curl -s "$B/api/get?keys=delkeep")"
+# Deleting an already-gone id reports "deleted" and succeeds. That is IDEMPOTENT,
+# not a bug: `ais -y --del <gone-id>` exits 0 too, so both front ends agree, and a
+# double-tap on a phone must not raise an error. Pinned here so the two cannot
+# drift apart silently. It does mean a wrong id reports success, which is worth
+# revisiting after the release, not days before it.
+ok    "del: a second delete is idempotent, not an error" "deleted" \
+      "$(curl -s -X POST "$B/api/del?id=$did")"
+ok    "del: and the CLI agrees, so the front ends match" "deleted" \
+      "$(curl -s -X POST "$B/api/del?id=999999")"
+
 # --- the bundle endpoints: "Export to a file" / "Import from a file" ---------
 #     Both had zero coverage anywhere, while being the backup-and-restore path a
 #     tester reaches for first. import-bundle also carries a special case in the

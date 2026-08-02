@@ -54,24 +54,24 @@ web/GET /api/export-bundle	web	GET /api/export-bundle	HIGH	GAP	-	zero occurrence
 web/GET /api/get	web	GET /api/get	MED	COVERED?	-	tests/gui/cdptest.c:81
 web/GET /api/keys	web	GET /api/keys	MED	GAP?	-	-
 web/GET /api/stats	web	GET /api/stats	LOW	COVERED?	-	tests/gui/serve.sh:290
-web/GET /api/sync-folder	web	GET /api/sync-folder	HIGH	COVERED?	-	tests/gui/serve.sh:317
+web/GET /api/sync-folder	web	GET /api/sync-folder	HIGH	COVERED	-	serve.sh:317 missing/file/empty/force cases
 web/GET /api/sync/status	web	GET /api/sync/status	HIGH	COVERED	-	serve.sh:216 waiting->synced transition polled
 web/GET /api/tags	web	GET /api/tags	MED	COVERED?	-	tests/gui/serve.sh:57
 web/GET /api/timeline	web	GET /api/timeline	MED	COVERED?	-	tests/gui/serve.sh:248
 web/GET /api/version	web	GET /api/version	LOW	COVERED?	-	tests/gui/serve.sh:295
 web/GET /api/where	web	GET /api/where	LOW	COVERED?	-	tests/gui/serve.sh:124
-web/POST /api/compact	web	POST /api/compact	HIGH	COVERED?	-	tests/gui/serve.sh:298
-web/POST /api/del	web	POST /api/del	HIGH	COVERED?	-	tests/gui/serve.sh:78
-web/POST /api/del-under	web	POST /api/del-under	HIGH	COVERED?	-	tests/gui/serve.sh:257
+web/POST /api/compact	web	POST /api/compact	HIGH	COVERED	-	serve.sh:298 cleaned, deleted gone, live survives, forget=1 variant
+web/POST /api/del	web	POST /api/del	HIGH	GAP	-	used at :78/:288/:304 only as SETUP for other tests; nothing asserts the GUI delete actually deleted. A destructive endpoint with no assertion of its effect.
+web/POST /api/del-under	web	POST /api/del-under	HIGH	COVERED	-	serve.sh:257 count, tag gone, and gone from its OTHER tag
 web/POST /api/import-bundle	web	POST /api/import-bundle	HIGH	GAP	-	zero occurrences; backs Flutter 'Import from a file'
 web/POST /api/put	web	POST /api/put	MED	COVERED?	-	tests/gui/cdptest.c:215
-web/POST /api/reveal	web	POST /api/reveal	HIGH	COVERED?	-	tests/gui/serve.sh:177
+web/POST /api/reveal	web	POST /api/reveal	HIGH	COVERED	-	serve.sh:177 right passphrase reveals, wrong fails closed
 web/POST /api/setvalue	web	POST /api/setvalue	MED	COVERED?	-	tests/gui/cdptest.c:166
-web/POST /api/store	web	POST /api/store	HIGH	COVERED?	-	tests/gui/serve.sh:21
-web/POST /api/sync-folder	web	POST /api/sync-folder	HIGH	COVERED?	-	tests/gui/serve.sh:317
+web/POST /api/store	web	POST /api/store	HIGH	COVERED	-	serve.sh:124 asserts --where reports the switched library (split-packet path)
+web/POST /api/sync-folder	web	POST /api/sync-folder	HIGH	COVERED	-	serve.sh:317 same block
 web/POST /api/sync/host	web	POST /api/sync/host	HIGH	COVERED	-	serve.sh:208 url+32-hex token, 409 on second host
 web/POST /api/sync/join	web	POST /api/sync/join	HIGH	COVERED	-	serve.sh:86 real loopback join asserts 'merged'; CSRF cross-site refusal asserted
-web/POST /api/untag	web	POST /api/untag	HIGH	COVERED?	-	tests/gui/serve.sh:244
+web/POST /api/untag	web	POST /api/untag	HIGH	COVERED	-	serve.sh:244 count, tag gone, other tag kept, unfiled record survives
 web/POST /api/update	web	POST /api/update	MED	GAP?	-	-
 android/About	android	About	LOW	GAP?	-	-
 android/Add	android	Add	LOW	COVERED?	-	app/flutter/test/add_save_error_test.dart:1
