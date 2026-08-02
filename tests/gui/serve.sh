@@ -328,5 +328,33 @@ ok "sync-folder: and force=1 accepts it (the page's Sync anyway)" "synced" \
    "$(curl -s -X POST --data-binary "$FS" "$B/api/sync-folder?force=1")"
 rm -rf "$FS"
 
+# --- the bundle endpoints: "Export to a file" / "Import from a file" ---------
+#     Both had zero coverage anywhere, while being the backup-and-restore path a
+#     tester reaches for first. import-bundle also carries a special case in the
+#     request reader (the one route allowed to arrive in a later packet), so it
+#     is exactly where an untested body path would bite.
+BND=$(curl -s "$B/api/export-bundle")
+ok "export-bundle: serves the A| merge stream"     "A|"           "$BND"
+# the filename is a contract: the Flutter save dialog and its .aisb type group
+# both key off it, so a change here breaks Export on the phone, silently.
+ok "export-bundle: offers it as a .aisb attachment" 'filename="ais-export.aisb"' \
+   "$(curl -s -D - -o /dev/null "$B/api/export-bundle")"
+
+# a bundle from "another device" must merge in and be readable afterwards
+printf 'A|2020-01-01T00:00:00Z|restored|http://from-a-backup\n' > "$IDX/in.aisb"
+curl -s -X POST --data-binary @"$IDX/in.aisb" "$B/api/import-bundle" >/dev/null
+ok "import-bundle: the record is queryable after"  "http://from-a-backup" \
+   "$(curl -s "$B/api/get?keys=restored")"
+ok "bundle: what came in goes back out"            "http://from-a-backup" \
+   "$(curl -s "$B/api/export-bundle")"
+# importing the same bundle twice must not duplicate it
+curl -s -X POST --data-binary @"$IDX/in.aisb" "$B/api/import-bundle" >/dev/null
+ok "import-bundle: re-importing does not duplicate" "1" \
+   "$(curl -s "$B/api/export-bundle" | grep -c 'from-a-backup')"
+# a write route reachable cross-site would let any page silently seed the index
+ok "csrf: cross-site import-bundle refused"        "cross-origin request refused" \
+   "$(curl -s -H 'Sec-Fetch-Site: cross-site' -X POST --data-binary @"$IDX/in.aisb" \
+        "$B/api/import-bundle")"
+
 echo "serve: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]

@@ -1,0 +1,117 @@
+ID	SURFACE	CELL	RISK	STATUS	OWNER	EVIDENCE
+cli/--add	cli	--add	MED	COVERED?	-	tests/cli.sh:199
+cli/--compact	cli	--compact	HIGH	COVERED	-	cli.sh:224 asserts the deleted value is physically gone AND guards the wiped-store false green
+cli/--debug	cli	--debug	LOW	GAP?	-	-
+cli/--default	cli	--default	LOW	COVERED?	-	tests/cli.sh:965
+cli/--del	cli	--del	HIGH	COVERED	-	cli.sh:111 no-confirm aborts, -y deletes
+cli/--del-key	cli	--del-key	HIGH	COVERED	-	cli.sh:216
+cli/--del-under	cli	--del-under	HIGH	COVERED	-	cli.sh:462 manifest to stderr not stdout, link count
+cli/--doc	cli	--doc	HIGH	COVERED	-	cli.sh:155 blob created and recall cats content
+cli/--dump	cli	--dump	MED	COVERED?	-	tests/cli.sh:147
+cli/--encrypt	cli	--encrypt	HIGH	GAP	-	AIS_TTY test seam EXISTS (main.c:326, feed.c:85) but ais_crypto.c:346 does its own tcsetattr and bypasses it
+cli/--export	cli	--export	HIGH	COVERED	-	cli.sh:291 peer round-trip
+cli/--find	cli	--find	MED	COVERED?	-	tests/cli.sh:83
+cli/--forget	cli	--forget	HIGH	COVERED	-	cli.sh:854 delete exports before purge, stops travelling after
+cli/--forget-deleted	cli	--forget-deleted	HIGH	COVERED	-	cli.sh:854 same block, D| and K| both asserted
+cli/--help	cli	--help	LOW	COVERED?	-	tests/cli.sh:10
+cli/--import	cli	--import	HIGH	COVERED	-	cli.sh:139 dump|import round-trips
+cli/--import-interactively	cli	--import-interactively	HIGH	GAP	-	the :397 lead is a COMMENT mentioning the verb, not a test. Never driven.
+cli/--index	cli	--index	LOW	GAP?	-	-
+cli/--indexes	cli	--indexes	LOW	GAP?	-	-
+cli/--init	cli	--init	MED	COVERED?	-	tests/cli.sh:95
+cli/--interactive	cli	--interactive	LOW	GAP?	-	-
+cli/--key	cli	--key	LOW	COVERED?	-	tests/cli.sh:75
+cli/--keys	cli	--keys	MED	COVERED?	-	tests/cli.sh:75
+cli/--or	cli	--or	LOW	GAP?	-	-
+cli/--project	cli	--project	MED	COVERED?	-	tests/cli.sh:187
+cli/--serve	cli	--serve	LOW	COVERED?	-	tests/cli.sh:811
+cli/--set	cli	--set	MED	COVERED?	-	tests/cli.sh:297
+cli/--stats	cli	--stats	LOW	COVERED?	-	tests/cli.sh:199
+cli/--switch	cli	--switch	MED	GAP?	-	-
+cli/--sync	cli	--sync	HIGH	GAP	-	driven ONLY by flutter-sync-android.sh:99 which SKIPs without a device: covered on paper, unrun in practice
+cli/--sync-folder	cli	--sync-folder	HIGH	COVERED	-	tests/cli.sh:1062 - missing folder, plain file, and success all asserted
+cli/--tags	cli	--tags	MED	COVERED?	-	tests/cli.sh:251
+cli/--timeline	cli	--timeline	MED	COVERED?	-	tests/cli.sh:250
+cli/--token	cli	--token	HIGH	GAP	-	zero occurrences in tests/ or c/tests.c; the sync auth token is never asserted
+cli/--untag	cli	--untag	HIGH	COVERED	-	cli.sh:529 + c/tests.c:944 (NOT the :486 lead, which is the prompt only)
+cli/--update	cli	--update	MED	COVERED?	-	tests/cli.sh:268
+cli/--value	cli	--value	LOW	GAP?	-	-
+cli/--version	cli	--version	LOW	GAP?	-	-
+cli/--where	cli	--where	LOW	COVERED?	-	tests/cli.sh:165
+cli/--yes	cli	--yes	LOW	GAP?	-	-
+cli/-f	cli	-f	LOW	COVERED?	-	tests/cli.sh:67
+cli/-o	cli	-o	LOW	COVERED?	-	tests/cli.sh:342
+cli/-d	cli	-d	LOW	COVERED?	-	tests/cli.sh:61
+cli/-h	cli	-h	LOW	GAP?	-	-
+cli/-y	cli	-y	LOW	COVERED?	-	tests/cli.sh:111
+cli/-i	cli	-i	LOW	COVERED?	-	tests/cli.sh:125
+cli/-v	cli	-v	LOW	COVERED?	-	tests/cli.sh:5
+cli/-k	cli	-k	LOW	COVERED?	-	tests/cli.sh:948
+cli/-p	cli	-p	LOW	COVERED?	-	tests/cli.sh:103
+cli/-c	cli	-c	LOW	COVERED?	-	tests/cli.sh:71
+cli/-e	cli	-e	HIGH	GAP	-	same cause: route the passphrase read through AIS_TTY and the path becomes testable
+web/GET /api/export-bundle	web	GET /api/export-bundle	HIGH	GAP	-	zero occurrences; backs Flutter 'Export to a file'
+web/GET /api/get	web	GET /api/get	MED	COVERED?	-	tests/gui/cdptest.c:81
+web/GET /api/keys	web	GET /api/keys	MED	GAP?	-	-
+web/GET /api/stats	web	GET /api/stats	LOW	COVERED?	-	tests/gui/serve.sh:290
+web/GET /api/sync-folder	web	GET /api/sync-folder	HIGH	COVERED?	-	tests/gui/serve.sh:317
+web/GET /api/sync/status	web	GET /api/sync/status	HIGH	COVERED	-	serve.sh:216 waiting->synced transition polled
+web/GET /api/tags	web	GET /api/tags	MED	COVERED?	-	tests/gui/serve.sh:57
+web/GET /api/timeline	web	GET /api/timeline	MED	COVERED?	-	tests/gui/serve.sh:248
+web/GET /api/version	web	GET /api/version	LOW	COVERED?	-	tests/gui/serve.sh:295
+web/GET /api/where	web	GET /api/where	LOW	COVERED?	-	tests/gui/serve.sh:124
+web/POST /api/compact	web	POST /api/compact	HIGH	COVERED?	-	tests/gui/serve.sh:298
+web/POST /api/del	web	POST /api/del	HIGH	COVERED?	-	tests/gui/serve.sh:78
+web/POST /api/del-under	web	POST /api/del-under	HIGH	COVERED?	-	tests/gui/serve.sh:257
+web/POST /api/import-bundle	web	POST /api/import-bundle	HIGH	GAP	-	zero occurrences; backs Flutter 'Import from a file'
+web/POST /api/put	web	POST /api/put	MED	COVERED?	-	tests/gui/cdptest.c:215
+web/POST /api/reveal	web	POST /api/reveal	HIGH	COVERED?	-	tests/gui/serve.sh:177
+web/POST /api/setvalue	web	POST /api/setvalue	MED	COVERED?	-	tests/gui/cdptest.c:166
+web/POST /api/store	web	POST /api/store	HIGH	COVERED?	-	tests/gui/serve.sh:21
+web/POST /api/sync-folder	web	POST /api/sync-folder	HIGH	COVERED?	-	tests/gui/serve.sh:317
+web/POST /api/sync/host	web	POST /api/sync/host	HIGH	COVERED	-	serve.sh:208 url+32-hex token, 409 on second host
+web/POST /api/sync/join	web	POST /api/sync/join	HIGH	COVERED	-	serve.sh:86 real loopback join asserts 'merged'; CSRF cross-site refusal asserted
+web/POST /api/untag	web	POST /api/untag	HIGH	COVERED?	-	tests/gui/serve.sh:244
+web/POST /api/update	web	POST /api/update	MED	GAP?	-	-
+android/About	android	About	LOW	GAP?	-	-
+android/Add	android	Add	LOW	COVERED?	-	app/flutter/test/add_save_error_test.dart:1
+android/Add something	android	Add something	LOW	GAP?	-	-
+android/AIS bundle	android	AIS bundle	LOW	GAP?	-	-
+android/Change Library	android	Change Library	LOW	GAP?	-	-
+android/Clear range	android	Clear range	LOW	GAP?	-	-
+android/Copy	android	Copy	LOW	GAP?	-	-
+android/Copy version details	android	Copy version details	LOW	GAP?	-	-
+android/Decrypted	android	Decrypted	LOW	GAP?	-	-
+android/Details	android	Details	LOW	GAP?	-	-
+android/Edit tags	android	Edit tags	MED	GAP?	-	-
+android/Edit value	android	Edit value	LOW	GAP?	-	-
+android/Export to a file	android	Export to a file	LOW	GAP?	-	-
+android/Host a sync	android	Host a sync	HIGH	GAP	-	the app NEVER hosts in any test: the android script has the CLI host and the app join. serve.sh's /api/sync/host is the desktop web GUI, not the app.
+android/Import from a file	android	Import from a file	LOW	GAP?	-	-
+android/Join a sync	android	Join a sync	HIGH	COVERED	-	flutter-sync-android.sh: real APK, deep link, both directions converge (needs a device; AIS_ANDROID_BOOT=1 boots the AVD)
+android/Join / scan a nearby device	android	Join / scan a nearby device	LOW	COVERED?	-	app/flutter/uitest/run.sh:38
+android/Library	android	Library	LOW	GAP?	-	-
+android/Link:	android	Link:	LOW	GAP?	-	-
+android/Merge in a file you exported on another device	android	Merge in a file you exported on another device	HIGH	GAP?	-	-
+android/More	android	More	LOW	GAP?	-	-
+android/Pull peer changes and push yours	android	Pull peer changes and push yours	LOW	GAP?	-	-
+android/Recent	android	Recent	LOW	GAP?	-	-
+android/Retry	android	Retry	LOW	GAP?	-	-
+android/Reveal	android	Reveal	LOW	GAP?	-	-
+android/Save a copy of the whole index to a file	android	Save a copy of the whole index to a file	LOW	GAP?	-	-
+android/Scan its QR with the camera, or type its address	android	Scan its QR with the camera, or type its address	MED	GAP?	-	-
+android/Search	android	Search	LOW	GAP?	-	-
+android/Search note text instead	android	Search note text instead	LOW	GAP?	-	-
+android/Settings	android	Settings	LOW	GAP?	-	-
+android/Share	android	Share	LOW	GAP?	-	-
+android/Stop folder sync	android	Stop folder sync	HIGH	GAP?	-	-
+android/Sync anyway	android	Sync anyway	LOW	GAP?	-	-
+android/Sync & backup	android	Sync & backup	LOW	COVERED?	-	app/flutter/uitest/run.sh:114
+android/Sync now	android	Sync now	LOW	GAP?	-	-
+android/Tags	android	Tags	LOW	COVERED?	-	app/flutter/test/add_save_error_test.dart:92
+android/Theme	android	Theme	LOW	GAP?	-	-
+android/UNDO	android	UNDO	LOW	GAP?	-	-
+android/Use it anyway	android	Use it anyway	LOW	GAP?	-	-
+android/Voice search	android	Voice search	LOW	GAP?	-	-
+android/Wait here; show a QR the other device scans	android	Wait here; show a QR the other device scans	LOW	GAP?	-	-
+android/key:keyS	android	key:keyS	LOW	GAP?	-	-

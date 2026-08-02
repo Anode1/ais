@@ -1221,5 +1221,31 @@ okempty "batch: every delete crossed into the peer" "$("$AIS" -f "$BB" doomed 2>
 ok      "batch: the live records are untouched" "keep-2" "$("$AIS" -f "$BB" alive 2>/dev/null)"
 rm -rf "$BA" "$BB"
 
+# --- --import-interactively: the per-record gate, never driven until now -------
+#     The use case is a knowledge base handed from one person to another, where
+#     the acceptor keeps some records and drops others. The DEFAULT decides how
+#     that goes: a bare Enter SKIPS (feed.c takes only y/Y), so someone holding
+#     Enter through a colleague's index imports nothing, and learns it only from
+#     the final count. Nothing pinned that, and the two possible defaults differ
+#     by "took everything" against "took nothing" -- so a silent flip either way
+#     is the dangerous kind.
+II=$(mktemp -d "${TMPDIR:-/tmp}/ais_ii.XXXXXX") || exit 2
+printf 'k1|http://take-me\nk2|http://skip-me\nk3|http://take-me-too\n' > "$II/stream"
+printf 'y\nn\ny\n' > "$II/ans"
+iiout=$(AIS_TTY="$II/ans" "$AIS" -f "$II" --import-interactively < "$II/stream" 2>&1)
+ok      "import-i: reports how many of how many"   "imported 2 of 3" "$iiout"
+ok      "import-i: an accepted record is stored"   "http://take-me"  "$("$AIS" -f "$II" k1)"
+ok      "import-i: the second accepted one too"    "http://take-me-too" "$("$AIS" -f "$II" k3)"
+okempty "import-i: a refused record is NOT stored" "$("$AIS" -f "$II" k2 2>/dev/null)"
+# the prompt must show the record before asking, or the choice is blind
+ok      "import-i: shows the record before asking" "take into your index" "$iiout"
+# THE DEFAULT, pinned: bare Enter must skip, matching the [y/N] the prompt shows
+II2=$(mktemp -d "${TMPDIR:-/tmp}/ais_ii2.XXXXXX") || exit 2
+printf '\n\n\n' > "$II2/ans"
+ii2=$(AIS_TTY="$II2/ans" "$AIS" -f "$II2" --import-interactively < "$II/stream" 2>&1)
+ok      "import-i: bare Enter skips (the [y/N] default)" "imported 0 of 3" "$ii2"
+okempty "import-i: and nothing was stored"         "$("$AIS" -f "$II2" k1 2>/dev/null)"
+rm -rf "$II" "$II2"
+
 echo "---- $pass passed, $fail failed"
 [ "$fail" -eq 0 ]
