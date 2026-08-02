@@ -434,6 +434,21 @@ int store_append(const ais *a, long id, const char *ts,
     return 0;
 }
 
+int store_read_line(char *buf, size_t sz, FILE *fp)
+{
+    int c;
+
+    if (fgets(buf, sz, fp) == NULL)
+        return 0;
+    if (strchr(buf, '\n') != NULL)
+        return 1;
+    if (feof(fp))                    /* a final line with no trailing newline */
+        return 1;
+    while ((c = fgetc(fp)) != EOF && c != '\n')   /* drop the oversized remainder */
+        ;
+    return -1;
+}
+
 int store_find_value(const ais *a, const char *value, long *out_id)
 {
     char path[AIS_PATH_MAX];

@@ -1221,6 +1221,28 @@ okempty "batch: every delete crossed into the peer" "$("$AIS" -f "$BB" doomed 2>
 ok      "batch: the live records are untouched" "keep-2" "$("$AIS" -f "$BB" alive 2>/dev/null)"
 rm -rf "$BA" "$BB"
 
+# --- an over-long import line must not fabricate a record from its tail --------
+#     fgets returns an over-long line as TWO: the head was refused as "too long"
+#     and the TAIL was then parsed as a normal record. Everything past offset
+#     65535 is chosen by whoever wrote the file, so importing one bad line
+#     silently created a record with forged keys and a forged value, while the
+#     record the user meant to import was dropped. Found by an adversarial pass,
+#     not by any existing test.
+OL=$(mktemp -d "${TMPDIR:-/tmp}/ais_ol.XXXXXX") || exit 2
+{ printf 'mytag|'; head -c 65529 /dev/zero | tr '\0' 'A'
+  printf '9999|2026-01-01T00:00:00Z|forgedkeys|forgedvalue\n'; } > "$OL/long"
+olout=$("$AIS" -f "$OL" --import < "$OL/long" 2>&1)
+ok      "longline: the whole line is refused, once"  "skipped whole"  "$olout"
+ok      "longline: and nothing was imported"         "imported 0"     "$olout"
+okempty "longline: no record was fabricated"         "$("$AIS" -f "$OL" forgedkeys 2>/dev/null)"
+okempty "longline: the store stayed empty"           "$("$AIS" -f "$OL" --dump 2>/dev/null)"
+# the interactive variant shares the reader and so shared the defect
+printf 'y\ny\n' > "$OL/ans"
+oli=$(AIS_TTY="$OL/ans" "$AIS" -f "$OL" --import-interactively < "$OL/long" 2>&1)
+okempty "longline: --import-interactively is not fooled either" \
+        "$("$AIS" -f "$OL" forgedkeys 2>/dev/null)"
+rm -rf "$OL"
+
 # --- --import-interactively: the per-record gate, never driven until now -------
 #     The use case is a knowledge base handed from one person to another, where
 #     the acceptor keeps some records and drops others. The DEFAULT decides how

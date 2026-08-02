@@ -62,6 +62,14 @@ int store_ts_next_second(const char *ts, char *out, size_t outsz);
 int store_append(const ais *a, long id, const char *ts,
                  const char *keys, const char *value);
 
+/* Read one line into BUF. 1 = a whole line, 0 = EOF, -1 = the line was longer
+ * than the buffer, whose remainder is DROPPED rather than handed back.
+ * fgets alone cannot say which happened, and the difference is a data-integrity
+ * bug: an over-long line comes back as TWO, the head is rejected as too long,
+ * and the tail is then parsed as a record the input never contained. Every
+ * reader that parses untrusted lines uses this and refuses the -1. */
+int store_read_line(char *buf, size_t sz, FILE *fp);
+
 /* Scan the store for a line whose value field exactly equals VALUE.
  * On match, store its id in *out_id and return 1. Return 0 if not found,
  * -1 on error. (The store IS the value->id map; this is the idempotency scan.) */

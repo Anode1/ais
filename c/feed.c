@@ -205,8 +205,22 @@ void feed_import_from(ais *a, FILE *in)
      * or a plain "keys|value" (legacy dump / hand-edit -> an add with no ts). Keys never
      * contain '|' (key_encode maps it to '_'). Blank/#-comment lines are skipped, so the
      * plain form stays hand-editable; a malformed A|/D| line falls through to plain. */
-    while (fgets(line, sizeof(line), in) != NULL) {
+    for (;;) {
         char *bar, *keys, *val, *e;
+        int rl = store_read_line(line, sizeof(line), in);
+
+        if (rl == 0)
+            break;
+        /* An over-long line used to arrive as two: the head was refused as too
+         * long and the TAIL was parsed as a record, so importing one bad line
+         * silently created a record the input never contained. Refuse the whole
+         * line, once. */
+        if (rl < 0) {
+            fprintf(stderr, "import: line longer than %d bytes, skipped whole\n",
+                    AIS_LINE_MAX - 1);
+            skipped++;
+            continue;
+        }
 
         chomp(line);
         if (line[0] == '\0' || line[0] == '#')
@@ -703,8 +717,17 @@ void feed_import_interactive(ais *a)
         die("import-interactively: no terminal for y/N (set AIS_TTY=FILE)");
 
     /* Same "keys|value" parse as feed_import; the only addition is the prompt. */
-    while (fgets(line, sizeof(line), stdin) != NULL) {
+    for (;;) {
         char *bar, *keys, *val, *e;
+        int rl = store_read_line(line, sizeof(line), stdin);
+
+        if (rl == 0)
+            break;
+        if (rl < 0) {                     /* same split-line forgery as feed_import */
+            fprintf(stderr, "import: line longer than %d bytes, skipped whole\n",
+                    AIS_LINE_MAX - 1);
+            continue;
+        }
 
         chomp(line);
         if (line[0] == '\0' || line[0] == '#')
