@@ -169,3 +169,33 @@ is a redesign. Do the first; schedule the second separately or not at all.
 5. decide what replaces `put`'s id on stdout (13 test captures and any user
    script depend on it; `feed_stdin` already prints nothing, so silence has
    precedent)
+
+## Related, and separate: documents are not content-addressed
+
+Found while auditing identity. `store.c:170` states the engine's principle -- "put
+dedups by value (the same value IS the same record)" -- and `--doc` exempts
+itself, because the value it stores is a timestamp-derived path
+(`blobs/2026-08-03-095035.txt`, doc.c:43-56) rather than anything about the
+content. Two byte-identical documents therefore become two records and two files:
+
+    1|report |blobs/2026-08-03-095035.txt
+    2|summary|blobs/2026-08-03-095035-2.txt     <- identical bytes
+
+The same document filed under two tags cannot become one record with two keys,
+which is what the value path does and what a user would expect.
+
+Naming blobs by content hash restores the invariant, and buys more than dedup:
+
+- **sync could skip payloads the peer already holds.** The wire is
+  `B|path|size` plus the bytes (feed.c:506-587). With a content-addressed name a
+  peer recognising the hash can decline the transfer. Today it must take the
+  bytes, because a timestamp path says nothing about what is inside.
+- deleting one of two identical documents stops orphaning the other's storage
+- an index moved between machines stops accumulating duplicate blobs
+
+Costs: blob filenames stop sorting chronologically in `ls blobs/`, which is a
+real convenience today; existing blobs keep their names, so the directory becomes
+mixed; and it is a store-format change, so it belongs with this one rather than
+before it.
+
+Not scheduled. Recorded so the reasoning is not rediscovered.
