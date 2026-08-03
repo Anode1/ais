@@ -144,7 +144,8 @@ out=$("$AIS" -f "$IM" c)
 ok "import: distinct-key record"       "third"  "$out"
 # dump (strip id) | import into a fresh index reproduces the values
 IM2=$(mktemp -d "${TMPDIR:-/tmp}/ais_import2.XXXXXX") || exit 2
-"$AIS" -f "$IM" --dump | sed 's/^[0-9]*|//' | "$AIS" -f "$IM2" --import 2>/dev/null
+# --dump emits the import grammar directly now, so the round-trip needs no sed
+"$AIS" -f "$IM" --dump | "$AIS" -f "$IM2" --import 2>/dev/null
 out=$("$AIS" -f "$IM2" a b)
 ok "import: dump|import round-trips"    "second" "$out"
 rm -rf "$IM" "$IM2"
@@ -931,8 +932,9 @@ okempty "backup: the deleted one stays deleted"  "$("$AIS" -f "$BR" gone)"
 # temp files, not `diff <(...)`: process substitution is a bashism and this suite
 # runs under sh (dash), where it is a syntax error -- the same class of portability
 # bug as `timeout` missing on macOS.
-"$AIS" -f "$BK" --dump | cut -d'|' -f2- | sort > "$BK/a.dump"
-"$AIS" -f "$BR" --dump | cut -d'|' -f2- | sort > "$BK/b.dump"
+# no id to strip any more; compare the dumps verbatim
+"$AIS" -f "$BK" --dump | sort > "$BK/a.dump"
+"$AIS" -f "$BR" --dump | sort > "$BK/b.dump"
 if diff "$BK/a.dump" "$BK/b.dump" >/dev/null 2>&1; then
     pass=$((pass + 1)); echo "  ok   backup: the two libraries are identical"
 else

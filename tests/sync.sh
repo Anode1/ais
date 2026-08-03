@@ -123,14 +123,16 @@ if [ -f "$W/b/synced" ]; then
 else
     fail=$((fail+1)); echo "  FAIL set-warn: no peer marker after a LAN sync"
 fi
-sid=$("$AIS" -f "$W/b" --dump 2>/dev/null | grep 'from-b' | cut -d'|' -f1)
+# --dump no longer carries an id (it is device-local; see doc/dev/FORMAT_V2.md).
+# `get` still prints "id|value", which is where a --set/--del handle comes from.
+sid=$("$AIS" -f "$W/b" btag 2>/dev/null | grep 'from-b' | cut -d'|' -f1)
 if [ -n "$sid" ]; then
     sw=$("$AIS" -f "$W/b" --set "$sid" -v 'http://from-b' -v 'http://from-b-edited' 2>&1)
     ok  "set-warn: and --set says the edit will not propagate" "does not propagate" "$sw"
 fi
 # an index that has never synced must stay quiet: the warning has to mean something
 "$AIS" -f "$W/lone" -v 'http://solo' lonetag >/dev/null 2>&1
-lid=$("$AIS" -f "$W/lone" --dump 2>/dev/null | cut -d'|' -f1)
+lid=$("$AIS" -f "$W/lone" lonetag 2>/dev/null | cut -d'|' -f1)
 lw=$("$AIS" -f "$W/lone" --set "$lid" -v 'http://solo' -v 'http://solo2' 2>&1)
 no      "set-warn: an unsynced index is not warned"  "does not propagate" "$lw"
 
