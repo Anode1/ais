@@ -417,6 +417,23 @@ static void test_add_multilink(void)
     CHECK(ais_add(&a, id, "file:///c") == 0, "add a third link");
     CHECK(ais_add(&a, 999, "x") == -1, "add to a missing id -> -1");
 
+    /* A value names ONE record here: put dedups by value, tombstones are
+     * hash-stamped and the merge stream is hash-keyed, so two records sharing a
+     * value makes a peer collapse them and a later delete of either take both.
+     * ais_set_value refused this from the start; add_link was the one write path
+     * without the guard, so `--add 2 -v X` where record 1 held X silently created
+     * the situation the rest of the engine assumes cannot exist. */
+    {
+        long other = ais_put(&a, "otherkey", "a value of its own");
+        CHECK(other > 0, "add-dup: a second record exists");
+        CHECK(ais_add(&a, other, "https://b") == -2,
+              "add-dup: a value another record holds is refused with -2");
+        CHECK(ais_add(&a, other, "genuinely new") == 0,
+              "add-dup: a new value still attaches");
+        CHECK(ais_add(&a, other, "genuinely new") == 0,
+              "add-dup: re-adding its OWN value stays idempotent");
+    }
+
     vv.n = 0;
     ais_record(&a, id, collect_val, &vv);
     CHECK(vv.n == 3, "ais_record returns all 3 links");

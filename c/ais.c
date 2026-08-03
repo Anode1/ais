@@ -74,6 +74,9 @@ struct add_lookup {
     long  id;
     int   found;
     char  keys[AIS_LINE_MAX];
+    const char *want;          /* add_seek_dup only: the value being attached */
+    char  whash[17];           /* its content_hash, computed once */
+    long  dup_id;              /* another record already holding it, else 0 */
 };
 
 /* forward: the key-attach mirror into the authoritative keys field (LAYOUT.md). */
@@ -711,6 +714,35 @@ static int add_seek(long id, const char *ts, const char *keys,
     return 0;
 }
 
+/* add_seek_dup: add_seek's work AND the duplicate-value check, in ONE store pass.
+ * Done together because the guard would otherwise cost a second full scan on
+ * every --add, doubling it. The value comparison is by 16-char digest first and
+ * strcmp only on a digest hit, so a --doc blob or a long note costs 16 bytes per
+ * line instead of its whole length. The wire cannot confirm like this (a delete
+ * arrives as D|ts|hash with no value), but a local guard holds both, and FNV-1a
+ * is documented as "NOT a security hash" -- an unconfirmed collision would refuse
+ * a legitimate distinct value. */
+static int add_seek_dup(long id, const char *ts, const char *keys,
+                        const char *value, void *vp)
+{
+    struct add_lookup *L = vp;
+    char h[17];
+    (void)ts;
+
+    if (id == L->id && !L->found) {
+        L->found = 1;
+        snprintf(L->keys, sizeof(L->keys), "%s", keys);
+    }
+    if (id != L->id) {
+        content_hash(value, h);
+        if (strcmp(h, L->whash) == 0 && strcmp(value, L->want) == 0) {
+            L->dup_id = id;
+            return -1;              /* decisive: stop early */
+        }
+    }
+    return 0;
+}
+
 /* The body of ais_add. LOCAL separates a user's own --add -- an edit of THIS
  * device's copy, which must outrank an earlier peer delete -- from an arriving M|
  * link, which is a fact the sending device already timed. Stamping the local edit
@@ -730,13 +762,26 @@ static int add_link(ais *a, long id, const char *value, int local)
     if (tomb_contains(a, id) != 0)      /* deleted: --add would revive it silently */
         goto out;
 
+    /* One pass finds this record's keys AND refuses a value another record already
+     * holds. add_link was the only write path without that guard, so
+     * `ais --add 2 -v X` where record 1 held X produced two records sharing a
+     * value -- and store_find_value resolves such a value to the FIRST match, so
+     * anything addressing a record by its value acts on the wrong one. A peer
+     * collapses them on merge, and a later delete of either takes both. */
     L.id = id;
     L.found = 0;
     L.keys[0] = '\0';
+    L.want = value;
+    L.dup_id = 0;
+    content_hash(value, L.whash);
 
-    scan = store_each_record(a, add_seek, &L);
+    scan = store_each_record(a, add_seek_dup, &L);
     if (scan < -1)          /* a real error (callback stops with -1) */
         goto out;
+    if (L.dup_id != 0) {
+        rc = -2;            /* another record owns this value */
+        goto out;
+    }
     if (!L.found)
         goto out;
 

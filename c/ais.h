@@ -137,7 +137,10 @@ int  ais_merge_attach_many(ais *a, const ais_att_fact *facts, int n);
 int  ais_merge_addval(ais *a, const char *hash, const char *value);
 
 /* Attach another value/link to an existing record (the multi-link case).
- * Returns 0 on success, -1 if `id` is unknown. */
+ * Returns 0 on success, -1 if `id` is unknown or deleted, and -2 if ANOTHER
+ * record already holds VALUE. The two are distinguished because they need
+ * different advice: the second is refused to keep "a value is identity" true,
+ * which put, the merge stream and ais_set_value all already rely on. */
 int  ais_add(ais *a, long id, const char *value);
 
 /* Edit the keys of an existing record (id is the handle, from any "id|value"

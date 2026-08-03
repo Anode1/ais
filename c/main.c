@@ -596,9 +596,15 @@ int main(int argc, char **argv)
             if (optind >= argc) die("--add needs an ID");
             if (nval == 0) die("--add needs at least one -v VALUE");
             id = atol(argv[optind]);
-            for (j = 0; j < nval; j++)
-                if (ais_add(&a, id, values[j]) != 0)
+            for (j = 0; j < nval; j++) {
+                int arc = ais_add(&a, id, values[j]);
+                if (arc == -2)
+                    die("--add: another record already holds '%s'\n"
+                        "       a value names one record here, so it cannot be on two",
+                        values[j]);
+                if (arc != 0)
                     die("--add: no record id %ld", id);
+            }
             break;
         }
         /* Replace ONE of a record's values in place. The counterpart to --add,
