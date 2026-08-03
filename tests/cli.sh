@@ -596,15 +596,32 @@ ok      "keyless: untag leaves the record in the dump" "http://solo" "$("$AIS" -
 ok      "keyless: it survives dump|import"    "http://solo" "$("$AIS" -f "$KR" --dump)"
 ok      "keyless: the keyed record too"       "http://kept" "$("$AIS" -f "$KR" ka)"
 okeq    "keyless: both records restored"      "2" "$("$AIS" -f "$KR" --dump | grep -c .)"
-# the id prefix is recognised only when field 1 is a BARE INTEGER: without that
-# check a hand-written "key|value|more" line loses its key to the id-stripper
+# The numeric-id heuristic is retired. An old three-field line keeps its leading
+# field as a KEY rather than having it eaten as an id, which is what used to
+# destroy a year tag: "2023|http://a|b" stored key "http:__a". Both now survive.
 mk=$(printf 'mykey|http://a|b\n' | "$AIS" -f "$KR" --import 2>&1)
-ok      "keyless: a hand-written first field is a KEY, not an id" "mykey" \
-        "$("$AIS" -f "$KR" --keys)"
-ok      "keyless: and its value kept both bars"  "http://a|b" "$("$AIS" -f "$KR" mykey)"
-# a HAND-WRITTEN keyless line has no id to vouch for it and is still a typo
-typo=$(printf '|http://typo\n' | "$AIS" -f "$KR" --import 2>&1)
-ok      "keyless: a hand-written empty key is still refused" "empty keys, skipped" "$typo"
+ok      "keyless: a hand-written first field is a KEY"  "mykey" "$("$AIS" -f "$KR" --keys)"
+KY=$(mktemp -d "${TMPDIR:-/tmp}/ais_keyless4.XXXXXX") || exit 2
+yr=$(printf '2023|italy|http://photo\n' | "$AIS" -f "$KY" --import 2>&1)
+ok      "keyless: a numeric first field survives as a key too" "2023" "$("$AIS" -f "$KY" --keys)"
+ok      "keyless: and the year recalls the record" "http://photo" "$("$AIS" -f "$KY" 2023)"
+rm -rf "$KY"
+# CONTRACT CHANGED with the KEY... -v VALUE grammar. The typo heuristic existed
+# because "|value" was ambiguous: an empty field before a bar could be a
+# deliberate keyless record or a slip. It is gone, because the new grammar states
+# intent outright -- a keyless record is "-v VALUE", and keys cannot be omitted by
+# accident. An old "|value" line is read best-effort as keyless, with a warning,
+# under the same rule as every other pre-v2 line: prefer visible noise to silent
+# loss. See doc/dev/FORMAT_V2.md.
+KT=$(mktemp -d "${TMPDIR:-/tmp}/ais_keyless3.XXXXXX") || exit 2
+typo=$(printf '|http://typo\n' | "$AIS" -f "$KT" --import 2>&1)
+ok      "keyless: an old '|value' line warns that the format changed" "pre-v2" "$typo"
+ok      "keyless: and is kept rather than dropped"  "http://typo" "$("$AIS" -f "$KT" --dump)"
+# the CURRENT spelling is unambiguous and needs no heuristic at all
+nk=$(printf -- '-v http://deliberate\n' | "$AIS" -f "$KT" --import 2>&1)
+ok      "keyless: '-v VALUE' states keyless outright"  "imported" "$nk"
+ok      "keyless: and stores it"  "http://deliberate" "$("$AIS" -f "$KT" --dump)"
+rm -rf "$KT"
 # A future verb must be REFUSED, not turned into a record. Checking one letter let
 # a two-character verb through, so "D2|<ts>|<hash>" landed as a record keyed "D2" --
 # the exact corruption the guard exists to stop, and the first thing a v2 verb

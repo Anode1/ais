@@ -116,24 +116,48 @@ the blob's contents.)
 
 
 ---- editable batch format (--dump / --import) -------------------------------
-`ais --dump` emits <record> lines. `ais --import` (feed.c:feed_import_from) reads
+`ais --dump` emits <kv_line>; `ais --import` (feed.c:feed_import_from) reads
 <import_line>, skipping blanks and "#" comments. An import line is EITHER a merge
-line (the prefixed export-wire forms `A|`/`D|`/`K|` that `--export` emits) OR the
-plain hand-editable form (a <record> with the leading "<id> |" dropped). The parser
-tries the merge forms FIRST and falls back to the plain form, so a merge line whose
-prefix is present but whose fields are malformed is re-read as plain. Round-trip:
-   ais --dump | sed 's/^[0-9]*|//' | ais --import
-Keys are "|"-free (key_encode), so import splits on the FIRST "|"; a value that
-itself contains "|" therefore round-trips dump -> import unchanged.
+line (the prefixed export-wire forms `A|`/`D|`/`K|`/`M|` that `--export` emits) OR
+<kv_line>, the CLI's own argument grammar. The parser tries the merge forms FIRST.
+
+<kv_line> IS the command line: `ais KEY... -v VALUE` typed at a shell and the same
+text in a file mean the same thing, which is the point -- hand-written and dumped
+lines are one shape, so nothing has to guess which it is reading.
+
+  cmd tools -v ps aux | grep x | wc -l
+  -v a record left keyless by --untag
+
+"-v" (or "--value") takes THE REST OF THE LINE, verbatim: no tokenising, no
+quoting, no escaping, because there is no shell here. A value may therefore
+contain "|", "#", quotes or backslashes unchanged, and the marker must come last.
+A key can never be mistaken for it: a key beginning "-" is refused on every path,
+that spelling being the detach operator (see --update).
+
+No <id> and no <ts>: both are device-local and are reassigned on import. Round-trip
+is now plain, with no sed:
+   ais --dump | ais --import
+
+PRE-v2 lines ("<keys>|<value>", or a v1 dump "<id>|<keys>|<value>") are still read,
+with a warning. A three-field line keeps its LEADING FIELD AS A KEY rather than
+discarding it as an id: an id and a numeric tag are indistinguishable, so the
+importer prefers visible noise to silent loss. A real id becomes a junk key; a real
+tag such as "2023" survives, and used to be destroyed. One case cannot be recovered
+-- an old two-field line whose <value> contains "|" reads as one key too many --
+and that ambiguity is precisely why the format changed. See FORMAT_V2.md.
+
 <import_input> ::= ( <import_line> "\n" )*
-<import_line>  ::= <comment_line> | "" | <merge_line> | <plain_line>
+<import_line>  ::= <comment_line> | "" | <merge_line> | <kv_line> | <legacy_line>
+<kv_line>      ::= ( <key> ( " " <key> )* " " )? <vmark> " " <value>
+<vmark>        ::= "-v" | "--value"
+<legacy_line>  ::= <keys> "|" <value> | <id> "|" <keys> "|" <value>   ? pre-v2 ?
 <merge_line>   ::= <add_line> | <del_line> | <detach_line>
 <add_line>     ::= "A|" ( <ts> )? "|" <keys> "|" <value>   ? add; empty <ts> = oldest ?
 <del_line>     ::= "D|" <ts> "|" <hash>                     ? record tombstone ?
 <detach_line>  ::= "K|" <ts> "|" <hash> "|" <key>           ? per-key detach (ktomb) ?
 <link_line>    ::= "M|" <ts> "|" <hash> "|" <value>         ? another link on the record whose FIRST value hashes to <hash> ?
 <blob_section> ::= "B|" <relpath> "|" <size> "\n" <size raw bytes>   ? a document body ?
-<plain_line>   ::= <keys> "|" <value>                        ? legacy dump / hand-edit ?
+
 <hash>         ::= [:xdigit:]+   ? FNV-1a 64-bit hex of the record's <value> (MERGE.md) ?
 <comment_line> ::= "#" <value_char>*
 

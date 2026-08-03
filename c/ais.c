@@ -1781,8 +1781,11 @@ static int dump_line(long id, const char *ts, const char *keys,
     int t = tomb_contains(D->a, id);
     char vis[AIS_LINE_MAX];
     const char *k = keys;
-    (void)ts;   /* dump is the content serialization; id and ts are reassigned
-                 * on re-import, so dump stays id|keys|value (see feed_import) */
+    (void)ts;   /* dump is the CONTENT serialization: the id is a device-local
+                 * ordinal and the ts is reassigned on re-import, so neither is
+                 * emitted. The line is the CLI's own grammar (see FORMAT_V2.md),
+                 * which is why a value may contain '|' and needs no escaping:
+                 * -v takes the rest of the line and nothing after it is parsed. */
     if (t < 0)
         return -1;
     if (t != 0)
@@ -1792,7 +1795,10 @@ static int dump_line(long id, const char *ts, const char *keys,
             return -1;
         k = vis;
     }
-    fprintf(D->out, "%ld|%s|%s\n", id, k, value);
+    if (k[0] != '\0')
+        fprintf(D->out, "%s -v %s\n", k, value);
+    else
+        fprintf(D->out, "-v %s\n", value);   /* keyless: --untag leaves these */
     return 0;
 }
 

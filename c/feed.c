@@ -72,22 +72,83 @@ static int feed_looks_dated(const char *p)
     return p[10] == 'T';
 }
 
-/* Returns 1 if an "id|" prefix was stripped -- i.e. the line came from --dump
- * and its keys field is AUTHORITATIVE (empty means the record really has no
- * keys), rather than being a hand-written feed line where an empty keys field
- * is a typo. */
-static int strip_dump_id(char *line)
+/* Split "KEY... -v VALUE" in place. Returns 1 and points *KEYS and *VAL into LINE
+ * on success, 0 if the line carries no -v/--value marker (an old |-separated
+ * line; see feed_old_line).
+ *
+ * This is the CLI's own grammar, which is the whole point: hand-written and
+ * dumped lines are the same shape, so nothing has to guess which it is looking
+ * at. -v takes the REST OF THE LINE verbatim -- no tokenising, no quoting, no
+ * escaping -- because there is no shell here. That is what lets a value contain
+ * '|', '#', quotes or backslashes with no format change, and it is why the
+ * marker must come last. A key can never be mistaken for the marker: a key
+ * beginning '-' is refused on every path (that spelling is the detach operator). */
+static int parse_kv_line(char *line, char **keys, char **val)
 {
-    char *b1 = strchr(line, '|'), *d;
+    char *p = line, *m = NULL;
+    size_t skip = 0;
 
-    if (b1 == NULL || b1 == line || strchr(b1 + 1, '|') == NULL)
-        return 0;                        /* need "<field1>|<...>|<...>" */
-    for (d = line; d < b1; d++)
-        if (*d < '0' || *d > '9')
-            return 0;                    /* field 1 is not a bare integer id */
-    memmove(line, b1 + 1, strlen(b1 + 1) + 1);   /* drop the "id|" prefix */
+    for (; *p != '\0'; p++) {
+        int at_start = (p == line) || p[-1] == ' ' || p[-1] == '\t';
+        if (!at_start)
+            continue;
+        if (strncmp(p, "-v ", 3) == 0)       { m = p; skip = 3; break; }
+        if (strncmp(p, "--value ", 8) == 0)  { m = p; skip = 8; break; }
+    }
+    if (m == NULL)
+        return 0;
+
+    *val = m + skip;                          /* verbatim, to end of line */
+    while (m > line && (m[-1] == ' ' || m[-1] == '\t'))
+        m--;
+    *m = '\0';                                /* keys end where the marker began */
+    *keys = line;
+    while (**keys == ' ' || **keys == '\t')
+        (*keys)++;
     return 1;
 }
+
+/* An OLD pre-v2 line: "keys|value", or a --dump line "id|keys|value". Rewrites
+ * LINE in place into the new shape and points *KEYS and *VAL at it.
+ *
+ * The leading field of a 3-field line becomes a KEY rather than being discarded
+ * as an id. That is deliberate: we cannot tell an id from a numeric tag, so we
+ * prefer visible noise to silent loss. A real id turns into a junk key nobody
+ * will search for; a real tag like "2024" survives, and used to be eaten.
+ *
+ * One case stays imperfect and cannot be fixed: an old two-field line whose VALUE
+ * contains '|' is indistinguishable from a three-field line, so it reads as one
+ * key too many. That ambiguity is exactly why the format changed. */
+static void feed_old_line(char *line, char **keys, char **val, int *noisy)
+{
+    char *b1 = strchr(line, '|'), *b2;
+    char *d;
+    int numeric = 1;
+
+    *noisy = 0;
+    if (b1 == NULL) {                         /* no separator at all */
+        *keys = line;
+        *val = line + strlen(line);
+        return;
+    }
+    b2 = strchr(b1 + 1, '|');
+    if (b2 != NULL) {
+        for (d = line; d < b1; d++)
+            if (*d < '0' || *d > '9') { numeric = 0; break; }
+        if (numeric && b1 > line) {
+            *b1 = ' ';                        /* the id joins the keys field */
+            *b2 = '\0';
+            *keys = line;
+            *val  = b2 + 1;
+            *noisy = 1;                       /* a junk key was kept on purpose */
+            return;
+        }
+    }
+    *b1 = '\0';                               /* plain "keys|value" */
+    *keys = line;
+    *val  = b1 + 1;
+}
+
 
 void feed_interactive(ais *a, const char *base)
 {
@@ -192,7 +253,7 @@ void feed_import_from(ais *a, FILE *in)
     ais_att_fact patt[AIS_ATT_BATCH];     /* T| facts likewise (ais_merge_attach_many) */
     int  natt = 0;
     long n = 0, skipped = 0;
-    int  from_dump;
+    int  warned_old = 0;      /* say "this is the old format" once, not per line */
     char cts[AIS_TS_MAX], chash[17];      /* one pending C| (a raised A|'s true time) */
 
     cts[0] = '\0';
@@ -215,7 +276,7 @@ void feed_import_from(ais *a, FILE *in)
      * contain '|' (key_encode maps it to '_'). Blank/#-comment lines are skipped, so the
      * plain form stays hand-editable; a malformed A|/D| line falls through to plain. */
     for (;;) {
-        char *bar, *keys, *val, *e;
+        char *keys, *val;
         int rl = store_read_line(line, sizeof(line), in);
 
         if (rl == 0)
@@ -421,34 +482,31 @@ void feed_import_from(ais *a, FILE *in)
             return;
         }
 
-        from_dump = strip_dump_id(line);       /* "id|keys|value" (a --dump line) -> "keys|value" */
-        bar = strchr(line, '|');
-        if (bar == NULL) {
-            fprintf(stderr, "import: no '|', skipped: %s\n", line);
-            skipped++;
-            continue;
+        /* The line is either the current grammar, "KEY... -v VALUE", or a
+         * pre-v2 '|'-separated line. The -v marker decides, and it cannot be
+         * faked by a key, since a key beginning '-' is refused everywhere. */
+        if (!parse_kv_line(line, &keys, &val)) {
+            int noisy = 0;
+            if (strchr(line, '|') == NULL) {
+                fprintf(stderr, "import: no -v, skipped: %s\n", line);
+                skipped++;
+                continue;
+            }
+            feed_old_line(line, &keys, &val, &noisy);
+            if (!warned_old) {
+                fprintf(stderr,
+                    "import: reading pre-v2 '|' lines. The current format is\n"
+                    "        KEY... -v VALUE  (see `ais --help`).\n");
+                warned_old = 1;
+            }
+            if (noisy)
+                fprintf(stderr, "import: kept leading field as a key (was it an id?): %s\n",
+                        keys);
         }
-        *bar = '\0';
-
-        keys = line;
-        while (*keys == ' ' || *keys == '\t')
-            keys++;                            /* trim around the separator so */
-        for (e = bar - 1; e >= keys && (*e == ' ' || *e == '\t'); e--)
-            *e = '\0';                         /* "keys | value" works too     */
-        val = bar + 1;
-        while (*val == ' ' || *val == '\t')
-            val++;
-
-        /* A record with no keys is legal in the store -- --untag can leave one, and
-         * the engine writes it. Dropping it here meant the documented backup
-         * pipeline (--dump | --import) silently LOST exactly those records. Only a
-         * hand-written line is still refused, where an empty keys field is a typo
-         * and there is no id to say otherwise. */
-        if (*keys == '\0' && !from_dump) {
-            fprintf(stderr, "import: empty keys, skipped: %s\n", val);
-            skipped++;
-            continue;
-        }
+        /* A record with no keys is legal -- --untag leaves them, and the engine
+         * writes them. Under this grammar there is nothing to disambiguate: "-v
+         * VALUE" says keyless outright, and keys cannot be omitted by accident
+         * the way a field before a '|' could be left empty. */
         if (ais_put(a, keys, val) < 0) {       /* shared with the sync merge: skip, don't abort */
             fprintf(stderr, "import: skipped (put failed): %s\n", val);
             skipped++;
@@ -716,7 +774,7 @@ void feed_import_interactive(ais *a)
     char line[AIS_LINE_MAX];
     char ans[16];
     long added = 0, seen = 0;
-    int from_dump;
+    int warned_old = 0;
 
 #ifdef _WIN32
     tty = fopen(ttypath != NULL ? ttypath : "CONIN$", "r");
@@ -726,9 +784,9 @@ void feed_import_interactive(ais *a)
     if (tty == NULL)
         die("import-interactively: no terminal for y/N (set AIS_TTY=FILE)");
 
-    /* Same "keys|value" parse as feed_import; the only addition is the prompt. */
+    /* Same parse as feed_import; the only addition is the prompt. */
     for (;;) {
-        char *bar, *keys, *val, *e;
+        char *keys, *val;
         int rl = store_read_line(line, sizeof(line), stdin);
 
         if (rl == 0)
@@ -742,31 +800,21 @@ void feed_import_interactive(ais *a)
         chomp(line);
         if (line[0] == '\0' || line[0] == '#')
             continue;
-        from_dump = strip_dump_id(line);       /* "id|keys|value" (a --dump line) -> "keys|value" */
-        bar = strchr(line, '|');
-        if (bar == NULL) {
-            fprintf(stderr, "import: no '|', skipped: %s\n", line);
-            continue;
+        if (!parse_kv_line(line, &keys, &val)) {
+            int noisy = 0;
+            if (strchr(line, '|') == NULL) {
+                fprintf(stderr, "import: no -v, skipped: %s\n", line);
+                continue;
+            }
+            feed_old_line(line, &keys, &val, &noisy);
+            if (!warned_old) {
+                fprintf(stderr, "import: reading pre-v2 '|' lines. The current "
+                                "format is KEY... -v VALUE.\n");
+                warned_old = 1;
+            }
         }
-        *bar = '\0';
-        keys = line;
-        while (*keys == ' ' || *keys == '\t')
-            keys++;
-        for (e = bar - 1; e >= keys && (*e == ' ' || *e == '\t'); e--)
-            *e = '\0';
-        val = bar + 1;
-        while (*val == ' ' || *val == '\t')
-            val++;
-        /* Same rule as feed_import: a record with no keys is legal in the store
-         * (--untag leaves them), so a --dump line whose keys field is empty is
-         * AUTHORITATIVE and must be offered. Only a hand-written line is refused,
-         * where an empty keys field is a typo. Ignoring strip_dump_id's answer
-         * here meant --import-interactively silently dropped exactly the records
-         * plain --import was fixed to keep. */
-        if (*keys == '\0' && !from_dump) {
-            fprintf(stderr, "import: empty keys, skipped: %s\n", val);
-            continue;
-        }
+        /* A keyless record is legal (--untag leaves them) and "-v VALUE" states
+         * it outright, so the old typo-versus-authoritative question is gone. */
         seen++;
 
         fprintf(stderr, "%s | %s\n  take into your index? [y/N] ", keys, val);

@@ -145,12 +145,11 @@ to beat.
 record's only key, and the store represents that as an empty keys field. Such a
 record is still live: it keeps its id and value and answers `--find`, `--timeline`
 and `--dump`; it is simply not filed under anything. Anything that reads a record
-line must carry it through -- `import` accepts an empty keys field on a `--dump`
-line (which has an id to vouch for it) precisely so that `--dump | --import` does
-not lose exactly those records. A hand-written `|value` line has no id and is
-still refused as a typo. (The planned format removes that asymmetry rather than
-carrying it: under `KEY... -v VALUE` a keyless record is simply `-v VALUE`, and
-there is no way to omit keys by accident, so no voucher is needed. See
+line must carry it through, and the dump grammar says so outright: a keyless
+record is `-v VALUE`. No voucher, no typo heuristic. Keys cannot be omitted by
+accident the way a field before a `|` could be left empty, because the marker
+states the intent. (This used to need an id on the line to tell a deliberate
+keyless record from a slip; the ambiguity went with the format. See
 [FORMAT_V2.md](FORMAT_V2.md).)
 
 **A VALUE NAMES ONE RECORD.** This is the engine's identity rule and every write
@@ -201,8 +200,8 @@ optionally `...Thh:mm[:ss]`, optionally `Z`); anything else -- including a *year
 used as a key* like `2026` -- stays the keys field. So a missing, empty, or
 malformed date never loses a record: the line reads as a dateless v1 record
 (id, keys, value intact) and the timeline surfaces it FIRST. Timestamps are NOT
-identity: `dump` stays `id|keys|value` and `import` re-stamps each line with the
-import time, exactly as it reassigns ids. The date is read only for the
+identity: `dump` emits `KEY... -v VALUE` and carries neither the id nor the ts,
+because `import` reassigns both. The date is read only for the
 timeline/tags views -- the recall path never parses it beyond the field-split.
 (Pre-v2 archives carry no `ts`; the filesystem mtime of `store`/`idx` files is
 the only date such records have, and it is reset by compaction or a copy that
