@@ -1221,6 +1221,61 @@ okempty "batch: every delete crossed into the peer" "$("$AIS" -f "$BB" doomed 2>
 ok      "batch: the live records are untouched" "keep-2" "$("$AIS" -f "$BB" alive 2>/dev/null)"
 rm -rf "$BA" "$BB"
 
+# --- invariants the coming redesigns would break silently ----------------------
+#     doc/dev/FORMAT_V2.md plans to drop ids from --dump, and notes that compaction
+#     could then renumber densely instead of gap-filling `off`. Each of those rests
+#     on an assumption that is true today and tested nowhere, so a future change
+#     would break it without a red test. Pin them here, with the reason.
+
+# INVARIANT 1: the wire carries NO ids. Cross-device identity is content_hash, and
+#     an id is meaningful only on the device that minted it. If an id ever appears
+#     in the export stream, two peers will disagree about which record is which.
+IV=$(mktemp -d "${TMPDIR:-/tmp}/ais_inv.XXXXXX") || exit 2
+"$AIS" -f "$IV" -v 'http://one' alpha >/dev/null
+"$AIS" -f "$IV" -v 'http://two' beta  >/dev/null
+"$AIS" -f "$IV" --add 1 -v 'http://one-b' >/dev/null 2>&1
+id2=$("$AIS" -f "$IV" beta | cut -d'|' -f1); "$AIS" -f "$IV" -y --del "$id2" >/dev/null 2>&1
+"$AIS" -f "$IV" --export > "$IV/stream" 2>/dev/null
+ok      "wire: A| lines carry keys and value, no id"  "^A|" "$(cat "$IV/stream")"
+# every verb that NAMES an existing record must name it by hash, never by number
+okeq    "wire: no verb line carries a numeric id field" "0" \
+        "$(grep -cE '^[A-Z]\|[0-9]+\|' "$IV/stream" || true)"
+ok      "wire: a delete travels as a hash"            "^D|" "$(cat "$IV/stream")"
+ok      "wire: an extra link travels as a hash"       "^M|" "$(cat "$IV/stream")"
+
+# INVARIANT 2: a value names ONE record, on EVERY write path. put dedups by value,
+#     tombstones are hash-stamped and the merge stream is hash-keyed, so two
+#     records sharing a value makes a peer collapse them and a later delete of
+#     either take both. add_link was the one path missing this guard.
+IW=$(mktemp -d "${TMPDIR:-/tmp}/ais_inv2.XXXXXX") || exit 2
+"$AIS" -f "$IW" -v 'the value' k1 >/dev/null
+"$AIS" -f "$IW" -v 'other'     k2 >/dev/null
+o2=$("$AIS" -f "$IW" k2 | cut -d'|' -f1)
+ok      "identity: --add refuses a value another record holds" "already holds" \
+        "$("$AIS" -f "$IW" --add "$o2" -v 'the value' 2>&1)"
+ok      "identity: --set refuses it too"                       "unchanged" \
+        "$("$AIS" -f "$IW" --set "$o2" -v 'other' -v 'the value' 2>&1)"
+okeq    "identity: so the value still names exactly one record" "1" \
+        "$("$AIS" -f "$IW" --dump | grep -c 'the value')"
+# put's own idempotency is the third path, and it unions keys rather than duplicating
+"$AIS" -f "$IW" -v 'the value' k3 >/dev/null
+okeq    "identity: re-putting a held value adds no record"      "1" \
+        "$("$AIS" -f "$IW" --dump | grep -c 'the value')"
+ok      "identity: and unions the new key onto it"             "the value" "$("$AIS" -f "$IW" k3)"
+
+# INVARIANT 3: the index is DISPOSABLE. The store is the source of truth and idx/
+#     is rebuildable from it. FORMAT_V2 notes compaction could renumber ids densely
+#     once nothing external holds one -- which is only safe while this holds.
+IX=$(mktemp -d "${TMPDIR:-/tmp}/ais_inv3.XXXXXX") || exit 2
+for w in one two three; do "$AIS" -f "$IX" -v "http://$w" tag "$w" >/dev/null; done
+rm -rf "$IX/idx" "$IX/off"
+"$AIS" -f "$IX" -y --compact >/dev/null 2>&1
+ok      "disposable: recall works after deleting idx/ and compacting" "http://two" \
+        "$("$AIS" -f "$IX" two)"
+okeq    "disposable: every record came back"          "3" "$("$AIS" -f "$IX" tag | grep -c .)"
+ok      "disposable: and the store never needed it"   "http://three" "$("$AIS" -f "$IX" --dump)"
+rm -rf "$IV" "$IW" "$IX"
+
 # --- three silent-drop paths in import, all found by an adversarial pass --------
 IS=$(mktemp -d "${TMPDIR:-/tmp}/ais_isd.XXXXXX") || exit 2
 # 1. a --dump line with an authoritative EMPTY keys field (--untag leaves these).
