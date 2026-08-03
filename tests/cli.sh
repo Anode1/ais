@@ -1221,6 +1221,34 @@ okempty "batch: every delete crossed into the peer" "$("$AIS" -f "$BB" doomed 2>
 ok      "batch: the live records are untouched" "keep-2" "$("$AIS" -f "$BB" alive 2>/dev/null)"
 rm -rf "$BA" "$BB"
 
+# --- three silent-drop paths in import, all found by an adversarial pass --------
+IS=$(mktemp -d "${TMPDIR:-/tmp}/ais_isd.XXXXXX") || exit 2
+# 1. a --dump line with an authoritative EMPTY keys field (--untag leaves these).
+#    feed_import was fixed for this; --import-interactively ignored the same
+#    answer from strip_dump_id and dropped exactly those records.
+printf '5||orphan\n6|k|kept\n' > "$IS/stream"
+printf 'y\ny\n' > "$IS/ans"
+isout=$(AIS_TTY="$IS/ans" "$AIS" -f "$IS" --import-interactively < "$IS/stream" 2>&1)
+ok      "silent-drop: interactive keeps an untagged dump record" "imported 2 of 2" "$isout"
+ok      "silent-drop: and the orphan is really there"            "orphan" "$("$AIS" -f "$IS" --dump)"
+# 2. a short uppercase key with a date-like value looked like a merge verb.
+#    "YYYY-" alone matched; a real merge line carries a full ISO stamp.
+IS2=$(mktemp -d "${TMPDIR:-/tmp}/ais_isd2.XXXXXX") || exit 2
+printf 'AI|2026-01-01 met Ann\nTV|2025-12-31 finale\n' | "$AIS" -f "$IS2" --import >/dev/null 2>&1
+ok      "silent-drop: a short key with a dated value survives"   "met Ann"  "$("$AIS" -f "$IS2" AI)"
+ok      "silent-drop: and the second one too"                    "finale"   "$("$AIS" -f "$IS2" TV)"
+# a genuine merge verb must STILL be refused, or the guard has been disarmed
+mv=$(printf 'ZZ|2026-01-01T00:00:00Z|deadbeef\n' | "$AIS" -f "$IS2" --import 2>&1)
+ok      "silent-drop: a real verb line is still refused"         "unknown"  "$mv"
+# 3. a key beginning '..' put its posting one directory ABOVE idx/
+IS3=$(mktemp -d "${TMPDIR:-/tmp}/ais_isd3.XXXXXX") || exit 2
+"$AIS" -f "$IS3" -v payload '../../victim/pwned' >/dev/null 2>&1
+okeq    "path-escape: nothing was written outside idx/"          "0" \
+        "$(ls "$IS3" | grep -c '\.\.' || true)"
+ok      "path-escape: and the record still recalls"              "payload" \
+        "$("$AIS" -f "$IS3" -- '../../victim/pwned' 2>/dev/null)"
+rm -rf "$IS" "$IS2" "$IS3"
+
 # --- an over-long import line must not fabricate a record from its tail --------
 #     fgets returns an over-long line as TWO: the head was refused as "too long"
 #     and the TAIL was then parsed as a normal record. Everything past offset

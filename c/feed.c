@@ -57,10 +57,19 @@ static void chomp(char *s)
 static int feed_looks_dated(const char *p)
 {
     int i;
+    /* "YYYY-" alone was too loose: a hand-written "AI|2026-01-01 met Ann" has a
+     * short uppercase field 1 and a date-like field 2, so it was refused as an
+     * unknown verb and the record was lost silently. A real merge line carries a
+     * full ISO-8601 stamp, "YYYY-MM-DDT..", so require the shape through the 'T'. */
     for (i = 0; i < 4; i++)
-        if (p[i] < '0' || p[i] > '9')
-            return 0;
-    return p[4] == '-';
+        if (p[i] < '0' || p[i] > '9') return 0;
+    if (p[4] != '-') return 0;
+    for (i = 5; i < 7; i++)
+        if (p[i] < '0' || p[i] > '9') return 0;
+    if (p[7] != '-') return 0;
+    for (i = 8; i < 10; i++)
+        if (p[i] < '0' || p[i] > '9') return 0;
+    return p[10] == 'T';
 }
 
 /* Returns 1 if an "id|" prefix was stripped -- i.e. the line came from --dump
@@ -707,6 +716,7 @@ void feed_import_interactive(ais *a)
     char line[AIS_LINE_MAX];
     char ans[16];
     long added = 0, seen = 0;
+    int from_dump;
 
 #ifdef _WIN32
     tty = fopen(ttypath != NULL ? ttypath : "CONIN$", "r");
@@ -732,7 +742,7 @@ void feed_import_interactive(ais *a)
         chomp(line);
         if (line[0] == '\0' || line[0] == '#')
             continue;
-        strip_dump_id(line);                   /* "id|keys|value" (a --dump line) -> "keys|value" */
+        from_dump = strip_dump_id(line);       /* "id|keys|value" (a --dump line) -> "keys|value" */
         bar = strchr(line, '|');
         if (bar == NULL) {
             fprintf(stderr, "import: no '|', skipped: %s\n", line);
@@ -747,7 +757,13 @@ void feed_import_interactive(ais *a)
         val = bar + 1;
         while (*val == ' ' || *val == '\t')
             val++;
-        if (*keys == '\0') {
+        /* Same rule as feed_import: a record with no keys is legal in the store
+         * (--untag leaves them), so a --dump line whose keys field is empty is
+         * AUTHORITATIVE and must be offered. Only a hand-written line is refused,
+         * where an empty keys field is a typo. Ignoring strip_dump_id's answer
+         * here meant --import-interactively silently dropped exactly the records
+         * plain --import was fixed to keep. */
+        if (*keys == '\0' && !from_dump) {
             fprintf(stderr, "import: empty keys, skipped: %s\n", val);
             continue;
         }
