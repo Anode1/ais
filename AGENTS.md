@@ -115,6 +115,27 @@ Two identity rules the whole engine rests on, both now pinned by tests:
   is `content_hash` over the value, and the export stream carries no id field at
   all. `tests/cli.sh` asserts that structurally, so adding one goes red.
 
+## A claim is not only prose
+
+**Makefile comments, header comments, source comments and the usage text the
+binary prints are CLAIMS, and they go stale exactly like a README.** When you
+change behaviour, they move with the code; when you audit, they are in scope.
+
+This is not a style note, it is the single highest-yield instruction we have
+measured. A defect where the Makefile promised to honour your `CFLAGS` and had
+stopped doing so was found by 3 of 3 agents told this sentence and 0 of 19 agents
+not told it (Fisher p = 0.0006). It also beat four-agent fleets that lacked the
+sentence, at a quarter of the cost, so it is worth more than any team arrangement
+tried alongside it. The full comparison is in `hsearch/probes/0010`.
+
+Two real examples from this repository, both live at the time:
+
+- `Makefile` said "Honors the standard variables (CC CFLAGS CPPFLAGS ...)" while
+  `CFLAGS =` had replaced `CFLAGS ?=`, so an exported value was silently dropped.
+- `man/ais.1` said `-k` forces "a key that begins with '-'" months after such a
+  key started being refused outright. `help.c` had been corrected; the man page
+  had not.
+
 ## The development loop (test-driven)
 
 Tests are the objective gate. Never trust output you have not verified.
