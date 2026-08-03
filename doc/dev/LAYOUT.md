@@ -148,7 +148,20 @@ and `--dump`; it is simply not filed under anything. Anything that reads a recor
 line must carry it through -- `import` accepts an empty keys field on a `--dump`
 line (which has an id to vouch for it) precisely so that `--dump | --import` does
 not lose exactly those records. A hand-written `|value` line has no id and is
-still refused as a typo.
+still refused as a typo. (The planned format removes that asymmetry rather than
+carrying it: under `KEY... -v VALUE` a keyless record is simply `-v VALUE`, and
+there is no way to omit keys by accident, so no voucher is needed. See
+[FORMAT_V2.md](FORMAT_V2.md).)
+
+**A VALUE NAMES ONE RECORD.** This is the engine's identity rule and every write
+path enforces it: `ais_put_at_k` resolves an existing record by `store_find_value`
+and reuses its id, `ais_merge_addval` resolves by `content_hash`, `ais_set_value`
+refuses a value another record holds, and `ais_add` does the same (returning -2 so
+the CLI can say why). It has to hold, because everything above it assumes it:
+tombstones are hash-stamped, the merge stream is hash-keyed, and two records
+sharing a value make a peer collapse them, after which a delete of either takes
+both. `ais_add` was the one path missing the guard until 2026-08; the invariant is
+pinned end to end in tests/cli.sh under "identity:".
 
 **An interrupted compaction is rolled back at the next open.** `compact_locked`
 stages the old posting tree in `idx.bak` and restores it on a graceful error, but

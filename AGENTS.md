@@ -11,6 +11,9 @@ working on it. Read it, then `doc/dev/STYLE.md` and `doc/dev/LAYOUT.md`.
   heap the core sanctions"); the record path allocates nothing.
 - **`doc/dev/LAYOUT.md`** -- on-disk format, module map, algorithms, CLI, build order.
 - **`doc/dev/LOCKING.md`** -- reader/writer lock model and `next_id` correctness.
+- **`doc/dev/FORMAT_V2.md`** -- the decided `--dump`/`--import` grammar
+  (`KEY... -v VALUE`), why ids leave that surface and stay everywhere else, and
+  the order of work. Read before touching feed.c's parsing or ais_dump.
 - **`c/ais.h`** -- the public API. The engine implements it; the tests test it.
 
 These four are the contract. Do not change behavior without changing them first.
@@ -98,7 +101,19 @@ If a check cannot run headless, say so rather than falling back to a real
 display. Recipes for all three are in `doc/dev/GUI_TESTING.md`.
 
 The text store is the source of truth; the index (`idx/`, `tomb`, `next_id`) is
-rebuildable from it and disposable.
+rebuildable from it and disposable. That is not a slogan: `tests/cli.sh` deletes
+`idx/` and `off` outright, compacts, and asserts every record still recalls.
+
+Two identity rules the whole engine rests on, both now pinned by tests:
+
+- **A value names ONE record.** Every write path enforces it -- `put` resolves an
+  existing record by value, `ais_merge_addval` by content hash, `ais_set_value`
+  and `ais_add` refuse a value another record holds. Two records sharing a value
+  make a peer collapse them, and a later delete of either takes both.
+- **An id never crosses a device boundary.** It is a local ordinal: the sort key
+  that makes posting lists mergeable and the recency order. Cross-device identity
+  is `content_hash` over the value, and the export stream carries no id field at
+  all. `tests/cli.sh` asserts that structurally, so adding one goes red.
 
 ## The development loop (test-driven)
 

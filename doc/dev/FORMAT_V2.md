@@ -142,26 +142,45 @@ id with no store line (a hand-edited or truncated index). Drop the id and the
 line is empty, the diagnostic disappears, and such a record can never be named on
 the command line, so `--del` cannot reach it.
 
-## Front ends: not in scope for this change
+## Front ends: deliberately unchanged
 
-`serve.c` and `embed.c` address records by id over their own wire, and three
-things block value-addressing there:
+`serve.c` and `embed.c` keep using ids as internal handles, and that is correct
+rather than a compromise. The API between the app and its own engine is **not a
+device boundary**: both sides share one store, the id is minted and consumed
+inside the same process, and it is never displayed. The rule being enforced is
+that an id must not cross a boundary where two indexes could disagree, and this
+is not one.
 
-- `/api/get` and the FFI emit one line **per link**, so the id is again the only
-  grouping key. This must become one row per record with a link count.
-- Paging is a keyset cursor on `after=`/`before=` id. A value has no order, so
-  neither it nor a hash substitutes. A server-issued opaque token works, but if
-  it merely wraps the id, ids have been base64'd rather than removed.
+Making them value-addressed anyway would cost three things and buy nothing:
+
+- `/api/get` and the FFI emit one line **per link**, so the id is the only
+  grouping key; removing it forces one row per record with a link count
+- paging is a keyset cursor on `after=`/`before=` id, and a value has no order,
+  so it would need a server-issued opaque token -- which, if it wraps the id, has
+  base64'd the problem rather than solved it
 - `show_value` rewrites a document's stored `blobs/....txt` into
-  `aisdoc:<base64>` on the way out, so a value-keyed delete from the web page
-  matches nothing in the store.
+  `aisdoc:<base64>` on the way out, so a value-keyed delete from the page would
+  match nothing in the store
 
-Hiding ids on the command line is a presentation change. Hiding them in the API
-is a redesign. Do the first; schedule the second separately or not at all.
+So the scope is exactly: **the index keeps ids, sync never had them, the UI never
+shows them, and `--dump` stops leaking them.**
+
+## The empty-keys asymmetry disappears
+
+Worth noting because it looked like a cost and is a gain. Today `import` accepts an
+empty keys field only on a line with an id "to vouch for it" (LAYOUT.md), because
+a hand-written `|value` is more likely a typo than a deliberate keyless record.
+
+Under `KEY... -v VALUE` there is nothing to vouch for. A keyless record is `-v
+VALUE`, and you cannot omit keys by accident the way you can leave a field empty
+before a `|`. The marker makes intent explicit, so the special case, the voucher
+and the typo heuristic all go away together.
 
 ## Order of work
 
-1. duplicate-value guard in `ais_add` -- prerequisite for everything else
+1. ~~duplicate-value guard in `ais_add`~~ -- DONE 2026-08-03, folded into the pass
+   add_link already made, hash filter with strcmp confirm, returns -2. Invariants
+   pinned in tests/cli.sh under "wire:", "identity:" and "disposable:".
 2. the new `KEY... -v VALUE` grammar for `--dump` and `--import`, sharing the
    CLI's parser, with old-format detection and a warning
 3. value-addressed `--del`, `--set`, `--update`; drop or respell `--add`
