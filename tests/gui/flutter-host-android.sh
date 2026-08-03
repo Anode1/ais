@@ -103,7 +103,11 @@ ok()   { pass=$((pass+1)); echo "  ok   $1"; }
 bad()  { fail=$((fail+1)); echo "  FAIL $1"; }
 
 # --- build and install the shipped artifact ----------------------------------
-abi=$("$ADB" shell getprop ro.product.cpu.abi | tr -d '\r')
+abi=$("$ADB" shell getprop ro.product.cpu.abi 2>/dev/null | tr -d '\r')
+# An empty ABI means the device went away, not that it is exotic. Say which:
+# running this straight after flutter-sync-android.sh does exactly that, because
+# that script tears down the AVD it booted.
+[ -n "$abi" ] || { echo "  SKIP device not reachable (adb returned nothing)"; exit 77; }
 case $abi in
     x86_64)      tp=android-x64 ;;
     arm64-v8a)   tp=android-arm64 ;;
