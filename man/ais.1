@@ -51,7 +51,7 @@ ais \- associative index: save values under keys, get them back by keys
 .B ais
 .RB [ \-f
 .IR DIR ]
-.BR \-\-del | \-\-del-under | \-\-untag | \-\-dump | \-\-keys | \-\-stats | \-\-timeline | \-\-tags | \-\-compact | \-\-export | \-\-import | \-\-import-interactively | \-\-sync | \-\-sync-folder | \-\-where | \-\-project | \-\-switch | \-\-indexes | \-\-forget | \-\-default | \-\-serve | \-\-init
+.BR \-\-del | \-\-set | \-\-del-under | \-\-untag | \-\-dump | \-\-keys | \-\-stats | \-\-timeline | \-\-tags | \-\-compact | \-\-export | \-\-import | \-\-import-interactively | \-\-sync | \-\-sync-folder | \-\-where | \-\-project | \-\-switch | \-\-indexes | \-\-forget | \-\-default | \-\-serve | \-\-init
 .RI [ ARG ]
 .SH DESCRIPTION
 .B ais
@@ -92,26 +92,29 @@ then the built-in default
 .IR ~/.ais ,
 created on first use.
 .TP
-.B \-o
+.BR \-o ", " \-\-or
 Get ANY key (union) instead of ALL (intersection).
 .TP
-.BI \-v " VALUE"
+.BR \-v ", " \-\-value " " \fIVALUE\fR
 A value to save (save mode). Repeatable: extra
 .B \-v
 values attach to the same record (multi-link).
 .B \-v \-
 reads values from standard input, one per line. Keys are optional.
 .TP
-.BI \-k " KEY"
-An explicit key, for a key that begins with
-.RB ' \- '.
+.BR \-k ", " \-\-key " " \fIKEY\fR
+An explicit key, for one that LOOKS like a flag (\fB\-v\fR, \fB\-o\fR). A key
+cannot BEGIN with
+.RB ' \- ':
+that spelling is the detach operator, see
+.BR \-\-update .
 .TP
 .BI \-p " KEY"
 Default project key prepended to this save ('' = none); the persistent default is
 set with
 .BR "ais \-\-project KEY" .
 .TP
-.B \-i
+.BR \-i ", " \-\-interactive
 Interactive save: standard-input lines are values, keys are prompted per line.
 .TP
 .BR \-e ", " \-\-encrypt

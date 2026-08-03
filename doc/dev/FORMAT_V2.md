@@ -189,13 +189,17 @@ and the typo heuristic all go away together.
    script depend on it; `feed_stdin` already prints nothing, so silence has
    precedent)
 
-## Related, and separate: documents are not content-addressed
+## Related, and separate: blob STORAGE could be content-addressed
 
-Found while auditing identity. `store.c:170` states the engine's principle -- "put
-dedups by value (the same value IS the same record)" -- and `--doc` exempts
-itself, because the value it stores is a timestamp-derived path
-(`blobs/2026-08-03-095035.txt`, doc.c:43-56) rather than anything about the
-content. Two byte-identical documents therefore become two records and two files:
+CORRECTION to an earlier reading of this file. `--doc` not deduping is not a gap:
+`SYNC.md:12` settles it deliberately -- "Blob (`--doc`): identified by OCCURRENCE,
+not content. Each doc is its own record." Filing the same file twice is meant to
+give you two records. That is the identity rule and it stays.
+
+What is separable is STORAGE. Identity by occurrence, storage by content: two
+records keep their own identity while pointing at one file when the bytes match.
+Today they cannot, because the value is a timestamp-derived path
+(`blobs/2026-08-03-095035.txt`, doc.c:43-56):
 
     1|report |blobs/2026-08-03-095035.txt
     2|summary|blobs/2026-08-03-095035-2.txt     <- identical bytes
@@ -203,7 +207,7 @@ content. Two byte-identical documents therefore become two records and two files
 The same document filed under two tags cannot become one record with two keys,
 which is what the value path does and what a user would expect.
 
-Naming blobs by content hash restores the invariant, and buys more than dedup:
+Naming blobs by content hash would let identical bytes share one file, and buys:
 
 - **sync could skip payloads the peer already holds.** The wire is
   `B|path|size` plus the bytes (feed.c:506-587). With a content-addressed name a
@@ -212,9 +216,12 @@ Naming blobs by content hash restores the invariant, and buys more than dedup:
 - deleting one of two identical documents stops orphaning the other's storage
 - an index moved between machines stops accumulating duplicate blobs
 
-Costs: blob filenames stop sorting chronologically in `ls blobs/`, which is a
-real convenience today; existing blobs keep their names, so the directory becomes
-mixed; and it is a store-format change, so it belongs with this one rather than
-before it.
+COST, and it is the one that matters: `--del` shreds the blob today
+(`secret_shred_blob`). If two records can share a file, deleting one must not
+destroy the other's storage, so this needs REFCOUNTING -- real complexity in a
+project whose argument is subtraction. Also: blob filenames stop sorting
+chronologically in `ls blobs/`, existing blobs keep their names so the directory
+becomes mixed, and it is a store-format change.
 
-Not scheduled. Recorded so the reasoning is not rediscovered.
+Not scheduled, and the refcount is the reason. Recorded so the reasoning is not
+rediscovered, and so nobody mistakes the occurrence rule for an oversight again.
