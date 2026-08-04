@@ -1,12 +1,12 @@
 # ais
 
-**File anything under keys you choose. Recall it by keys.**
+**File anything under your own keys, recall it by those keys.**
 
-A command-line program over an index in plain text on your own disk. Put a link, a file path, a note or an encrypted password under your own keys, then get it back by naming them: `ais venice italy` returns what you filed under both, the way your memory brings things back, by association. It keeps only a reference, so the photo stays in your photo library and the file stays where you put it; the index is a view, never a second copy.
+A command-line program over an index in plain text on your own disk. You file anything (a link, a file, a note, a password) under one or more keys, and recall it by those keys: `ais venice italy` gives back what you filed under both, the way your mind does, by association. It stores only a reference, so your documents stay where you keep them; the index is a view, and your data is never touched.
 
-The CLI is the contract. The web, Android and Win32 front ends are thin wrappers over it, and the engine depends on none of them: it is C with no database and no runtime to install.
+One engine, thin front-ends. The CLI is the contract; the web GUI (`ais --serve`), the Flutter mobile app and a native Win32 wrapper sit over it, and the engine depends on none of them. C, no database, no runtime to install.
 
-Plain text is the whole design, because it outlives its own tools: your index survives decades of archiving, still opens in fifty years, and exports into anything, no lock-in. Keeping data readable that long is computing's unsolved *digital dark age*, where file formats and the apps that open them die faster than the data. Plain text, readable since the 1960s on any machine with no special program, is the oldest and safest answer.
+Because it is plain text, it outlives its own tools: your index survives decades of archiving, still opens in fifty years, and exports into anything, no lock-in. Keeping data readable that long is computing's unsolved *digital dark age*, where file formats and the apps that open them die faster than the data. Plain text, readable since the 1960s on any machine with no special program, is the oldest and safest answer.
 
 <p align="center">
   <img src="screenshots/cli.png" width="78%" alt="Store links and an encrypted password, then recall by key">
@@ -55,7 +55,9 @@ make                 # build ./ais
 
 ## Why
 
-**Your memory, yours to keep.** The keys you assign are your own ordering of the world, and nothing else records it: a model trained on everyone gives you the average, while your prior (your own associations and ordering) is the systematic lens that average cancels out. ais keeps it unaveraged, as plain text you control, never taking your files hostage: it stores only a reference, so the index is a view and your data is never touched. See [`about.txt`](doc/about.txt) for the pitch and the memex origin, and [`foundation.md`](doc/foundation.md) for the prior/compression argument behind it.
+**Your memory, yours to keep. Models average everyone; keep what's only yours.**
+
+A model trained on everyone gives you the average; your prior (your own associations and ordering) is the systematic lens the average cancels out. ais keeps that unaveraged, as plain text you control, never taking your files hostage. See [`about.txt`](doc/about.txt) for the pitch and the memex origin, and [`foundation.md`](doc/foundation.md) for the prior/compression argument behind it.
 
 ## Questions
 
