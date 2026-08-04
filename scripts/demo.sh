@@ -67,6 +67,9 @@ clear
 say 'an index of your own keys, in plain text'
 type_run "ais --init"
 
+say 'one alias, and recall costs two characters'
+type_run "alias is=ais"
+
 say 'file a photo under the words you would actually think of later'
 type_run "ais -v ~/photos/IMG_3920.jpg italy venice 2023"
 
@@ -75,20 +78,18 @@ type_run "ls photos/*.jpg | ais -v - italy photos"
 
 say 'links, notes and the command you always forget'
 type_run "ais -v https://en.wikipedia.org/wiki/Memex memex reference"
-type_run "ais -v 'ssh deploy@10.0.0.7 -- systemctl restart api' deploy uat"
-type_run "ais deploy uat"
+type_run "ais -v 'ssh -N -L 8080:localhost:5432 deploy@10.0.0.7' tunnel uat"
+type_run "is tunnel uat"
 
 say 'the git incantation you look up every single time'
 type_run "ais -v 'git rev-list --left-right --count origin/main...HEAD' git ahead"
-say 'with alias is=ais, recall costs two characters'
-type_run "alias is=ais"
 type_run "is git"
 
 say 'recall: bare words are keys, no flags to remember'
-type_run "ais italy venice"
+type_run "is italy venice"
 
 say 'AND is the default; -o is OR'
-type_run "ais -o venice memex"
+type_run "is -o venice memex"
 
 say 'every key, busiest first'
 type_run "ais --tags"
@@ -100,9 +101,9 @@ type_run "ais --tags"
 # DEMO_SECRET=1 when you are recording and ready to type.
 if [ "${DEMO_SECRET:-0}" = 1 ]; then
     say 'a password lives next to what it belongs to, encrypted'
-    type_run "ais deploy uat login -e"
+    type_run "ais uat login -e"
     say 'piped or dumped it stays opaque: an agent reading the index sees this'
-    type_run "ais deploy login | cat"
+    type_run "is uat login | cat"
 fi
 
 say 'and it is all plain text on your disk, greppable and repairable'
