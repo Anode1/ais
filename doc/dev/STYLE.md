@@ -25,6 +25,12 @@ isolatable (the help text, the store, the posting lists, the merge), not arbitra
 and literal -- for files, types, and variables alike -- so a reader infers a file's responsibility
 from its name and a function's from its signature.
 
+Two functions do not meet this bar and are known debts, not precedents: `main()` in `main.c` (~630
+lines) and `handle()` in `serve.c` (~520). Both are flat option/route dispatchers where each arm is
+short and calls out immediately, which is why they have been tolerated, but each is long enough that
+a new arm is easy to misplace. Add work to them by adding an arm that delegates, never by growing one
+in place; splitting the dispatch out is welcome. No other function in the tree may reach this size.
+
 ## Memory: stack first, heap only when forced
 
 - Process records **one at a time**, with **automatic (stack) variables and fixed-size buffers**.
@@ -47,6 +53,16 @@ from its name and a function's from its signature.
      AEAD document (it cannot be authenticated incrementally), then wiped and freed on every path.
      Bounded by the export and capped on the receive side (64 MiB); the send side needs the same cap,
      and a streaming chunked AEAD is the planned follow-up that returns this to stack-and-stream.
+  5. *Encrypted document intake* (`feed.c`, `feed_encrypt_doc`): stdin is read into one buffer capped
+     at a compile-time `DOC_MAX` (4 MiB), because the AEAD seals the document as a whole, as in (3).
+     Bounded by the constant, never by the store; input past the cap is refused rather than grown into,
+     and the buffer is wiped and freed on every path, including each `die()`.
+  6. *Bundle upload* (`serve.c`, the `/api/import-bundle` handler): a POST body is buffered whole to be
+     merged as one bundle, capped at 64 MiB, the same cap the sync receive side uses. Bounded by the
+     upload, never by the store, and freed on every path. Front-end code, not the record path.
+
+  Both (5) and (6) hold one document for one operation and are refused past a fixed cap. Neither may be
+  imitated to hold *records*: the record path stays stack-and-stream and allocates nothing.
 
 Why this discipline pays, four ways:
 
@@ -78,6 +94,18 @@ Why this discipline pays, four ways:
   macro habit is retired.
 - **Bounded strings only** -- `snprintf` always; never `strcpy`/`strcat`/`sprintf`. A buffer's size is
   always known (the `AIS_*_MAX` limits).
+  The one sanctioned `strcpy` is the *checked copy into a fixed buffer*, where the guard sits on the
+  line above it and returns rather than truncating:
+
+      char kbuf[AIS_LINE_MAX];
+      if (strlen(key) >= sizeof kbuf)
+          return 0;                    /* skip an absurdly long key */
+      strcpy(kbuf, key);               /* ais_get tokenizes in place */
+
+  It exists because `ais_get` tokenizes its keys in place and so needs a mutable copy, and `snprintf`
+  would silently truncate where these callers must skip the input instead. Three sites use it
+  (`embed.c`: `ais_embed_get` and `keys_tag`; `serve.c`: `keysof_tag`). Anywhere the guard is not
+  immediately visible above the call, it is a defect. `strcat` and `sprintf` have no sanctioned use.
 - **Single exit via `goto cleanup`** when a function holds a resource (open file, etc.): the
   Linux-kernel idiom -- one place to close and return, no leak on any path.
 - **`static` for everything module-private**: a `.c` exposes only what its `.h` declares.
