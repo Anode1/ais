@@ -1,21 +1,23 @@
-# AIS: Associative Indexing Service
+# ais
 
-**Your memory, yours to keep.**\
-*Models average everyone. Keep what's only yours.*
+**File anything under keys you choose. Recall it by keys.**
 
-An extension of your associative memory: a memo that is always with you and always yours, that brings things back the way your mind does, by association. Underneath, an index: file anything under keys, recall it by keys, plain text on your own disk.
+A command-line program over an index in plain text on your own disk. Put a link, a file path, a note or an encrypted password under your own keys, then get it back by naming them: `ais venice italy` returns what you filed under both, the way your memory brings things back, by association. It keeps only a reference, so the photo stays in your photo library and the file stays where you put it; the index is a view, never a second copy.
 
-And because it is plain text, it outlives its own tools: your index survives decades of archiving, still opens in fifty years, and exports into anything, no lock-in. Keeping data readable that long is computing's unsolved *digital dark age*, where file formats and the apps that open them die faster than the data. Plain text, readable since the 1960s on any machine with no special program, is the oldest and safest answer.
+The CLI is the contract. The web, Android and Win32 front ends are thin wrappers over it, and the engine depends on none of them: it is C with no database and no runtime to install.
 
+Plain text is the whole design, because it outlives its own tools: your index survives decades of archiving, still opens in fifty years, and exports into anything, no lock-in. Keeping data readable that long is computing's unsolved *digital dark age*, where file formats and the apps that open them die faster than the data. Plain text, readable since the 1960s on any machine with no special program, is the oldest and safest answer.
+
+<p align="center">
+  <img src="screenshots/cli.png" width="78%" alt="Store links and an encrypted password, then recall by key">
+</p>
+<p align="center"><em>Store links and an encrypted password, then recall them by key. The same index on the phone:</em></p>
 <p align="center">
   <img src="screenshots/android-timeline.png" width="30%" alt="Everything you saved: links, file paths, and encrypted secrets">
   <img src="screenshots/android-search.png" width="30%" alt="Search returns clickable links">
   <img src="screenshots/android-tags.png" width="30%" alt="Browse everything by tag">
 </p>
-<p align="center"><em>The phone app: file links, file paths and notes, recall them by tag; passwords stay encrypted (&#128274;). The same index from the command line:</em></p>
-<p align="center">
-  <img src="screenshots/cli.png" width="78%" alt="Store links and an encrypted password, then recall by key">
-</p>
+<p align="center"><em>File links, file paths and notes, recall them by tag; passwords stay encrypted (&#128274;).</em></p>
 
 ## Download
 
@@ -53,7 +55,7 @@ make                 # build ./ais
 
 ## Why
 
-A model trained on everyone gives you the average; your prior (your own associations and ordering) is the systematic lens the average cancels out. AIS keeps that unaveraged, as plain text you control, never taking your files hostage: it stores only a reference, so the index is a view and your data is never touched. See [`about.txt`](doc/about.txt) for the pitch and the memex origin, and [`foundation.md`](doc/foundation.md) for the prior/compression argument behind it.
+**Your memory, yours to keep.** The keys you assign are your own ordering of the world, and nothing else records it: a model trained on everyone gives you the average, while your prior (your own associations and ordering) is the systematic lens that average cancels out. AIS keeps it unaveraged, as plain text you control, never taking your files hostage: it stores only a reference, so the index is a view and your data is never touched. See [`about.txt`](doc/about.txt) for the pitch and the memex origin, and [`foundation.md`](doc/foundation.md) for the prior/compression argument behind it.
 
 ## Questions
 
@@ -67,7 +69,7 @@ Because a bundled engine is a dependency you do not control. An early AIS versio
 On purpose. The keys you assign *are* the point: they are your prior, your ordering of the world. Full-text search finds words; keys find the meaning you committed to. (`ais --find` still searches values and paths.) To search a document's contents, keep it as a file and index its path.
 
 **Is the built-in web server not a toy?**
-It is deliberately minimal and not the main interface. The CLI is the contract; `ais --serve` is one thin wrapper over it, a single-user loop that binds 127.0.0.1 only. The native Win32 app and the Flutter mobile app are other wrappers; the engine depends on none of them. See [`OVERVIEW.md`](doc/OVERVIEW.md) for the full front-end map.
+It is deliberately minimal and not the main interface. `ais --serve` is one thin wrapper over the CLI, a single-user loop that binds 127.0.0.1 only. The native Win32 app and the Flutter mobile app are other wrappers; the engine depends on none of them. See [`OVERVIEW.md`](doc/OVERVIEW.md) for the full front-end map.
 
 **Is this not just a bookmark manager / recoll / org-mode?**
 It overlaps all three and copies none. Not a bookmark manager: it files *anything* under *any* keys, not URLs in a browser. Not full-text (recoll): it indexes the keys you choose, not document bodies. Not org-mode: no single tree, no app lock-in, no markup to learn, just keys with set algebra (AND / OR) over plain files. The distinctive part is that the index *is your bias*, kept unaveraged and portable.
