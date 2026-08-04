@@ -6,6 +6,8 @@ A command-line program over an index in plain text on your own disk. You save an
 
 One engine, thin front-ends. The CLI is the contract; the web GUI (`ais --serve`), the Flutter mobile app and a native Win32 wrapper sit over it, and the engine depends on none of them. C, no database, no runtime to install.
 
+It also saves tokens, which is not obvious and is worth stating plainly: this is not an AI product, but if you work with a coding agent, letting it recall from your index costs a fraction of letting it grep and read your tree again. Measured: four times fewer tokens at the median, 69x less content pulled into the context window, and every answer exact. [The numbers are below](#for-coding-agents-recall-instead-of-searching-again).
+
 Because it is plain text, it outlives its own tools: your index survives decades of archiving, still opens in fifty years, and exports into anything, no lock-in. Keeping data readable that long is computing's unsolved *digital dark age*, where file formats and the apps that open them die faster than the data. Plain text, readable since the 1960s on any machine with no special program, is the oldest and safest answer.
 
 <p align="center">
