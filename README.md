@@ -2,7 +2,7 @@
 
 **File anything under your own keys, recall it by those keys.**
 
-A command-line program over an index in plain text on your own disk. You file anything (a link, a file, a note, a password) under one or more keys, and recall it by those keys: `ais venice italy` gives back what you filed under both, the way your mind does, by association. It stores only a reference, so your documents stay where you keep them; the index is a view, and your data is never touched.
+A command-line program over an index in plain text on your own disk. You file anything (a link, a file, a note, a password) under one or more keys, and recall it by those keys: `ais venice italy` gives back what you filed under both, the way your mind does, by association. It stores only a reference, so your documents stay where you keep them; the index is a view, and your data is never touched. Not a search engine over everyone's web, and not a tagger that guesses: an index of your own things under your own words. Why that matters is [below](#why).
 
 One engine, thin front-ends. The CLI is the contract; the web GUI (`ais --serve`), the Flutter mobile app and a native Win32 wrapper sit over it, and the engine depends on none of them. C, no database, no runtime to install.
 
@@ -55,9 +55,15 @@ make                 # build ./ais
 
 ## Why
 
-**Your memory, yours to keep. Models average everyone; keep what's only yours.**
+**Your memory, yours to keep.**
 
-A model trained on everyone gives you the average; your prior (your own associations and ordering) is the systematic lens the average cancels out. ais keeps that unaveraged, as plain text you control, never taking your files hostage. See [`about.txt`](doc/about.txt) for the pitch and the memex origin, and [`foundation.md`](doc/foundation.md) for the prior/compression argument behind it.
+A search engine and an automatic tagger both answer with the *mean*: what these words mean to most people, what the model saw most often. That is the right answer when you are looking for something everyone knows, and the wrong one when you are looking for something only you filed.
+
+Your keys are the deviation from that mean. "venice" is a week in 2023 for one person, a glass factory for another, a chapter of a thesis for a third. Nothing but you records which one it is, and no amount of training data recovers it, because averaging is precisely what removes it.
+
+So ais does not guess and does not tag for you. It files what you give it under the words you chose, and hands it back when you say them again. That is the whole trade: you do the small work of naming a thing once, and in exchange the index is yours rather than an average of everyone's, in plain text you control, never taking your files hostage.
+
+See [`about.txt`](doc/about.txt) for the pitch and the memex origin, and [`foundation.md`](doc/foundation.md) for the prior/compression argument behind it.
 
 ## Questions
 
