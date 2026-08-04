@@ -52,13 +52,13 @@ both ends. In the folder's Ignore Patterns:
 For a quick copy or merge between two devices on the same Wi-Fi, AIS has this built in,
 end-to-end encrypted, with nothing to install:
 
-# 1. On device A (the source), serve the index to one peer:
-ais --export --serve
-#    It prints a one-time token and the exact command to run on the other device, e.g.:
-#        ais --import http://192.168.1.5:8766 --token ad61d80ed83fbfe381eeac93768aa676
+    # 1. On device A (the source), serve the index to one peer:
+    ais --export --serve
+    #    It prints a one-time token and the exact command to run on the other device, e.g.:
+    #        ais --import http://192.168.1.5:8766 --token ad61d80ed83fbfe381eeac93768aa676
 
-# 2. On device B (the destination), run that printed command:
-ais --import http://192.168.1.5:8766 --token ad61d80ed83fbfe381eeac93768aa676
+    # 2. On device B (the destination), run that printed command:
+    ais --import http://192.168.1.5:8766 --token ad61d80ed83fbfe381eeac93768aa676
 
 Device B pulls A's records and merges them: new values arrive, and deletions made on A
 propagate to B (last writer wins, by timestamp). The transfer is encrypted (XChaCha20-Poly1305)
@@ -74,12 +74,12 @@ The default port is 8766; pass one to `ais --export --serve PORT` to change it.
 To converge BOTH devices in a single connection (no running it twice), use
 `--sync` instead of `--export`/`--import`:
 
-# 1. On the host device:
-ais --sync --serve
-#    prints, e.g.:  ais --sync http://192.168.1.5:8766 --token <token>
+    # 1. On the host device:
+    ais --sync --serve
+    #    prints, e.g.:  ais --sync http://192.168.1.5:8766 --token <token>
 
-# 2. On the other device, run the printed command:
-ais --sync http://192.168.1.5:8766 --token <token>
+    # 2. On the other device, run the printed command:
+    ais --sync http://192.168.1.5:8766 --token <token>
 
 Both devices merge each other's records in one exchange, so neither is fixed as
 "sender" or "receiver" (the merge is order-independent, so any device can sync
@@ -110,29 +110,29 @@ different networks, or for continuous background syncing, use Syncthing below.
 
 ## Syncthing setup
 
-# 1. Install on both devices
-#    Linux computer:   apt install syncthing   (then run: syncthing)
-#    Windows / macOS:  https://syncthing.net  (SyncTrayzor is a nice Windows wrapper)
-#    Android phone:    "Syncthing-Fork" from F-Droid or Play (the maintained app)
+    # 1. Install on both devices
+    #    Linux computer:   apt install syncthing   (then run: syncthing)
+    #    Windows / macOS:  https://syncthing.net  (SyncTrayzor is a nice Windows wrapper)
+    #    Android phone:    "Syncthing-Fork" from F-Droid or Play (the maintained app)
 
-# 2. Pair the two devices (one time)
-#    Open each device's Syncthing web UI (computer: http://127.0.0.1:8384).
-#    Phone: Actions -> Show ID (a QR code). Computer: Add Remote Device, then scan or
-#    paste the ID. Accept the prompt on the other device. They can now see each other.
+    # 2. Pair the two devices (one time)
+    #    Open each device's Syncthing web UI (computer: http://127.0.0.1:8384).
+    #    Phone: Actions -> Show ID (a QR code). Computer: Add Remote Device, then scan or
+    #    paste the ID. Accept the prompt on the other device. They can now see each other.
 
-# 3. Share the index folder
-#    Computer: Add Folder, point it at your index (for example ~/.ais), give it a
-#    Folder ID like "ais-index", and on the Sharing tab tick the phone. On the phone,
-#    accept the offered folder and choose where it lands (the AIS app's index dir).
+    # 3. Share the index folder
+    #    Computer: Add Folder, point it at your index (for example ~/.ais), give it a
+    #    Folder ID like "ais-index", and on the Sharing tab tick the phone. On the phone,
+    #    accept the offered folder and choose where it lands (the AIS app's index dir).
 
-# 4. Never sync the per-device files
-#    In that folder's settings, under Ignore Patterns, add these three lines
-#    (the same three listed above: each one means something only on the device
-#    that wrote it, and syncfolder would send a second device chasing the
-#    first one's path):
-lock
-foldsync
-syncfolder
+    # 4. Never sync the per-device files
+    #    In that folder's settings, under Ignore Patterns, add these three lines
+    #    (the same three listed above: each one means something only on the device
+    #    that wrote it, and syncfolder would send a second device chasing the
+    #    first one's path):
+    lock
+    foldsync
+    syncfolder
 
 Done. An edit on one device now appears on the other within seconds on the same network.
 
@@ -144,8 +144,8 @@ can be a Syncthing folder, a mounted drive, a USB stick, or a cloud drive. Nothi
 has to be reachable at the same moment, and devices never overwrite each other's
 files.
 
-# on each device, whenever you like (a timer, a login script, or by hand)
-ais --sync-folder /path/to/shared/folder
+    # on each device, whenever you like (a timer, a login script, or by hand)
+    ais --sync-folder /path/to/shared/folder
 
 The folder has to exist first. AIS will not create it, and that is deliberate: a
 typo, or a drive that is not plugged in, would otherwise become a brand-new empty
