@@ -26,9 +26,9 @@ and literal -- for files, types, and variables alike -- so a reader infers a fil
 from its name and a function's from its signature.
 
 Two functions do not meet this bar and are known debts, not precedents: `main()` in `main.c` (~630
-lines) and `handle()` in `serve.c` (~520). Both are flat option/route dispatchers where each arm is
+lines) and `handle()` in `serve.c` (~520). Both are flat option/route dispatchers where each case is
 short and calls out immediately, which is why they have been tolerated, but each is long enough that
-a new arm is easy to misplace. Add work to them by adding an arm that delegates, never by growing one
+a new case is easy to misplace. Add work to them by adding a case that delegates, never by growing one
 in place; splitting the dispatch out is welcome. No other function in the tree may reach this size.
 
 ## Memory: stack first, heap only when forced
