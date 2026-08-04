@@ -1,23 +1,23 @@
 # ais
 
-**File anything under your own keys, recall it by those keys.**
+**Save anything under your own keys, recall it by those keys.**
 
-A command-line program over an index in plain text on your own disk. You file anything (a link, a file, a note, a password) under one or more keys, and recall it by those keys: `ais venice italy` gives back what you filed under both, the way your mind does, by association. It stores only a reference, so your documents stay where you keep them; the index is a view, and your data is never touched. Not a search engine over everyone's web, and not a tagger that guesses: an index of your own things under your own words. Why that matters is [below](#why).
+A command-line program over an index in plain text on your own disk. You save anything (a link, a file, a note, a password) under one or more keys, and recall it by those keys: `ais venice italy` gives back what you saved under both, the way your mind does, by association. It stores only a reference, so your documents stay where you keep them; the index is a view, and your data is never touched. Not a search engine over everyone's web, and not a tagger that guesses: an index of your own things under your own words. Why that matters is [below](#why).
 
 One engine, thin front-ends. The CLI is the contract; the web GUI (`ais --serve`), the Flutter mobile app and a native Win32 wrapper sit over it, and the engine depends on none of them. C, no database, no runtime to install.
 
 Because it is plain text, it outlives its own tools: your index survives decades of archiving, still opens in fifty years, and exports into anything, no lock-in. Keeping data readable that long is computing's unsolved *digital dark age*, where file formats and the apps that open them die faster than the data. Plain text, readable since the 1960s on any machine with no special program, is the oldest and safest answer.
 
 <p align="center">
-  <img src="screenshots/demo.gif" width="78%" alt="File a photo, two ssh tunnels and a link under your own keys, then recall them by key">
+  <img src="screenshots/demo.gif" width="78%" alt="Save a photo, two ssh tunnels and a link under your own keys, then recall them by key">
 </p>
-<p align="center"><em>File a path, the ssh tunnel you always look up, a link: each under the words you would think of later. Then ask by those words. The same index on the phone:</em></p>
+<p align="center"><em>Save a path, the ssh tunnel you always look up, a link: each under the words you would think of later. Then ask by those words. The same index on the phone:</em></p>
 <p align="center">
   <img src="screenshots/android-timeline.png" width="30%" alt="Everything you saved: links, file paths, and encrypted secrets">
   <img src="screenshots/android-search.png" width="30%" alt="Search returns clickable links">
   <img src="screenshots/android-tags.png" width="30%" alt="Browse everything by tag">
 </p>
-<p align="center"><em>File links, file paths and notes, recall them by tag; passwords stay encrypted (&#128274;).</em></p>
+<p align="center"><em>Save links, file paths and notes, recall them by tag; passwords stay encrypted (&#128274;).</em></p>
 
 ## Download
 
@@ -57,11 +57,11 @@ make                 # build ./ais
 
 **Your memory, yours to keep.**
 
-A search engine and an automatic tagger both answer with the *mean*: what these words mean to most people, what the model saw most often. That is the right answer when you are looking for something everyone knows, and the wrong one when you are looking for something only you filed.
+A search engine and an automatic tagger both answer with the *mean*: what these words mean to most people, what the model saw most often. That is the right answer when you are looking for something everyone knows, and the wrong one when you are looking for something only you saved.
 
 Your keys are the deviation from that mean. "venice" is a week in 2023 for one person, a glass factory for another, a chapter of a thesis for a third. Nothing but you records which one it is, and no amount of training data recovers it, because averaging is precisely what removes it.
 
-So ais does not guess and does not tag for you. It files what you give it under the words you chose, and hands it back when you say them again. That is the whole trade: you do the small work of naming a thing once, and in exchange the index is yours rather than an average of everyone's, in plain text you control, never taking your files hostage.
+So ais does not guess and does not tag for you. It saves what you give it under the words you chose, and hands it back when you say them again. That is the whole trade: you do the small work of naming a thing once, and in exchange the index is yours rather than an average of everyone's, in plain text you control, never taking your files hostage.
 
 See [`about.txt`](doc/about.txt) for the pitch and the memex origin, and [`foundation.md`](doc/foundation.md) for the prior/compression argument behind it.
 
@@ -80,10 +80,10 @@ On purpose. The keys you assign *are* the point: they are your prior, your order
 It is deliberately minimal and not the main interface. `ais --serve` is one thin wrapper over the CLI, a single-user loop that binds 127.0.0.1 only. The native Win32 app and the Flutter mobile app are other wrappers; the engine depends on none of them. See [`OVERVIEW.md`](doc/OVERVIEW.md) for the full front-end map.
 
 **Is this not just a bookmark manager / recoll / org-mode?**
-It overlaps all three and copies none. Not a bookmark manager: it files *anything* under *any* keys, not URLs in a browser. Not full-text (recoll): it indexes the keys you choose, not document bodies. Not org-mode: no single tree, no app lock-in, no markup to learn, just keys with set algebra (AND / OR) over plain files. The distinctive part is that the index *is your bias*, kept unaveraged and portable.
+It overlaps all three and copies none. Not a bookmark manager: it saves *anything* under *any* keys, not URLs in a browser. Not full-text (recoll): it indexes the keys you choose, not document bodies. Not org-mode: no single tree, no app lock-in, no markup to learn, just keys with set algebra (AND / OR) over plain files. The distinctive part is that the index *is your bias*, kept unaveraged and portable.
 
 **Does it replace my photo library or files?**
-No, it points *into* them. For files, photos and pages ais is an index of pointers, not a store of copies: a photo stays in Immich, a file on disk, a page at its URL. You file the *reference* under your own keys and recall it by association; the silo keeps the bytes. It does not compete with Immich or the filesystem, it sits across them as the one associative layer that remembers where a thing is and why it mattered. An index of pointers, not another silo to fill. (Secrets are the one exception: those it stores inline, encrypted, see below.)
+No, it points *into* them. For files, photos and pages ais is an index of pointers, not a store of copies: a photo stays in Immich, a file on disk, a page at its URL. You save the *reference* under your own keys and recall it by association; the silo keeps the bytes. It does not compete with Immich or the filesystem, it sits across them as the one associative layer that remembers where a thing is and why it mattered. An index of pointers, not another silo to fill. (Secrets are the one exception: those it stores inline, encrypted, see below.)
 
 **Can it hold passwords? Is it a password manager?**
 Yes. A secret is stored encrypted inline (`-e`), so a login lives right next to the context it belongs to, and two things set it apart from a built-in manager. It is **cross-platform**: Apple Keychain and Google Password Manager are locked to one ecosystem, while ais is the same plain-text index on Windows, macOS, Linux, Android and the CLI, so your secrets travel with you. And it is **agent-safe**: decryption is interactive (a passphrase you supply at a terminal or in the app), so an agent reading your index sees an opaque `aisc:` marker, not the secret, with no master key or unlocked vault to drain. What it is *not* is a bulk web-login manager: no autofill, no generation, no shared vaults, so for hundreds of site logins a dedicated cross-platform manager is still more convenient. See [`about.txt`](doc/about.txt).
