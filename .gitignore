@@ -77,3 +77,6 @@ app/flutter/android/key.properties
 
 # stray dev log
 err.log
+
+# asciinema recordings: scripts/demo.sh regenerates them, only the GIF is kept
+*.cast
