@@ -25,6 +25,7 @@ Sync (multi-device):
 Distribution and front-ends:
 
 - **DISTRIBUTION.md**: one download per platform, packaging, the GUI inventory, and the planned phone PWA.
+- **PACKAGING.md**: for distro maintainers -- build, test, staged install, licences, and the `AIS_VERSION` override a tarball needs. Reference PKGBUILD in `packaging/aur/`.
 - **SIGNING.md**: Windows (SignPath) and Android (keystore) release signing.
 - **GUI.md**: shared label/layout conventions across the web, Flutter, and Win32 front-ends.
 - **HTTP_API.md**: the `--serve` endpoints both web front-ends drive.

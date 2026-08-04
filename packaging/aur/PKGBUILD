@@ -1,0 +1,46 @@
+# Maintainer: Vasili Gavrilov <gavr144@gmail.com>
+#
+# Reference PKGBUILD, kept in the repo so it moves with the build system. The
+# copy that Arch users install lives in the AUR repository; when this file
+# changes, push the same change there. See doc/dev/PACKAGING.md.
+#
+#   updpkgsums && makepkg -si          # fills sha256sums, builds, installs
+#   makepkg --printsrcinfo > .SRCINFO  # required by the AUR before pushing
+
+pkgname=ais
+pkgver=0.3.17
+pkgrel=1
+pkgdesc='Associative index: file anything under your own keys and recall it by keys, in plain text'
+arch=('x86_64' 'aarch64')
+url='https://github.com/Anode1/ais'
+license=('GPL-2.0-or-later' 'Apache-2.0')
+depends=('glibc')
+source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
+sha256sums=('SKIP')
+
+# The version is normally derived from `git describe`, which is not available in
+# a release tarball; without the override the binary would report 0.0.0-dev. It
+# is passed to every make invocation for that reason.
+
+build() {
+    cd "$pkgname-$pkgver"
+    make AIS_VERSION="$pkgver"
+}
+
+check() {
+    cd "$pkgname-$pkgver"
+    make AIS_VERSION="$pkgver" codeut      # engine tests, in-process
+    make AIS_VERSION="$pkgver" cliut       # the binary through a shell
+}
+
+package() {
+    cd "$pkgname-$pkgver"
+    make AIS_VERSION="$pkgver" prefix=/usr DESTDIR="$pkgdir" install
+    make AIS_VERSION="$pkgver" prefix=/usr DESTDIR="$pkgdir" install-desktop
+
+    install -Dm644 COPYING              "$pkgdir/usr/share/licenses/$pkgname/COPYING"
+    install -Dm644 README.md            "$pkgdir/usr/share/doc/$pkgname/README.md"
+    install -Dm644 doc/USING.txt        "$pkgdir/usr/share/doc/$pkgname/USING.txt"
+    install -Dm644 doc/command_line.txt "$pkgdir/usr/share/doc/$pkgname/command_line.txt"
+    install -Dm644 doc/SYNC.md          "$pkgdir/usr/share/doc/$pkgname/SYNC.md"
+}
