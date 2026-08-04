@@ -71,18 +71,18 @@ say 'one alias, and recall costs two characters'
 type_run "alias is=ais"
 
 say 'file a photo under the words you would actually think of later'
-type_run "ais -v ~/photos/IMG_3920.jpg italy venice 2023"
+type_run "is -v ~/photos/IMG_3920.jpg italy venice 2023"
 
 say 'or pipe a filtered list in, tagging them all at once'
-type_run "ls photos/*.jpg | ais -v - italy photos"
+type_run "ls photos/*.jpg | is -v - italy photos"
 
 say 'links, notes and the command you always forget'
-type_run "ais -v https://en.wikipedia.org/wiki/Memex memex reference"
-type_run "ais -v 'ssh -N -L 8080:localhost:5432 deploy@10.0.0.7' tunnel uat"
+type_run "is -v https://en.wikipedia.org/wiki/Memex memex reference"
+type_run "is -v 'ssh -N -L 8080:localhost:5432 deploy@10.0.0.7' tunnel uat"
 type_run "is tunnel uat"
 
 say 'the git incantation you look up every single time'
-type_run "ais -v 'git rev-list --left-right --count origin/main...HEAD' git ahead"
+type_run "is -v 'git rev-list --left-right --count origin/main...HEAD' git ahead"
 type_run "is git"
 
 say 'recall: bare words are keys, no flags to remember'
@@ -92,7 +92,7 @@ say 'AND is the default; -o is OR'
 type_run "is -o venice memex"
 
 say 'every key, busiest first'
-type_run "ais --tags"
+type_run "is --tags"
 
 # The one interactive step, OFF by default so a plain run never blocks: ais
 # prompts for the secret and a passphrase, both with echo off, reading /dev/tty.
@@ -101,7 +101,7 @@ type_run "ais --tags"
 # DEMO_SECRET=1 when you are recording and ready to type.
 if [ "${DEMO_SECRET:-0}" = 1 ]; then
     say 'a password lives next to what it belongs to, encrypted'
-    type_run "ais uat login -e"
+    type_run "is uat login -e"
     say 'piped or dumped it stays opaque: an agent reading the index sees this'
     type_run "is uat login | cat"
 fi
