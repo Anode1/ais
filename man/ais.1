@@ -84,7 +84,10 @@ record's tags go with it, and what returns is what you have just described.
 Index directory, and the only way to point AIS at one explicitly (no env var).
 With no flag, the index is located by precedence: the nearest
 .I .ais/
-at or above the current directory (like git), then the saved default in
+at or above the current directory (like git), then the current named index
+(set with
+.BR "ais \-\-switch NAME" ),
+then the legacy single default in
 .IR ~/.ais/config
 (set with
 .BR "ais \-\-default PATH" ),
@@ -146,14 +149,14 @@ best-effort shreds the blob. Requires the crypto module
 (see
 .IR crypto/vendor-monocypher.sh ).
 .TP
-.B \-y
+.BR \-y ", " \-\-yes
 Assume yes for
 .BR \-\-del / \-\-del-under / \-\-untag / \-\-compact
 (no prompt). With
 .B \-\-sync-folder
 it also accepts a remembered folder that now holds no device bundles (see there).
 .TP
-.B \-d
+.BR \-d ", " \-\-debug
 Debug tracing to standard error.
 .TP
 .BI \-\-token " TOKEN"

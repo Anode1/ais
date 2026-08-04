@@ -1371,5 +1371,70 @@ ok      "import-i: bare Enter skips (the [y/N] default)" "imported 0 of 3" "$ii2
 okempty "import-i: and nothing was stored"         "$("$AIS" -f "$II2" k1 2>/dev/null)"
 rm -rf "$II" "$II2"
 
+# --- the help is documentation, so hold it to the code as ground truth -------
+#     -d/--debug was in the optstring and in the SHORT help, but the long help's
+#     OPTIONS list never mentioned it: a flag discoverable only by reading
+#     main.c. Derive the check from the optstring, not from a hand-written list,
+#     so a flag added later cannot go silently undocumented.
+LH=$("$AIS" --help 2>&1)
+opts=$(sed -n 's/.*getopt_long(argc, argv, "\([^"]*\)".*/\1/p' \
+       "$(dirname "$0")/../c/main.c" 2>/dev/null | head -1)
+if [ -z "$opts" ]; then
+    fail=$((fail + 1)); echo "  FAIL help: could not read the optstring from c/main.c"
+else
+    #     A plain grep for "-d" is useless here: it also matches --del, --dump,
+    #     --doc and --default, so the check would pass with -d undocumented.
+    #     Require a SHORT flag: not preceded by another '-', and ending the word.
+    miss=""
+    for f in $(printf '%s' "$opts" | tr -d ':' | sed 's/./& /g'); do
+        printf '%s' "$LH" | grep -qE "(^|[^-])-$f([,[:space:]]|$)" || miss="$miss -$f"
+    done
+    okeq "help: every short flag in the optstring appears in --help" "" "$miss"
+fi
+
+#     Same for the LONG options, read from the getopt_long table. --del-key is
+#     the one deliberate omission: a permanent alias that still works and still
+#     prints "now --del-under", but is not advertised as a spelling to learn.
+MANP="$(dirname "$0")/../man/ais.1"
+longs=$(sed -n '/static const struct option longopts/,/{ NULL, 0, NULL, 0 }/p' \
+        "$(dirname "$0")/../c/main.c" 2>/dev/null | sed -n 's/.*{ "\([^"]*\)".*/\1/p')
+if [ -z "$longs" ]; then
+    fail=$((fail + 1)); echo "  FAIL help: could not read the longopts table from c/main.c"
+else
+    missh=""; missm=""
+    for o in $longs; do
+        [ "$o" = "del-key" ] && continue
+        printf '%s' "$LH" | grep -q -- "--$o" || missh="$missh --$o"
+        [ -f "$MANP" ] && { grep -q -- "\\\\-\\\\-$o" "$MANP" || missm="$missm --$o"; }
+    done
+    okeq "help: every long option in the table appears in --help" "" "$missh"
+    okeq "man: every long option in the table appears in ais.1"   "" "$missm"
+fi
+
+# The GET row is the only one with no --word to signal a query, so a bare noun
+# there garden-paths as a verb ("ais records under...") and inverts the sense.
+ok      "help: the GET row leads with a verb"      "get records under ALL keys" "$LH"
+# One verb per direction: the short usage says "save VALUE", so the long help
+# must not spell the same operation "file VALUE".
+okeq    "help: save is spelled the same in both helps" "0" \
+        "$(printf '%s' "$LH" | grep -c 'file VALUE\|file each stdin')"
+# locate.c resolves FOUR levels. The help listed three and named only the
+# deprecated mechanism, leaving named indexes undocumented where it matters.
+ok      "help: index location lists named indexes"  "ais --switch NAME" "$LH"
+ok      "help: and marks the old default legacy"    "legacy single default" "$LH"
+# --del/--set/--add/--update all take an ID and none said where one comes from;
+# the answer hung off --update only. It belongs where it covers all four.
+ok      "help: says where an ID comes from"         "id|value" "$LH"
+# and that claim must stay true: get is what prints the handle
+GH=$(mktemp -d "${TMPDIR:-/tmp}/ais_gh.XXXXXX") || exit 2
+"$AIS" -f "$GH" -v http://handle hk >/dev/null 2>&1
+ok      "get: still prints the id|value handle"     "^[0-9][0-9]*|http://handle" \
+        "$("$AIS" -f "$GH" hk 2>/dev/null)"
+ok      "--find: prints it too"                     "^[0-9][0-9]*|http://handle" \
+        "$("$AIS" -f "$GH" --find handle 2>/dev/null)"
+okeq    "--dump: and still carries no id"           "0" \
+        "$("$AIS" -f "$GH" --dump 2>/dev/null | grep -c '^[0-9][0-9]*|')"
+rm -rf "$GH"
+
 echo "---- $pass passed, $fail failed"
 [ "$fail" -eq 0 ]

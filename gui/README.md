@@ -31,8 +31,8 @@ The double-click launchers `cd` to their **own folder** before running
 git-style walk, with no `-f`. To **seed** it, drop a `.ais/` beside the launcher
 (for example, copy one from another project) and the GUI opens that one;
 otherwise it opens your saved default, or `~/.ais`. To switch indexes for good,
-use the GUI's "Store…" chooser (it persists via `ais --default`) or run
-`ais --default PATH` once.
+use the GUI's "Store…" chooser (it writes the legacy `index = PATH` default) or
+run `ais --switch -c NAME DIR` once, which takes precedence over that line.
 
 `ais --serve` run by hand follows the same resolution: your saved default
 (or `~/.ais`), unless you cd into a `.ais/` tree or pass `-f`.
