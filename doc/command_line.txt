@@ -1,0 +1,120 @@
+ais command line
+================
+
+The full output of `ais --help`. Checked in so the command surface is
+readable without building or installing.
+
+GENERATED -- do not edit by hand. Regenerate with `make helpdoc`;
+tests/cli.sh fails if this file drifts from the binary.
+
+ais: associative index. Save things under keys, get them back by keys.
+
+The rule: a bare word is always a KEY (get is the default). A value to
+save is marked with -v. A command is a --word. So no tag is ever shadowed:
+'ais doc' gets the tag "doc"; 'ais --doc' is the command.
+
+GET (default)
+  ais [-o] KEY...                get records under ALL keys (-o = ANY)
+
+SAVE (-v marks the value; bare args and -k are keys; keys are optional)
+  ais -v VALUE KEY...            save VALUE under one or more keys (again on a value
+                                 already saved ADDS the keys; on one that was deleted
+                                 the record returns with only the keys given)
+  ais -v A -v B KEY...           two values -> one multi-link record
+  ais -v VALUE                   keyless (or under the default project); find/tag later
+  ais -v - KEY...                save each stdin line (a value) under these keys
+  ais -i KEY...                  interactive: stdin lines are values, prompts for keys
+  ais -k KEY ...                 force a key that LOOKS like a flag (-v, -o);
+                                 a key cannot BEGIN with '-': that is the detach
+                                 operator (see --update)
+  ais KEY... -e                  store ENCRYPTED: prompts for the value (echo off) and a
+                                 passphrase; never put the secret on -v (ps/history) --
+                                 omit it to be prompted, or use -v - to read stdin.
+                                 On recall at a terminal ais asks to decrypt; piped or
+                                 redirected it stays the opaque 'aisc:' value.
+
+COMMANDS (--word; operands are bare args, values via -v; an ID is the number
+          in the 'id|value' that get and --find print)
+  ais --find TEXT                records whose value contains TEXT
+  ais --doc KEY... < FILE        save a multi-line document as a blob file
+  ais --doc KEY... -e < FILE     same, ENCRYPTED to an aisc: blob (--del shreds it)
+  ais --add ID -v VALUE          attach another link to record ID
+  ais --set ID -v OLD -v NEW     replace ONE of record ID's values, in place
+                                 (keeps the id, timeline position and keys)
+  ais --update ID KEY...         edit record ID's keys: KEY attaches, -KEY detaches
+                                 (-KEY needs a preceding --)
+  ais --del ID                   delete record ID
+  ais --untag KEY                remove the tag KEY, KEEPING every record
+  ais --del-under KEY            DELETE every record filed under KEY (not just the tag)
+  ais --dump | --keys | --stats  print records / list keys / counts
+                                 --dump emits 'KEY... -v VALUE', which is this
+                                 same grammar: dump | import round-trips, and a
+                                 dumped line can be pasted back as arguments
+  ais --timeline [N]             the N most recent records, newest first (default 500;
+                                 a GUI pages through older ones on demand)
+  ais --tags                     every key with how many records use it (busiest first)
+  ais --compact                  reclaim space from deleted records
+  ais --compact --forget-deleted also forget WHAT was deleted (sync first:
+                                 an unsynced device can send them back)
+  ais --init                     create a local .ais index here (git-style)
+  ais --import < FILE            add 'KEY... -v VALUE' lines (the inverse of --dump;
+                                 -v takes the REST of the line, so a value may
+                                 contain '|', '#' or quotes with no escaping.
+                                 Pre-v2 '|' lines still read, with a warning)
+  ais --import-interactively     like --import, but confirm each record [y/N]
+                                 (default N); review each before it is stored
+  ais --export                   write the merge stream (A|/D|) for another index's --import
+  ais --export --serve [PORT]    serve that stream to one LAN peer, encrypted (prints a token)
+  ais --import <url> --token T   pull + merge a peer's --export --serve over the LAN
+  ais --sync --serve [PORT]      two-way sync: host one peer; both devices converge in one round
+  ais --sync <url> --token T     two-way sync: join a host; both devices converge in one round
+  ais --sync-folder DIR          two-way sync through a shared folder (Syncthing/cloud); no live peer needed
+                                 DIR must exist, and a folder synced before must still hold
+                                 a bundle: a typo or an unplugged drive fails loudly rather
+                                 than faking a working sync (-y accepts an empty one)
+  ais --where                    print the resolved index directory
+  ais --serve [PORT]             local web GUI (default port 8765); env AIS_NO_OPEN=1
+                                 runs it headless (no browser) -- for agent/CI testing
+  ais --project [KEY]            show / set / clear ('') the default project key
+  ais --switch [NAME]            switch the current index; no arg shows it,
+                                 -c NAME [DIR] creates a new index and switches
+  ais --indexes                  list named indexes (* on current; 'home' = ~/.ais)
+  ais --forget NAME              drop a name from the registry (its data dir is kept)
+  ais --default [PATH]           DEPRECATED: the old single default (use --switch)
+
+EXAMPLES
+  # tag a photo (or any path) under several keys
+  ais -v ~/photos/IMG_3920.jpg italy venice 2023
+
+  # or pipe a filtered list in, tagging them all
+  find ~/photos -name '*.jpg' | ais -v - italy venice 2023
+
+  # the everyday case, just type the keys
+  ais italy venice               # filed under BOTH italy AND venice
+  ais -o venice rome             # under venice OR rome
+
+  ais --find gelato              # search by content, not tags
+  ais -v "call Marina back"      # quick keyless capture; tag it later
+
+OPTIONS
+  -f, --index DIR   index directory (else: see INDEX LOCATION below)
+  -o, --or          match ANY key (union) instead of all (intersection)
+  -v, --value VAL   a value to save (repeatable; -v - reads stdin)
+  -k, --key KEY     an explicit key (for a key that looks like a flag)
+  -p KEY            default project prepended to this save ('' = none;
+                    persistent via 'ais --project KEY')
+  -i, --interactive save interactively: stdin lines are values, prompts for keys
+  -e, --encrypt     store the value encrypted (prompts for value + passphrase)
+  -y, --yes         assume yes for --del / --del-under / --untag / --compact
+  -d, --debug       trace to standard error
+  -h                short help;  --help  this full help
+  --version         print version and exit
+
+INDEX LOCATION (when -f is not given; no env vars -- -f is the only override)
+  1. the nearest .ais/ at or above the current directory (like git)
+  2. the current named index, if one is set ('ais --switch NAME'; --indexes lists them)
+  3. the legacy single default in ~/.ais/config ('ais --default PATH')
+  4. else ~/.ais, created on first use.  'ais --init' starts a local .ais here.
+
+Re-storing the same value changes nothing (idempotent). The index is plain
+text in that directory; read, grep, or repair it by hand.

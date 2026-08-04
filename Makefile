@@ -29,7 +29,7 @@ ifeq ($(strip $(AIS_VERSION)),)
 AIS_VERSION := 0.0.0-dev
 endif
 
-.PHONY: all codeut cliut uiut ut codeut-asan codeut-ubsan hooks clean static install install-strip install-desktop uninstall distclean dist
+.PHONY: all codeut cliut uiut ut codeut-asan codeut-ubsan hooks clean static install install-strip install-desktop uninstall distclean dist helpdoc
 
 # Build the engine in c/, then copy the binary up to the repo root as ./ais, so
 # from a source checkout you can run ./ais instead of ./c/ais.
@@ -58,6 +58,24 @@ codeut-ubsan:
 # the committed scripts/hooks. Undo: git config --unset core.hooksPath.
 hooks:
 	@git config core.hooksPath scripts/hooks
+
+# doc/command_line.txt is `ais --help` checked in, so the whole command surface
+# is readable on the web without building. Generated, never hand-edited:
+# tests/cli.sh fails if it drifts from the binary.
+helpdoc: all
+	@{ \
+	  echo 'ais command line'; \
+	  echo '================'; \
+	  echo; \
+	  echo 'The full output of `ais --help`. Checked in so the command surface is'; \
+	  echo 'readable without building or installing.'; \
+	  echo; \
+	  echo 'GENERATED -- do not edit by hand. Regenerate with `make helpdoc`;'; \
+	  echo 'tests/cli.sh fails if this file drifts from the binary.'; \
+	  echo; \
+	  ./ais --help; \
+	} > doc/command_line.txt
+	@echo "wrote doc/command_line.txt"
 	@echo "git hooks -> scripts/hooks  (pre-push runs make codeut-asan + codeut-ubsan)"
 
 clean:

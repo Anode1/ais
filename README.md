@@ -88,6 +88,7 @@ Yes. A secret is stored encrypted inline (`-e`), so a login lives right next to 
 |------|-----|
 | [`doc/USING.txt`](doc/USING.txt) | How to use it, GUI on every OS (plain steps, no jargon). |
 | [`doc/about.txt`](doc/about.txt) | What ais is, and what it is not. |
+| [`doc/command_line.txt`](doc/command_line.txt) | Every command and option, the full `ais --help`. |
 | [`doc/SYNC.md`](doc/SYNC.md) | Sync your index between devices: encrypted LAN sync (`--sync`), or through a shared folder a tool like Syncthing keeps in sync (`--sync-folder`). |
 | [`doc/OVERVIEW.md`](doc/OVERVIEW.md) | Design philosophy, status, provenance. |
 | [`doc/ROADMAP.md`](doc/ROADMAP.md) | What's planned, and where to help. |

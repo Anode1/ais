@@ -1411,6 +1411,21 @@ else
     okeq "man: every long option in the table appears in ais.1"   "" "$missm"
 fi
 
+#     doc/command_line.txt is `ais --help` checked in for the web. Generated
+#     docs rot silently, so hold it to the binary: compare from the first help
+#     line down, which skips the hand-written header above it.
+CLDOC="$(dirname "$0")/../doc/command_line.txt"
+if [ ! -f "$CLDOC" ]; then
+    fail=$((fail + 1)); echo "  FAIL doc/command_line.txt: missing (run: make helpdoc)"
+else
+    CLD=$(mktemp -d "${TMPDIR:-/tmp}/ais_cldoc.XXXXXX") || exit 2
+    sed -n '/^ais: associative index/,$p' "$CLDOC" > "$CLD/doc"
+    printf '%s\n' "$LH" > "$CLD/bin"
+    okeq "doc/command_line.txt matches ais --help (run: make helpdoc)" "" \
+         "$(diff "$CLD/doc" "$CLD/bin" 2>&1)"
+    rm -rf "$CLD"
+fi
+
 # The GET row is the only one with no --word to signal a query, so a bare noun
 # there garden-paths as a verb ("ais records under...") and inverts the sense.
 ok      "help: the GET row leads with a verb"      "get records under ALL keys" "$LH"
