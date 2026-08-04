@@ -101,9 +101,31 @@ Yes. A secret is stored encrypted inline (`-e`), so a login lives right next to 
 | [`doc/dev/LAYOUT.md`](doc/dev/LAYOUT.md) | On-disk format and module map. |
 | `man ais` | Full command reference. |
 
-## Claude Code skill
+## For coding agents: recall instead of searching again
 
-This repo ships a Claude Code skill at [`.claude/skills/ais/SKILL.md`](.claude/skills/ais/SKILL.md): it teaches a coding agent to recall from and store to your ais index by keyword, near-zero-token recall instead of re-searching. Copy it into your own project's `.claude/skills/` to give your agent the same.
+An agent that greps and reads to find something you already saved pays that cost on every question. Recall by key costs one line, and it is exact: a wrong key returns nothing rather than something plausible.
+
+This is measured, not asserted. Eight questions, five repeats each, one agent run both ways over the same corpus:
+
+<p align="center">
+  <img src="screenshots/agent-tokens.png" width="78%" alt="File search: 24,500 tokens mean, sometimes wrong. Recall: 2,900 tokens, of which 68 are the answer, 40 of 40 exact. At the terminal: no model at all.">
+</p>
+
+| | file search (grep + read) | recall by key |
+|---|---|---|
+| tokens per question, mean | 24,500 | 2,900 |
+| of that, the retrieval payload | 4,744 | **68** |
+| answered correctly | 31 of 40 | **40 of 40** |
+
+Four times fewer tokens at the median and nine at the mean, and 69x less content dragged into the context window. Run `ais` yourself at the terminal and the cost is zero, because no model is involved.
+
+The harness is in [`experiment/`](experiment/), and the deposited run reproduces with no API key:
+
+```sh
+cd experiment && python3 analyze.py --csv results_repeats_sanitized.csv
+```
+
+The skill itself is [`.claude/skills/ais/SKILL.md`](.claude/skills/ais/SKILL.md). Copy it into your own project's `.claude/skills/` to give your agent the same. The argument behind the numbers is in [`foundation.md`](doc/foundation.md).
 
 ## See also
 
