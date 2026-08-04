@@ -71,14 +71,14 @@ say 'one alias, and recall costs two characters'
 type_run "alias is=ais"
 
 say 'file a photo under the words you would actually think of later'
-type_run "is -v ~/photos/IMG_3920.jpg italy venice 2023"
+type_run "is italy venice 2023 -v ~/photos/IMG_3920.jpg"
 
 say 'or pipe a filtered list in, tagging them all at once'
-type_run "ls photos/*.jpg | is -v - italy photos"
+type_run "ls photos/*.jpg | is italy photos -v -"
 
 say 'the ssh tunnels that used to live in a comment at the top of a config file'
-type_run "is -v 'ssh -i ~/.ssh/key.pem -N -L 3307:127.0.0.1:3306 ubuntu@203.0.113.10' tunnel db dev remote"
-type_run "is -v 'ssh -N -L 3308:db-uat.example.com:3306 uat' tunnel db uat remote"
+type_run "is tunnel dev remote -v 'ssh -N -L 3307:127.0.0.1:3306 ubuntu@203.0.113.10'"
+type_run "is tunnel uat remote -v 'ssh -N -L 3308:db-uat.example.com:3306 uat'"
 
 say 'two keys pick the one you meant'
 type_run "is tunnel uat"
@@ -87,10 +87,10 @@ say 'one key gathers them: every way I reach a machine that is not this one'
 type_run "is remote"
 
 say 'links and notes share the same index'
-type_run "is -v https://en.wikipedia.org/wiki/Memex memex reference"
+type_run "is memex reference -v https://en.wikipedia.org/wiki/Memex"
 
 say 'the git incantation you look up every single time'
-type_run "is -v 'git rev-list --left-right --count origin/main...HEAD' git ahead"
+type_run "is git ahead -v 'git rev-list --left-right --count origin/main...HEAD'"
 type_run "is git"
 
 say 'recall: bare words are keys, no flags to remember'
