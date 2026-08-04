@@ -55,15 +55,15 @@ make                 # build ./ais
 
 ## Why
 
-**Your memory, yours to keep.** The keys you assign are your own ordering of the world, and nothing else records it: a model trained on everyone gives you the average, while your prior (your own associations and ordering) is the systematic lens that average cancels out. AIS keeps it unaveraged, as plain text you control, never taking your files hostage: it stores only a reference, so the index is a view and your data is never touched. See [`about.txt`](doc/about.txt) for the pitch and the memex origin, and [`foundation.md`](doc/foundation.md) for the prior/compression argument behind it.
+**Your memory, yours to keep.** The keys you assign are your own ordering of the world, and nothing else records it: a model trained on everyone gives you the average, while your prior (your own associations and ordering) is the systematic lens that average cancels out. ais keeps it unaveraged, as plain text you control, never taking your files hostage: it stores only a reference, so the index is a view and your data is never touched. See [`about.txt`](doc/about.txt) for the pitch and the memex origin, and [`foundation.md`](doc/foundation.md) for the prior/compression argument behind it.
 
 ## Questions
 
 **Why not SQLite, or a database?**
-A database is the right tool for an *app*; this is for a *person*. SQLite is a binary file one program understands; AIS is line-oriented plain text you can read, grep, diff, and recover by hand. You trade query power you do not need for the durability and transparency of plain text (see [`about.txt`](doc/about.txt)).
+A database is the right tool for an *app*; this is for a *person*. SQLite is a binary file one program understands; ais is line-oriented plain text you can read, grep, diff, and recover by hand. You trade query power you do not need for the durability and transparency of plain text (see [`about.txt`](doc/about.txt)).
 
 **Why not an embedded engine (BerkeleyDB, LMDB, gdbm)?**
-Because a bundled engine is a dependency you do not control. An early AIS version actually ran on BerkeleyDB (both the Java and the C editions) right as it was acquired and relicensed; this plain-text design is that lesson, learned firsthand. A format only one library version can open is a bet that the library, its license, and its on-disk layout outlive your data; they rarely do. AIS has no engine to depend on: any future AIS, any unix tool, or any format you migrate to can read the store.
+Because a bundled engine is a dependency you do not control. An early ais version actually ran on BerkeleyDB (both the Java and the C editions) right as it was acquired and relicensed; this plain-text design is that lesson, learned firsthand. A format only one library version can open is a bet that the library, its license, and its on-disk layout outlive your data; they rarely do. ais has no engine to depend on: any future ais, any unix tool, or any format you migrate to can read the store.
 
 **Is keys-only search not limiting?**
 On purpose. The keys you assign *are* the point: they are your prior, your ordering of the world. Full-text search finds words; keys find the meaning you committed to. (`ais --find` still searches values and paths.) To search a document's contents, keep it as a file and index its path.
@@ -75,17 +75,17 @@ It is deliberately minimal and not the main interface. `ais --serve` is one thin
 It overlaps all three and copies none. Not a bookmark manager: it files *anything* under *any* keys, not URLs in a browser. Not full-text (recoll): it indexes the keys you choose, not document bodies. Not org-mode: no single tree, no app lock-in, no markup to learn, just keys with set algebra (AND / OR) over plain files. The distinctive part is that the index *is your bias*, kept unaveraged and portable.
 
 **Does it replace my photo library or files?**
-No, it points *into* them. For files, photos and pages AIS is an index of pointers, not a store of copies: a photo stays in Immich, a file on disk, a page at its URL. You file the *reference* under your own keys and recall it by association; the silo keeps the bytes. It does not compete with Immich or the filesystem, it sits across them as the one associative layer that remembers where a thing is and why it mattered. An index of pointers, not another silo to fill. (Secrets are the one exception: those it stores inline, encrypted, see below.)
+No, it points *into* them. For files, photos and pages ais is an index of pointers, not a store of copies: a photo stays in Immich, a file on disk, a page at its URL. You file the *reference* under your own keys and recall it by association; the silo keeps the bytes. It does not compete with Immich or the filesystem, it sits across them as the one associative layer that remembers where a thing is and why it mattered. An index of pointers, not another silo to fill. (Secrets are the one exception: those it stores inline, encrypted, see below.)
 
 **Can it hold passwords? Is it a password manager?**
-Yes. A secret is stored encrypted inline (`-e`), so a login lives right next to the context it belongs to, and two things set it apart from a built-in manager. It is **cross-platform**: Apple Keychain and Google Password Manager are locked to one ecosystem, while AIS is the same plain-text index on Windows, macOS, Linux, Android and the CLI, so your secrets travel with you. And it is **agent-safe**: decryption is interactive (a passphrase you supply at a terminal or in the app), so an agent reading your index sees an opaque `aisc:` marker, not the secret, with no master key or unlocked vault to drain. What it is *not* is a bulk web-login manager: no autofill, no generation, no shared vaults, so for hundreds of site logins a dedicated cross-platform manager is still more convenient. See [`about.txt`](doc/about.txt).
+Yes. A secret is stored encrypted inline (`-e`), so a login lives right next to the context it belongs to, and two things set it apart from a built-in manager. It is **cross-platform**: Apple Keychain and Google Password Manager are locked to one ecosystem, while ais is the same plain-text index on Windows, macOS, Linux, Android and the CLI, so your secrets travel with you. And it is **agent-safe**: decryption is interactive (a passphrase you supply at a terminal or in the app), so an agent reading your index sees an opaque `aisc:` marker, not the secret, with no master key or unlocked vault to drain. What it is *not* is a bulk web-login manager: no autofill, no generation, no shared vaults, so for hundreds of site logins a dedicated cross-platform manager is still more convenient. See [`about.txt`](doc/about.txt).
 
 ## Learn more
 
 | Read | For |
 |------|-----|
 | [`doc/USING.txt`](doc/USING.txt) | How to use it, GUI on every OS (plain steps, no jargon). |
-| [`doc/about.txt`](doc/about.txt) | What AIS is, and what it is not. |
+| [`doc/about.txt`](doc/about.txt) | What ais is, and what it is not. |
 | [`doc/SYNC.md`](doc/SYNC.md) | Sync your index between devices: encrypted LAN sync (`--sync`), or through a shared folder a tool like Syncthing keeps in sync (`--sync-folder`). |
 | [`doc/OVERVIEW.md`](doc/OVERVIEW.md) | Design philosophy, status, provenance. |
 | [`doc/ROADMAP.md`](doc/ROADMAP.md) | What's planned, and where to help. |
