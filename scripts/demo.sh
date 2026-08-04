@@ -6,11 +6,18 @@
 # the user's own index and nothing opens a window.
 #
 #   asciinema rec -c scripts/demo.sh --overwrite ais.cast   # record
+#   DEMO_SECRET=1 asciinema rec -c scripts/demo.sh --overwrite ais.cast
+#                                       # ...including the encrypted step, which
+#                                       # stops for you to type a secret twice
 #   asciinema play ais.cast                                 # check it
 #   agg ais.cast ais.gif                                    # optional GIF
 #
 # Tuning: SPEED is the per-character typing delay, BEAT the pause after output.
 #   SPEED=0 BEAT=0 scripts/demo.sh     # instant, for checking the script itself
+#
+# Deliberately plain: no colour, no bold, no cursor tricks. The tool prints
+# text and the recording should look like a terminal, not like a demo reel.
+# Record in a sober terminal at about 92x28 and leave the player theme default.
 set -e
 cd "$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
 
@@ -71,6 +78,12 @@ type_run "ais -v https://en.wikipedia.org/wiki/Memex memex reference"
 type_run "ais -v 'ssh deploy@10.0.0.7 -- systemctl restart api' deploy uat"
 type_run "ais deploy uat"
 
+say 'the git incantation you look up every single time'
+type_run "ais -v 'git rev-list --left-right --count origin/main...HEAD' git ahead"
+say 'with alias is=ais, recall costs two characters'
+type_run "alias is=ais"
+type_run "is git"
+
 say 'recall: bare words are keys, no flags to remember'
 type_run "ais italy venice"
 
@@ -80,11 +93,12 @@ type_run "ais -o venice memex"
 say 'every key, busiest first'
 type_run "ais --tags"
 
-# The one interactive step: ais prompts for the secret and a passphrase, both
-# with echo off, reading /dev/tty. Under `asciinema rec -c` that tty is the
-# recording session, so type them live; the cast shows the prompts, not the
-# keystrokes. DEMO_SECRET=0 skips it for an unattended run.
-if [ "${DEMO_SECRET:-1}" = 1 ]; then
+# The one interactive step, OFF by default so a plain run never blocks: ais
+# prompts for the secret and a passphrase, both with echo off, reading /dev/tty.
+# Under `asciinema rec -c` that tty is the recording session, so you type them
+# live and the cast shows the prompts, not the keystrokes. Turn it on with
+# DEMO_SECRET=1 when you are recording and ready to type.
+if [ "${DEMO_SECRET:-0}" = 1 ]; then
     say 'a password lives next to what it belongs to, encrypted'
     type_run "ais deploy uat login -e"
     say 'piped or dumped it stays opaque: an agent reading the index sees this'
