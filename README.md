@@ -9,9 +9,9 @@ One engine, thin front-ends. The CLI is the contract; the web GUI (`ais --serve`
 Because it is plain text, it outlives its own tools: your index survives decades of archiving, still opens in fifty years, and exports into anything, no lock-in. Keeping data readable that long is computing's unsolved *digital dark age*, where file formats and the apps that open them die faster than the data. Plain text, readable since the 1960s on any machine with no special program, is the oldest and safest answer.
 
 <p align="center">
-  <img src="screenshots/cli.png" width="78%" alt="Store links and an encrypted password, then recall by key">
+  <img src="screenshots/demo.gif" width="78%" alt="File a photo, two ssh tunnels and a link under your own keys, then recall them by key">
 </p>
-<p align="center"><em>Store links and an encrypted password, then recall them by key. The same index on the phone:</em></p>
+<p align="center"><em>File a path, the ssh tunnel you always look up, a link: each under the words you would think of later. Then ask by those words. The same index on the phone:</em></p>
 <p align="center">
   <img src="screenshots/android-timeline.png" width="30%" alt="Everything you saved: links, file paths, and encrypted secrets">
   <img src="screenshots/android-search.png" width="30%" alt="Search returns clickable links">
