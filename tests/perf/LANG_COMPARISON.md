@@ -9,9 +9,43 @@ Run it: `sh lang_bench.sh` (regenerates the index if absent, ~2 min first time).
 SPARK proof: `sh spark_prove.sh` (needs `gnatprove`; proves the merge has no
 runtime errors).
 
-Machine: one desktop core, /tmp, warm page cache. `cc -O2`, GNAT 13.3,
-rustc 1.75, OpenJDK 21, CPython 3.12. Each figure is the median of 7 runs, warm
-(the cold first run discarded). First-order numbers; they move with the machine.
+Machine: Intel Core i7-1165G7 (4 cores / 8 threads, 12 MB L3), 64 GB RAM, one
+core busy, index in /tmp, warm page cache. `cc -O2`, GNAT 13.3, rustc 1.75,
+OpenJDK 21, CPython 3.12. Each figure is the median of 7 in-process iterations,
+warm (the cold first one discarded). First-order numbers; they move with the
+machine.
+
+## What is being measured, exactly
+
+The clock covers **one pass of the loop over data already in memory**, nothing
+else. Each bench reads the file (and, for the intersection, parses the ids into
+an array) *before* the first `clock_gettime`, then runs the same loop 7 times and
+prints each iteration; the table takes the median. `lang_bench.sh` `cat`s the
+store and both posting lists to /dev/null first, so the page cache is warm and
+the numbers are CPU, not disk.
+
+The two operations are the engine's two hot paths, and nothing else about ais is
+in these numbers:
+
+- **scan**: walk 88 MB of store bytes, count the lines containing a substring.
+  This is what `--find` and `--dump` do.
+- **intersect**: two-pointer merge of the two largest posting lists (sorted id
+  arrays), counting the ids present in both. This is what a multi-key `get`
+  does, and it is the operation that makes AND the default.
+
+What the numbers deliberately exclude: file reading and parsing, memory
+allocation, the index build, and process startup (the third row is measured
+separately, as the time for a do-nothing program in each language to start and
+exit). Also excluded, and this is the important one, the engine's actual
+**streaming** behaviour: the timed merge runs on two arrays already in RAM, so it
+measures the loop's CPU cost, not the bounded-memory k-way streaming that lets
+ais answer a 270k-hit key without holding it all. That is measured separately in
+[`../../doc/performance.txt`](../../doc/performance.txt).
+
+So the question this answers is narrow and deliberately so: **given the identical
+algorithm, how much does the language itself cost on the two loops ais runs most?**
+It is not a claim about the languages in general, and not a benchmark of five
+implementations of ais.
 
 ## Same hand-written algorithm (the identical loop in every language)
 
