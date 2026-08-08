@@ -1,5 +1,8 @@
 /bench
 /bench_ada
+/bench_ada_gnatp
+/obj_chk/
+/obj_gnatp/
 /bench_safe
 /bench_fast
 *.class
