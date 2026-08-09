@@ -143,7 +143,27 @@ small loss.
 reproducible across sweeps. The extra inlining and loop unswitching give GNAT
 more context to hoist or fold range checks, so `-O3` recovers roughly a third of
 what the checks cost. On the `-gnatp` build there is no check overhead left to
-absorb and the loop duplication is a straight ~12% loss on the scan.
+absorb, and the scan measures ~12% slower.
+
+**That ~12% is code placement, not a transformation cost**, which took some
+digging to establish. Three findings, all pointing the same way. First,
+`-fopt-info-loop-optimized` reports no `-O3` loop pass firing on the scan loop at
+all: the only added transformations are at `bench.adb:58` and `:63`, both inside
+`Read_Postings`, which is the merge path. Second, the scan's hot path is
+instruction-for-instruction identical at both levels, six instructions either
+way, differing only in that `-O3` leaves a `+0x10` displacement in the addressing
+mode where `-O2` pre-biases the pointer. Third, and decisive, sweeping
+`-falign-loops` and `-falign-functions` over 16/32/64 moves `-O2` between 49.3
+and 57.1 ms and `-O3` between 48.7 and 53.7 ms, best-of-9 runs each. The two
+ranges overlap almost completely and the fastest build of the eighteen is an
+`-O3` one. Bisecting the added passes corroborates it: `-fno-tree-loop-vectorize`,
+`-fno-tree-slp-vectorize` and `-fno-unswitch-loops` each independently recover
+the whole loss, and two of those touch only `Read_Postings`. They help by
+shrinking code ahead of the scan and moving it, not by removing a cost from it.
+
+So the `-O3` column above is worth roughly what the alignment spread is worth,
+which is to say the differences under about 10% on the scan are not measuring the
+optimizer. That caveat applies to the checks-on row too.
 
 The exact difference between the two levels, from `gcc -Q --help=optimizers`
 (GCC 13.3): 137 passes enabled at `-O2`, 150 at `-O3`. The thirteen added are
@@ -153,10 +173,13 @@ The exact difference between the two levels, from `gcc -Q --help=optimizers`
 `-ftree-partial-pre`, `-funroll-completely-grow-size`, `-funswitch-loops`,
 `-fversion-loops-for-strides`, plus `-fvect-cost-model` going from `very-cheap`
 to `dynamic`. Every one of them trades code size for loop throughput. Both hot
-loops here are byte-at-a-time state machines with a loop-carried dependence, so
-there is nothing to interchange, distribute or vectorize; the added passes find
-no work and only grow the binary. GNAT is a GCC front end, so that same list is
-what `gnatmake -O3` turns on.
+loops are byte-at-a-time state machines with a loop-carried dependence, so there
+is nothing in them to interchange, distribute or vectorize, and the added passes
+leave them alone. What they do find is the line-counting loop in
+`Read_Postings`, which `-O3` vectorizes and unrolls, growing that routine from
+306 to 1007 bytes; that is the plausible source of the merge's ~4% gain, and of
+the layout shift that costs the scan its 12%. GNAT is a GCC front end, so that
+same list is what `gnatmake -O3` turns on.
 
 ## Rust: also native, C-class, safe at compile time
 
