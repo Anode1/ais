@@ -838,6 +838,21 @@ void feed_encrypt(ais *a, const char *keys, int from_stdin)
 
     if (from_stdin) {                      /* -v - : the value comes from stdin */
         size_t got = fread(val, 1, sizeof val - 1, stdin);
+        /* The buffer filled: is there more? Storing just the prefix encrypted a
+         * TRUNCATED secret and reported success -- the user's key material,
+         * silently cut at 1023 bytes. Refuse instead, the same guard
+         * feed_encrypt_doc applies below. A single trailing newline is not
+         * "more": it is the line terminator a pipe ordinarily appends. */
+        if (got == sizeof val - 1) {
+            int c = fgetc(stdin);
+            if (c == '\n')
+                c = fgetc(stdin);
+            if (c != EOF) {
+                secret_wipe(val, sizeof val);
+                die("-e: secret longer than %d bytes -- use --doc -e for a large secret",
+                    (int)sizeof val - 1);
+            }
+        }
         if (got > 0 && val[got - 1] == '\n')
             got--;                         /* a one-line piped secret */
         val[got] = '\0';
