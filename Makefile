@@ -58,6 +58,7 @@ codeut-ubsan:
 # the committed scripts/hooks. Undo: git config --unset core.hooksPath.
 hooks:
 	@git config core.hooksPath scripts/hooks
+	@echo "git hooks -> scripts/hooks  (pre-push runs make codeut-asan + codeut-ubsan)"
 
 # doc/command_line.txt is `ais --help` checked in, so the whole command surface
 # is readable on the web without building. Generated, never hand-edited:
@@ -76,7 +77,6 @@ helpdoc: all
 	  ./ais --help; \
 	} > doc/command_line.txt
 	@echo "wrote doc/command_line.txt"
-	@echo "git hooks -> scripts/hooks  (pre-push runs make codeut-asan + codeut-ubsan)"
 
 clean:
 	$(MAKE) -C c clean
