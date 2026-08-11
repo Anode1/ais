@@ -11,3 +11,11 @@
 b~*
 /bench_rust
 gnatprove/
+/ba_o2chk
+/ba_o2p
+/ba_o3chk
+/ba_o3p
+/obj_o2chk/
+/obj_o2p/
+/obj_o3chk/
+/obj_o3p/
