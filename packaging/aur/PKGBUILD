@@ -8,7 +8,7 @@
 #   makepkg --printsrcinfo > .SRCINFO  # required by the AUR before pushing
 
 pkgname=ais
-pkgver=0.3.17
+pkgver=0.3.18
 pkgrel=1
 pkgdesc='Associative index: file anything under your own keys and recall it by keys, in plain text'
 arch=('x86_64' 'aarch64')
