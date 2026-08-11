@@ -1451,5 +1451,23 @@ okeq    "--dump: and still carries no id"           "0" \
         "$("$AIS" -f "$GH" --dump 2>/dev/null | grep -c '^[0-9][0-9]*|')"
 rm -rf "$GH"
 
+# -e -v -: a piped secret longer than the 1023-byte value buffer is REFUSED,
+#      not encrypted truncated -- key material silently cut at the buffer edge
+#      is worse than an error. The guard fires on the read itself, before any
+#      passphrase prompt, so it needs neither a tty nor the crypto module. At
+#      exactly 1023 bytes plus the pipe's trailing newline it must NOT fire:
+#      any error after that comes from the passphrase step, not the length check.
+EE=$(mktemp -d "${TMPDIR:-/tmp}/ais_elong.XXXXXX") || exit 2
+elong=$(awk 'BEGIN{for(i=0;i<1024;i++)printf "a"}' \
+        | AIS_TTY=/nonexistent/path "$AIS" -f "$EE" sk -v - -e 2>&1); erc=$?
+ok      "-e -v -: an overlong piped secret is refused" "secret longer than 1023" "$elong"
+okeq    "-e -v -: and exits nonzero"          "nz" "$([ "$erc" -ne 0 ] && echo nz)"
+okempty "-e -v -: nothing was stored"         "$("$AIS" -f "$EE" --dump 2>/dev/null)"
+eedge=$(awk 'BEGIN{for(i=0;i<1023;i++)printf "a"; printf "\n"}' \
+        | AIS_TTY=/nonexistent/path "$AIS" -f "$EE" sk -v - -e 2>&1)
+okeq    "-e -v -: 1023 bytes + pipe newline pass the guard" "0" \
+        "$(printf '%s' "$eedge" | grep -c 'secret longer')"
+rm -rf "$EE"
+
 echo "---- $pass passed, $fail failed"
 [ "$fail" -eq 0 ]
