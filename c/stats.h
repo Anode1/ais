@@ -13,12 +13,10 @@
  * A missing file or directory counts as 0. Returns 0 on success, -1 on error. */
 int ais_stats(ais *a, FILE *out);
 
-/* Just the first of those numbers: distinct LIVE record ids. Separated out
- * because a front-end wants the figure, not a formatted report -- after a sync,
- * "your library now holds N records" is the only confirmation the user gets that
- * anything actually arrived, and printing to a FILE to scrape it back is not a
- * seam an FFI caller can use. Same streaming count, same fixed buffers.
- * Returns 0 and sets *OUT, or -1 on error. */
+/* Just the first of those numbers: distinct LIVE record ids, as a figure rather
+ * than a formatted report -- the count an FFI caller shows after a sync, which
+ * cannot be scraped back out of a FILE. Same streaming count, same fixed
+ * buffers. Returns 0 and sets *OUT, or -1 on error. */
 int ais_count_live(const ais *a, long *out);
 
 #endif /* AIS_STATS_H */

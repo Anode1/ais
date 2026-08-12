@@ -27,10 +27,10 @@ static int compact_path(const ais *a, const char *name, char *out, size_t outsz)
     return 0;
 }
 
-/* Tombstone id with the delete-time TS and the record's content HASH (either may be
- * ""). Format: "id|ts|hash" (v2). Legacy "id"-only lines still read fine: tomb_contains
- * parses the leading id via atol, and a v1 entry's empty ts/hash sort as oldest and are
- * not exportable. The hash makes a deletion portable + compaction-proof for merge. */
+/* Tombstone id with the delete-time TS and the record's content HASH (either may
+ * be ""). Format: "id|ts|hash" (v2). Legacy "id"-only lines still read: atol
+ * takes the leading id, and a v1 entry's empty ts/hash sort as oldest and are not
+ * exportable. The hash makes a deletion portable and compaction-proof for merge. */
 int tomb_append(const ais *a, long id, const char *ts, const char *hash)
 {
     char path[AIS_PATH_MAX];
@@ -209,19 +209,16 @@ static long kfile_parse(char *line, const char **tsp, const char **hp, const cha
 }
 
 /* The (id, key) of a ktomb/katt line WITHOUT modifying or copying it. The id is
- * the leading integer; the key is the field after the THIRD '|' (or after the
- * only one, on a legacy line), which is what kfile_parse yields for both shapes
- * it accepts ("id|ts|hash|key" and the legacy "id|key") -- NOT the last bar: a
- * hand-edited line with four would then part company with kfile_parse -- and, like kfile_parse, a line with no key field (no '|' at all, or
- * a bare "id|ts|hash") is rejected with -1 so the caller keeps it untouched.
- * *KP points INTO LINE and is not nul-terminated; its length comes back in KLEN,
- * any trailing newline already trimmed.
+ * the leading integer; the key is the field after the THIRD '|' ("id|ts|hash|key")
+ * or after the only one (legacy "id|key") -- not the last bar, which on a
+ * hand-edited line with four would part company with kfile_parse. Like
+ * kfile_parse, a line with no key field is rejected with -1 so the caller keeps it
+ * untouched. *KP points INTO LINE and is not nul-terminated; its length comes back
+ * in KLEN, any trailing newline already trimmed.
  *
- * This exists so the rewrite path can match a line without the second
- * AIS_LINE_MAX buffer a parse-a-copy needs: kfile_remove sits under the primary
- * save path (katt_set), whose chain has to fit the 512 KB thread stack the FFI
- * seam runs on, and two line-sized buffers to look at two fields was the largest
- * single frame on it. */
+ * No copy, so the rewrite path needs no second AIS_LINE_MAX buffer: kfile_remove
+ * sits under the primary save path (katt_set), whose chain has to fit the 512 KB
+ * thread stack the FFI seam runs on. */
 static long kfile_peek(const char *line, const char **kp, size_t *klen)
 {
     const char *bars[3], *p, *k, *e;
@@ -247,9 +244,9 @@ static long kfile_peek(const char *line, const char **kp, size_t *klen)
     return atol(line);
 }
 
-/* KEY is stored and compared in its key_encode() form throughout this file. That
+/* KEY is stored and compared in its key_encode() form throughout this file: that
  * is the identity the postings use, so a detach of "doc" matches a stored "Doc"
- * (a raw strcmp did not, and compaction then RESURRECTED the key it had removed);
+ * (under a raw strcmp it does not, and compaction RESURRECTS the removed key),
  * and encoding folds the '|' that would otherwise split the line itself. */
 static int kfile_append(const ais *a, const char *file, long id, const char *ts,
                         const char *hash, const char *key)
@@ -325,8 +322,7 @@ static int kfile_contains(const ais *a, const char *file, long id, const char *k
 
 /* Like kfile_contains, but also copies the ts of (ID,KEY) into TS (the LAST
  * matching entry = latest append; "" for a legacy no-ts entry). Returns 1 if the
- * pair is recorded, 0 if not, -1 on error. This is what lets an attach and a
- * detach LWW against each other. */
+ * pair is recorded, 0 if not, -1 on error. Lets an attach and a detach LWW. */
 static int kfile_lookup(const ais *a, const char *file, long id, const char *key,
                         char *ts, size_t tsz)
 {
@@ -425,13 +421,12 @@ static int kfile_remove(const ais *a, const char *file, long id, const char *key
     return 0;
 }
 
-/* Replace the entry for (ID, KEY) with a fresh one, in ONE rewrite: build a temp
- * file holding every OTHER line plus the new one, then rename it over the
- * original. kfile_remove followed by kfile_append did the same job in two steps,
- * and a crash between them left the pair with no entry at all -- katt is real,
- * non-rebuildable data (when a key went onto a record), and losing an entry lets
- * a peer's older K| detach win and take the key away again. One rename means the
- * file only ever holds the old entry or the new one. Returns 0, or -1 on error. */
+/* Replace the entry for (ID, KEY) in ONE rewrite: a temp file holding every OTHER
+ * line plus the new one, renamed over the original, so the file only ever holds
+ * the old entry or the new one. kfile_remove then kfile_append would lose the pair
+ * to a crash between the two, and katt is real, non-rebuildable data (when a key
+ * went onto a record): with no entry, a peer's older K| detach wins and takes the
+ * key away again. Returns 0, or -1 on error. */
 static int kfile_replace(const ais *a, const char *file, long id,
                          const char *ts, const char *hash, const char *key)
 {
@@ -490,10 +485,10 @@ static int kfile_active(const ais *a, const char *file)
 }
 
 /* The two key-level files, same shape, opposite sign: ktomb says a key was taken
- * OFF a record, katt says it was put ON one. Both are (id, ts, record hash, key),
- * so they share every accessor above and differ only in what they mean and in how
- * they are written -- ktomb is an append-only log of removals, katt one entry per
- * pair (the time it was last attached), so katt_set replaces rather than appends. */
+ * OFF a record, katt says it was put ON one. Both are (id, ts, record hash, key)
+ * and share every accessor above, differing only in how they are written -- ktomb
+ * is an append-only log of removals, katt one entry per pair (the time it was last
+ * attached), so katt_set replaces rather than appends. */
 int ktomb_append(const ais *a, long id, const char *ts, const char *hash, const char *key)
 { return kfile_append(a, "ktomb", id, ts, hash, key); }
 int ktomb_each(const ais *a, ktomb_cb cb, void *ctx)  { return kfile_each(a, "ktomb", cb, ctx); }
@@ -507,9 +502,8 @@ int ktomb_active(const ais *a)                        { return kfile_active(a, "
 
 int katt_set(const ais *a, long id, const char *ts, const char *hash, const char *key)
 {
-    /* One entry per pair (when, not a log), written as a single atomic rewrite --
-     * remove-then-append could be interrupted between the two and lose the pair
-     * entirely. See kfile_replace. */
+    /* One entry per pair (when, not a log), written as one atomic rewrite; see
+     * kfile_replace. */
     return kfile_replace(a, "katt", id, ts, hash, key);
 }
 int katt_add(const ais *a, long id, const char *ts, const char *hash, const char *key)
@@ -521,36 +515,31 @@ int katt_forget(const ais *a, long id, const char *key)
 { return kfile_remove(a, "katt", id, key); }
 int katt_active(const ais *a)                         { return kfile_active(a, "katt"); }
 
-/* 1 if anything is deleted at all, 0 if the tomb is empty/absent, -1 on error.
- * A cheap stat, so read paths can skip per-id liveness checks entirely on the
- * common index where nothing has ever been deleted. */
+/* tomb_active: 1 if anything is deleted at all, 0 if the tomb is empty/absent, -1
+ * on error. A cheap stat, so read paths can skip per-id liveness checks entirely
+ * on the common index where nothing has ever been deleted. */
 /* MTS -- when each record was last edited HERE, one fixed-width slot per id.
  *
- * Merging compares a peer's delete against the record's timestamp, and that
- * timestamp was its creation time -- so an edit made AFTER a remote delete lost
- * to it. Adding a tag two seconds after another device deleted the record threw
- * the tag away with the record, which contradicts the rule the resurrect path
- * already sets: a later user action beats an earlier delete. An edit is a later
- * user action.
+ * Merging compares a peer's delete against the record's timestamp, which is its
+ * creation time, so without this an edit made AFTER a remote delete loses to it:
+ * a tag added two seconds after another device deleted the record is thrown away
+ * with it. A later user action must beat an earlier delete, and an edit is one.
  *
- * Why the store line's ts is left alone. The exported A| line carries ONE
- * timestamp for the record and its whole key set, and the import side hands that
- * same timestamp to attach_wins. Raising it therefore does not merely outrank
- * record deletes, it outranks KEY deletes: a device that removed a tag would see
- * it come back the moment any other device touched the record for an unrelated
- * reason, and the ktomb proving the removal would be erased. So the edit clock
- * stays LOCAL, and only a record that actually survives a delete is restamped
- * (ais_merge_del) -- the existing, understood re-add behaviour, and the way the
- * decision reaches the other devices at all.
+ * The store line's ts is left alone. The exported A| line carries ONE timestamp
+ * for the record and its whole key set, and the import hands that same timestamp
+ * to attach_wins, so raising it would outrank KEY deletes too: a device that
+ * removed a tag would see it come back the moment any other device touched the
+ * record, erasing the ktomb that proves the removal. The edit clock stays LOCAL,
+ * and only a record that actually survives a delete is restamped (ais_merge_del),
+ * which is how the decision reaches the other devices at all.
  *
  * Shape: slot k = id k, AIS_TS_MAX-1 chars plus a newline, blank = never edited,
  * exactly like the "off" accelerator. Fixed width buys an O(1) seek in and out,
  * no parsing, no allocation on the record path, and a file bounded by the highest
  * id rather than by the number of edits ever made.
  *
- * One-second timestamps mean an edit and a delete inside the SAME second still
- * resolve to the delete (ties are sticky, MERGE.md). That is the clock's limit,
- * not this file's. */
+ * One-second timestamps mean an edit and a delete inside the SAME second resolve
+ * to the delete (ties are sticky, MERGE.md). */
 /* A canonical timestamp is exactly "YYYY-MM-DDThh:mm:ssZ". AIS_TS_MAX is the
  * BUFFER size (with slack), not the string length, so the slot is sized from the
  * string: a slot wider than the data would misalign every later entry. */
@@ -574,16 +563,13 @@ static int slot_set(const ais *a, const char *file, long id, const char *ts)
             return -1;
     }
     /* Seeking past the end leaves a hole that reads back as NUL, not as the blank
-     * slot readers expect, so pad explicitly.
-     *
-     * Pad from a slot BOUNDARY, not from wherever the file happens to end. These
-     * files are pure position -- slot k IS id k+1 -- so a length that is not a
-     * whole number of slots shifts every id after it by the remainder, and each
-     * one then reads another record's timestamp. slot_get already refuses a
-     * misaligned file (so the damage shows up as "never edited" rather than as
-     * the wrong answer), but padding from a ragged end would carry the
-     * misalignment forward for good instead of squaring it up. A partial trailing
-     * slot can only be a torn write, and it describes at most one id. */
+     * slot readers expect, so pad explicitly -- and pad from a slot BOUNDARY.
+     * These files are pure position (slot k IS id k+1), so a length that is not a
+     * whole number of slots shifts every later id by the remainder, each then
+     * reading another record's timestamp. slot_get refuses a misaligned file, but
+     * padding from a ragged end would carry the misalignment forward for good
+     * instead of squaring it up. A partial trailing slot can only be a torn write,
+     * and it describes at most one id. */
     if (fseek(f, 0, SEEK_END) != 0) { fclose(f); return -1; }
     {
         long end = ftell(f);
@@ -623,9 +609,8 @@ static int slot_clear(const ais *a, const char *file, long id)
     if (f == NULL)
         return (errno == ENOENT) ? 0 : -1;
     /* Nothing to clear beyond the end: the slot is already absent, and writing
-     * there would extend the file with a hole (and, for a high id, grow it to
-     * id * MTS_W of mostly nothing) to record that a record we just deleted has
-     * no edit time -- which is what its absence already says. */
+     * there would extend the file with a hole (for a high id, id * MTS_W of mostly
+     * nothing) to record what the absence already says. */
     if (fseek(f, 0, SEEK_END) != 0) { fclose(f); return 0; }
     if (ftell(f) <= (id - 1) * (long)MTS_W) { fclose(f); return 0; }
     if (fseek(f, (id - 1) * (long)MTS_W, SEEK_SET) != 0) { fclose(f); return 0; }
@@ -666,10 +651,10 @@ static int slot_get(const ais *a, const char *file, long id, char *out, size_t o
     if (slot[MTS_W - 1] != '\n')
         return 0;                                                     /* not a whole slot */
     slot[MTS_W - 1] = '\0';
-    /* Validate before anyone can act on it. Unlike "off" -- a pure accelerator
-     * whose worst failure is a fallback scan -- this value can be written into a
-     * store line by the restamp, where a stray '|' or newline would split the
-     * record and lose its value. A damaged slot must read as "never edited". */
+    /* Validate before anyone can act on it: unlike "off", whose worst failure is a
+     * fallback scan, this value can be written into a store line by the restamp,
+     * where a stray '|' or newline would split the record and lose its value. A
+     * damaged slot must read as "never edited". */
     if (!store_looks_like_ts(slot) || strlen(slot) != MTS_TS_LEN ||
         strpbrk(slot, "|\r\n") != NULL)
         return 0;
@@ -679,13 +664,11 @@ static int slot_get(const ais *a, const char *file, long id, char *out, size_t o
 
 /* MTS: when the user last touched the record here. STS: the time this record was
  * restamped to after SURVIVING a peer's delete -- exported so the peer converges,
- * but deliberately kept OUT of the store line.
- *
- * Writing it into the line instead made the outcome depend on the order the
- * import happened to read peer bundles in: a K| detach arriving after the delete
- * in the same pass compared against the raised line and lost, one arriving before
- * it compared against the creation time and won, and which of those you got was
- * readdir order. The line keeps its own meaning; only the export is raised. */
+ * but deliberately kept OUT of the store line. In the line it makes the outcome
+ * depend on the order the import reads peer bundles in: a K| detach arriving after
+ * the delete in the same pass compares against the raised time and loses, one
+ * arriving before it compares against the creation time and wins, and which you
+ * get is readdir order. The line keeps its own meaning; only the export is raised. */
 static int slot_forget_dead(const ais *a, const char *file);
 
 int mts_set(const ais *a, long id, const char *ts)   { return slot_set(a, "mts", id, ts); }
@@ -727,13 +710,11 @@ void sts_effective(const ais *a, long id, const char *line_ts, char *out, size_t
 }
 
 /* The timestamp a DELETE is judged against: the latest of the record's creation
- * time, its last local edit, and any delete it has already survived.
- *
- * The last of those matters as much as the first two. A record that came back
- * here because a peer's copy outranked a tombstone has a line still carrying its
- * creation time, so without folding `sts` in, the very next D| -- the same one,
- * relayed round the mesh -- deleted it again, and the record ping-ponged forever
- * between the device that edited it and every device that had not. */
+ * time, its last local edit, and any delete it has already survived. The last
+ * matters as much as the first two: a record that came back because a peer's copy
+ * outranked a tombstone still carries its creation time in the line, so without
+ * folding `sts` in, the same D| relayed round the mesh deletes it again and the
+ * record ping-pongs forever. */
 void mts_effective(const ais *a, long id, const char *add_ts, char *out, size_t outsz)
 {
     char t[AIS_TS_MAX];
@@ -906,12 +887,10 @@ static int compact_line(long id, const char *ts, const char *keys,
     else
         fprintf(c->out, "%ld|%s|%s\n", id, wkeys, value);
 
-    /* Re-index keys once per record, on its FIRST appearance. Records are first
+    /* Re-index keys once per record, on its FIRST appearance: records are first
      * written in id order, so a record's first line is the one whose id exceeds
-     * every id seen so far; its add-continuation lines (appended later, hence
-     * non-adjacent) repeat an already-seen id and are skipped. This both keeps
-     * posting files ascending (ids appended in increasing order) and free of
-     * duplicate ids. */
+     * every id seen so far, and its add-continuation lines repeat an already-seen
+     * id. Keeps posting files ascending and free of duplicate ids. */
     if (id <= c->maxid) {
         fprintf(c->multi_out, "%ld\n", id);  /* a continuation: id is multi-line */
         return 0;
@@ -941,16 +920,16 @@ static int compact_line(long id, const char *ts, const char *keys,
     return 0;
 }
 
-/* Folder-sync B3: compaction drops dropped-record store lines, but must NOT drop the
- * DELETE tombstones -- an offline peer would re-feed the deleted record and it would
- * resurrect mesh-wide. Rewrite tomb keeping only hash-bearing (exportable) entries; the
- * ids are now vestigial (their records are gone) but the D|ts|hash export keeps the
- * delete propagating. Atomic (temp+rename). Returns 0, or -1. */
-/* PURGE: keep the id so the record stays suppressed HERE, drop the hash so the
- * line is no longer exportable (feed.c's exp_dead skips a hash-less entry) and no
- * longer testable against a guess. This is the user choosing to make a deletion
- * final on this device, at the documented price: a peer that has not synced since
- * can push those records back. */
+/* Folder-sync B3: compaction drops the deleted records' store lines but must NOT
+ * drop their DELETE tombstones, or an offline peer re-feeds the record and it
+ * resurrects mesh-wide. Rewrite tomb keeping only hash-bearing (exportable)
+ * entries; their ids are vestigial, but the D|ts|hash export keeps the delete
+ * propagating. Atomic (temp+rename). Returns 0, or -1.
+ *
+ * PURGE: keep the id so the record stays suppressed HERE, drop the hash so the
+ * line is neither exportable (feed.c's exp_dead skips a hash-less entry) nor
+ * testable against a guess -- a deletion made final on this device, at the
+ * documented price that a peer not synced since can push those records back. */
 static int tomb_keep_hashed_x(ais *a, int purge)
 {
     char path[AIS_PATH_MAX], tmp[AIS_PATH_MAX], line[AIS_LINE_MAX], work[AIS_LINE_MAX];
@@ -987,11 +966,11 @@ static int tomb_keep_hashed_x(ais *a, int purge)
 }
 
 
-/* Folder-sync I1: compaction strips detached keys from the store lines, but must NOT
- * drop the KEY tombstones that carry a hash -- else a peer still holding the key would
- * re-attach it. Rewrite ktomb keeping only hash-bearing "id|ts|hash|key" entries (the
- * exportable ones); legacy hash-less "id|key" entries drop (pre-sync, already stripped
- * from the store above). Atomic. Returns 0, or -1. */
+/* Folder-sync I1: compaction strips detached keys from the store lines but must
+ * NOT drop the KEY tombstones that carry a hash, or a peer still holding the key
+ * re-attaches it. Rewrite ktomb keeping only the exportable hash-bearing
+ * "id|ts|hash|key" entries; legacy hash-less "id|key" entries drop (pre-sync,
+ * already stripped from the store above). Atomic. Returns 0, or -1. */
 static int ktomb_keep_hashed_x(ais *a, int purge)
 {
     char path[AIS_PATH_MAX], tmp[AIS_PATH_MAX], line[AIS_LINE_MAX], work[AIS_LINE_MAX];
@@ -1014,7 +993,7 @@ static int ktomb_keep_hashed_x(ais *a, int purge)
             /* Blank the hash so the detach stops travelling and stops being
              * testable. The key stays: ktomb_contains needs (id,key) to keep
              * suppressing it here, and the key name is in idx/ and the store
-             * anyway -- it is the EXPORT that carried it to other people. */
+             * anyway -- only the EXPORT carried it to other people. */
             long id = strtol(work, NULL, 10);
             fprintf(out, "%ld|%s||%s\n", id, ts, k);
         } else {
@@ -1095,20 +1074,15 @@ static int compact_locked(ais *a)
         return -1;
 
     /* Stage the old posting tree aside instead of destroying it up front. get()
-     * reads idx/ with NO store fallback, so if a mid-stream error (ENOSPC, a
-     * failed post_append) left idx/ half-built or empty -- as the pre-fix code
-     * did -- every keyed lookup would silently return nothing. Here compact_line
-     * rebuilds a FRESH idx/ (post_append appends, so it must start empty) while
-     * the working copy waits in idx.bak; the cleanup path rolls it back on any
-     * failure before the store is committed.
-     *
-     * off/multi keep their in-place truncate-and-rebuild: they are pure
-     * accelerators that store_value_at re-checks, so a stale/partial one only
-     * forces a scan, never a wrong answer -- no atomicity needed. */
-    if (compact_rmtree(idxbak) != 0)         /* clear debris from a prior crashed run:
-                                              * this pass rebuilds idx/ from the store
-                                              * regardless, so a stale backup is never
-                                              * needed and only blocks the rename below */
+     * reads idx/ with NO store fallback, so a mid-stream error (ENOSPC, a failed
+     * post_append) leaving idx/ half-built or empty would make every keyed lookup
+     * silently return nothing. compact_line rebuilds a FRESH idx/ (post_append
+     * appends, so it must start empty) while the working copy waits in idx.bak;
+     * the cleanup path rolls it back on any failure before the store is
+     * committed. */
+    if (compact_rmtree(idxbak) != 0)         /* debris from a prior crashed run: this
+                                              * pass rebuilds idx/ from the store, so a
+                                              * stale backup only blocks the rename below */
         return -1;
     if (lstat(idxpath, &st) == 0) {
         if (rename(idxpath, idxbak) != 0)
@@ -1120,16 +1094,15 @@ static int compact_locked(ais *a)
     if (c.out == NULL)
         goto cleanup;
 
-    /* Build the new off/multi BESIDE the old ones, never over them. Truncating
-     * them here -- before the store is committed by the rename below -- meant a
-     * compaction killed mid-pass left them emptied against the still-old store.
-     * `off` survives that (off_consistent size-checks it and store_value_at
-     * re-verifies the id, so a bad one only costs a scan), but `multi` has no
-     * such check and compact_recover does not rebuild it: with it empty, the
-     * export reads multi_contains()==0 for a genuinely multi-value record and
-     * emits each of its values as a separate A|, so ONE record arrives on every
-     * peer as several. Renamed after the store, they can only ever describe a
-     * store that is already in place. */
+    /* Build the new off/multi BESIDE the old ones, never over them: truncating
+     * them before the store is committed by the rename below would leave them
+     * emptied against the still-old store if the pass were killed. `off` survives
+     * that (off_consistent size-checks it and store_value_at re-verifies the id,
+     * so a bad one only costs a scan), but `multi` has no such check and
+     * compact_recover does not rebuild it -- empty, it makes the export emit each
+     * value of a multi-value record as a separate A|, so ONE record arrives on
+     * every peer as several. Renamed after the store, they can only ever describe
+     * a store that is already in place. */
     if (compact_path(a, "off", offp, sizeof(offp)) != 0 ||
         compact_path(a, "multi", multip, sizeof(multip)) != 0)
         goto cleanup;
@@ -1165,9 +1138,9 @@ static int compact_locked(ais *a)
     staged = 0;                              /* committed: the fresh idx/ is now authoritative,
                                               * never roll back to the old index past here */
     /* Only now, with the store they describe in place. A failure here leaves the
-     * OLD off/multi against the NEW store, which is the one direction that is
-     * safe: off is size-checked and id-verified on use, and a multi that names
-     * ids the store still holds only forces the slow path. */
+     * OLD off/multi against the NEW store, the one safe direction: off is
+     * size-checked and id-verified on use, and a multi naming ids the store still
+     * holds only forces the slow path. */
     if (rename(offnew, offp) != 0 || rename(multinew, multip) != 0)
         goto cleanup;
     compact_rmtree(idxbak);                  /* best-effort: a leftover idx.bak only costs the
@@ -1185,12 +1158,11 @@ static int compact_locked(ais *a)
     if (mts_forget_dead(a) != 0)       /* an edit time must not outlive its record */
         goto cleanup;
 
-    /* next_id must NEVER regress. Ids are permanent per-device handles, and the
-     * retained hash-bearing tombstones above still name deleted ids -- so if the
-     * highest id(s) were deleted, c.maxid (live ids only) can fall below a
-     * retained tombstone's id. Reusing that id would make the next fresh record
-     * collide with the tombstone and be born suppressed (invisible everywhere,
-     * then erased by the following compaction: silent total loss). The
+    /* next_id must NEVER regress. The retained hash-bearing tombstones above still
+     * name deleted ids, so if the highest id(s) were deleted, c.maxid (live ids
+     * only) can fall below a retained tombstone's id. Reusing that id makes the
+     * next fresh record collide with the tombstone and be born suppressed --
+     * invisible everywhere, then erased by the following compaction. The
      * pre-compaction next_id is always past every id ever issued, so keep the
      * larger of it and one-past-the-highest-live-id. */
     if (c.maxid + 1 > a->next_id)
@@ -1249,19 +1221,16 @@ int ais_compact_purge(ais *a)
     return rc;
 }
 
-/* Roll back a compaction that was KILLED mid-flight. The staging in
- * compact_locked protects against a graceful mid-stream error -- its cleanup path
- * puts idx.bak back -- but a SIGKILL, an OOM kill or a power cut never reaches
- * that path. What it leaves behind is the dangerous shape: a half-built idx/ live,
- * the good tree orphaned in idx.bak, and get() reading idx/ with NO store
- * fallback. Every keyed lookup then silently returns a SUBSET, exit 0, no
- * warning, until somebody happens to compact again.
+/* Roll back a compaction that was KILLED mid-flight. compact_locked's cleanup path
+ * covers a graceful mid-stream error, but a SIGKILL, an OOM kill or a power cut
+ * never reaches it and leaves the dangerous shape: a half-built idx/ live, the
+ * good tree orphaned in idx.bak, and get() reading idx/ with NO store fallback, so
+ * every keyed lookup silently returns a SUBSET, exit 0, no warning.
  *
- * Restoring the staged tree is safe in BOTH windows. Postings are keyed by id and
+ * Restoring the staged tree is safe in BOTH windows: postings are keyed by id and
  * compaction preserves ids, so the pre-compaction tree is a superset of the
- * correct one; the ids it holds for records the run had already dropped are
- * tombstoned, and every read filters those out anyway. A superset that reads
- * correctly beats a subset that lies.
+ * correct one, and the ids it holds for records the run had already dropped are
+ * tombstoned, which every read filters out anyway.
  *
  * Returns 1 if it recovered, 0 if there was nothing to do, -1 on error. */
 int compact_recover(ais *a)

@@ -1,21 +1,13 @@
 /* serve.c -- `ais serve`: an OPTIONAL built-in web GUI. See serve.h.
  *
- * ====================================================================
- *  NOTE TO READERS: this file is a GUI WRAPPER, not the program.
- *  The actual AIS -- the index, the store, the algorithms -- lives in
- *  ais.c, store.c, merge.c, post.c, compact.c, in the project's normal
- *  C style. This file only lets a browser drive that engine, and it
- *  embeds a small web page as a C string (PAGE, below) so the binary
- *  stays self-contained. That blob is HTML/JS, NOT C: please don't read
- *  it as a sample of how AIS is written, and you rarely need to touch
- *  it. It is the only GUI file under c/; everything else here is engine.
- * ====================================================================
- *
- * How it works: a tiny single-threaded HTTP/1.0 loop on 127.0.0.1 serving the
- * page plus two endpoints that call the engine directly. No Python, no
- * framework, no DB -- the binary is the backend (the whole servlet/DB/auth
- * stack kul needs is unnecessary here). A SKETCH: localhost only, one client at
- * a time, the request must fit a single read.
+ * A GUI WRAPPER, not the program: the index, the store and the algorithms live in
+ * ais.c, store.c, merge.c, post.c, compact.c. This file only lets a browser drive
+ * that engine, and embeds a small web page as a C string (PAGE, below) so the binary
+ * stays self-contained -- that blob is HTML/JS, NOT C, and not a sample of how AIS
+ * is written. It is the only GUI file under c/. A single-threaded HTTP/1.0 loop on
+ * 127.0.0.1 serves the page plus two endpoints that call the engine directly: no
+ * Python, no framework, no DB. A SKETCH: localhost only, one client at a time, the
+ * request must fit a single read.
  */
 #define _DEFAULT_SOURCE          /* htonl, strtok_r */
 #define _POSIX_C_SOURCE 200809L
@@ -42,9 +34,9 @@
 #include "win.h"          /* Winsock + socket shims on native Windows; empty on POSIX */
 #include "serve.h"
 
-/* LAN sync (the GUI's Host/Join, mirroring the mobile Sync feature): available
- * only where the sync transport is -- POSIX plus the vendored crypto module, the
- * same guard sync.c uses. Elsewhere the routes report the build lacks it. */
+/* LAN sync (the GUI's Host/Join, mirroring the mobile Sync feature): available only
+ * where the sync transport is -- POSIX plus the vendored crypto module, the same
+ * guard sync.c uses. Elsewhere the routes report that the build lacks it. */
 #if !defined(_WIN32) && defined(__has_include) && __has_include("crypto/monocypher.h")
 #  define SERVE_HAVE_SYNC 1
 #  include <arpa/inet.h>
@@ -66,13 +58,11 @@
 #endif
 
 /* ---- the GUI page (HTML + JavaScript, NOT C) ----------------------------
- * This is the web wrapper's user interface, embedded as a string so the binary
- * is self-contained. The cramped one-string-literal-per-line shape is simply
- * how you paste a web page into a C source file -- it is NOT the project's C
- * style, and it is not part of the engine. To change the UI, edit the PAGE
- * string below directly -- it is the only copy. Vanilla JS; the API is
- * form-encoded keys + a plain-text body/reply (no JSON, and a text/plain POST
- * is a "simple" request, so no CORS preflight). */
+ * The UI, embedded as a string so the binary is self-contained; the
+ * one-string-literal-per-line shape is not the project's C style. To change the UI,
+ * edit the PAGE string below -- it is the only copy. Vanilla JS; the API is
+ * form-encoded keys + a plain-text body/reply (no JSON, and a text/plain POST is a
+ * "simple" request, so no CORS preflight). */
 static const char PAGE[] =
 "<!doctype html><meta charset=utf-8>"
 "<meta name=viewport content='width=device-width,initial-scale=1'>"
@@ -175,8 +165,8 @@ static const char PAGE[] =
 "<input id=pp type=password placeholder='Passphrase' hidden style='flex:1'></div>"
 "<div class=actions><button id=cancel class=ghost>Cancel</button><button id=save class=primary>Save</button></div>"
 "</div></div>"
-/* Edit modal: in-place value edit + a chip tag editor (Flutter parity, and it
- * replaces the old -key prompt). The value box is hidden for encrypted/blob rows. */
+/* Edit modal: in-place value edit + a chip tag editor (Flutter parity). The value
+ * box is hidden for encrypted/blob rows. */
 "<div id=editsheet hidden><div class=card><h2>Edit</h2>"
 "<div id=edvalwrap><label class=muted style='font-size:.8rem'>Value</label>"
 "<textarea id=edval rows=3></textarea></div>"
@@ -222,11 +212,9 @@ static const char PAGE[] =
 "</div></div>"
 "<script>"
 "var $=function(i){return document.getElementById(i)};"
-/* `gen` counts view switches. Every loader below appends to #out AFTER an await,
- * so a response that lands once the user has moved on repaints the old view's rows
- * over the new one -- Timeline rows appearing under an empty Search, which is also
- * what made the interaction test fail about half the time on a cold run. Each
- * loader captures gen before its fetch and drops its result if it has moved. */
+/* `gen` counts view switches. Every loader below appends to #out AFTER an await, so
+ * a response landing once the user has moved on would repaint the old view's rows
+ * over the new. Each loader captures gen before its fetch and drops a stale result. */
 "var view='recall',viewGen=0;"
 /* empty-state call-to-action, reused by every empty view */
 "var addCTA='<button class=primary style=\"margin-top:1rem\" onclick=openSheet()>+ Add</button>';"
@@ -237,23 +225,22 @@ static const char PAGE[] =
 "var rcAfter=0,rcN=0,rcMore=false,rcQ='',rcOr='',rcT0=0;"   /* recall keyset paging */
 "var tgAfterc=0,tgAfterk='',tgN=0,tgMore=false;"           /* tags keyset paging */
 "var loadingMore=false;"                        /* one page fetch at a time (infinite scroll) */
-/* fillVal: append V to NODE, turning every embedded http(s) URL into a real
- * link -- not only values that are wholly a URL (a "Title - https://..." value
- * gets its URL linked, with the title left as text). */
+/* fillVal: append V to NODE, turning every embedded http(s) URL into a link, not
+ * only values that are wholly a URL ("Title - https://..." keeps the title as text). */
 "function fillVal(node,v){var re=/https?:\\/\\/[^\\s]+/g,last=0,m;"
 "while((m=re.exec(v))!==null){"
 "if(m.index>last)node.appendChild(document.createTextNode(v.slice(last,m.index)));"
 "var a=document.createElement('a');a.href=m[0];a.textContent=m[0];"
 "a.target='_blank';a.rel='noopener';node.appendChild(a);last=m.index+m[0].length}"
 "if(last<v.length)node.appendChild(document.createTextNode(v.slice(last)))}"
-/* An "aisc:" value is shown as an opaque lock + a Reveal button; revealing
- * prompts for the passphrase and decrypts via /api/reveal (passphrase in the
- * POST body, never the URL). The cleartext is shown until the next render. */
+/* An "aisc:" value shows as an opaque lock + a Reveal button; revealing prompts for
+ * the passphrase and decrypts via /api/reveal (passphrase in the POST body, never
+ * the URL). The cleartext is shown until the next render. */
 "function fillSecret(node,v){var s=document.createElement('span');s.textContent='\\uD83D\\uDD12 encrypted ';s.style.color='var(--muted)';"
 "var b=document.createElement('button');b.className='actbtn';b.textContent='Reveal';"
 "b.onclick=function(){revealSecret(node,v)};node.appendChild(s);node.appendChild(b)}"
 /* inline password field, not prompt(): prompt() is silently disabled in an
- * installed PWA / app window, so the passphrase reveal did nothing there. */
+ * installed PWA / app window. */
 "async function revealSecret(node,v){node.innerHTML='';"
 "var i=document.createElement('input');i.type='password';i.placeholder='Passphrase';i.autocomplete='off';i.style.cssText='font:inherit;padding:.2rem .4rem';"
 "var b=document.createElement('button');b.className='actbtn';b.textContent='Show';b.style.marginLeft='.4rem';"
@@ -263,16 +250,14 @@ static const char PAGE[] =
 "node.innerHTML='';if(t){fillVal(node,t);var c=document.createElement('button');c.className='actbtn';c.textContent='copy';c.style.marginLeft='.5rem';c.onclick=function(){copyText(t,c)};node.appendChild(c)}else{node.textContent='(cannot decrypt)'}}"
 "b.onclick=go;i.onkeydown=function(e){if(e.key==='Enter')go();else if(e.key==='Escape'){node.innerHTML='';fillSecret(node,v)}};"
 "node.appendChild(i);node.appendChild(b);node.appendChild(x);i.focus()}"
-/* A document blob comes over the wire as "aisdoc:<base64 of the content>", so
- * the (possibly multi-line) content survives the line-based record split. Decode
- * the base64 as UTF-8 bytes and show it verbatim (newlines preserved). */
+/* A document blob comes over the wire as "aisdoc:<base64 of the content>", so the
+ * (possibly multi-line) content survives the line-based record split. Decode as
+ * UTF-8 bytes and show it verbatim (newlines preserved). */
 "function docText(v){try{var s=atob(v.slice(7)),b=new Uint8Array(s.length),i;for(i=0;i<s.length;i++)b[i]=s.charCodeAt(i);return new TextDecoder().decode(b)}catch(e){return v}}"
 "function fillDoc(node,v){var d=document.createElement('div');d.style.whiteSpace='pre-wrap';d.textContent=docText(v);node.appendChild(d)}"
-/* 'not on this device' (Flutter parity): a doc blob that is present arrives as
- * aisdoc:<content>; one whose file is absent falls through as the raw 'blobs/'
- * path. A file:// or absolute-path reference isn't reachable from a browser
- * either. Badge those, so a synced-but-not-downloaded record reads the same as
- * in the app. */
+/* 'not on this device' (Flutter parity): a present doc blob arrives as
+ * aisdoc:<content>; an absent one falls through as the raw 'blobs/' path, as does a
+ * file:// or absolute path, neither reachable from a browser. Badge those. */
 "function notHere(v){var p=v;if(p.indexOf('aisc:@')==0)p=p.slice(6);"
 "if(p.indexOf('blobs/')==0)return true;"
 "if(p.indexOf('file://')==0)return true;"
@@ -281,8 +266,8 @@ static const char PAGE[] =
 "s.title='Not on this device: open it on the desktop, or mount that disk.';"
 "s.style.color='var(--muted)';s.style.marginLeft='.3rem';return s}"
 /* Recall is keyset-paged like the timeline: `more` appends the next page (id >
- * rcAfter) instead of reloading, so a million-hit query scrolls in one page at a
- * time. Recall emits ascending, so rcAfter tracks the largest id shown. */
+ * rcAfter) instead of reloading. Recall emits ascending, so rcAfter tracks the
+ * largest id shown. */
 "async function recall(more){var o=$('out');var qq=normkeys($('q').value);var g=viewGen;"
 "if(!more){if(!qq)return;rcAfter=0;rcN=0;rcQ=qq;rcOr=($('anyk')&&$('anyk').checked)?'&or=1':'';rcT0=performance.now();o.className='';o.innerHTML=''}"
 "if(!rcQ)return;"
@@ -306,9 +291,9 @@ static const char PAGE[] =
 "box.appendChild(e);box.appendChild(x);m.onclick=function(){box.hidden=!box.hidden};"
 "d.appendChild(m);d.appendChild(box);return d}"
 "async function copyText(t,btn){try{await navigator.clipboard.writeText(t);if(btn){var o=btn.textContent;btn.textContent='copied';setTimeout(function(){btn.textContent=o},1200)}}catch(e){alert('copy needs https or localhost')}}"
-/* Deferred delete + Undo (Flutter parity): hide the row and start a 5s window.
- * The engine del() only fires when the window lapses OR another action flushes
- * it -- never on Undo, which just re-shows the row (nothing was deleted). */
+/* Deferred delete + Undo (Flutter parity): hide the row and start a 5s window. The
+ * engine del() only fires when the window lapses OR another action flushes it --
+ * never on Undo, which just re-shows the row (nothing was deleted). */
 "var delTimer=null,delRow=null,delCommit=null,delUndoFn=null;"
 "function hideToast(){$('toast').hidden=true}"
 "function toastClaim(){if(syncFldTimer){clearTimeout(syncFldTimer);syncFldTimer=null}$('toastundo').hidden=false}"
@@ -320,7 +305,7 @@ static const char PAGE[] =
 "function delUndo(){if(delTimer){clearTimeout(delTimer);delTimer=null}if(delRow)delRow.style.display='';"
 "if(delUndoFn){delUndoFn();delUndoFn=null}delRow=null;delCommit=null;hideToast()}"
 /* Edit modal: value (when editable) + a chip tag editor, computing a minimal
- * +tag/-tag delta on save. Replaces the old -KEY grammar prompt. */
+ * +tag/-tag delta on save. */
 "var edId=0,edTags=[],edOldVal='',edEdit=false;"
 "function edChips(){var c=$('edchips');c.innerHTML='';edTags.forEach(function(t){"
 "var s=document.createElement('span');s.className='chip';s.textContent=t;"
@@ -392,12 +377,11 @@ static const char PAGE[] =
 "ac.appendChild(u);ac.appendChild(g);o.appendChild(ac);tgAfterc=+c;tgAfterk=k});"
 "tgN+=L.length;$('count').textContent=tgN+' tag'+(tgN==1?'':'s');"
 "if(L.length==tlPage){tgMore=true;var mo=document.createElement('button');mo.id='tgmore';mo.className='loadmore';mo.textContent='Load more';mo.onclick=pageMore;o.appendChild(mo)}else tgMore=false}"
-/* The two tag-level operations. They are opposite in consequence, so they get
- * opposite treatments: untag reuses the deferred-commit + Undo window the record
- * delete already uses (nothing has happened yet, so the Undo is honest), while
- * delete-under gets a modal with a preview, an escape hatch to untag, and
- * type-to-confirm -- it destroys records that are NOT on this screen, because
- * each one also disappears from every other tag it is filed under. */
+/* The two tag-level operations, opposite in consequence: untag reuses the record
+ * delete's deferred-commit + Undo window (nothing has happened yet, so the Undo is
+ * honest); delete-under gets a modal with a preview, an escape hatch to untag, and
+ * type-to-confirm, because it destroys records that are NOT on this screen -- each
+ * also disappears from every other tag it is filed under. */
 /* Finds its own row, so both front ends expose the same untagKey(key,count). */
 "function untagKey(k){delFlush();toastClaim();"
 "var row=null,acts=null;"
@@ -414,10 +398,9 @@ static const char PAGE[] =
 "async function openDelUnder(k){delFlush();"
 "var t=await(await fetch('/api/get?keys='+encodeURIComponent(k))).text();"
 "var L=t.split('\\n').filter(function(s){return s.length});"
-/* /api/get emits one line per LINK, and a record may hold several. Counting
- * lines over-counted the records -- the modal offered to "Delete 3 records"
- * beside a tag badge reading 2, and the engine then reported "deleted 2". Group
- * by id so the number in the destructive copy is the number that will go. */
+/* /api/get emits one line per LINK, and a record may hold several, so counting
+ * lines over-counts records. Group by id: the number in the destructive copy must
+ * be the number that will go. */
 "var R=[],seen={};L.forEach(function(ln){var b=ln.indexOf('|');"
 "var id=b<0?ln:ln.slice(0,b),v=b<0?ln:ln.slice(b+1);"
 "if(seen[id]===undefined){seen[id]=R.length;R.push({v:v,extra:0})}else R[seen[id]].extra++});"
@@ -455,7 +438,7 @@ static const char PAGE[] =
 "var enc=$('enc').checked,pp=$('pp').value;"
 "if(enc&&!pp){alert('Enter a passphrase to encrypt');return}"
 /* On a failed or unreachable put, tell the user and KEEP the sheet so they can
- * retry -- never leave a stuck, silent modal (an unhandled await used to). */
+ * retry: never a stuck, silent modal. */
 "try{var r=await fetch('/api/put?keys='+encodeURIComponent(k)+(enc?'&enc=1':''),{method:'POST',body:enc?(pp+'\\n'+v):v});"
 "if(!r.ok)throw new Error('server '+r.status)}catch(e){alert('Save failed ('+e.message+'). Nothing was saved.');return}"
 "closeSheet();setView('timeline');if(syncFolderSaved())syncFolderRun(true)}"
@@ -482,18 +465,17 @@ static const char PAGE[] =
 "$('enc').onchange=function(){$('pp').hidden=!$('enc').checked;if($('enc').checked)$('pp').focus()};"
 "$('sheet').addEventListener('click',function(e){if(e.target==$('sheet'))closeSheet()});"
 "async function loadStore(){$('store').textContent='Library: '+await(await fetch('/api/where')).text()}"
-/* inline field, not prompt(): prompt() is silently disabled in installed-PWA
- * and app windows, so the old "change" button did nothing there. */
+/* inline field, not prompt(): prompt() is silently disabled in installed-PWA and
+ * app windows. */
 "async function changeStore(){var cur=await(await fetch('/api/where')).text();"
 "$('storepath').value=cur;$('storeedit').style.display='flex';$('storepath').focus()}"
 "async function storeApply(){var d=$('storepath').value.trim();$('storeedit').style.display='none';if(!d)return;"
 "var r=await fetch('/api/store',{method:'POST',body:d});"
 "if(r.ok){$('q').value='';$('out').innerHTML='';$('count').textContent='';loadStore()}"
 "else{alert('Could not open that index')}}"
-/* Reclaim deleted records. There is no CLI on a phone, so without this the store
- * grows forever and the tags of deleted records linger in the index. The second
- * question is the privacy one and is asked separately, because forgetting is the
- * one choice here another device can undo for you. */
+/* Reclaim deleted records: with no CLI on a phone the store would grow forever and
+ * deleted records' tags would linger in the index. The second, privacy question is
+ * asked separately: forgetting is the one choice here another device can undo. */
 "async function cleanUp(){"
 "var st=await(await fetch('/api/stats')).text();"
 "var d=(st.match(/deleted:\\s*(\\d+)/)||[0,'0'])[1];"
@@ -513,14 +495,13 @@ static const char PAGE[] =
 "var h=(location.hash||'').slice(1);"
 "setView(h=='tags'||h=='recall'||h=='timeline'?h:'timeline');"   /* else open on content, not a blank search */
 /* ---- Sync (Host / Join), mirroring the mobile Sync feature ---------------
- * qrGen: a small pure-JS byte-mode QR encoder (ECC level L, mask 0, versions
- * 1-5) so a phone can scan the url+token with no server-side or network
- * dependency. Returns a matrix of 0/1 modules. Capped at v5 (<=106 bytes): v6+
- * needs multi-block ECC interleaving and version-info bits, which this encoder
- * does not implement -- rather than paint a silently-unscannable code, a larger
- * payload throws and qrDraw shows "(QR unavailable)" (the pane still prints the
- * url+token as selectable text to type in). The pairing payload is ~78 bytes
- * max (dotted-quad host + 32-hex token), well within v5. */
+ * qrGen: a small pure-JS byte-mode QR encoder (ECC level L, mask 0, versions 1-5)
+ * so a phone can scan the url+token with no server-side or network dependency.
+ * Returns a matrix of 0/1 modules. Capped at v5 (<=106 bytes): v6+ needs multi-block
+ * ECC interleaving and version-info bits, unimplemented here, so a larger payload
+ * throws and qrDraw shows "(QR unavailable)" rather than painting a silently
+ * unscannable code. The pairing payload is ~78 bytes max (dotted-quad host + 32-hex
+ * token), well within v5. */
 "function qrGen(s){var EXP=new Array(512),LOG=new Array(256),x=1,i;"
 "for(i=0;i<255;i++){EXP[i]=x;LOG[x]=i;x<<=1;if(x&256)x^=285}"
 "for(i=255;i<512;i++)EXP[i]=EXP[i-255];"
@@ -602,10 +583,9 @@ static const char PAGE[] =
 "async function fileImport(f){var b=await f.arrayBuffer();var r=await fetch('/api/import-bundle',{method:'POST',body:b});"
 "if((await r.text()).trim()=='merged'){closeSync();setView(view);alert('Imported. Records merged.')}else{alert('Import failed. Is it an .aisb file from Export?')}}"
 /* folder auto-sync: remember the path, run a pass on demand + on load + after a save */
-/* The saved folder now comes from the SERVER (<index>/syncfolder), not from
- * localStorage: clearing browser data used to switch off what the user
- * believed was their backup, and neither the app nor the CLI could see the
- * setting. syncFolderSaved() answers from a value fetched at load. */
+/* The saved folder comes from the SERVER (<index>/syncfolder), not localStorage:
+ * clearing browser data must not switch off the user's backup, and the app and the
+ * CLI must see the setting. syncFolderSaved() answers from a value fetched at load. */
 "var syncFld='';"
 "function syncFolderSaved(){return syncFld}"
 "async function syncFolderLoad(){try{syncFld=(await(await fetch('/api/sync-folder')).text()).trim()}catch(e){syncFld=''}"
@@ -617,8 +597,8 @@ static const char PAGE[] =
 "try{var r=await fetch('/api/sync-folder'+(force?'?force=1':''),{method:'POST',body:p});"
 "var s=(await r.text()).trim();"
 "if(s=='synced'){syncFldSaid='';syncFld=p;$('syncfldmsg').textContent='Synced.';setView(view);return}"
-/* A background pass reports its failure too. A folder sync that quietly stops
- * working is the exact failure this whole path exists to prevent. */
+/* A background pass reports its failure too: a folder sync that quietly stops
+ * working is the failure this whole path exists to prevent. */
 "var m={'no such folder':'No such folder. Create it first, or check the drive is plugged in.',"
 "'not a folder':'That path is a file, not a folder.',"
 "'cannot read that folder':'That folder cannot be read. Check the drive and permissions.',"
@@ -626,17 +606,16 @@ static const char PAGE[] =
 "'cannot write':'Merged what was there, but could not write into that folder: it may be read-only or full.'};"
 "var msg=m[s]||'Sync failed.';$('syncfldmsg').textContent=msg;"
 "$('syncfldany').style.display=(s=='folder empty')?'':'none';"
-/* The Sync sheet is hidden most of the time, so a message written only there is
- * no report at all -- a background pass would fail into an invisible panel while
- * the user went on believing the folder was their backup. Say it out loud. */
+/* The Sync sheet is hidden most of the time, so a message written only there is no
+ * report at all. Say it out loud. */
 "syncFolderAlert(msg)}"
 "catch(e){syncFolderAlert('Sync failed.');$('syncfldmsg').textContent='Sync failed.'}}"
 /* Once per problem: the pass runs on load and after every save, and repeating the
- * same sentence on each one would train the user to ignore it. */
+ * same sentence each time trains the user to ignore it. */
 "var syncFldSaid='',syncFldTimer=null;"
-/* This toast is shared with delete/undo, so hand it back: without clearing the
- * timer a later Deleted toast vanished early, and without restoring the button
- * that delete was offered with no Undo at all. */
+/* This toast is shared with delete/undo, so hand it back: clear the timer or a
+ * later Deleted toast vanishes early, restore the button or that delete is
+ * offered with no Undo at all. */
 "function syncFolderAlert(msg){if(msg==syncFldSaid)return;syncFldSaid=msg;"
 "var t=$('toast');t.firstChild.textContent=msg;$('toastundo').hidden=true;t.hidden=false;"
 "if(syncFldTimer)clearTimeout(syncFldTimer);"
@@ -671,9 +650,8 @@ static void write_all(int fd, const char *p, size_t n)
 }
 
 /* The shared folder this index syncs with, kept in <index>/syncfolder -- the same
- * file the app reads and writes, so the page, the app and anything reading the
- * index agree on one answer. Per-device by nature (it is a mount point on THIS
- * machine), which is why doc/SYNC.md lists it among the files not to sync. */
+ * file the app reads and writes, so page, app and CLI agree. Per-device by nature (a
+ * mount point on THIS machine), so doc/SYNC.md lists it among the files not to sync. */
 static void serve_save_syncfolder(const ais *a, const char *path)
 {
     char p[AIS_PATH_MAX];
@@ -746,9 +724,9 @@ static void url_decode(char *s)
     *o = '\0';
 }
 
-/* Copy the value of header NAME (case-insensitive) out of the NUL-terminated
- * header block HDRS into OUT (front-trimmed, truncated to fit). Returns 1 if
- * the header is present. Used for the CSRF origin check. */
+/* Copy the value of header NAME (case-insensitive) out of the NUL-terminated header
+ * block HDRS into OUT (front-trimmed, truncated to fit). Returns 1 if the header is
+ * present. Used for the CSRF origin check. */
 static int http_header(const char *hdrs, const char *name, char *out, size_t outsz)
 {
     size_t nlen = strlen(name);
@@ -781,13 +759,11 @@ static int http_header(const char *hdrs, const char *name, char *out, size_t out
 /* ---- get: stream each matching record's values to the socket ------------ */
 struct sink { ais *a; int fd; };
 
-/* A multi-line value is stored as a plain-text document blob (blobs/<ts>.txt)
- * whose PATH is the record value; the GUI must show the CONTENT, not the path.
- * If VALUE is such a blob, read it (capped) and return "aisdoc:<base64>" in OUT:
- * base64 carries the bytes with no newline or '|', so the line-based wire and
- * the client's record split stay intact; the client decodes and renders it.
- * Otherwise return VALUE unchanged. Single-threaded server, so a static read
- * buffer is safe. */
+/* A multi-line value is stored as a plain-text document blob (blobs/<ts>.txt) whose
+ * PATH is the record value; the GUI must show the CONTENT. If VALUE is such a blob,
+ * read it (capped) and return "aisdoc:<base64>" in OUT: base64 carries the bytes
+ * with no newline or '|', so the line-based wire and the client's record split stay
+ * intact. Otherwise return VALUE. Single-threaded, so a static read buffer is safe. */
 static const char *show_value(ais *a, const char *value, char *out, size_t outsz)
 {
     static char content[AIS_LINE_MAX / 2];        /* preview cap, one shared resolver */
@@ -822,8 +798,7 @@ static int on_id(long id, void *vp)
 }
 
 /* Get records under the keys: AND (intersection) by default, OR (union) when
- * want_or is set (the "Match any key" box). The user toggles it -- if AND finds
- * nothing they check the box and Get again. No automatic relaxation. */
+ * want_or is set (the "Match any key" box). No automatic relaxation. */
 static void do_get(ais *a, char *keys, int want_or, long after, int count, int fd)
 {
     char *kv[AIS_KEYS_MAX];
@@ -842,10 +817,9 @@ static void do_get(ais *a, char *keys, int want_or, long after, int count, int f
         ais_get_page(a, kv, nkeys, want_or ? AIS_OR : AIS_AND, after, count, on_id, &s);
 }
 
-/* keys-of-id: which visible tags is record ID filed under? Mirrors the embed
- * layer's keysOf -- walk the tags, and for each ask ais_get whether ID is a
- * member. O(tags), but the web edit dialog needs the current tag set to show
- * its chips. Emits the matching tags space-separated. */
+/* keys-of-id: which visible tags is record ID filed under? Mirrors the embed layer's
+ * keysOf -- walk the tags, and for each ask ais_get whether ID is a member. O(tags).
+ * Emits the matching tags space-separated. */
 struct keyhit { long want; int found; };
 static int keyhit_cb(long id, void *vp)
 {
@@ -876,18 +850,17 @@ static int keysof_tag(const char *key, long count, void *vp)
 }
 
 /* ---- put: the WHOLE body is one record ----------------------------------
- * A pasted block is one entry, not one record per line: ais_put_value() keeps
- * a single line as a plain record and routes a multi-line value to a blob.
- * Returns 1 if stored, 0 if empty/failed. */
+ * A pasted block is one entry, not one record per line: ais_put_value() keeps a
+ * single line as a plain record and routes a multi-line value to a blob. 1 if
+ * stored, 0 if empty/failed. */
 static long do_put(ais *a, const char *keys, char *body)
 {
     return ais_put_value(a, keys, body) >= 0 ? 1 : 0;
 }
 
-/* Encrypt save (?enc=1): BODY is "passphrase\nvalue..." -- the passphrase rides
- * the POST body (never the URL, so it stays out of the browser history) on this
- * localhost-only server. Encrypts VALUE under the passphrase and puts the
- * "aisc:" marker. 1 if stored, 0 on malformed/failure/crypto-not-built. */
+/* Encrypt save (?enc=1): BODY is "passphrase\nvalue..." -- the passphrase rides the
+ * POST body, never the URL, so it stays out of the browser history. Encrypts VALUE
+ * under it and puts the "aisc:" marker. 1 if stored, 0 on malformed/failure/no-crypto. */
 static long do_put_enc(ais *a, const char *keys, char *body)
 {
     char marked[8192];
@@ -920,10 +893,9 @@ static int tl_sink(long id, const char *ts, const char *keys,
         return 0;
     if (n >= (int)sizeof(line)) {        /* a blob-expanded value + big keys can exceed the
                                           * buffer; snprintf returns the untruncated length,
-                                          * so writing n bytes would over-read the stack past
-                                          * `line`. Clamp to what was written and keep the row
-                                          * newline-framed so the client's line parser stays
-                                          * in sync (the row is truncated, never a leak). */
+                                          * so writing n bytes would over-read past `line`.
+                                          * Clamp, keeping the row newline-framed so the
+                                          * client's line parser stays in sync. */
         n = (int)sizeof(line) - 1;
         line[n - 1] = '\n';
     }
@@ -964,17 +936,15 @@ static const char *ctype_of(const char *name)
     return "text/plain";
 }
 
-/* Serve an external asset <webdir>/<name> if present, so the look can be edited
- * as plain files (kul-style) instead of the embedded PAGE. webdir = $AIS_WEB,
- * else "gui/web". NAME must be one safe filename (letters/digits/._-), with no
- * '/' or "..", so the browser cannot escape the dir. Returns 1 if served. */
+/* Serve an external asset <webdir>/<name> if present, so the look can be edited as
+ * plain files instead of the embedded PAGE. webdir = $AIS_WEB, else "gui/web". NAME
+ * must be one safe filename (letters/digits/._-, no '/' or ".."), so the browser
+ * cannot escape the dir. Returns 1 if served. */
 static int serve_asset(int fd, const char *name)
 {
-    /* $AIS_WEB is the documented way to serve the app/ page instead of the
-     * embedded one (app/README.md, doc/android-install.md). It was never read,
-     * so that documented invocation silently fell back to the embedded PAGE and
-     * app/ was unreachable. Traversal is already impossible: NAME is one safe
-     * filename, checked below. */
+    /* $AIS_WEB is the documented way to serve the app/ page instead of the embedded
+     * one (app/README.md, doc/android-install.md). Traversal is impossible: NAME is
+     * one safe filename, checked below. */
     const char *webdir = getenv("AIS_WEB");
     char path[AIS_PATH_MAX], buf[8192];
     FILE *fp;
@@ -1002,12 +972,12 @@ static int serve_asset(int fd, const char *name)
 
 #ifdef SERVE_HAVE_SYNC
 /* ---- LAN sync (Host / Join), mirroring the mobile Sync feature -----------
- * Host: fork an ephemeral child that runs sync_serve() single-shot, so the
- * single-threaded HTTP loop is not blocked while it waits for a peer; the
- * parent returns the pairing info (URL + token) at once and the page renders a
- * QR of it. The child exits after one peer or the timeout; the parent reaps it.
- * Join: synchronous sync_pull() -- a LAN merge is quick. Both use bidir=1, the
- * symmetric exchange the mobile app uses (both devices converge in one round).
+ * Host: fork an ephemeral child running sync_serve() single-shot, so the
+ * single-threaded HTTP loop is not blocked while it waits for a peer; the parent
+ * returns the pairing info (URL + token) at once and the page renders a QR of it.
+ * The child exits after one peer or the timeout; the parent reaps it. Join:
+ * synchronous sync_pull() -- a LAN merge is quick. Both use bidir=1, the symmetric
+ * exchange the mobile app uses (both devices converge in one round).
  */
 #define SERVE_SYNC_BIDIR    1     /* symmetric exchange (matches the mobile Sync) */
 #define SERVE_SYNC_TIMEOUT 120    /* seconds the host child waits for one peer    */
@@ -1016,10 +986,10 @@ static volatile sig_atomic_t sync_child = -1;   /* live Host child pid, or -1 (o
 static volatile sig_atomic_t sync_last  = -2;   /* last Host outcome: 0 served, 1 half, else not */
 
 /* Reap the Host child if it has finished so it leaves no zombie, remembering its
- * outcome (the child exits 0 when a peer synced, non-zero on timeout/error).
- * Called both from a SIGCHLD handler (a child dying between polls) and from the
- * routes; WNOHANG and the pid guard make a double call harmless. Only
- * waitpid-and-plain-assignment here, so it is async-signal-safe. */
+ * outcome (the child exits 0 when a peer synced, non-zero on timeout/error). Called
+ * from a SIGCHLD handler and from the routes; WNOHANG and the pid guard make a
+ * double call harmless. Only waitpid and plain assignment here, so it is
+ * async-signal-safe. */
 static void sync_reap(void)
 {
     pid_t pid = (pid_t)sync_child;
@@ -1098,9 +1068,9 @@ static void sync_host(ais *a, int fd)
             _exit(1);
         rc = sync_serve(&fresh, port, token, SERVE_SYNC_TIMEOUT, SERVE_SYNC_BIDIR);
         ais_close(&fresh);
-        /* 0 = converged, 2 = half (the peer got ours, we did not get theirs),
-         * 3 = both merged but one more round is needed, 1 = timeout/error. The
-         * parent only has an exit status to read, so each outcome needs a code. */
+        /* The parent has only an exit status to read: 0 = converged, 2 = half (the
+         * peer got ours, we did not get theirs), 3 = both merged but one more round
+         * is needed, 1 = timeout/error. */
         _exit(rc == 0 ? 0
               : rc == AIS_SYNC_PARTIAL ? 2
               : rc == AIS_SYNC_AGAIN   ? 3 : 1);
@@ -1160,8 +1130,7 @@ static void sync_join(ais *a, char *body, int fd)
     }
     rc = sync_pull(a, host, port, tok, 10, SERVE_SYNC_BIDIR);   /* 10s LAN timeout */
     send_head(fd, "text/plain");
-    /* "half" is a SUCCESS with an unfinished second leg: their records are here.
-     * Folding it into the error told the user nothing had been copied. */
+    /* "half" is a SUCCESS with an unfinished second leg: their records are here. */
     if (rc == 0)                        write_all(fd, "merged\n", 7);
     else if (rc == AIS_SYNC_PARTIAL)    write_all(fd, "half\n", 5);
     else                                write_all(fd, "could not connect or wrong token\n", 33);
@@ -1214,12 +1183,11 @@ static void handle(ais *a, int fd)
         return;
     buf[n] = '\0';
 
-    /* The header block itself can arrive split across TCP segments (a slow link,
-     * a proxy, or a client writing the headers in pieces). Read until the blank
-     * line that ends the headers is in hand, so Content-Length is parsed from the
-     * COMPLETE header block and a header-fragmented request is not misparsed as an
-     * empty POST (which silently saved nothing). Bounded by buf; the per-socket
-     * recv timeout (ais_serve) caps the wait. */
+    /* The header block itself can arrive split across TCP segments. Read until the
+     * blank line that ends the headers is in hand, so Content-Length is parsed from
+     * the COMPLETE header block and a header-fragmented request is not misparsed as
+     * an empty POST. Bounded by buf; the per-socket recv timeout (ais_serve) caps
+     * the wait. */
     while (strstr(buf, "\r\n\r\n") == NULL && (size_t)n < sizeof(buf) - 1) {
         ssize_t k = SOCK_READ(fd, buf + n, sizeof(buf) - 1 - (size_t)n);
         if (k <= 0)
@@ -1242,12 +1210,11 @@ static void handle(ais *a, int fd)
 
         /* CSRF guard: a browser tags every request with Sec-Fetch-Site. The GUI's
          * own fetches are "same-origin"; a direct address-bar hit is "none". Any
-         * other value ("cross-site"/"same-site") is a DIFFERENT web page driving
-         * our localhost API with the user's ambient authority -- which could push
-         * the whole index to an attacker (via /api/sync/join) or inject/delete
-         * records. Refuse those on the API. Older clients without the header fall
-         * back to an Origin check; non-browser callers (curl, the CLI, the test
-         * suite) send neither and are unaffected. */
+         * other value ("cross-site"/"same-site") is a DIFFERENT web page driving our
+         * localhost API with the user's ambient authority, which could push the whole
+         * index to an attacker (via /api/sync/join) or inject/delete records. Refuse
+         * those on the API. Older clients without the header fall back to an Origin
+         * check; non-browser callers (curl, the CLI, the tests) send neither. */
         {
             char hv[64];
             if (http_header(buf, "Sec-Fetch-Site", hv, sizeof hv)) {
@@ -1255,8 +1222,8 @@ static void handle(ais *a, int fd)
                     cross_site = 1;
             } else if (http_header(buf, "Origin", hv, sizeof hv)) {
                 /* Match the WHOLE host, not a 16-char prefix: a bare strncmp would
-                 * accept http://localhost.evil.example (an attacker-controlled host)
-                 * as same-origin. The literal must be followed by end-of-string or a
+                 * accept the attacker-controlled http://localhost.evil.example as
+                 * same-origin. The literal must be followed by end-of-string or a
                  * ':' port, nothing else. */
                 int local = (strncmp(hv, "http://127.0.0.1", 16) == 0 ||
                              strncmp(hv, "http://localhost", 16) == 0) &&
@@ -1272,11 +1239,10 @@ static void handle(ais *a, int fd)
     if (body != NULL) { *body = '\0'; body += 4; }
     else              { body = buf + n; }
 
-    /* The reads above can hold only the headers: a browser's fetch() routinely
-     * sends the POST body in a later packet. Read until the whole body is in.
-     * Otherwise we parse an empty value and, worse, close the socket with the
-     * body still unread, which resets the connection: the client sees "failed to
-     * fetch" and nothing is saved. Bounded by buf. */
+    /* The reads above can hold only the headers: a browser's fetch() routinely sends
+     * the POST body in a later packet. Read until the whole body is in, or we parse
+     * an empty value and close the socket with the body still unread, which resets
+     * the connection ("failed to fetch") with nothing saved. Bounded by buf. */
     if (body_len > 0) {
         ssize_t have = n - (body - buf);
         while (have < body_len && (size_t)n < sizeof(buf) - 1) {
@@ -1287,12 +1253,11 @@ static void handle(ais *a, int fd)
         }
         buf[n] = '\0';
 
-        /* The body did not fit the request buffer. Reading only what fits would
-         * silently TRUNCATE the value, and leaving the tail unread would RST the
-         * peer ("failed to fetch") on close -- after a bogus "saved". Drain the
-         * remainder off the socket and refuse with 413 instead. The one large-body
-         * route, /api/import-bundle, streams its own body (reads Content-Length
-         * directly), so exempt it; its path is still intact in the header block. */
+        /* The body did not fit the request buffer. Reading only what fits TRUNCATES
+         * the value, and leaving the tail unread RSTs the peer on close. Drain the
+         * remainder off the socket and refuse with 413. The one large-body route,
+         * /api/import-bundle, streams its own body (reads Content-Length directly),
+         * so exempt it; its path is still intact in the header block. */
         if (have < body_len && strstr(buf, "/api/import-bundle") == NULL) {
             char sink[4096];
             while (have < body_len) {
@@ -1375,11 +1340,10 @@ static void handle(ais *a, int fd)
         char msg[64];
         long c = enc ? do_put_enc(a, keys, body) : do_put(a, keys, body);
         if (c <= 0) {
-            /* Saving nothing is a FAILURE, not a 200 with a count of zero. An
-             * encrypted save on a build with no crypto module answered "saved 0
-             * record(s)" with a 200, so both pages closed the sheet as if the
-             * secret had been stored -- the one case where believing a success
-             * message loses the thing you were trying to protect. */
+            /* Saving nothing is a FAILURE, not a 200 with a count of zero: on a
+             * 200 both pages close the sheet as if the value had been stored, and
+             * for an encrypted save on a build with no crypto module that loses
+             * the thing the user was trying to protect. */
             static const char e[] = "HTTP/1.0 500 Internal Server Error\r\n"
                 "Connection: close\r\n\r\nnothing was saved\n";
             write_all(fd, e, sizeof(e) - 1);
@@ -1408,8 +1372,8 @@ static void handle(ais *a, int fd)
         }
     } else if (strcmp(method, "POST") == 0 && strcmp(path, "/api/del") == 0) {
         /* delete record ?id=N (the handle from the id|value lines). Shred any
-         * encrypted blob FIRST, as the CLI does: deleting a secret from the page
-         * must not leave its ciphertext on disk (and exportable) afterwards. */
+         * encrypted blob FIRST, as the CLI does: deleting a secret must not leave
+         * its ciphertext on disk, and exportable, afterwards. */
         if (reqid > 0)
             ais_record(a, reqid, serve_shred_value, (void *)a->dir);
         if (reqid > 0 && ais_del(a, reqid) == 0) {
@@ -1431,12 +1395,12 @@ static void handle(ais *a, int fd)
             write_all(fd, e, sizeof(e) - 1);
         }
     } else if (strcmp(method, "POST") == 0 && strcmp(path, "/api/untag") == 0) {
-        /* remove the tag ?keys=KEY from every record, destroying nothing. The
-         * non-destructive half of the pair below -- the page must offer BOTH, or
-         * a user who only wants the tag gone reaches for the delete. */
-        /* ONE tag, not the whitespace-separated list every other endpoint takes:
-         * key_encode would fold "a b" to "a_b" and report a cheerful 200 for a
-         * no-op on a tag that cannot exist. */
+        /* Remove the tag ?keys=KEY from every record, destroying nothing: the
+         * non-destructive half of the pair below, and the page must offer BOTH or a
+         * user who only wants the tag gone reaches for the delete. ONE tag, not the
+         * whitespace-separated list every other endpoint takes: key_encode would fold
+         * "a b" to "a_b" and report a cheerful 200 for a no-op on a tag that cannot
+         * exist. */
         int nu = (keys[0] != '\0' && strcspn(keys, " \t") == strlen(keys))
                  ? ais_untag_key(a, keys) : -1;
         if (nu >= 0) {
@@ -1474,9 +1438,8 @@ static void handle(ais *a, int fd)
             write_all(fd, e, sizeof(e) - 1);
         }
     } else if (strcmp(method, "GET") == 0 && strcmp(path, "/api/version") == 0) {
-        /* Which of the four numbers moved is the first thing a bug report needs,
-         * and a browser cannot run `ais --version`. Engine and on-disk format:
-         * the page adds its own. */
+        /* A browser cannot run `ais --version`, and which number moved is the first
+         * thing a bug report needs. Engine and on-disk format; the page adds its own. */
         char vbuf[128];
         int vn = snprintf(vbuf, sizeof vbuf, "engine: %s\nformat: v%d\n",
                           ais_version(), AIS_FORMAT_VERSION);
@@ -1484,9 +1447,8 @@ static void handle(ais *a, int fd)
         if (vn > 0)
             write_all(fd, vbuf, (size_t)vn);
     } else if (strcmp(method, "GET") == 0 && strcmp(path, "/api/stats") == 0) {
-        /* The same three lines as `ais --stats`. The GUI needs the deleted count
-         * to say what "clean up" would actually reclaim, rather than asking the
-         * user to confirm an unknown amount of work. */
+        /* The same three lines as `ais --stats`. The GUI needs the deleted count to
+         * say what "clean up" would reclaim. */
         FILE *sp = tmpfile();
         send_head(fd, "text/plain");
         if (sp != NULL) {
@@ -1500,11 +1462,9 @@ static void handle(ais *a, int fd)
             fclose(sp);
         }
     } else if (strcmp(method, "POST") == 0 && strcmp(path, "/api/compact") == 0) {
-        /* Reclaim deleted records. ?forget=1 also strips the tombstone hashes, so
-         * the deletions stay in force here but stop travelling and stop being
-         * testable. Reachable from the GUI because a phone has no CLI, and the
-         * store would otherwise grow forever with deleted bodies and the tags of
-         * deleted records would linger in the index. */
+        /* Reclaim deleted records. ?forget=1 also strips the tombstone hashes, so the
+         * deletions stay in force here but stop travelling and stop being testable.
+         * Reachable from the GUI because a phone has no CLI. */
         if ((forget ? ais_compact_purge(a) : ais_compact(a)) == 0) {
             send_head(fd, "text/plain");
             write_all(fd, forget ? "cleaned and forgotten\n" : "cleaned\n",
@@ -1625,23 +1585,20 @@ static void handle(ais *a, int fd)
         while (bl > 0 && (nd[bl-1] == '\r' || nd[bl-1] == '\n' ||
                           nd[bl-1] == ' '  || nd[bl-1] == '\t'))
             nd[--bl] = '\0';
-        /* NB: parsed in the query loop above -- by the time an endpoint runs, the
-         * loop has walked `query` to NULL, so reading it here always saw nothing. */
+        /* NB: `force` is parsed in the query loop above -- by the time an endpoint
+         * runs, the loop has walked `query` to NULL. */
         int frc = (nd[0] == '\0') ? -1
                 : sync_folder_once_force(a, nd, force);
         if (frc == 0) {
-            /* Remember it HERE, in <index>/syncfolder, which is where the app
-             * keeps it and what doc/SYNC.md documents. The page used to hold this
-             * in localStorage alone: clearing browser data silently switched off
-             * what the user believed was their backup, and the CLI and the app
-             * could not see the setting at all. Written only after a pass that
-             * worked, so a bad path is never persisted. */
+            /* Remember it HERE, in <index>/syncfolder: where the app keeps it and
+             * what doc/SYNC.md documents, and not in localStorage, which the CLI and
+             * the app cannot see and clearing browser data wipes. Written only after
+             * a pass that worked, so a bad path is never persisted. */
             serve_save_syncfolder(a, nd);
             send_head(fd, "text/plain");
             write_all(fd, "synced\n", 7);
         } else {
-            /* Name the reason. "Sync failed (check the path)" is the same lie the
-             * auto-create was: the user cannot tell a typo from an unmounted drive
+            /* Name the reason: the user cannot tell a typo from an unmounted drive
              * from a read-only share, and each has a different remedy. */
             const char *why;
             char head[256];
@@ -1743,10 +1700,10 @@ int ais_serve(ais *a, int port)
     }
     fprintf(stderr, "ais serve: http://127.0.0.1:%d/  (Ctrl-C to stop)\n", port);
 
-    /* best-effort: open the page in the user's browser (this is GUI-wrapper
-     * behaviour). macOS `open`, Linux `xdg-open`; ignored if neither exists.
-     * Suppressed when AIS_NO_OPEN is set -- for agents, screenshots, scripts and
-     * CI that drive the server headlessly and must not spawn a browser window. */
+    /* best-effort: open the page in the user's browser (GUI-wrapper behaviour).
+     * macOS `open`, Linux `xdg-open`; ignored if neither exists. AIS_NO_OPEN
+     * suppresses it, for agents, screenshots, scripts and CI that drive the server
+     * headlessly and must not spawn a browser window. */
     if (getenv("AIS_NO_OPEN") == NULL) {
         char cmd[224];
         int rc;
@@ -1766,16 +1723,15 @@ int ais_serve(ais *a, int port)
         cfd = accept(sfd, NULL, NULL);
         if (cfd < 0)
             continue;
-        /* Bound every recv on this connection. The loop is single-threaded (a
-         * localhost sketch: one client at a time), so one accepted client that
-         * sends nothing -- a browser's speculative/preconnect socket, or a peer
-         * that announces a Content-Length then withholds the body -- would park
-         * the sole thread in recv() forever and wedge the whole GUI for everyone.
-         * A timed-out read returns <=0, which handle() treats as a dropped
-         * client, so the loop recovers and serves the next request. This bounds
-         * the stall; it does not make handling concurrent (sync Host state lives
-         * in this process's globals, so per-connection forking is out). Localhost
-         * requests arrive in milliseconds, so 5s is far above any real client. */
+        /* Bound every recv on this connection. The loop is single-threaded, so one
+         * accepted client that sends nothing -- a browser's preconnect socket, or a
+         * peer that announces a Content-Length then withholds the body -- would park
+         * the sole thread in recv() forever and wedge the whole GUI. A timed-out read
+         * returns <=0, which handle() treats as a dropped client, so the loop
+         * recovers. This bounds the stall; it does not make handling concurrent (sync
+         * Host state lives in this process's globals, so per-connection forking is
+         * out). Localhost requests arrive in milliseconds, so 5s is far above any
+         * real client. */
 #ifdef _WIN32
         {
             DWORD tv = 5000;   /* ms */

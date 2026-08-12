@@ -17,10 +17,10 @@ int key_encode(const char *key, char *out, size_t outsz)
          * '|') AND one path component idx/<p>/<key> (no '/', '\\', space, ctrl). */
         if (c == ' ' || c == '|' || c == '/' || c == '\\' || iscntrl(c))
             out[i++] = '_';
-        /* A LEADING dot only: the prefix is the first two encoded chars, so a key
-         * like "../../x" encoded to "..___x" gave prefix "..", and the posting
-         * landed one directory ABOVE idx/. Interior dots are common and safe
-         * ("result.length"), so only the first character is folded. */
+        /* A leading dot only: the prefix is the first two encoded chars, so
+         * "../../x" would encode to "..___x", take the prefix "..", and file
+         * the posting one directory above idx/. Interior dots are common and
+         * safe ("result.length"). */
         else if (c == '.' && i == 0)
             out[i++] = '_';
         else

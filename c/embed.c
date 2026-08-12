@@ -1,8 +1,8 @@
-/* embed.c -- the FFI seam (see embed.h). Front-end glue, NOT engine internals:
- * it only adapts the engine's streaming callbacks into a single result buffer
- * for a host in a garbage-collected language (Dart/Swift/Kotlin). The engine
- * itself stays streaming and stack-bounded; the one heap buffer here lives at
- * the boundary, where a result set must be materialized for the caller. */
+/* embed.c -- the FFI seam (see embed.h). Front-end glue, not engine internals:
+ * it adapts the engine's streaming callbacks into a single result buffer for a
+ * host in a garbage-collected language (Dart/Swift/Kotlin). The engine stays
+ * streaming and stack-bounded; the one heap buffer lives here, at the boundary
+ * where a result set must be materialized for the caller. */
 #define _POSIX_C_SOURCE 200809L     /* strtok_r */
 #include <stdlib.h>
 #include <string.h>
@@ -52,7 +52,7 @@ long ais_embed_store(void *handle, const char *keys, const char *value)
     if (handle == NULL || keys == NULL || value == NULL)
         return -1;
     /* One value -> one record. A multi-line value becomes a blob-backed
-     * document (see doc.c), exactly as the web and CLI front-ends do. */
+     * document (doc.c), as in the web and CLI front-ends. */
     return ais_put_value((ais *)handle, keys, value);
 }
 
@@ -134,8 +134,8 @@ static int embed_pull(void *handle, const char *url, const char *token, int bidi
 {
 #ifdef _WIN32
     /* LAN sync (sync.c: raw BSD sockets + poll + SIGPIPE) is not ported to
-     * Winsock yet, and the Windows client exposes no sync UI. Stub it so the
-     * FFI seam stays symmetric and the Windows engine links without sync.c. */
+     * Winsock, and the Windows client exposes no sync UI. Stubbed so the FFI
+     * seam stays symmetric and the Windows engine links without sync.c. */
     (void)handle; (void)url; (void)token; (void)bidir;
     return -1;
 #else
@@ -194,13 +194,10 @@ int ais_embed_sync_serve(void *handle, int port, const char *token)
 
 /* ---- file bundle: write the whole index to a FILE and merge one back -------
  * The same assembly + merge as LAN sync (sync.c), but PLAINTEXT: no AEAD, no
- * passphrase, so there is no wrong-secret failure class. The bundle lands in a
- * file the user can save/move by any channel (Drive / USB / email) instead of a
- * socket -- covering PC<->PC and cross-network transfer, which live sync can't.
- * Encrypted VALUES stay opaque: they are already "aisc:" ciphertext in the store,
- * so the plaintext bundle carries them as-is (the bundle envelope is open, the
- * secret values remain sealed). NOTE: sync.c is not built on Windows, so both
- * calls are #ifdef'd to a -1 stub there, matching embed_pull/serve. */
+ * passphrase, so there is no wrong-secret failure class. Encrypted VALUES stay
+ * opaque -- already "aisc:" ciphertext in the store, carried as-is: the envelope
+ * is open, the secret values remain sealed. sync.c is not built on Windows, so
+ * both calls are #ifdef'd to a -1 stub there, matching embed_pull/serve. */
 long ais_embed_count(void *handle)
 {
     long n = 0;
@@ -264,8 +261,8 @@ int ais_embed_import_bundle(void *handle, const char *path)
     if (got != (size_t)size) { free(blob); return -1; }
 
     /* Plaintext merge (the same tombstone-union LWW). -1 = I/O / bad args; -2 = an
-     * unrecognized version byte, so a GUI can say "old/newer bundle format" rather
-     * than mis-parsing. There is no wrong-secret (-3) case: the bundle is not sealed. */
+     * unrecognized version byte, so a GUI can say "old/newer bundle format". No
+     * wrong-secret (-3) case: the bundle is not sealed. */
     rc = sync_import_plain(a, blob, got);
     free(blob);
     if (rc == 0)  return 0;
@@ -376,10 +373,9 @@ char *ais_embed_recall_page(void *handle, const char *keys, int or_mode,
         kv[nkeys++] = tok;
 
     c.a = a; c.b = &b; c.oom = 0;
-    /* or_mode is the mode switch: 0 = AND (intersection), 1 = OR (union). The
-     * GUI's "Match any key" box picks it; no automatic relaxation. AFTER/COUNT
-     * page it: emit the COUNT records with id > AFTER (0/0 = the whole set). The
-     * host reads the largest id in the page and passes it back as AFTER to scroll. */
+    /* or_mode: 0 = AND (intersection), 1 = OR (union); no automatic relaxation.
+     * AFTER/COUNT page it: emit the COUNT records with id > AFTER (0/0 = the
+     * whole set); the host passes the page's largest id back as AFTER. */
     if (nkeys > 0)
         ais_get_page(a, kv, nkeys, or_mode ? AIS_OR : AIS_AND,
                      after, count, on_id, &c);
@@ -393,9 +389,9 @@ char *ais_embed_recall(void *handle, const char *keys, int or_mode)
 }
 
 /* ---- find: content search over values, captured from ais_find's stream ---- */
-/* Same "id|value\n" line format as recall, so the host reuses one parser; the
- * capture goes through a portable tmpfile() (ISO C, so it works on Windows too,
- * unlike open_memstream): let ais_find write to it, then read the file back. */
+/* Same "id|value\n" line format as recall. The capture goes through tmpfile()
+ * (ISO C, so it works on Windows, unlike open_memstream): ais_find writes to it,
+ * then the file is read back. */
 char *ais_embed_find(void *handle, const char *needle)
 {
     ais *a = handle;
@@ -506,11 +502,10 @@ char *ais_embed_tags(void *handle)
 
 /* ---- keys: a record's CURRENT (visible) keys, by id ---------------------- */
 /* The store line's keys field records every key ATTACHED (an attach rewrites it;
- * see LAYOUT.md), but NOT which are still live: a DETACH leaves the key in the
- * field and records a ktomb entry, and only compaction strips it. So the live key
- * set still can't be read off the line -- derive it the way recall does: a key
- * belongs to id iff ais_get finds id under it. Enumerate candidate keys with
- * ais_tags, membership-test each. */
+ * see LAYOUT.md), not which are still live: a DETACH leaves the key in the field
+ * and records a ktomb entry, and only compaction strips it. So the live set is
+ * derived as recall does -- a key belongs to id iff ais_get finds id under it:
+ * enumerate candidates with ais_tags, membership-test each. */
 struct keys_member { long want; int found; };
 
 static int keys_hit(long id, void *vp)
@@ -561,8 +556,6 @@ char *ais_embed_keys(void *handle, long id)
     return buf_finish(&b, c.oom);           /* "" if id has no visible keys */
 }
 
-/* Persist DIR as the saved default index (~/.ais/config), for a GUI's "change
- * store" so the choice sticks next run. 0 on success, -1 on failure. */
 int ais_embed_compact(void *handle, int forget)
 {
     ais *a = handle;

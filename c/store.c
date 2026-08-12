@@ -36,20 +36,16 @@ static int ts_digits(const char *p, int i, int n)
     return 1;
 }
 
-/* Does field-2 of a store line hold a timestamp? This tells a v2 line
- * (id|ts|keys|value) from a legacy v1 line (id|keys|value). We accept the
- * engine's own "YYYY-MM-DDThh:mm:ss" and the hand-written shortenings
- * "YYYY-MM-DD" and "YYYY-MM-DDThh:mm" -- always anchored and ending at '|'/EOL.
- *
- * The lower bound is deliberately a FULL date (YYYY-MM-DD): a bare year or
- * "YYYY-MM" is left as a KEY, because tagging by year ("photos 2026") is
- * common and must not be mistaken for a save time. A malformed date simply
- * fails here and the line is read as a dateless v1 record -- the id, keys and
- * value are never lost, only the date is dropped. */
-/* One second later, on the canonical "YYYY-MM-DDThh:mm:ssZ" form. Plain civil
- * arithmetic rather than timegm()/mktime(): the string is already UTC, so there is
- * no zone to consult, and the two libc calls that could do this are respectively
- * non-standard and local-time. Returns 0, or -1 if TS is not that exact form. */
+/* Does field-2 of a store line hold a timestamp? Tells a v2 line
+ * (id|ts|keys|value) from a legacy v1 line (id|keys|value). Accepts the engine's
+ * own "YYYY-MM-DDThh:mm:ss" and the hand-written "YYYY-MM-DD" and
+ * "YYYY-MM-DDThh:mm", always anchored and ending at '|'/EOL. The lower bound is a
+ * FULL date: a bare year or "YYYY-MM" stays a KEY, tagging by year ("photos
+ * 2026") being common. A malformed date fails here and the line reads as a
+ * dateless v1 record -- only the date is dropped, never the id, keys or value. */
+/* One second later, on the canonical "YYYY-MM-DDThh:mm:ssZ" form. Civil
+ * arithmetic, not timegm()/mktime() (non-standard and local-time respectively);
+ * the string is already UTC. Returns 0, or -1 if TS is not that exact form. */
 static int atoi_n(const char *p, int off, int n)
 {
     int v = 0;
@@ -168,9 +164,8 @@ int store_now(char *buf, size_t bufsz)
 }
 
 /* Stable content hash of a record's VALUE -- its cross-device identity, since put
- * dedups by value (the same value IS the same record; keys are labels that union on
- * merge). FNV-1a 64-bit as 16 hex chars + NUL. NOT a security hash. Same value ->
- * same hash on any device, independent of local ids. */
+ * dedups by value (keys are labels that union on merge). FNV-1a 64-bit as 16 hex
+ * chars + NUL. NOT a security hash. Same value -> same hash on any device. */
 void content_hash(const char *value, char out[17])
 {
     unsigned long long h = 1469598103934665603ULL;   /* FNV-1a offset basis */
@@ -217,8 +212,8 @@ int store_write_version(const ais *a)
 }
 
 /* (Re)load next_id from disk, recovering it from the store (max id + 1) if the
- * cache file is absent. Called at open, and again by every writer under the
- * exclusive lock, so two processes never hand out the same id. Returns 0/-1. */
+ * cache file is absent. Called at open, and by every writer under the exclusive
+ * lock, so two processes never hand out the same id. Returns 0/-1. */
 int store_load_next_id(ais *a)
 {
     char nidpath[AIS_PATH_MAX];
@@ -239,12 +234,11 @@ int store_load_next_id(ais *a)
         a->next_id = cached;
         return 0;
     }
-    /* The cache is absent OR present-but-unusable (0-length / unparseable -- a
-     * write interrupted by a crash or ENOSPC leaves it so). Trusting it here
-     * would reset ids to 1 and reissue live ids, colliding records silently, so
-     * fall back to the store, which is the source of truth: max(id)+1 is never
-     * below any id that was durably assigned (store_append predates the cache
-     * write). */
+    /* Cache absent, or present but unusable (0-length / unparseable, as a write
+     * interrupted by a crash or ENOSPC leaves it). Trusting it would reset ids to
+     * 1 and reissue live ones, colliding records silently. The store is the source
+     * of truth: max(id)+1 is never below any durably assigned id, store_append
+     * preceding the cache write. */
     {
         long nid = store_recover_next_id(a);
         if (nid < 0)
@@ -271,10 +265,9 @@ int store_open(ais *a, const char *dir)
     if (mkdir(a->dir, 0777) != 0 && errno != EEXIST)
         return -1;
 
-    /* Open the lock file but DO NOT lock here. Reads take no lock (Unix: any
-     * number of readers run at once); writers take the exclusive lock per
-     * mutating op (store_wlock). So a long-lived reader such as `ais serve`
-     * never blocks the CLI or an agent. */
+    /* Open the lock file but DO NOT lock here: reads take no lock, writers take
+     * the exclusive lock per mutating op (store_wlock). A long-lived reader such
+     * as `ais serve` never blocks the CLI or an agent. */
     if (store_path(a, "lock", lockpath, sizeof(lockpath)) != 0)
         return -1;
     a->lock_fd = open(lockpath, O_CREAT | O_RDWR, 0666);
@@ -291,10 +284,9 @@ int store_open(ais *a, const char *dir)
         if (v < 0)
             goto fail;
         if (v > AIS_FORMAT_VERSION) {
-            /* Named plainly: this is reached by an ordinary user whose devices
-             * share one index folder and who has upgraded only one of them. The
-             * index is intact -- this ais is the old part -- and saying so is
-             * what stops someone "fixing" it by deleting files. */
+            /* Reached by a user whose devices share one index folder and who has
+             * upgraded only some of them: the index is intact, this ais is the
+             * old part, and saying so stops a "fix" by deleting files. */
             fprintf(stderr,
                     "ais: this index was written by a newer ais (format v%ld; "
                     "this one speaks v%d).\n"
@@ -304,10 +296,9 @@ int store_open(ais *a, const char *dir)
                     "made on the others.\n", v, AIS_FORMAT_VERSION);
             goto fail;
         }
-        /* Stamp a new (v0) index, and upgrade an older one in place: once this
-         * ais writes a v2 line into it, a v1 ais must no longer open it (it
-         * would misread the ts as keys), so mark it ours now. v2 reads v1 lines
-         * fine, so the upgrade is safe and one-way. */
+        /* Stamp a new (v0) index and upgrade an older one in place: once this ais
+         * writes a v2 line into it, a v1 ais must not open it (it would misread
+         * the ts as keys). v2 reads v1 lines, so the upgrade is safe and one-way. */
         if (v < AIS_FORMAT_VERSION && store_write_version(a) != 0)
             goto fail;
     }
@@ -320,8 +311,8 @@ fail:
 }
 
 /* Take the exclusive writer lock for one mutating op (blocking: a second writer
- * waits rather than failing). The caller reloads next_id after this if it will
- * assign ids. Returns 0/-1. */
+ * waits rather than failing). A caller that will assign ids reloads next_id
+ * after this. Returns 0/-1. */
 int store_wlock(ais *a)
 {
     if (a->lock_fd < 0)
@@ -337,9 +328,9 @@ void store_wunlock(ais *a)
 
 void store_close(ais *a)
 {
-    /* No lock is held between ops, and next_id is persisted by each write under
-     * the lock; re-saving a possibly-stale in-memory next_id here would clobber
-     * a concurrent writer, so close only releases the fd. */
+    /* No lock is held between ops and each write persists next_id under the lock;
+     * re-saving a possibly-stale in-memory next_id here would clobber a concurrent
+     * writer, so close only releases the fd. */
     if (a->lock_fd >= 0) {
         close(a->lock_fd);
         a->lock_fd = -1;
@@ -369,10 +360,9 @@ int store_append(const ais *a, long id, const char *ts,
     FILE *fp;
     int need;
 
-    /* A record is ONE line: an embedded newline would end the fgets on read and
-     * drop everything after it (silent, unrecoverable data loss). Keys are already
-     * '|'/control-sanitized upstream; refuse a multi-line value here and point at
-     * --doc, mirroring the too-long guard below. */
+    /* A record is ONE line: an embedded newline ends the fgets on read and drops
+     * everything after it (silent, unrecoverable loss). Keys are already
+     * '|'/control-sanitized upstream; a multi-line value is refused here. */
     if (strpbrk(value, "\r\n") != NULL || strpbrk(keys, "\r\n") != NULL) {
         fprintf(stderr, "ais: value spans multiple lines -- use --doc for multi-line/large values\n");
         return -1;
@@ -395,26 +385,19 @@ int store_append(const ais *a, long id, const char *ts,
     if (fp == NULL)
         return -1;
 
-    /* NEVER append onto an unterminated last line.
+    /* NEVER append onto an unterminated last line. A record can be 64 KB
+     * (AIS_LINE_MAX) against stdio's 4 KB buffer, so one append is several
+     * write() calls and a power cut or ENOSPC between them leaves a partial line.
+     * Appending onto it fuses the two records into one line: store_parse takes
+     * the whole following record as the value, and the next compaction rewrites
+     * the fused line verbatim. Two records lost, silently.
      *
-     * A record can be 64 KB (AIS_LINE_MAX) against stdio's 4 KB buffer, so one
-     * append is several write() calls; a power cut or ENOSPC between them leaves
-     * a partial line with no newline. Append mode then writes the NEXT record
-     * straight onto its end, and the two fuse into one line: store_parse reads
-     * the leading id and takes the rest -- including the whole of the following
-     * record -- as one value. The second record becomes unreachable, and the
-     * next compaction rewrites the fused line verbatim, destroying it for good.
-     * Two records lost from one torn write, silently.
-     *
-     * The newline is added rather than the tail truncated. A store is meant to be
-     * hand-editable, and an editor that leaves no final newline is ordinary; that
-     * last line is then a COMPLETE record that truncating would delete. Closing
-     * the line keeps a good record good, and leaves a genuinely torn one as its
-     * own short line -- damaged, but damaged alone, which is the whole promise in
-     * STYLE.md ("corruption must stay local and recoverable").
-     *
-     * No fsync: it would cost a disk flush on every save to narrow a window this
-     * already makes survivable, and compact.c's rename commit takes the same view. */
+     * The newline is added rather than the tail truncated: a store is meant to be
+     * hand-editable and an editor leaving no final newline is ordinary, so that
+     * last line can be a COMPLETE record. A genuinely torn one is then damaged
+     * alone (STYLE.md: "corruption must stay local and recoverable"). No fsync:
+     * a disk flush per save to narrow a window this already makes survivable;
+     * compact.c's rename commit takes the same view. */
     if (fseek(fp, 0, SEEK_END) == 0) {
         long sz = ftell(fp);
         if (sz > 0 && fseek(fp, sz - 1, SEEK_SET) == 0) {
@@ -545,12 +528,11 @@ long store_bytes(const ais *a)
 void off_write(FILE *fp, long offset)
 {
     long v = (offset < 0) ? 0L : offset + 1;   /* +1: 0 = absent */
-    if (v >= 100000000000L)                    /* 11 digits (~90 GB); a larger value would
-                                                * print 12 digits and break the fixed
-                                                * AIS_OFF_WIDTH stride, misaligning every later
-                                                * entry. Emit the absent sentinel instead so
-                                                * off_get falls back to a scan (still correct),
-                                                * rather than silently returning wrong offsets. */
+    if (v >= 100000000000L)                    /* 11 digits (~90 GB); 12 would break the
+                                                * fixed AIS_OFF_WIDTH stride and misalign
+                                                * every later entry. Emit the absent
+                                                * sentinel: off_get then falls back to a
+                                                * scan instead of returning wrong offsets. */
         v = 0;
     fprintf(fp, "%011ld\n", v);
 }
@@ -648,8 +630,8 @@ int store_value_at(const ais *a, long id, long offset, ais_val_cb cb, void *ctx)
 }
 
 /* Like store_value_at, but parses the WHOLE record (id|ts|keys|value) at OFFSET
- * and forwards it to a store_rec_cb -- so a caller paging by id (the timeline)
- * can read one record without scanning. 1 served, 0 stale/mismatch, -1 error. */
+ * and forwards it to a store_rec_cb, so a caller paging by id (the timeline) can
+ * read one record without scanning. 1 served, 0 stale/mismatch, -1 error. */
 int store_record_at(const ais *a, long id, long offset, store_rec_cb cb, void *ctx)
 {
     char path[AIS_PATH_MAX];

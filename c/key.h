@@ -1,11 +1,11 @@
 /* key.h -- key encoding and the navigable shard prefix.
  *
- * A key is a human word. Encoding lowercases it and maps every unsafe character
- * to '_' -- space, control chars, '|' (the store field delimiter), and '/' '\'
- * (path separators) -- so a key is one store field AND one safe path component.
- * The shard prefix is the first one or
- * two encoded characters, giving the navigable layout idx/<p>/<key>:
- * `ls idx/a/` shows the keys beginning with 'a'. Nothing is hashed.
+ * Encoding lowercases the key and maps every unsafe character to '_' -- space,
+ * control chars, '|' (the store field delimiter), '/' and '\' (path
+ * separators) -- so a key is one store field and one safe path component.
+ * The shard prefix is the first one or two encoded characters, giving the
+ * layout idx/<p>/<key>: `ls idx/a/` shows the keys beginning with 'a'. Nothing
+ * is hashed.
  *
  * Pure functions: no allocation, bounded buffers supplied by the caller.
  */

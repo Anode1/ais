@@ -1,10 +1,7 @@
-/* find.c -- content search. See find.h.
- *
- * Same shape as ais_dump: stream the store one record at a time, drop
- * tombstoned ids, but emit only lines whose value contains the needle.
- * Matching is a plain strstr (substring, case-sensitive); an empty needle
- * matches every value. Memory is bounded by the line buffer in store.c.
- */
+/* find.c -- content search. See find.h. Same shape as ais_dump: stream the
+ * store one record at a time, drop tombstoned ids, emit only lines whose value
+ * contains the needle. An empty needle matches every value. Memory is bounded
+ * by the line buffer in store.c. */
 #include <stdio.h>
 #include <string.h>
 

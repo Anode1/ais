@@ -13,7 +13,7 @@
 #include <string.h>
 
 #include "compact.h"
-#include "sync.h"      /* AIS_SYNC_PROTO -- an app bundle is these lines behind one byte */      /* tomb_contains / tomb_each -- merge export */
+#include "sync.h"      /* AIS_SYNC_PROTO -- an app bundle is these lines behind one byte */
 #include "doc.h"
 #include "feed.h"
 #include "win.h"        /* mkdir() shim on native Windows */
@@ -21,7 +21,6 @@
 #include "secret.h"
 #include "store.h"        /* store_each_record -- merge export */
 
-/* feed_stdin: file each non-empty stdin line, verbatim, as a value under KEYS. */
 void feed_stdin(ais *a, const char *keys)
 {
     char line[AIS_LINE_MAX];
@@ -45,22 +44,14 @@ static void chomp(char *s)
         s[--n] = '\0';
 }
 
-/* A `--dump` line is "id|keys|value"; the id (and ts) are reassigned on import,
- * so drop a leading all-digits id field IN PLACE when a keys|value pair remains.
- * This makes the documented `ais --dump | ais --import` round-trip -- previously
- * the id was mistaken for the key and every record was corrupted. A hand-edited
- * "keys|value" line is untouched: its first field is not a bare integer, or it
- * has just one '|'. Only the plain add form calls this; A|/D|/K| merge lines
- * (field 1 is a letter) are handled before it. */
-/* Does this field START with a date, "YYYY-"? Used only to tell a merge-stream
- * verb line from a hand-written "keys|value" whose key happens to look like one. */
+/* Does this field start with a date? Used only to tell a merge-stream verb line
+ * from a hand-written "keys|value" whose key happens to look like one. */
 static int feed_looks_dated(const char *p)
 {
     int i;
-    /* "YYYY-" alone was too loose: a hand-written "AI|2026-01-01 met Ann" has a
-     * short uppercase field 1 and a date-like field 2, so it was refused as an
-     * unknown verb and the record was lost silently. A real merge line carries a
-     * full ISO-8601 stamp, "YYYY-MM-DDT..", so require the shape through the 'T'. */
+    /* The shape is required through the 'T': a merge line carries a full ISO-8601
+     * stamp, "YYYY-MM-DDT..", while a hand-written "AI|2026-01-01 met Ann" has a
+     * short uppercase field 1 and a date-like field 2 and must still import. */
     for (i = 0; i < 4; i++)
         if (p[i] < '0' || p[i] > '9') return 0;
     if (p[4] != '-') return 0;
@@ -74,15 +65,11 @@ static int feed_looks_dated(const char *p)
 
 /* Split "KEY... -v VALUE" in place. Returns 1 and points *KEYS and *VAL into LINE
  * on success, 0 if the line carries no -v/--value marker (an old |-separated
- * line; see feed_old_line).
- *
- * This is the CLI's own grammar, which is the whole point: hand-written and
- * dumped lines are the same shape, so nothing has to guess which it is looking
- * at. -v takes the REST OF THE LINE verbatim -- no tokenising, no quoting, no
- * escaping -- because there is no shell here. That is what lets a value contain
- * '|', '#', quotes or backslashes with no format change, and it is why the
- * marker must come last. A key can never be mistaken for the marker: a key
- * beginning '-' is refused on every path (that spelling is the detach operator). */
+ * line; see feed_old_line). Hand-written and dumped lines share this one
+ * grammar. -v takes the REST OF THE LINE verbatim -- no tokenising, quoting or
+ * escaping, there being no shell here -- so a value may contain '|', '#', quotes
+ * or backslashes, and the marker must come last. A key cannot be mistaken for
+ * it: a key beginning '-' is refused on every path (that spelling is detach). */
 static int parse_kv_line(char *line, char **keys, char **val)
 {
     char *p = line, *m = NULL;
@@ -112,13 +99,11 @@ static int parse_kv_line(char *line, char **keys, char **val)
  * LINE in place into the new shape and points *KEYS and *VAL at it.
  *
  * The leading field of a 3-field line becomes a KEY rather than being discarded
- * as an id. That is deliberate: we cannot tell an id from a numeric tag, so we
- * prefer visible noise to silent loss. A real id turns into a junk key nobody
- * will search for; a real tag like "2024" survives, and used to be eaten.
- *
- * One case stays imperfect and cannot be fixed: an old two-field line whose VALUE
- * contains '|' is indistinguishable from a three-field line, so it reads as one
- * key too many. That ambiguity is exactly why the format changed. */
+ * as an id: an id and a numeric tag are indistinguishable, so visible noise is
+ * preferred to silent loss -- a real id becomes a junk key, a real tag like
+ * "2024" survives. One case cannot be fixed: an old two-field line whose VALUE
+ * contains '|' is indistinguishable from a three-field one and reads as one key
+ * too many. That ambiguity is why the format changed. */
 static void feed_old_line(char *line, char **keys, char **val, int *noisy)
 {
     char *b1 = strchr(line, '|'), *b2;
@@ -166,9 +151,9 @@ void feed_interactive(ais *a, const char *base)
     if (tty == NULL)
         die("put -i: no terminal for keys (pipe values in, or set AIS_TTY=FILE)");
 
-    /* Each stdin line is a value; ask the terminal for its keys (Enter accepts
-     * the base keys). Values flow from the pipe, keys from the tty -- two
-     * separate streams, which is the whole point of -i. */
+    /* Each stdin line is a value; its keys come from the terminal (Enter accepts
+     * the base keys). Two separate streams: values from the pipe, keys from the
+     * tty. */
     while (fgets(value, sizeof(value), stdin) != NULL) {
         chomp(value);
         if (value[0] == '\0')
@@ -260,11 +245,9 @@ void feed_import_from(ais *a, FILE *in)
     chash[0] = '\0';
 
     /* A bundle written by the app or the web GUI is a version byte followed by
-     * exactly these lines. Without this, that byte glued itself to the first line,
-     * which then matched no verb and fell through to the plain "keys|value"
-     * reader: the record was stored under a junk key with its timestamp swallowed
-     * into the value, and the import reported success. Silent wrong data, from a
-     * file the user was entitled to think we speak. */
+     * exactly these lines. Eat the byte: glued to the first line it matches no
+     * verb and falls through to the plain "keys|value" reader, storing the record
+     * under a junk key with its timestamp swallowed into the value. */
     {
         int c0 = getc(in);
         if (c0 != EOF && c0 != AIS_SYNC_PROTO)
@@ -281,10 +264,8 @@ void feed_import_from(ais *a, FILE *in)
 
         if (rl == 0)
             break;
-        /* An over-long line used to arrive as two: the head was refused as too
-         * long and the TAIL was parsed as a record, so importing one bad line
-         * silently created a record the input never contained. Refuse the whole
-         * line, once. */
+        /* Refuse the whole over-long line, once: taken as two, its tail would
+         * parse as a record the input never contained. */
         if (rl < 0) {
             fprintf(stderr, "import: line longer than %d bytes, skipped whole\n",
                     AIS_LINE_MAX - 1);
@@ -296,24 +277,20 @@ void feed_import_from(ais *a, FILE *in)
         if (line[0] == '\0' || line[0] == '#')
             continue;
 
-        /* D|ts|hash -- BUFFERED, and so tested before anything else. Resolving one
-         * means scanning the store for the value it names, and doing that per line
-         * made an import cost O(deletes x records); a whole batch resolves in one
-         * pass (ais_merge_del_many). Tested first because every other line either
-         * writes a record or reads one, and must see the tomb the pending deletes
-         * write: an add can resurrect the very record a D| names, or raise its edit
-         * clock, and a K| detach asks whether the record is still live. So the batch
-         * spans a RUN of D| lines -- which is all of them in practice, since an
-         * export emits every add before the first delete. A malformed D| falls
-         * through to the flush below and then to the plain reader, as it always did. */
+        /* D|ts|hash -- BUFFERED: resolving one scans the store for the value it
+         * names, so per line an import costs O(deletes x records) where a whole
+         * batch resolves in one pass (ais_merge_del_many). Tested before every
+         * other verb, since those all write or read a record and must see the tomb
+         * the pending deletes write. The batch therefore spans a RUN of D| lines --
+         * all of them in practice, an export emitting every add before the first
+         * delete. A malformed D| falls through to the flush below, then the plain
+         * reader. */
         if (line[0] == 'D' && line[1] == '|' && strchr(line + 2, '|') != NULL) {
             char *ts = line + 2, *h = strchr(ts, '|');
-            /* Keep STREAM order between the two buffers. A T| run followed by a
-             * D| run would otherwise apply D| first (this branch is tested before
-             * the T| flush below), and a merge that reorders the facts it was
-             * given is a merge whose outcome depends on where the buffers happen
-             * to break -- the same class of thing C|/sts exist to remove, even
-             * though no wrong outcome is reachable from it today. */
+            /* Keep STREAM order between the two buffers: this branch is tested
+             * before the T| flush below, so a T| run followed by a D| run would
+             * otherwise apply D| first, making the outcome depend on where the
+             * buffers happen to break. */
             if (natt > 0) {
                 ais_merge_attach_many(a, patt, natt);
                 natt = 0;
@@ -337,10 +314,9 @@ void feed_import_from(ais *a, FILE *in)
         }
 
         /* T|ts|hash|key -- BUFFERED for the same reason as D|, and tested here so
-         * the pending deletes above are already applied (an attach asks whether the
-         * record is still live). An export emits every attach in one run, from one
-         * katt pass, so in practice this is a single batch per bundle. A malformed
-         * T| falls through to the flush below and then to the plain reader. */
+         * the pending deletes above are already applied (an attach asks whether
+         * the record is still live). An export emits every attach in one run, from
+         * one katt pass: in practice a single batch per bundle. */
         if (line[0] == 'T' && line[1] == '|') {
             char *ts = line + 2, *h, *k;
             h = strchr(ts, '|');
@@ -368,8 +344,8 @@ void feed_import_from(ais *a, FILE *in)
 
         if (line[0] == 'C' && line[1] == '|') {        /* C|true ts|hash */
             /* The true time of the A| line that follows, which exports at a time
-             * raised to beat a peer's tombstone. Held in ONE slot: it names the
-             * very next record, and the exporter emits it immediately before. */
+             * raised to beat a peer's tombstone. ONE slot: it names the very next
+             * record, the exporter emitting it immediately before. */
             char *ts = line + 2, *h = strchr(ts, '|');
             if (h != NULL) {
                 *h++ = '\0';
@@ -414,8 +390,8 @@ void feed_import_from(ais *a, FILE *in)
         if (line[0] == 'B' && line[1] == '|') {        /* B|blobs/<name>|<size> + raw bytes */
             /* Write the document body back before the record that points at it.
              * The header is followed by exactly <size> raw bytes, which are NOT
-             * lines -- read them by length, or the parser would try to interpret
-             * a document's contents as records. */
+             * lines: read them by length, or the parser interprets a document's
+             * contents as records. */
             char *rel = line + 2, *szp;
             long want;
             szp = strchr(rel, '|');
@@ -440,22 +416,16 @@ void feed_import_from(ais *a, FILE *in)
             }
         }
 
-        /* A single capital letter then '|' is the merge stream's verb shape. If it
-         * is not one WE know, refuse the line -- do not fall through to the plain
-         * "keys|value" reader, which used to turn a future verb (or a binary
-         * bundle's header) into a junk record under a fabricated key and still
-         * report success. That silent corruption is also why no new verb could
-         * ever be added: every older peer would mangle it instead of skipping it.
-         * Refusing here is what makes the stream extensible. */
+        /* A verb we do not know is REFUSED, never passed to the plain "keys|value"
+         * reader, which would turn a future verb (or a binary bundle's header)
+         * into a junk record under a fabricated key and report success. Refusing
+         * is what makes the stream extensible: an older peer skips a new verb. */
         {
-            /* A merge-stream verb is a short uppercase token before the first
-             * '|', followed by a timestamp. Checking only ONE letter let a
-             * two-character verb through -- "D2|<ts>|<hash>" became a record
-             * keyed "D2", which is the exact silent corruption this guard exists
-             * to stop, and it would have bitten the first peer to see a v2 verb.
-             * The timestamp test is what keeps a legitimate tag safe: a
-             * hand-written "TODO|buy milk" has no date in field 2, so it still
-             * imports as a record. */
+            /* The verb shape: 1 to 3 uppercase/digit characters before the first
+             * '|', followed by a timestamp. One letter is not enough -- "D2|<ts>|
+             * <hash>" would become a record keyed "D2". The timestamp test keeps a
+             * legitimate tag safe: hand-written "TODO|buy milk" has no date in
+             * field 2 and still imports as a record. */
             size_t vl = strcspn(line, "|");
             if (vl >= 1 && vl <= 3 && line[vl] == '|') {
                 size_t c;
@@ -482,9 +452,9 @@ void feed_import_from(ais *a, FILE *in)
             return;
         }
 
-        /* The line is either the current grammar, "KEY... -v VALUE", or a
-         * pre-v2 '|'-separated line. The -v marker decides, and it cannot be
-         * faked by a key, since a key beginning '-' is refused everywhere. */
+        /* Either the current grammar, "KEY... -v VALUE", or a pre-v2 '|'-separated
+         * line. The -v marker decides; a key cannot fake it, a key beginning '-'
+         * being refused everywhere. */
         if (!parse_kv_line(line, &keys, &val)) {
             int noisy = 0;
             if (strchr(line, '|') == NULL) {
@@ -503,10 +473,8 @@ void feed_import_from(ais *a, FILE *in)
                 fprintf(stderr, "import: kept leading field as a key (was it an id?): %s\n",
                         keys);
         }
-        /* A record with no keys is legal -- --untag leaves them, and the engine
-         * writes them. Under this grammar there is nothing to disambiguate: "-v
-         * VALUE" says keyless outright, and keys cannot be omitted by accident
-         * the way a field before a '|' could be left empty. */
+        /* A keyless record is legal (--untag leaves them) and "-v VALUE" says
+         * keyless outright, so there is nothing to disambiguate. */
         if (ais_put(a, keys, val) < 0) {       /* shared with the sync merge: skip, don't abort */
             fprintf(stderr, "import: skipped (put failed): %s\n", val);
             skipped++;
@@ -526,10 +494,9 @@ void feed_import_from(ais *a, FILE *in)
 
 void feed_import(ais *a) { feed_import_from(a, stdin); }
 
-/* feed_export: write the merge/export stream to OUT -- A|ts|keys|value for every live
- * record, then D|ts|hash for every content-addressed tombstone. Adds precede deletes so
- * a delete in the same stream applies after its add. The inverse of merge-aware import;
- * this is what `ais --export` serves over the wire. */
+/* The merge/export stream: A|ts|keys|value for every live record, then D|ts|hash
+ * for every content-addressed tombstone. Adds precede deletes so a delete in the
+ * same stream applies after its add. */
 struct exp_ctx { ais *a; FILE *out; int hasktomb; int hassts; };
 /* Effective keys: drop any locally-detached (ktomb'd) key, so the export never carries
  * a removed tag that a peer would re-attach. Only run when ktomb has entries. */
@@ -572,10 +539,10 @@ static int exp_live(long id, const char *ts, const char *keys, const char *value
     if (tomb_contains(E->a, id) != 0)
         return 0;
     /* A record that has survived a peer's delete must reach that peer NEWER than
-     * its tombstone, or the peer keeps the delete and sends it back every round.
-     * The raise lives here rather than in the store line: see compact.h. Gated,
-     * like the ktomb work below: most indexes have no survivals at all, and the
-     * export should not open a file per record to discover that. */
+     * its tombstone, or the peer keeps the delete and resends it every round. The
+     * raise lives here, not in the store line (compact.h). Gated, like the ktomb
+     * work below: most indexes have no survivals, and the export must not open a
+     * file per record to discover that. */
     if (E->hassts) {
         sts_effective(E->a, id, ts, ets, sizeof ets);
         ts = ets;
@@ -585,13 +552,11 @@ static int exp_live(long id, const char *ts, const char *keys, const char *value
         k = eff;
     }
 
-    /* A record may hold several values, each its own store line. Emitting every
-     * line as A| made the importer create a SEPARATE RECORD per value, so a
-     * restore silently split one 3-link record into three -- through --dump,
-     * --export and the sync bundle alike. The first value carries the record
-     * (A|); the rest say "attach me to the record whose first value hashes to
-     * this" (M|). An older peer skips M| and gets the record with one link:
-     * lossy, but no longer wrong. */
+    /* A record may hold several values, each its own store line. The first value
+     * carries the record (A|); the rest say "attach me to the record whose first
+     * value hashes to this" (M|). Emitting every line as A| would make the
+     * importer create a SEPARATE RECORD per value, splitting one 3-link record
+     * into three. An older peer skips M| and gets one link: lossy, not wrong. */
     if (multi_contains(E->a, id) == 1) {
         struct first_val F;
         F.got = 0;
@@ -604,13 +569,13 @@ static int exp_live(long id, const char *ts, const char *keys, const char *value
             return 0;
         }
     }
-    /* The raise decides one thing only: this record beats that peer's tombstone.
-     * The importer hands the A| timestamp to the key-attach comparison as well,
-     * so a raised line also outranked every peer's key tombstone and re-attached
-     * tags they had deliberately removed. C| carries the line's TRUE time beside
-     * it, keyed to this value's hash, for the importer to answer key questions
-     * with; a peer that predates the verb skips the line and converges exactly as
-     * it does today. Keyed to the FIRST value because the rest go out as M|. */
+    /* The raise must decide one thing only: this record beats that peer's
+     * tombstone. The importer also hands the A| timestamp to the key-attach
+     * comparison, where a raised line outranks every peer's key tombstone and
+     * re-attaches tags they deliberately removed. C| carries the line's TRUE time
+     * beside it, keyed to this value's hash, for the importer to answer key
+     * questions with; a peer predating the verb skips the line and still
+     * converges. Keyed to the FIRST value, the rest going out as M|. */
     if (E->hassts && strcmp(ts, tstrue) != 0) {
         char h[17];
         content_hash(value, h);
@@ -645,19 +610,16 @@ static int exp_kborn(long id, const char *ts, const char *hash, const char *key,
 }
 /* Emit every file under <dir>/blobs/ as a "B|blobs/<name>|<size>\n" header plus
  * its raw bytes. A --doc record stores only the PATH to its body, so without this
- * an export carried a pointer to a file the other side never receives: the
- * restored index held a record whose document was simply missing, silently, and
- * --dump/--export were the documented backup route. sync.c emits the same section
- * for bundles (which is why documents survived a folder sync but not an export);
- * the two should be unified once sync.c's copy can be reached from here.
- * Returns 0; a missing blobs/ dir is not an error. */
-/* CAP is a running ceiling on the bytes written, or 0 for none. It is checked
- * BEFORE each document is streamed, not after the lot: a bundle assembles into
- * memory (open_memstream, sync.c), so testing the total at the end means a
- * multi-gigabyte blobs/ is fully allocated before being rejected -- an OOM kill
- * on a phone rather than a message. Refusing costs one stat's worth of work.
- * Returns 0, or -1 once the cap would be passed (the caller abandons the whole
- * bundle; a partial one must never be sent). */
+ * an export carries a pointer to a file the other side never receives. sync.c
+ * emits the same section for bundles; the two should be unified once sync.c's
+ * copy can be reached from here. A missing blobs/ dir is not an error.
+ *
+ * CAP is a running ceiling on the bytes written, or 0 for none, checked BEFORE
+ * each document is streamed: a bundle assembles into memory (open_memstream,
+ * sync.c), so testing the total at the end allocates a multi-gigabyte blobs/
+ * before rejecting it -- an OOM kill on a phone. Returns 0, or -1 once the cap
+ * would be passed (the caller abandons the whole bundle; a partial one must
+ * never be sent). */
 static int export_blobs_stream(FILE *out, const char *dir, size_t cap)
 {
     char blobsdir[AIS_PATH_MAX], path[AIS_PATH_MAX], buf[8192];
@@ -703,8 +665,8 @@ static int export_blobs_stream(FILE *out, const char *dir, size_t cap)
 
 void feed_export(ais *a, FILE *out)
 {
-    /* The CLI's `--export` goes to a pipe or a file the user chose, where there
-     * is no memory ceiling to respect; only the in-memory bundle needs one. */
+    /* `--export` goes to a pipe or a file the user chose: no memory ceiling to
+     * respect, only the in-memory bundle needs one. */
     feed_export_capped(a, out, 0);
 }
 
@@ -720,10 +682,9 @@ int feed_export_capped(ais *a, FILE *out, size_t blob_cap)
     store_each_record(a, exp_live, &E);
     tomb_each(a, exp_dead, &E);
     ktomb_each(a, exp_kdead, &E);            /* key-detaches propagate as K| lines (I1) */
-    /* and key-attaches as T|, AFTER the A| lines: the record has to exist on the
-     * far side before a key can be attached to it. Only keys put on a record that
-     * already existed are in katt, so an index that has never re-tagged anything
-     * emits none. */
+    /* and key-attaches as T|, AFTER the A| lines: the record must exist on the far
+     * side before a key can be attached to it. Only keys put on an already
+     * existing record are in katt, so a never-re-tagged index emits none. */
     katt_each(a, exp_kborn, &E);
     return 0;
 }
@@ -760,13 +721,9 @@ void feed_doc(ais *a, const char *keys)
     printf("%ld|%s\n", got, relval);
 }
 
-/* feed_import_interactive: --import with a per-record gate. Each stdin line is a
- * "keys|value" record (a --dump of someone else's index, or a shared keys|value
- * file); we show it and read a [y/N] answer from the terminal -- only y/Y takes
- * it, N (the default, and a bare Enter) skips. Records come on stdin, answers on
- * the tty (/dev/tty, or $AIS_TTY for scripting/tests), so the two streams stay
- * apart, exactly as -i keeps values and keys apart. For sipping the useful bits
- * of a shared index without pulling in (and polluting yours with) everything. */
+/* --import with a per-record gate: show each stdin "keys|value" record and read a
+ * [y/N] answer from the terminal (/dev/tty, or $AIS_TTY for scripting/tests), so
+ * records and answers stay on separate streams. Only y/Y takes the record. */
 void feed_import_interactive(ais *a)
 {
     const char *ttypath = getenv("AIS_TTY");   /* a file overrides the terminal */
@@ -814,7 +771,7 @@ void feed_import_interactive(ais *a)
             }
         }
         /* A keyless record is legal (--untag leaves them) and "-v VALUE" states
-         * it outright, so the old typo-versus-authoritative question is gone. */
+         * it outright. */
         seen++;
 
         fprintf(stderr, "%s | %s\n  take into your index? [y/N] ", keys, val);
@@ -838,11 +795,10 @@ void feed_encrypt(ais *a, const char *keys, int from_stdin)
 
     if (from_stdin) {                      /* -v - : the value comes from stdin */
         size_t got = fread(val, 1, sizeof val - 1, stdin);
-        /* The buffer filled: is there more? Storing just the prefix encrypted a
-         * TRUNCATED secret and reported success -- the user's key material,
-         * silently cut at 1023 bytes. Refuse instead, the same guard
-         * feed_encrypt_doc applies below. A single trailing newline is not
-         * "more": it is the line terminator a pipe ordinarily appends. */
+        /* The buffer filled: is there more? Storing the prefix would encrypt a
+         * secret silently truncated at 1023 bytes, so refuse (the same guard
+         * feed_encrypt_doc applies below). A single trailing newline is not
+         * "more": it is the terminator a pipe ordinarily appends. */
         if (got == sizeof val - 1) {
             int c = fgetc(stdin);
             if (c == '\n')

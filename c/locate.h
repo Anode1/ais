@@ -12,10 +12,10 @@
  * A local index is created explicitly with `ais --init` (a fresh ".ais" here).
  *
  * Multiple indexes work like git branches: a registry of named indexes plus a
- * "current" pointer, all in ~/.ais/config. The built-in name "home" is ~/.ais
+ * "current" pointer, both in ~/.ais/config. The built-in name "home" is ~/.ais
  * and is always available (never stored). `--switch` moves current; `--indexes`
- * lists them. Switching just repoints "current" -- indexes are separate stores,
- * so there is no merge of history (move records with --import / --import-interactively).
+ * lists. Switching just repoints "current" -- indexes are separate stores, so
+ * there is no merge of history (move records with --import).
  */
 #ifndef AIS_LOCATE_H
 #define AIS_LOCATE_H
@@ -28,8 +28,8 @@ int ais_locate(const char *opt, char *out, size_t outsz);
 int ais_home_path(char *out, size_t outsz);
 
 /* Override the home dir used for ~/.ais and ~/.ais/config (NULL/"" restores the
- * OS account home). A test seam, and a hook for embedders wanting a custom
- * config home; affects every function here. */
+ * OS account home). A test seam and an embedder hook; affects every function
+ * here. */
 void ais_home_override(const char *dir);
 
 /* The CURRENT index name (the `current = NAME` line that --switch sets).
@@ -54,9 +54,9 @@ int ais_index_remove(const char *name);
 typedef int (*ais_index_cb)(const char *name, const char *path, void *ctx);
 int ais_index_list(ais_index_cb cb, void *ctx);
 
-/* DEPRECATED (back-compat): the legacy single saved default, the `index = PATH`
- * line. Superseded by the named registry + `current`. get: 1/0/-1; set: 0/-1.
- * Kept so `ais --default` and pre-registry configs keep working for one release. */
+/* DEPRECATED: the legacy single saved default, the `index = PATH` line,
+ * superseded by the named registry + `current`. Kept for one release so
+ * `ais --default` and pre-registry configs keep working. get: 1/0/-1; set: 0/-1. */
 int ais_default_get(char *out, size_t outsz);
 int ais_default_set(const char *path);
 

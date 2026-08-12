@@ -90,11 +90,10 @@ static int  keys_contains(const char *keys, const char *tok);
 static int  store_restamp(ais *a, long id, const char *ts);
 static long tag_count_file(const ais *a, const char *path, int dead);
 
-/* Attach/detach KEYS on record ID. ATTACH_TS is the timestamp an implicit
- * re-attach LWW-competes against a prior detach with: NULL = a LOCAL edit (now,
- * always wins, clears the detach); on the merge/import path it is the record's
- * add-ts, so a key detached AT OR AFTER it (a genuine later user edit on some
- * device) survives an unaware peer's stale A| line instead of being reverted. */
+/* Attach/detach KEYS on record ID. ATTACH_TS is what an implicit re-attach
+ * LWW-competes against a prior detach with: NULL = a LOCAL edit (now, always wins,
+ * clears the detach); on the merge/import path the record's add-ts, so a key
+ * detached at or after it survives an unaware peer's stale A| line. */
 /* Does an attach of TOK win against a prior detach? 1 = attach, 0 = leave the
  * detach standing, -1 on error. On the merge path ATTACH_TS is the record's
  * add-ts and a detach stamped at or after it wins (detaches are sticky on ties);
@@ -117,9 +116,9 @@ static int attach_wins(ais *a, long id, const char *tok,
 }
 
 /* Note WHEN a key was attached to a record that ALREADY EXISTED. The A| line
- * carries one timestamp, the record's, which cannot express a key added later --
- * so a peer that had detached that key out-ranked the attach for ever and no
- * device in the mesh could put it back. The note travels as T| (compact.h). A
+ * carries one timestamp, the record's, which cannot express a key added later, so
+ * a peer that had detached that key out-ranks the attach for ever and no device in
+ * the mesh can put it back. The note travels as T| (compact.h). A
  * brand-new record needs none: its keys field already says it, at its own time. */
 static int katt_note(ais *a, long id, const char *tok)
 {
@@ -128,9 +127,8 @@ static int katt_note(ais *a, long id, const char *tok)
 
     del_stamp(a, id, kts, sizeof kts, khash);
     /* Same as att_apply: replacing costs a whole-file rewrite, and a first attach
-     * -- which is most of them, since a key is only detached deliberately -- has
-     * nothing to replace. Saving under a tag that was already attached still
-     * rewrites, so the recorded time is the LAST attach, as before. */
+     * -- most of them, since a key is only detached deliberately -- has nothing to
+     * replace. The recorded time is the LAST attach. */
     if (noted == 1)
         return katt_set(a, id, kts, khash, tok);
     return katt_add(a, id, kts, khash, tok);
@@ -138,13 +136,12 @@ static int katt_note(ais *a, long id, const char *tok)
 
 /* Walk KEYS token by token without copying the whole list. Fills TOK (one key
  * wide) from *P and advances it: 1 = a token, 0 = end, -1 = a token too long to
- * be a key. Two line-sized copies here -- one per pass -- sat on the primary save
- * path's chain, which has to fit the 512 KB thread stack the FFI seam runs on. */
+ * be a key. No line-sized copy: this sits on the primary save path's chain, which
+ * has to fit the 512 KB thread stack the FFI seam runs on. */
 /* Fill L (id already set) with record L->id's first line, through the "off"
- * accelerator when it can serve it and a full scan only when it cannot -- the
- * same seek del_stamp uses. Both callers here look up ONE record by id, and doing
- * that with a whole store pass made every key attach O(records): an import
- * carrying an attach per tag, which is what a re-tagged index exports, was
+ * accelerator when it can serve it and a full scan only when it cannot -- the seek
+ * del_stamp uses. A whole store pass per lookup makes every key attach O(records),
+ * so an import carrying an attach per tag (what a re-tagged index exports) is
  * quadratic in the store. Returns 0, or -1 on a real read error. */
 static int seek_record(ais *a, struct add_lookup *L)
 {
@@ -187,19 +184,18 @@ static int ais_post_keys(ais *a, const char *keys, long id, const char *attach_t
     const char *p;
     int got, active, katt_here;
 
-    if (strlen(keys) >= AIS_LINE_MAX)    /* the guard the line-sized copy used to give */
+    if (strlen(keys) >= AIS_LINE_MAX)    /* an over-long list fails, is not truncated */
         return -1;
     active = ktomb_active(a);            /* gate the re-attach cleanup (cheap) */
     if (active < 0)
         return -1;
     katt_here = (katt_active(a) == 1);   /* likewise the detach-side cleanup */
 
-    /* PASS 1 -- the AUTHORITATIVE keys field first. The store must be written
-     * before the disposable index: a posting inserted first would survive a
-     * failed or over-long rewrite as a phantom key that the next compaction
-     * silently drops, which is exactly the loss this mirror exists to prevent.
-     * Skipped entirely when the caller has just written the line with these keys
-     * (a brand-new record), since the union could not then change anything. */
+    /* PASS 1 -- the AUTHORITATIVE keys field first, before the disposable index:
+     * a posting inserted first would survive a failed or over-long rewrite as a
+     * phantom key that the next compaction silently drops. Skipped when the caller
+     * has just written the line with these keys (a brand-new record), the union
+     * then being unable to change anything. */
     if (line_carries_keys)
         goto postings;                   /* the line was just written from these keys */
     p = keys;
@@ -216,9 +212,8 @@ static int ais_post_keys(ais *a, const char *keys, long id, const char *attach_t
         if (!w)
             continue;
         if (!have_line_keys) {
-            /* L.keys IS the union buffer -- the one line-sized buffer this frame
-             * still carries, and the reason the token walk above keeps to one key
-             * at a time (the 512 KB thread stack the FFI seam runs on). */
+            /* L.keys IS the union buffer: the one line-sized buffer this frame
+             * carries, within the 512 KB thread stack the FFI seam runs on. */
             L.id = id;
             if (seek_record(a, &L) != 0)
                 return -1;
@@ -286,12 +281,10 @@ static int keys_attach_only(const char *keys, char *out, size_t outsz)
     size_t used = 0;
     int n;
 
-    /* Walked in place rather than strtok_r'd through a private copy. This is
-     * inlined into ais_put_at_k, whose frame already carries `clean[]`, and every
-     * put pays for it -- a second AIS_LINE_MAX buffer here was a third of the way
-     * to the 512 KB thread stack the FFI seam runs on, to hold a string we only
-     * ever read forwards. The length guard the copy used to give comes back
-     * explicitly, so an over-long key list still fails rather than being cut. */
+    /* Walked in place, not copied: this is inlined into ais_put_at_k, whose frame
+     * already carries `clean[]`, and a second AIS_LINE_MAX buffer here is a third
+     * of the way to the 512 KB thread stack the FFI seam runs on. The explicit
+     * length guard below is what a copy would have given. */
     if (strlen(keys) >= AIS_LINE_MAX)
         return -1;
     out[0] = '\0';
@@ -313,11 +306,10 @@ static int keys_attach_only(const char *keys, char *out, size_t outsz)
         used += (size_t)n;
         p += len;
     }
-    /* Keys share the store line's '|' field delimiter, and are matched by their
-     * key_encode() path form, which folds '|' and control bytes to '_'. Do the
-     * same to the STORED keys so a key like "a|b" can't shift the value into the
-     * wrong field on readback (silent corruption), and so the store line agrees
-     * with the index. Spaces (the token separators) are left intact. */
+    /* Keys share the store line's '|' delimiter and are matched by their
+     * key_encode() path form, which folds '|' and control bytes to '_'. Fold the
+     * STORED keys the same way, or "a|b" shifts the value into the wrong field on
+     * readback. Spaces (the token separators) are left intact. */
     {
         char *p;
         for (p = out; *p != '\0'; p++)
@@ -327,9 +319,9 @@ static int keys_attach_only(const char *keys, char *out, size_t outsz)
     return 0;
 }
 
-/* Stamp a LOCAL edit. A failure here does not fail the edit -- the user's data is
- * already saved -- but it must not be silent either: the record is now unprotected
- * against a peer's earlier delete, which is the whole bug this file exists for. */
+/* Stamp a LOCAL edit. A failure does not fail the edit -- the data is already
+ * saved -- but is not silent either: the record is then unprotected against a
+ * peer's earlier delete. */
 static void mts_stamp(const ais *a, long id)
 {
     char now[AIS_TS_MAX];
@@ -341,14 +333,8 @@ static void mts_stamp(const ais *a, long id)
                         "     deleted this record, the next sync may undo this edit\n", id);
 }
 
-/* Put VALUE under KEYS, stamping a NEW record with TS (NULL = now). If the value
- * already exists, attach the keys (idempotent + key-union). If it exists but is
- * tombstoned, resurrect it only when TS is newer than the deletion (last-write-wins;
- * TS == NULL / now always wins, so a local re-add brings it back). The merge primitive
- * shared by local put and --import. Returns the id, or -1.
- *
- * ATTACH_TS is the same instant except on a raised export (see ais.h): the record
- * decision runs on TS, the key-attach decision on ATTACH_TS. */
+/* ATTACH_TS is the same instant as TS except on a raised export (see ais.h): the
+ * record decision runs on TS, the key-attach decision on ATTACH_TS. */
 long ais_put_at(ais *a, const char *keys, const char *value, const char *ts)
 {
     return ais_put_at_k(a, keys, value, ts, ts);
@@ -385,33 +371,27 @@ long ais_put_at_k(ais *a, const char *keys, const char *value, const char *ts,
                  * sticky. Folder-sync I2 caveat: LWW here is wall-clock UTC, so a peer
                  * with a fast clock could stamp an add ahead of a genuinely-later delete
                  * and resurrect it. Bounded by inter-device skew; a hybrid logical clock
-                 * is the post-v0 fix. Documented, not silently wrong. */
+                 * is the post-v0 fix. */
                 win = (strcmp(ts, del_ts) > 0);
             }
             if (!win) { rc = id; goto out; }            /* the delete is newer: stay deleted */
             if (tomb_remove(a, id) != 0) { rc = -1; goto out; }   /* resurrect */
-            /* Say WHEN it came back, or the resurrection is LOCAL ONLY. The line
-             * still carried its original creation time, so it exported as an A|
-             * older than the peer's tombstone; the peer kept the delete and sent
-             * its D| back, which killed the record here again. Re-saving anything
-             * the index had ever deleted was therefore impossible, permanently.
-             *
-             * A LOCAL re-add restamps the line: the user is saving this now, and
-             * that is the record's date. A MERGE records it in `sts` instead and
-             * leaves the line alone, for the same reason ais_merge_del does -- a
-             * raised line changes what a K| detach later in the SAME import pass
-             * compares against, so the outcome of a tag removal came down to the
-             * order the peer bundles were read in. */
+            /* Say WHEN it came back, or the resurrection is LOCAL ONLY: a line
+             * still carrying its creation time exports as an A| older than the
+             * peer's tombstone, and the peer's returning D| kills it here again.
+             * A LOCAL re-add restamps the line -- the user is saving this now. A
+             * MERGE records it in `sts` and leaves the line alone, as
+             * ais_merge_del does: a raised line changes what a K| detach later in
+             * the SAME import pass compares against, making a tag removal depend
+             * on the order the peer bundles were read in. */
             if (ts != NULL) {
-                /* A failure here must NOT abandon the put. The record has just
-                 * been un-tombstoned above, so bailing left it resurrected with
-                 * the arriving KEYS never applied -- and the import counted it as
-                 * nothing and said nothing. `sts` takes only the canonical
-                 * 20-char form, so any pre-v3 timestamp (19 chars, no 'Z') or a
-                 * date-only one -- both legal in a store upgraded from format v2,
-                 * both re-exported verbatim -- silently threw the peer's tags
-                 * away. The note is how the survival REACHES other devices; not
-                 * being able to write it is worth a warning, not a lost record. */
+                /* A failure must NOT abandon the put: the record is already
+                 * un-tombstoned, so bailing leaves it resurrected with the
+                 * arriving KEYS never applied. `sts` takes only the canonical
+                 * 20-char form, and rejects a pre-v3 timestamp (19 chars, no 'Z')
+                 * or a date-only one -- both legal in a store upgraded from format
+                 * v2, both re-exported verbatim. The note is how the survival
+                 * REACHES other devices: worth a warning, not a lost record. */
                 if (ts[0] != '\0' && sts_set(a, id, ts) != 0)
                     fprintf(stderr, "ais: warning: record %ld came back, but the time it\n"
                                     "     came back at could not be recorded; another device\n"
@@ -423,22 +403,16 @@ long ais_put_at_k(ais *a, const char *keys, const char *value, const char *ts,
                 sts_clear(a, id);      /* the line now carries it; no raise needed */
             }
             /* Adopt the arriving key set instead of merging it into the one this
-             * record had when it was deleted. That old field is a relic -- the
-             * record was gone here -- and keeping it re-advertised keys other
-             * devices had deliberately detached, at the record's new (later)
-             * timestamp, which outranks their ktombs and re-attaches the tag
-             * everywhere. Delete is delete, tags included.
-             *
-             * The same either way it comes back. A local re-save is the user
-             * describing the record afresh, exactly as an arriving one is the peer
-             * describing it; keeping local relics while dropping every other
-             * device's live tags would be the worst of both, and it is the local
-             * relic that then gets exported as authoritative. */
+             * record had when it was deleted. That old field is a relic; keeping
+             * it re-advertises keys other devices deliberately detached, at the
+             * record's new (later) timestamp, which outranks their ktombs and
+             * re-attaches the tag everywhere. Delete is delete, tags included.
+             * The same either way it comes back: a local re-save describes the
+             * record afresh exactly as an arriving one does. */
             if (resurrect_keys(a, id, clean) != 0) { rc = -1; goto out; }
         }
         rc = (ais_post_keys(a, clean, id, attach_ts, 0) != 0) ? -1 : id;  /* LWW vs a detach */
-        /* Saving a value the index already holds is how a tag gets attached -- the
-         * primary command, and the one every GUI save path uses. It is an edit. */
+        /* Saving a value the index already holds is how a tag gets attached: an edit. */
         if (rc > 0 && ts == NULL)
             mts_stamp(a, id);
         goto out;
@@ -454,10 +428,10 @@ long ais_put_at_k(ais *a, const char *keys, const char *value, const char *ts,
             store_now(now, sizeof now);     /* "" if the clock is unreadable */
             use_ts = now;
         }
-        /* Reserve the id by persisting next_id BEFORE the record is written. A
-         * crash or ENOSPC after this point only SKIPS id (a harmless gap);
-         * persisting next_id after the durable append would instead let the
-         * next put reuse a live id and collide two records. */
+        /* Reserve the id by persisting next_id BEFORE the record is written: a
+         * crash or ENOSPC after this point only SKIPS id (a harmless gap), where
+         * persisting after the durable append would let the next put reuse a live
+         * id and collide two records. */
         a->next_id = id + 1;
         if (store_save_next_id(a) != 0) { a->next_id = id; rc = -1; goto out; }
         if (store_append(a, id, use_ts, clean, value) != 0) { rc = -1; goto out; }
@@ -481,9 +455,9 @@ long ais_put(ais *a, const char *keys, const char *value)
 
 /* Rewrite the keys field of every line belonging to one id (a multi-line record
  * repeats the same keys on each line). The keys field is authoritative: a key
- * posted only to idx/ is dropped the next time compaction rebuilds idx/ from the
- * store, so an attach that never lands here is silent data loss. See LAYOUT.md,
- * "the keys field is authoritative". */
+ * posted only to idx/ is dropped when compaction rebuilds idx/ from the store, so
+ * an attach that never lands here is silent data loss (LAYOUT.md, "the keys field
+ * is authoritative"). */
 struct keys_rewrite {
     FILE       *out;
     long        id;
@@ -513,11 +487,9 @@ static int keyrw_line(long id, const char *ts, const char *keys,
         wkeys = nk;
         c->matched = 1;
         /* A legacy (no-ts) line is re-emitted as "id|keys|value", so a keys field
-         * that parses as a date lands in the slot the reader takes for the ts:
-         * every field shifts right and the VALUE becomes a key. Stamp a real ts
-         * instead, upgrading the line, rather than write one that cannot be read
-         * back. Only ever happens on a pre-v2 line whose new keys start with a
-         * date-shaped token. */
+         * that parses as a date lands in the ts slot: every field shifts right and
+         * the VALUE becomes a key. Stamp a real ts instead, upgrading the line.
+         * Only on a pre-v2 line whose new keys start with a date-shaped token. */
         if (wts[0] == '\0' && c->keys != NULL && store_looks_like_ts(c->keys)) {
             char now[AIS_TS_MAX];
             store_now(now, sizeof now);
@@ -578,20 +550,18 @@ static int store_set_keys(ais *a, long id, const char *keys)
 
 /* Replace the record's ts, keeping its keys. The ts IS the add-ts that merging
  * compares against a peer's tombstone (MERGE.md, "last-write-wins by ts"), so a
- * record that comes back to life has to carry the time it came back. Leaving the
- * original creation time is what made a re-saved value lose to its own old
- * delete forever, on every device. */
+ * record that comes back to life has to carry the time it came back or it loses
+ * to its own old delete for ever, on every device. */
 static int store_restamp(ais *a, long id, const char *ts)
 {
     return store_rewrite_line(a, id, NULL, ts);
 }
 
-/* Copy TOK into OUT folding '|' and control bytes to '_', exactly as
- * keys_attach_only does for a put. A stored key shares the line's '|' delimiter
- * and is matched by its key_encode() path form, which folds the same bytes, so a
- * raw "a|b" would shift the value into the wrong field on readback and disagree
- * with the index. ais_update passes the user's string through unsanitized, so the
- * fold has to happen here or an attach corrupts the line. Returns 0/-1 (too long). */
+/* Copy TOK into OUT folding '|' and control bytes to '_', as keys_attach_only does
+ * for a put: a raw "a|b" would shift the value into the wrong field on readback and
+ * disagree with the key_encode() form the index matches on. ais_update passes the
+ * user's string through unsanitized, so the fold has to happen here or an attach
+ * corrupts the line. Returns 0/-1 (too long). */
 static int key_fold_stored(const char *tok, char *out, size_t sz)
 {
     size_t i;
@@ -609,11 +579,10 @@ static int key_fold_stored(const char *tok, char *out, size_t sz)
 
 /* Append TOK to KEYS unless an encode-equivalent key is already there. Identity is
  * the key_encode() form, matching the postings this mirrors: idx/ holds one entry
- * for "Doc", "doc" and "DOC", so treating them as three tokens would grow the keys
- * field without bound on ordinary re-puts (a UI that titlecases a tag is enough)
- * until the line no longer fits and the record becomes unstorable. The first
- * spelling seen is the one kept, so the store still shows what was typed.
- * Returns 1 if added, 0 if already present, -1 if the result would not fit. */
+ * for "Doc", "doc" and "DOC", so treating them as three tokens grows the keys field
+ * without bound on ordinary re-puts (a UI that titlecases a tag is enough) until the
+ * line no longer fits and the record becomes unstorable. The first spelling seen is
+ * kept. Returns 1 if added, 0 if already present, -1 if the result would not fit. */
 /* Is TOK (already stored-form) one of the space-separated tokens in KEYS? */
 static int keys_contains(const char *keys, const char *tok)
 {
@@ -670,7 +639,7 @@ static int keys_union(char *keys, size_t sz, const char *tok)
 
 /* Replace record ID's key set with WANT, dropping the postings of the keys that
  * are no longer in it. No ktomb is written: this device is not claiming those keys
- * were removed, it is adopting the description of a record it no longer had. */
+ * were removed, it is adopting the description of a record it no longer has. */
 AIS_NOINLINE static int resurrect_keys(ais *a, long id, const char *want)
 {
     struct add_lookup L;
@@ -682,12 +651,11 @@ AIS_NOINLINE static int resurrect_keys(ais *a, long id, const char *want)
     if (!L.found)
         return 0;
 
-    /* Tokenise L.keys IN PLACE. This function is static and called once, so it is
-     * inlined into the primary save path, and its frame is reserved on EVERY put --
-     * including the new-record puts that never reach here. A second AIS_LINE_MAX
-     * copy of the keys, plus a line-wide enc[], put that frame over the 512 KB
-     * thread stack the FFI seam runs on (the budget ais_post_keys names above).
-     * L.keys is not read after this loop: store_set_keys writes WANT. */
+    /* Tokenise L.keys IN PLACE. Static and called once, so it inlines into the
+     * primary save path and its frame is reserved on EVERY put, including those
+     * that never reach here; a second AIS_LINE_MAX copy of the keys plus a
+     * line-wide enc[] puts that frame over the 512 KB thread stack the FFI seam
+     * runs on. L.keys is not read after this loop: store_set_keys writes WANT. */
     for (tok = strtok_r(L.keys, " ", &save); tok != NULL; tok = strtok_r(NULL, " ", &save)) {
         char enc[AIS_KEY_MAX];           /* one key, not a whole line */
         if (key_fold_stored(tok, enc, sizeof enc) != 0)
@@ -714,14 +682,13 @@ static int add_seek(long id, const char *ts, const char *keys,
     return 0;
 }
 
-/* add_seek_dup: add_seek's work AND the duplicate-value check, in ONE store pass.
- * Done together because the guard would otherwise cost a second full scan on
- * every --add, doubling it. The value comparison is by 16-char digest first and
- * strcmp only on a digest hit, so a --doc blob or a long note costs 16 bytes per
- * line instead of its whole length. The wire cannot confirm like this (a delete
- * arrives as D|ts|hash with no value), but a local guard holds both, and FNV-1a
- * is documented as "NOT a security hash" -- an unconfirmed collision would refuse
- * a legitimate distinct value. */
+/* add_seek's work AND the duplicate-value check, in ONE store pass; separately the
+ * guard costs a second full scan on every --add. The comparison is by 16-char digest
+ * first and strcmp only on a digest hit, so a --doc blob or a long note costs 16
+ * bytes per line instead of its whole length. The strcmp is required: FNV-1a is
+ * documented as "NOT a security hash" and an unconfirmed collision would refuse a
+ * legitimate distinct value. The wire cannot confirm -- a delete arrives as
+ * D|ts|hash, with no value. */
 static int add_seek_dup(long id, const char *ts, const char *keys,
                         const char *value, void *vp)
 {
@@ -745,12 +712,10 @@ static int add_seek_dup(long id, const char *ts, const char *keys,
 
 /* The body of ais_add. LOCAL separates a user's own --add -- an edit of THIS
  * device's copy, which must outrank an earlier peer delete -- from an arriving M|
- * link, which is a fact the sending device already timed. Stamping the local edit
- * clock on an import made a record's fate depend on WHEN its bundle was read: the
- * same M| and D| facts, delivered in two peer bundles, resolved one way or the
- * other by readdir order. That is exactly the non-determinism C|/sts exist to
- * remove, and LAYOUT.md states the rule ("an import does not: an arriving record
- * carries its own time"). */
+ * link, a fact the sending device already timed. Stamping the local edit clock on
+ * an import makes a record's fate depend on the readdir order of the peer bundles,
+ * the non-determinism C|/sts exist to remove. LAYOUT.md: "an import does not: an
+ * arriving record carries its own time". */
 static int add_link(ais *a, long id, const char *value, int local)
 {
     struct add_lookup L;
@@ -763,11 +728,9 @@ static int add_link(ais *a, long id, const char *value, int local)
         goto out;
 
     /* One pass finds this record's keys AND refuses a value another record already
-     * holds. add_link was the only write path without that guard, so
-     * `ais --add 2 -v X` where record 1 held X produced two records sharing a
-     * value -- and store_find_value resolves such a value to the FIRST match, so
-     * anything addressing a record by its value acts on the wrong one. A peer
-     * collapses them on merge, and a later delete of either takes both. */
+     * holds: store_find_value resolves a duplicated value to the FIRST match, so
+     * anything addressing a record by its value acts on the wrong one, a peer
+     * collapses the two on merge, and a later delete of either takes both. */
     L.id = id;
     L.found = 0;
     L.keys[0] = '\0';
@@ -785,14 +748,12 @@ static int add_link(ais *a, long id, const char *value, int local)
     if (!L.found)
         goto out;
 
-    /* continuation line: same id, same keys field, the new value, stamped with
-     * its own (later) save time. Keys are already posted to this id, so no
-     * re-post. */
+    /* Continuation line: same id, same keys field (already posted to this id, so no
+     * re-post), the new value, stamped with its own later save time. */
     /* Mark id multi-line BEFORE appending the continuation. A "multi" entry only
-     * ever forces ais_record onto the full-scan path (which returns every line),
-     * so a mark with no matching second line is harmless; the reverse -- a second
-     * line the multi set does not know about -- makes the fast path return only
-     * the first value and hide the just-added one. Order it safe-side-first. */
+     * forces ais_record onto the full-scan path, which returns every line, so a
+     * mark with no matching second line is harmless; a second line the multi set
+     * does not know about makes the fast path hide it. */
     if (multi_append(a, id) != 0)           /* id now has >1 line */
         goto out;
     {
@@ -815,11 +776,7 @@ int ais_add(ais *a, long id, const char *value)
     return add_link(a, id, value, 1);
 }
 
-/* Edit the keys of an existing record: each bare token in KEYS is attached, each
- * "-key" detached (see ais_post_keys). The record's id and value are unchanged.
- * The id is the handle (from any get/--find/--dump/--timeline line "id|value"),
- * which is why this is keyed by id and not by re-typing the value. Returns 0, or
- * -1 if the id is unknown, deleted, or on error. */
+/* Attaches and detaches through ais_post_keys (see ais.h). */
 int ais_update(ais *a, long id, const char *keys)
 {
     struct add_lookup L;
@@ -850,12 +807,11 @@ out:
     return rc;
 }
 
-/* Replace a record's VALUE in place, keeping its id, ts and keys. Streams the
- * store to a temp file, rewriting the ONE line whose id == ID and whose value
- * exactly equals OLD_VALUE (its original ts and keys carried through verbatim);
- * every other line is copied byte-for-byte, legacy "id|keys|value" lines kept
- * legacy. Value is not in the key index, so only the store is touched -- next_id,
- * tomb, ktomb and multi are left alone. */
+/* Streams the store to a temp file, rewriting the ONE line whose id == ID and whose
+ * value exactly equals OLD_VALUE (its ts and keys carried through verbatim); every
+ * other line is copied byte-for-byte, legacy "id|keys|value" lines kept legacy. The
+ * value is not in the key index, so only the store is touched -- next_id, tomb,
+ * ktomb and multi are left alone. */
 struct setval_ctx {
     FILE       *out;
     long        id;
@@ -887,11 +843,8 @@ static int setval_line(long id, const char *ts, const char *keys,
     return 0;
 }
 
-/* Replace record ID's value (OLD_VALUE -> NEW_VALUE), preserving id, ts and keys.
- * Returns 0 on success, -1 on any error/IO, on an unknown id, or if no line's
- * value matches OLD_VALUE (nothing is renamed in that case -- the store is left
- * untouched). A value fed verbatim (an "aisc:"/"@blob" marker) is compared and
- * replaced as a plain string: no re-encryption and no blob file is touched. */
+/* A value fed verbatim (an "aisc:"/"@blob" marker) is compared and replaced as a
+ * plain string: no re-encryption, and no blob file is touched. */
 int ais_set_value(ais *a, long id, const char *old_value, const char *new_value)
 {
     char storep[AIS_PATH_MAX], newp[AIS_PATH_MAX], offp[AIS_PATH_MAX];
@@ -901,10 +854,9 @@ int ais_set_value(ais *a, long id, const char *old_value, const char *new_value)
 
     if (old_value == NULL || new_value == NULL)
         return -1;
-    /* A record is ONE line: an embedded newline would end the fgets on read and
-     * drop everything after it. store_append refuses this on the put path; the
-     * in-place edit has to refuse it too, or the rewrite splits the line and the
-     * tail becomes an orphan (silent, unrecoverable data loss). */
+    /* A record is ONE line: an embedded newline ends the fgets on read and drops
+     * everything after it. store_append refuses this on the put path; the in-place
+     * edit has to too, or the tail becomes an orphan (unrecoverable data loss). */
     if (strpbrk(new_value, "\r\n") != NULL) {
         fprintf(stderr, "ais: value spans multiple lines -- use --doc for multi-line/large values\n");
         return -1;
@@ -923,10 +875,8 @@ int ais_set_value(ais *a, long id, const char *old_value, const char *new_value)
         store_wunlock(a);
         return -1;
     }
-    /* Refuse a value another record already holds. The whole model treats a value
-     * as identity -- put is idempotent by value scan, tombstones are hash-stamped,
-     * the merge stream is hash-keyed -- so two records sharing one value makes a
-     * peer collapse them, and a later delete of either takes both. */
+    /* Refuse a value another record already holds: a value is identity (ais.h), so
+     * a peer collapses two records sharing one and a delete of either takes both. */
     {
         long other = 0;
         int  dup = store_find_value(a, new_value, &other);
@@ -959,9 +909,8 @@ int ais_set_value(ais *a, long id, const char *old_value, const char *new_value)
     if (fclose(out) != 0) { remove(newp); goto out; }
     if (rename(newp, storep) != 0) { remove(newp); goto out; }
 
-    /* The "off" id->offset map now points at stale byte offsets. It is a pure,
-     * rebuildable accelerator and ais_record falls back to a scan without it, so
-     * simply drop it (rebuilding one by hand would risk a wrong offset). */
+    /* "off" now points at stale byte offsets. It is a pure, rebuildable accelerator
+     * ais_record falls back past, so drop it rather than risk a wrong offset. */
     if (snprintf(offp, sizeof offp, "%s/off", a->dir) < (int)sizeof offp)
         remove(offp);
     mts_stamp(a, id);
@@ -994,14 +943,14 @@ static int del_seek_line(long id, const char *ts, const char *keys,
     (void)keys;
     if (id != D->id)
         return 0;
-    /* Hashed HERE rather than copied out. A whole AIS_LINE_MAX of value in this
-     * struct put del_stamp's frame -- which every save to an existing value
-     * reaches, through katt_note -- 64 KB over what the 512 KB thread stack the
-     * FFI seam runs on allows. The hash is all either caller ever wanted. */
+    /* Hashed HERE rather than copied out: an AIS_LINE_MAX of value in this struct
+     * puts del_stamp's frame -- reached by every save to an existing value, through
+     * katt_note -- 64 KB over the 512 KB thread stack the FFI seam runs on. The
+     * hash is all either caller wants. */
     content_hash(value, D->hash);
     snprintf(D->ts, sizeof D->ts, "%s", ts);
     D->found = 1;
-    return 1;                          /* first line wins, as before */
+    return 1;                          /* first line wins */
 }
 
 /* Stamp a tombstone for id: ts = now, hash = content hash of the record's value (so
@@ -1032,10 +981,9 @@ int ais_del(ais *a, long id)
 
     if (store_wlock(a) != 0)
         return -1;
-    /* Deleting an already-deleted record says nothing new, and the tombstone is
-     * kept for the life of the index -- so appending a second one just makes every
-     * peer re-scan its whole store for the same fact on every future import. Three
-     * `--del 1` in a row wrote three identical lines. Idempotent as documented. */
+    /* Deleting an already-deleted record says nothing new, and a tombstone is kept
+     * for the life of the index -- a second one makes every peer re-scan its whole
+     * store for the same fact on every future import. */
     dead = tomb_contains(a, id);
     if (dead < 0) {
         store_wunlock(a);
@@ -1074,11 +1022,9 @@ int ais_del_key(ais *a, const char *key)
     for (; s.alive; post_next(&s)) {
         char ts[AIS_TS_MAX], hash[17];
         /* A posting still lists ids whose records are already tombstoned (removal
-         * is physical only at compaction). Those are still RE-STAMPED, so "delete
-         * everything under this key" means deleted as of now and a peer's add
-         * dated between the original delete and this one stays suppressed -- but
-         * they are not COUNTED, which is what made the prompt say "2 records" and
-         * the result line then say "deleted 3". */
+         * is physical only at compaction). Those are RE-STAMPED, so a peer's add
+         * dated between the original delete and this one stays suppressed, but not
+         * COUNTED: the count is live records, matching the caller's preview. */
         int dead = tomb_contains(a, s.head);
         if (dead < 0) {
             rc = -1;
@@ -1086,10 +1032,9 @@ int ais_del_key(ais *a, const char *key)
         }
         del_stamp(a, s.head, ts, sizeof ts, hash);
         /* Re-stamping an already-dead record REPLACES its tombstone rather than
-         * adding one: the intent is "this key is deleted as of now", which is one
-         * fact, not a running tally. Appending let a repeated --del-under grow the
-         * tomb without bound, and every duplicate costs each peer a full store
-         * scan on every import, forever. */
+         * adding one: "this key is deleted as of now" is one fact, not a running
+         * tally. Appending grows the tomb without bound on a repeated --del-under,
+         * and every duplicate costs each peer a full store scan on every import. */
         if (dead == 1 && tomb_remove(a, s.head) != 0) {
             rc = -1;
             goto cleanup;
@@ -1098,12 +1043,11 @@ int ais_del_key(ais *a, const char *key)
             rc = -1;
             goto cleanup;
         }
-        /* Delete is delete, by whichever door. Without this, --del-under left the
-         * edit clock and the key-attach notes of a tombstoned record behind, and
-         * the next export carried T| lines asserting a key was attached to a
-         * record the SAME stream tombstones -- junk every peer pays a store scan
-         * for, and which its own katt then re-propagates. (ais_del and mdel_apply
-         * have always cleared all three; this path was missed.) */
+        /* Delete is delete, by whichever door: the edit clock and key-attach notes
+         * of a tombstoned record left behind export as T| lines asserting a key on
+         * a record the SAME stream tombstones -- junk every peer pays a store scan
+         * for and its own katt then re-propagates. ais_del and mdel_apply clear all
+         * three too. */
         mts_clear(a, s.head);
         sts_clear(a, s.head);
         katt_forget(a, s.head, NULL);
@@ -1129,23 +1073,20 @@ int ais_untag_key(ais *a, const char *key)
     if (key == NULL || key[0] == '\0')
         return -1;
     /* Address the key the POSTING uses. ais_post_keys splits its argument on
-     * whitespace, so a raw "-a b" would detach "a" and ATTACH "b" while the
-     * posting being polled is "a_b" -- the loop then never shrank it and spun
-     * forever, writing a bogus key onto every record on each pass. Encoding first
-     * makes the read side and the write side name the same thing, and the encoded
-     * form never contains whitespace. */
+     * whitespace, so a raw "-a b" detaches "a" and ATTACHES "b" while the posting
+     * being polled is "a_b": the loop never shrinks it and spins forever. The
+     * encoded form never contains whitespace, so both sides name the same thing. */
     if (key_encode(key, enc, sizeof enc) != 0)
         return -1;
     if (snprintf(detach, sizeof detach, "-%s", enc) >= (int)sizeof detach)
         return -1;
 
     /* Collect ids FIRST, then mutate: ais_update rewrites the store and the
-     * posting, so streaming that posting while changing it would read a file being
+     * posting, so streaming that posting while changing it reads a file being
      * renamed out from under the stream. AFTER is a strictly advancing cursor, so
-     * the loop terminates even if some id cannot be consumed -- relying on every
-     * callee to shrink the file is what made a single stuck id an infinite loop.
-     * It starts below every id, including the non-positive ones a hand-edited or
-     * truncated index can hold: skipping those left the key alive forever. */
+     * the loop terminates even when an id cannot be consumed; it starts below every
+     * id, including the non-positive ones a hand-edited or truncated index can
+     * hold, which would otherwise leave the key alive for ever. */
     for (;;) {
         if (post_open(a, enc, &s) != 0)      /* reads are lock-free by design */
             return -1;
@@ -1190,17 +1131,15 @@ int ais_untag_key(ais *a, const char *key)
                 }
                 /* ais_update also refuses an id with NO store line, which a
                  * posting can name after a hand edit or a store restored without
-                 * its idx/. Failing there aborted the untag PART WAY and then
-                 * failed identically on every retry, wedging the key forever. */
+                 * its idx/; failing there wedges the key on every retry. */
                 del_stamp(a, ids[i], kts, sizeof kts, khash);
                 if (khash[0] != '\0')
                     return -1;        /* the record is real: a genuine failure */
             } else {
-                /* Tombstoned, so ais_update refuses it -- but the detach must
-                 * still be RECORDED. Pruning the posting alone left the key in the
+                /* Tombstoned, so ais_update refuses it, but the detach must still
+                 * be RECORDED: pruning the posting alone leaves the key in the
                  * authoritative keys field with nothing to mask it, so a resurrect
-                 * (a local re-add of the same value, or a peer's newer A|) brought
-                 * the tag back at the next compaction, and no K| ever reached a
+                 * brings the tag back at the next compaction and no K| reaches a
                  * peer still holding the record live. */
                 had = ktomb_contains(a, ids[i], enc);
                 if (had < 0)
@@ -1225,22 +1164,20 @@ int ais_untag_key(ais *a, const char *key)
 
 /* Find a local record whose value hashes to the target (record identity = value).
  * The seek reports the store's own ts and nothing else: a K| detach and an M| link
- * resolve against it, because a detach is a targeted statement about one key and an
- * unrelated edit says nothing about that key -- letting the edit time answer a K|
- * would mean adding any tag on one device silently re-attached a tag another device
- * had removed. Only the record-delete decision consults the edit clock (mdel_apply). */
+ * resolve against it, an unrelated edit saying nothing about one key -- an edit time
+ * answering a K| would let any tag added on one device silently re-attach a tag
+ * another removed. Only the record-delete decision consults the edit clock
+ * (mdel_apply). */
 struct mdel_ctx { const char *hash; long id; char ts[AIS_TS_MAX]; int found; };
 static int mdel_seek(long id, const char *ts, const char *keys, const char *value, void *vp)
 {
     struct mdel_ctx *M = vp;
     char h[17];
     (void)keys;
-    /* Identity is the value and NOTHING else. Salting this with the record's
-     * creation ts was tried and reverted: two devices that independently save the
-     * same value stamp it at different times, so they computed different digests
-     * and a delete silently stopped crossing between them. Identity has to be
-     * derived from what both sides can agree on with nothing shared, and the ts
-     * is not that -- it is only equal when the record itself was synced. */
+    /* Identity is the value and NOTHING else -- no creation-ts salt. Two devices
+     * that independently save the same value stamp it at different times, so a
+     * salted digest differs and a delete stops crossing between them. Identity has
+     * to come from what both sides agree on with nothing shared. */
     content_hash(value, h);
     if (strcmp(h, M->hash) == 0) {
         M->id = id;
@@ -1251,13 +1188,9 @@ static int mdel_seek(long id, const char *ts, const char *keys, const char *valu
     return 0;
 }
 
-/* Attach VALUE as an additional link on the record whose FIRST value hashes to
- * HASH -- the import side of the M| verb. A record can hold several values, and
- * the wire has no other way to say "these belong together": each value is its own
- * store line, so a plain export emitted each as its own A| and every restore
- * SPLIT one record into several. Idempotent: ais_add skips a value the record
- * already holds. Unknown hash = nothing to attach to, which is not an error (the
- * peer may simply not have that record). 0/-1. */
+/* The import side of the M| verb. Each value is its own store line, so without M|
+ * a plain export emits each as its own A| and every restore SPLITS one record
+ * into several. */
 int ais_merge_addval(ais *a, const char *hash, const char *value)
 {
     struct mdel_ctx M;
@@ -1274,9 +1207,8 @@ int ais_merge_addval(ais *a, const char *hash, const char *value)
     if (tomb_contains(a, M.id) == 1)
         return 0;                       /* deleted here: do not resurrect via a link */
     {
-        /* ais_add appends unconditionally, so replaying a stream would stack the
-         * same link again and again. Sync is repeated by design -- folder syncs
-         * re-import the same bundle every pass -- so this has to be idempotent. */
+        /* ais_add appends unconditionally, and folder sync re-imports the same
+         * bundle every pass, so this guard is what makes a replay idempotent. */
         long already = 0;
         if (store_find_value(a, value, &already) == 1)
             return 0;                   /* this index already holds that value */
@@ -1308,29 +1240,25 @@ static int mdel_apply(ais *a, long id, const char *line_ts,
         }
         return rc;
     }
-    /* The local EDIT is newer, so the record stays. Record the time it now
-     * exports at, or the decision is LOCAL ONLY: the line would go on exporting
-     * its creation time, the peer that deleted it would keep its tombstone,
-     * and its D| would come back every round -- the record flapping in and
-     * out on every device but this one. This is the resurrect path's rule,
-     * reached from the other side.
+    /* The local EDIT is newer, so the record stays. Record the time it now exports
+     * at, or the decision is LOCAL ONLY: the line goes on exporting its creation
+     * time, the peer that deleted it keeps its tombstone, and its D| comes back
+     * every round -- the record flapping on every device but this one. The
+     * resurrect path's rule, reached from the other side.
      *
-     * Only when the edit time is actually LATER than the line. A stale peer
-     * delete that simply loses on creation time changes nothing, and
-     * restamping there rewrote the entire store (and dropped the "off"
-     * accelerator) on every sync round, forever, for no effect.
+     * Only when the edit time is LATER than the line: restamping for a stale delete
+     * that already loses on creation time rewrites the entire store (and drops the
+     * "off" accelerator) on every sync round, for no effect.
      *
-     * Only as far as it has to go: one second past the delete, not all the
-     * way to the edit time. The exported timestamp also decides key
-     * attaches, so every second it is raised sweeps up unrelated key
-     * tombstones on other devices and re-attaches tags they removed.
-     * Beating this one tombstone is the whole job.
+     * Only as far as it has to go: one second past the delete, not all the way to
+     * the edit time. The exported timestamp also decides key attaches, so every
+     * second of raise sweeps up unrelated key tombstones on other devices and
+     * re-attaches tags they removed.
      *
-     * And kept OUT of the store line. Written there, a K| detach arriving
-     * later in the same import pass compared against the raised line and
-     * lost, while one arriving earlier compared against the creation time
-     * and won -- the difference being the order readdir returned the peer
-     * bundles in. */
+     * And kept OUT of the store line: written there, a K| detach arriving later in
+     * the same import pass compares against the raised line and loses, while one
+     * arriving earlier compares against the creation time and wins -- the
+     * difference being the order readdir returned the peer bundles in. */
     char want[AIS_TS_MAX], have[AIS_TS_MAX];
     if (store_ts_next_second(ts, want, sizeof want) != 0 ||
         strcmp(want, add_ts) > 0)
@@ -1348,14 +1276,10 @@ static int mdel_apply(ais *a, long id, const char *line_ts,
 }
 
 /* Resolve a whole batch of delete facts in ONE store pass: each store line is
- * hashed once and offered to every fact still unresolved, instead of the store
- * being read again from the top for each.
- *
- * Resolving is separated from applying, and the applying stays in STREAM order.
- * Nothing an apply writes (tomb, mts, sts) is read by a seek, so moving the seeks
- * cannot change an outcome -- but two facts can name two values of ONE record, and
- * then the order decides which value's hash the tombstone carries onward to the
- * peers. Applying in store order silently swapped it. */
+ * hashed once and offered to every fact still unresolved. Applying stays in STREAM
+ * order: nothing an apply writes (tomb, mts, sts) is read by a seek, but two facts
+ * can name two values of ONE record, and the order then decides which value's hash
+ * the tombstone carries onward to the peers. */
 struct mbatch_ctx { const ais_del_fact *f; int n, left;
                     long id[AIS_MERGE_BATCH]; char ts[AIS_MERGE_BATCH][AIS_TS_MAX]; };
 static int mbatch_seek(long id, const char *ts, const char *keys, const char *value, void *vp)
@@ -1413,13 +1337,10 @@ int ais_merge_del(ais *a, const char *hash, const char *ts)
     return ais_merge_del_many(a, &f, 1);
 }
 
-/* Apply a remote key-attach (a T|ts|hash|key merge line): find the record by its
- * value-hash and attach KEY iff TS is strictly newer than any local detach of it
- * (the mirror of ais_merge_detach's rule, and of attach_wins'). Records the attach
- * time so it can be compared against, and re-propagated. Idempotent -- a fact
- * already applied is recognised by that same note. Returns 0. */
 /* One attach fact against the local record it named: the decision, identical
- * whether the fact arrived alone or inside a batch. Returns 0. */
+ * whether the fact arrived alone or inside a batch. Records the attach time so it
+ * can be compared against and re-propagated; a fact already applied is recognised
+ * by that same note. Returns 0. */
 static int att_apply(ais *a, long id, const char *hash, const char *key, const char *ts)
 {
     char have[AIS_TS_MAX];
@@ -1433,19 +1354,17 @@ static int att_apply(ais *a, long id, const char *hash, const char *key, const c
     if (ktomb_lookup(a, id, key, have, sizeof have) == 1 && have[0] != '\0' &&
         strcmp(have, ts) >= 0)
         return 0;                            /* a detach here is newer: it wins */
-    /* The lookup above already answered whether there is an entry to replace, so
-     * the common case -- a fact this index has never seen -- appends instead of
-     * rewriting the whole file to drop nothing. */
+    /* The lookup above already answered whether there is an entry to replace: a
+     * fact this index has never seen appends instead of rewriting the whole file. */
     if ((noted == 1 ? katt_set(a, id, ts, hash, key)
                     : katt_add(a, id, ts, hash, key)) == 0)
         ais_post_keys(a, key, id, ts, 0);    /* the one attach path: keys field + posting */
     return 0;
 }
 
-/* Resolve a whole batch of attach facts in ONE store pass, then apply them in
- * STREAM order -- the same shape, and for the same reason, as ais_merge_del_many
- * (see ais.h). Applying rewrites keys fields and postings, never a VALUE, so the
- * hash->id map this pass builds stays valid for the rest of the batch. */
+/* Resolve a whole batch of attach facts in ONE store pass, then apply in STREAM
+ * order -- the shape of ais_merge_del_many (see ais.h). Applying rewrites keys
+ * fields and postings, never a VALUE, so the hash->id map stays valid. */
 struct abatch_ctx { const ais_att_fact *f; int n, left; long id[AIS_ATT_BATCH]; };
 static int abatch_seek(long id, const char *ts, const char *keys, const char *value, void *vp)
 {
@@ -1501,12 +1420,10 @@ int ais_merge_attach(ais *a, const char *hash, const char *key, const char *ts)
     return ais_merge_attach_many(a, &f, 1);
 }
 
-/* Apply a remote key-detach (a K|ts|hash|key merge line): find the record by its
- * value-hash and detach KEY iff the detach TS is at least as new as the record's own
- * time AND as any attach of that key here (record-granularity LWW, mirroring
- * ais_merge_del). Without the attach time a detach that had reached the mesh once won
- * for ever: a re-attach was undone on the next sync, even on the device that made it.
- * Idempotent. Returns 0. */
+/* Detach iff the detach TS is at least as new as the record's own time AND as any
+ * attach of that key here (record-granularity LWW, mirroring ais_merge_del).
+ * Without the attach time a detach that has reached the mesh once wins for ever: a
+ * re-attach is undone on the next sync, even on the device that made it. */
 int ais_merge_detach(ais *a, const char *hash, const char *key, const char *ts)
 {
     struct mdel_ctx M;
@@ -1562,11 +1479,9 @@ cleanup:
     return rc;
 }
 
-/* Keyset page over ais_get, so a GUI scrolls a large result set instead of
- * loading every match at once. ais_get emits ascending, so the cursor is just
- * the last id shown: skip ids <= AFTER, forward the next COUNT to the caller,
- * then stop the merge. Memory stays O(nkeys) -- the page bound is a counter,
- * not a buffer. */
+/* ais_get emits ascending, so the cursor is just the last id shown: skip ids <=
+ * AFTER, forward the next COUNT to the caller, then stop the merge. Memory stays
+ * O(nkeys) -- the page bound is a counter, not a buffer. */
 struct getpage_ctx { long after; int limit, n; ais_id_cb cb; void *ctx; };
 static int getpage_cb(long id, void *vp)
 {
@@ -1633,9 +1548,9 @@ int ais_record(ais *a, long id, ais_val_cb cb, void *ctx)
     return 0;
 }
 
-/* Buffer of distinct key names gathered from idx/, to be sorted then emitted.
- * Bounded: AIS_KEYS_LIST_MAX names of AIS_KEY_MAX each (a listing command, not
- * a streaming query -- keys are human words, not astronomically many). */
+/* Buffer of distinct key names gathered from idx/, sorted then emitted. Bounded:
+ * AIS_KEYS_LIST_MAX names of AIS_KEY_MAX each -- a listing command, not a
+ * streaming query. */
 #define AIS_KEYS_LIST_MAX 65536
 
 struct key_buf {
@@ -1704,9 +1619,9 @@ int ais_keys(ais *a, ais_key_cb cb, void *ctx)
             char kpath[AIS_PATH_MAX];
             if (ke->d_name[0] == '.')
                 continue;
-            /* Skip a key whose every record is deleted: the posting keeps their
-             * ids until compaction, so listing it offered a key that answers
-             * nothing. Same rule as ais_tags -- and free when nothing is deleted. */
+            /* Skip a key whose every record is deleted -- the posting keeps their
+             * ids until compaction. Same rule as ais_tags; free if nothing is
+             * deleted. */
             if (dead && snprintf(kpath, sizeof kpath, "%s/%s", pdir, ke->d_name)
                             < (int)sizeof kpath &&
                 tag_count_file(a, kpath, dead) == 0)
@@ -1783,9 +1698,9 @@ static int dump_line(long id, const char *ts, const char *keys,
     const char *k = keys;
     (void)ts;   /* dump is the CONTENT serialization: the id is a device-local
                  * ordinal and the ts is reassigned on re-import, so neither is
-                 * emitted. The line is the CLI's own grammar (see FORMAT_V2.md),
-                 * which is why a value may contain '|' and needs no escaping:
-                 * -v takes the rest of the line and nothing after it is parsed. */
+                 * emitted. The line is the CLI's own grammar (FORMAT_V2.md): a
+                 * value may contain '|' unescaped, -v taking the rest of the line
+                 * with nothing after it parsed. */
     if (t < 0)
         return -1;
     if (t != 0)
@@ -1812,13 +1727,10 @@ void ais_dump(ais *a, FILE *out)
 }
 
 /* --- timeline: keyset (cursor) pagination, newest id first -----------------
- * Scalable by design: with the "off" id->offset index we SEEK straight to each
- * record by id and read only the page asked for -- never the whole store. A
- * page is the COUNT live records with id < BEFORE_ID (BEFORE_ID <= 0 = from the
- * newest). "Load more" passes the last id shown as the next BEFORE_ID. Order is
- * id-descending (= reverse insertion ~= reverse chronological); one row per
- * record (its first/canonical line). When "off" is absent/stale (a legacy index
- * before --compact) it falls back to a bounded scan -- correct, not scalable. */
+ * With the "off" id->offset index each record is SEEKed by id and only the page
+ * asked for is read, never the whole store. One row per record (its first/canonical
+ * line). When "off" is absent or stale (a legacy index before --compact) it falls
+ * back to a bounded scan -- correct, not scalable. */
 #define AIS_TL_DEFAULT  500    /* page size when COUNT <= 0                      */
 #define AIS_TL_MAX    10000    /* hard cap on one page (bounds the fallback heap)*/
 #define AIS_TL_VAL_MAX 2048    /* value snippet held per row in the fallback     */
@@ -1976,22 +1888,20 @@ int ais_timeline(ais *a, long before_id, int count,
     e.from = from; e.to = to; e.emitted = 0;
 
     /* Re-read the counter from disk BEFORE anything reads it. It is cached at
-     * open, so a process that stays up -- the web server, the phone app -- had
-     * its ceiling frozen at whatever the counter was when it started, and every
-     * record any OTHER writer added sat above it, invisible. "Recent" was the one
-     * screen that lied, while get/tags (which read the postings each call) saw
-     * them. off_consistent() compares the off file against next_id too, so a
-     * stale counter also mis-declared the accelerator inconsistent and sent this
-     * down the scan path -- the refresh has to come first. */
+     * open, so in a process that stays up -- the web server, the phone app -- every
+     * record another writer adds sits above the frozen ceiling, invisible.
+     * off_consistent() compares the off file against next_id too, so a stale counter
+     * also mis-declares the accelerator inconsistent and sends this down the scan
+     * path: the refresh has to come first. */
     if (store_load_next_id(a) != 0)
         return -1;
 
     if (off_consistent(a) != 1)               /* no usable index: bounded scan */
         return tl_scan(a, before_id, count, &e);
 
-    /* seek path: walk ids downward, reading only the page (the older records
-     * are never touched) -- the scalable case. Counting is by in-range rows
-     * (tl_emit_one increments e.emitted only for records the range admits). */
+    /* seek path: walk ids downward, reading only the page -- older records are
+     * never touched. Counting is by in-range rows (tl_emit_one increments
+     * e.emitted only for records the range admits). */
     maxid = a->next_id - 1;
     id = (before_id > 0 && before_id - 1 < maxid) ? before_id - 1 : maxid;
     for (; id >= 1 && e.emitted < count; id--) {
@@ -2015,15 +1925,12 @@ struct tag_entry {
     long count;
 };
 
-/* Count the lines (postings) in one key file idx/<p>/<key>. */
-/* LIVE postings under one key. A posting keeps a deleted record's id until the
- * next compaction, so counting lines reported tags that answer nothing: the tag
- * list said "notes 120" while querying `notes` returned zero, and the GUIs -- where
- * the tag list is the main way to browse -- offered a tag that led nowhere. On a
- * phone there is no CLI, so compaction never runs and those never clear.
- * DEAD is the tombstone count: with nothing deleted (the common case) this is the
- * old newline count at the old speed, and only an index that has seen deletes pays
- * for the id parse and the tomb lookup. */
+/* LIVE postings in one key file idx/<p>/<key>. A posting keeps a deleted record's
+ * id until the next compaction, and on a phone there is no CLI, so compaction never
+ * runs; a plain line count therefore offers tags that answer nothing. DEAD is the
+ * tombstone count: with nothing deleted (the common case) this is a plain newline
+ * count, and only an index that has seen deletes pays for the id parse and the tomb
+ * lookup. */
 static long tag_count_file(const ais *a, const char *path, int dead)
 {
     char buf[8192];

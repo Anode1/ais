@@ -29,8 +29,7 @@
 int secret_is_marked(const char *value);
 
 /* If VALUE is a BLOB reference (aisc:@<relpath>), return the relpath (a pointer
- * into VALUE); else NULL (an inline value or a non-secret). The '@' right after
- * "aisc:" is the exact discriminator -- base64 never starts with it. */
+ * into VALUE); else NULL (an inline value or a non-secret). */
 const char *secret_blob_relpath(const char *value);
 
 /* 1 if a plain recall should reveal secrets interactively: stdout is a terminal
@@ -66,8 +65,8 @@ int secret_encrypt_to_file(const unsigned char *plain, size_t plain_len,
 void secret_shred_blob(const char *index_dir, const char *value);
 
 /* Prompt for one line on /dev/tty with echo OFF (CONFIRM != 0 asks twice and
- * requires a match). Thin wrapper over the crypto module's tty reader; returns
- * the length, or -1 (crypto not built, or error). The caller should secret_wipe BUF. */
+ * requires a match). Returns the length, or -1 (crypto not built, or error).
+ * The caller should secret_wipe BUF. */
 int secret_prompt(const char *prompt, int confirm, char *buf, size_t buf_sz);
 
 /* Reveal a marked secret interactively: prompt the passphrase, decrypt, and

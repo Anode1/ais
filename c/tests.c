@@ -1,11 +1,8 @@
 /* tests.c -- AIS regression bundle. Linear, inline, one comment per test.
- *
- * Compiled only under -DUNIT_TEST (see `make ut`); invisible to the normal
- * build. Independent black-box tests of the ais.h contract plus a few pure
- * helpers (key.h). Mutating tests use a fresh scratch INDEX under /tmp, wiped
- * before and after, so the suite is idempotent and never touches the committed
- * fixture tests/INDEX/store.
- */
+ * Compiled only under -DUNIT_TEST (`make ut`). Black-box tests of the ais.h
+ * contract plus a few pure helpers (key.h). Mutating tests use a fresh scratch
+ * INDEX under /tmp, wiped before and after: the suite is idempotent and never
+ * touches the committed fixture tests/INDEX/store. */
 #ifdef UNIT_TEST
 
 /* setenv() for the AIS_TTY test seam (BSD+POSIX, hidden under bare -std=c99) */
@@ -252,7 +249,6 @@ static void test_put_monotonic(void)
     id3 = ais_put(&a, "alpha gamma", "v3");
     CHECK(id1 == 1 && id2 == 2 && id3 == 3, "put ids strictly monotonic (1,2,3)");
 
-    /* "alpha" was filed for id1 and id3 -> {1,3}, ascending */
     n = read_posting(dir, "alpha", ids, 16, &asc);
     CHECK(n == 2 && ids[0] == 1 && ids[1] == 3, "posting 'alpha' == {1,3}");
     CHECK(asc, "posting 'alpha' ascending");
@@ -277,11 +273,9 @@ static void test_put_idempotent(void)
     CHECK(id1 == id2, "re-put same value -> same id");
     CHECK(a.next_id == 2, "re-put did not consume a new id");
 
-    /* no duplicate posting for 'alpha' */
     n = read_posting(dir, "alpha", ids, 16, &asc);
     CHECK(n == 1 && ids[0] == id1, "re-put: no duplicate posting");
 
-    /* no duplicate record line */
     query(&a, AIS_AND, &v, 1, "alpha");
     CHECK(v.n == 1 && v.ids[0] == id1, "re-put: single record only");
     ais_close(&a);
@@ -309,7 +303,6 @@ static void test_put_new_key_ordered_insert(void)
     CHECK(again == idA, "re-put existing value under new key -> same id");
     CHECK(a.next_id == 4, "ordered-insert re-put consumed no new id");
 
-    /* 'omega' now finds id 1, and the file is ascending {1,2,3} */
     query(&a, AIS_AND, &v, 1, "omega");
     {
         long want[3] = {idA, idB, idC};
@@ -352,11 +345,9 @@ static void test_get_and_or(void)
     query(&a, AIS_OR, &v, 2, "longevity", "sdcard");
     { long w[2] = {5, 6}; CHECK(ids_eq(&v, w, 2), "OR [longevity sdcard] -> {5,6}"); }
 
-    /* a key with no matches -> empty */
     query(&a, AIS_AND, &v, 1, "nonexistent");
     CHECK(v.n == 0, "absent key -> empty");
 
-    /* AND including an absent key -> empty */
     query(&a, AIS_AND, &v, 2, "linux", "nonexistent");
     CHECK(v.n == 0, "AND with an absent key -> empty");
 
@@ -365,11 +356,9 @@ static void test_get_and_or(void)
 }
 
 /* ---- get with many keys (>2): the k-way merge, AND and OR over 6 keys ----
- * n=1 and n=2 are each special; the general k-way path only starts at 3, so
- * this drives it well past that with a 6-key AND and a 6-key OR. One key is a
- * UTF-8 Cyrillic word ("три" = "three"), so the same assertions ALSO prove
- * that a lowercase non-ASCII key round-trips byte-transparently through
- * put -> encode -> shard -> get -> merge (no extra checks). */
+ * n=1 and n=2 are special-cased; the general k-way path starts at 3. One key is
+ * a UTF-8 Cyrillic word ("три"), so the same assertions pin that a lowercase
+ * non-ASCII key round-trips byte-transparently through encode/shard/get. */
 static void test_get_multikey(void)
 {
     ais a;
@@ -382,11 +371,9 @@ static void test_get_multikey(void)
     ais_put(&a, "one two три four five",     "only-five");     /* id 2: 5 keys */
     ais_put(&a, "six seven",                 "six-and-seven"); /* id 3        */
 
-    /* 6-key AND (incl. the UTF-8 key): only id 1 carries all six keys */
     query(&a, AIS_AND, &v, 6, "one", "two", "три", "four", "five", "six");
     { long w[1] = {1}; CHECK(ids_eq(&v, w, 1), "AND 6 keys incl. UTF-8 'три' -> {1}"); }
 
-    /* drop 'six' -> the 5-key AND now also admits id 2 */
     query(&a, AIS_AND, &v, 5, "one", "two", "три", "four", "five");
     { long w[2] = {1, 2}; CHECK(ids_eq(&v, w, 2), "AND 5 keys incl. UTF-8 'три' -> {1,2}"); }
 
@@ -394,7 +381,6 @@ static void test_get_multikey(void)
     query(&a, AIS_AND, &v, 6, "one", "two", "три", "four", "five", "absent");
     CHECK(v.n == 0, "AND 6 keys incl. absent -> empty");
 
-    /* 6-key OR across all three records: union of everything touching any key */
     query(&a, AIS_OR, &v, 6, "one", "four", "six", "seven", "nine", "ten");
     { long w[3] = {1, 2, 3}; CHECK(ids_eq(&v, w, 3), "OR 6 keys -> {1,2,3}, ascending"); }
 
@@ -417,12 +403,9 @@ static void test_add_multilink(void)
     CHECK(ais_add(&a, id, "file:///c") == 0, "add a third link");
     CHECK(ais_add(&a, 999, "x") == -1, "add to a missing id -> -1");
 
-    /* A value names ONE record here: put dedups by value, tombstones are
-     * hash-stamped and the merge stream is hash-keyed, so two records sharing a
-     * value makes a peer collapse them and a later delete of either take both.
-     * ais_set_value refused this from the start; add_link was the one write path
-     * without the guard, so `--add 2 -v X` where record 1 held X silently created
-     * the situation the rest of the engine assumes cannot exist. */
+    /* A value names ONE record: put dedups by value and the merge stream is
+     * hash-keyed, so two records sharing a value collapse on a peer and a delete
+     * of either takes both. Every write path must refuse another record's value. */
     {
         long other = ais_put(&a, "otherkey", "a value of its own");
         CHECK(other > 0, "add-dup: a second record exists");
@@ -444,7 +427,7 @@ static void test_add_multilink(void)
     scratch_rm(dir);
 }
 
-/* ---- del: get and dump no longer yield the id; del idempotent ---- */
+/* ---- del: get and dump drop the id; del idempotent ---- */
 static void test_del(void)
 {
     ais a;
@@ -458,13 +441,11 @@ static void test_del(void)
 
     CHECK(ais_del(&a, 1) == 0, "del id 1 -> 0");
 
-    /* get no longer yields id 1 */
     query(&a, AIS_AND, &v, 1, "samba");
     CHECK(v.n == 0, "after del, get [samba] is empty");
     query(&a, AIS_AND, &v, 2, "linux", "network");
     { long w[1] = {2}; CHECK(ids_eq(&v, w, 1), "after del, AND [linux network] -> {2}"); }
 
-    /* dump no longer shows id 1 */
     fp = fopen("/tmp/ais_ut_del_dump", "w");
     ais_dump(&a, fp);
     fclose(fp);
@@ -476,7 +457,6 @@ static void test_del(void)
     CHECK(strstr(dumpbuf, "/etc/exports") != NULL, "dump still shows surviving id 2");
     remove("/tmp/ais_ut_del_dump");
 
-    /* double-del and del of an absent id are no-ops (still 0) */
     CHECK(ais_del(&a, 1) == 0, "double-del is a no-op");
     CHECK(ais_del(&a, 4242) == 0, "del of an absent id is a no-op");
     query(&a, AIS_AND, &v, 1, "samba");
@@ -502,38 +482,32 @@ static void test_compact(void)
     ais_del(&a, 1);
     CHECK(ais_compact(&a) == 0, "compact -> 0");
 
-    /* id 1 physically gone from the store */
     {
         long got = 0;
         int found = store_find_value(&a, "/etc/samba/smb.conf", &got);
         CHECK(found == 0, "compact: deleted value gone from store");
     }
 
-    /* surviving records still answer */
     query(&a, AIS_AND, &v, 2, "linux", "network");
     { long w[1] = {2}; CHECK(ids_eq(&v, w, 1), "compact: survivors answer (AND linux network)"); }
     query(&a, AIS_AND, &v, 2, "c", "ansi");
     { long w[2] = {3, 4}; CHECK(ids_eq(&v, w, 2), "compact: survivors answer (AND c ansi)"); }
 
-    /* rebuilt posting is ascending and free of id 1 */
     n = read_posting(dir, "network", ids, 16, &asc);
     CHECK(n == 1 && asc && ids[0] == 2, "compact: 'network' rebuilt to {2}, ascending");
 
-    /* 'samba' posting should be gone (the only id was removed) */
     n = read_posting(dir, "samba", ids, 16, &asc);
     CHECK(n <= 0, "compact: 'samba' posting removed");
 
-    /* next_id preserved (max surviving id 6 -> next 7) */
     CHECK(a.next_id == next_before, "compact: next_id preserved (7)");
     ais_close(&a);
     scratch_rm(dir);
 }
 
 /* ---- compact must not regress next_id below a RETAINED tombstone ----------
- * Deleting the HIGHEST id then compacting used to set next_id = maxid+1 (live
- * ids only), colliding a fresh record's id with the retained hash-tombstone --
- * the new record was born suppressed (invisible everywhere) and erased by the
- * next compaction. Regression guard for that silent total-loss bug. */
+ * next_id must exceed every id ever issued, not the highest LIVE one: deleting
+ * the highest id and compacting must not let the next record collide with the
+ * retained hash-tombstone, which makes it invisible and erases it. */
 static void test_compact_next_id_no_reuse(void)
 {
     ais a;
@@ -567,11 +541,9 @@ static void test_compact_next_id_no_reuse(void)
 }
 
 /* ---- compact rollback: a mid-compaction failure must NOT destroy the index --
- * get() reads idx/ with no store fallback, so the pre-fix compaction (which
- * rmtree'd idx/ up front and rebuilt it in place) left every keyed read empty if
- * anything failed mid-stream. The fix stages idx/ aside and rolls it back. We
- * force a failure by planting a DIRECTORY where store.new must be a file, so
- * fopen(store.new,"w") fails after the index has been staged. */
+ * get() reads idx/ with no store fallback, so compaction stages idx/ aside and
+ * rolls it back on failure. Failure is forced by planting a DIRECTORY where
+ * store.new must be a file, so fopen fails after the index has been staged. */
 static void test_compact_rollback(void)
 {
     ais a;
@@ -585,13 +557,11 @@ static void test_compact_rollback(void)
     CHECK(mkdir(sn, 0777) == 0, "rollback: planted store.new dir to force failure");
     CHECK(ais_compact(&a) != 0, "rollback: compaction fails as injected");
 
-    /* the index must be intact (rolled back), not emptied */
     query(&a, AIS_AND, &v, 2, "linux", "network");
     { long w[2] = {1, 2}; CHECK(ids_eq(&v, w, 2), "rollback: idx intact (linux network) after failed compact"); }
     query(&a, AIS_AND, &v, 2, "memory", "archive");
     { long w[2] = {5, 6}; CHECK(ids_eq(&v, w, 2), "rollback: idx intact (memory archive) after failed compact"); }
 
-    /* remove the blocker; a normal compaction now succeeds and still answers */
     rmdir(sn);
     CHECK(ais_compact(&a) == 0, "rollback: compaction succeeds once unblocked");
     query(&a, AIS_AND, &v, 1, "samba");
@@ -602,9 +572,8 @@ static void test_compact_rollback(void)
 }
 
 /* ---- compact recovery: a stale idx.bak from a crashed run is cleaned up ----
- * If a compaction crashed after staging idx/ into idx.bak, the next run must not
- * choke on the leftover backup: it rebuilds idx/ from the store (the source of
- * truth) and discards the debris. */
+ * A leftover idx.bak (a run that crashed after staging idx/) must not stop the
+ * next compaction: it rebuilds idx/ from the store and discards the debris. */
 static void test_compact_recover_debris(void)
 {
     ais a;
@@ -627,9 +596,8 @@ static void test_compact_recover_debris(void)
 }
 
 /* ---- a key-detach survives an unaware peer's stale re-attach (LWW) ---------
- * The merge path (A|ts| lines) must not let a peer that never heard about a
- * detach silently revert it: a re-attach wins only if its ts is NEWER than the
- * detach. Regression guard for the order-dependent divergence bug. */
+ * On the merge path (A|ts| lines), a re-attach wins only if its ts is NEWER
+ * than the detach, whatever order the lines arrive in. */
 static void test_detach_lww(void)
 {
     ais a;
@@ -649,17 +617,14 @@ static void test_detach_lww(void)
     query(&a, AIS_AND, &v, 1, "bar");
     CHECK(v.n == 0, "detach-lww: a stale re-attach does NOT revert a newer detach");
 
-    /* idempotent: importing the stale line again is still a no-op */
     ais_put_at(&a, "foo bar", "danieli", "2000-01-01T00:00:00Z");
     query(&a, AIS_AND, &v, 1, "bar");
     CHECK(v.n == 0, "detach-lww: idempotent under repeated stale import");
 
-    /* a LOCAL re-attach (now) is authoritative and wins */
     ais_update(&a, id, "bar");
     query(&a, AIS_AND, &v, 1, "bar");
     CHECK(v.n == 1 && v.ids[0] == id, "detach-lww: local re-attach wins");
 
-    /* and a peer whose attach is genuinely NEWER than the detach also wins */
     ais_update(&a, id, "-bar");                          /* detach again, now */
     ais_put_at(&a, "foo bar", "danieli", "2999-01-01T00:00:00Z");   /* future attach */
     query(&a, AIS_AND, &v, 1, "bar");
@@ -693,10 +658,9 @@ static void test_next_id_recovery(void)
 }
 
 /* ---- next_id: a present-but-corrupt cache must recover, not reset to 1 -----
- * A put interrupted by a crash or ENOSPC can leave INDEX/next_id present but
- * 0-length or unparseable. Recovery used to fire only when the file was ABSENT,
- * so a corrupt cache silently reset next_id to 1 and reissued live ids, colliding
- * two records under one id. Guard: a corrupt/garbage cache recovers max(id)+1. */
+ * A put interrupted by a crash or ENOSPC can leave INDEX/next_id 0-length or
+ * unparseable; recovery must fire on that, not only on an absent file, or
+ * next_id resets to 1 and reissues live ids. */
 static void test_next_id_corrupt_cache(void)
 {
     ais a;
@@ -749,7 +713,6 @@ static void test_rebuild_from_store(void)
     ais_open(&a, dir);
     CHECK(ais_compact(&a) == 0, "rebuild: compact materializes idx/ from store");
 
-    /* the AND/OR oracle must hold against the rebuilt index */
     query(&a, AIS_AND, &v, 2, "c", "ansi");
     { long w[2] = {3, 4}; CHECK(ids_eq(&v, w, 2), "rebuild AND [c ansi] -> {3,4}"); }
     query(&a, AIS_AND, &v, 2, "linux", "network");
@@ -776,13 +739,11 @@ static void test_keys(void)
     struct keyvec v;
     const char *dir = "/tmp/ais_ut_keys";
 
-    /* absent idx/ (fresh, never put) -> no keys, returns 0 */
     scratch_rm(dir);
     ais_open(&a, dir);
     v.n = 0;
     CHECK(ais_keys(&a, collect_key, &v) == 0 && v.n == 0, "keys: empty index -> none");
 
-    /* two records with overlapping keys -> distinct, sorted union */
     ais_put(&a, "linux config", "/etc/hosts");
     ais_put(&a, "linux nfs",    "/etc/exports");
     v.n = 0;
@@ -811,7 +772,6 @@ static void test_stats(void)
     ais_put(&a, "linux nfs",    "/etc/exports");  /* id 2; keys linux,nfs   */
     ais_put(&a, "memory",       "note");          /* id 3; key  memory      */
 
-    /* 3 live records; 4 distinct keys (config,linux,memory,nfs); 0 deleted */
     fp = tmpfile();
     CHECK(ais_stats(&a, fp) == 0, "stats -> 0");
     rewind(fp);
@@ -822,7 +782,6 @@ static void test_stats(void)
     CHECK(strstr(buf, "keys: 4") != NULL, "stats: keys: 4");
     CHECK(strstr(buf, "deleted: 0") != NULL, "stats: deleted: 0");
 
-    /* delete one record: records drops to 2, deleted rises to 1 */
     CHECK(ais_del(&a, 2) == 0, "stats: del id 2 -> 0");
     fp = tmpfile();
     CHECK(ais_stats(&a, fp) == 0, "stats -> 0 after del");
@@ -850,18 +809,14 @@ static void test_del_key(void)
     ais_put(&a, "shared three", "v3");   /* id 3 under 'shared' */
     ais_put(&a, "other",        "v4");   /* id 4 under 'other'  */
 
-    /* del_key('shared') tombstones all 3 filed under it */
     CHECK(ais_del_key(&a, "shared") == 3, "del_key 'shared' -> 3");
 
-    /* get of the shared key is now empty */
     query(&a, AIS_AND, &v, 1, "shared");
     CHECK(v.n == 0, "del_key: get [shared] now empty");
 
-    /* the other key's record still answers */
     query(&a, AIS_AND, &v, 1, "other");
     { long w[1] = {4}; CHECK(ids_eq(&v, w, 1), "del_key: [other] still -> {4}"); }
 
-    /* del_key of an absent key tombstones nothing */
     CHECK(ais_del_key(&a, "nonexistent") == 0, "del_key absent key -> 0");
     ais_close(&a);
     scratch_rm(dir);
@@ -885,9 +840,8 @@ static void test_merge_multilink(void)
     CHECK(ais_add(&a, id, "https://x/b") == 0, "multilink: second link");
     CHECK(ais_add(&a, id, "https://x/c") == 0, "multilink: third link");
 
-    /* What the wire does: the first value carries the record, the others attach
-     * to it by the first value's hash. Emitting all three as adds is what split
-     * one record into three on every restore. */
+    /* On the wire the first value carries the record and the others attach by its
+     * hash; emitted as adds they would land as three separate records. */
     content_hash("https://x/a", h);
     CHECK(ais_put_at(&b, "trio", "https://x/a", "2026-01-01T00:00:00Z") > 0,
           "multilink: the record lands on the peer");
@@ -900,13 +854,11 @@ static void test_merge_multilink(void)
     ais_record(&b, v.ids[0], collect_val, &vv);
     CHECK(vv.n == 3, "multilink: carrying all three links");
 
-    /* idempotent: replaying the same stream must not duplicate */
     CHECK(ais_merge_addval(&b, h, "https://x/b") == 0, "multilink: replay is accepted");
     vv.n = 0;
     ais_record(&b, v.ids[0], collect_val, &vv);
     CHECK(vv.n == 3, "multilink: replay added nothing");
 
-    /* a hash this index does not hold is a no-op, not an error */
     content_hash("https://x/nowhere", h);
     CHECK(ais_merge_addval(&b, h, "https://x/z") == 0, "multilink: unknown hash is a no-op");
     query(&b, AIS_AND, &v, 1, "trio");
@@ -937,20 +889,17 @@ static void test_readd_after_delete(void)
     CHECK(v.n == 0, "readd: it is gone");
 
     /* saving it again (local put = now) must bring it back AND restamp it: the
-     * ts is the add-ts merging compares against a peer's tombstone, so leaving
-     * the 2020 creation time meant the re-save lost to its own old delete on
-     * every sync, forever. */
+     * ts is the add-ts merging compares against a peer's tombstone, so keeping
+     * the 2020 creation time would lose to its own old delete on every sync. */
     CHECK(ais_put(&a, "reading", "http://x/readd") == id, "readd: same id comes back");
     query(&a, AIS_AND, &v, 1, "reading");
     CHECK(v.n == 1, "readd: it is live again");
 
-    /* the stale delete must no longer win */
     CHECK(ais_merge_del(&a, "", "2020-06-01T00:00:00Z") == 0 ||
           1, "readd: replaying a stale delete is accepted");
     query(&a, AIS_AND, &v, 1, "reading");
     CHECK(v.n == 1, "readd: a 2020 delete cannot kill a record saved now");
 
-    /* and a genuinely newer delete still wins -- deletes are not defanged */
     CHECK(ais_del(&a, id) == 0, "readd: a fresh delete still applies");
     query(&a, AIS_AND, &v, 1, "reading");
     CHECK(v.n == 0, "readd: and it is gone again");
@@ -980,8 +929,8 @@ static void test_untag_key(void)
     query(&a, AIS_AND, &v, 1, "proj");
     CHECK(v.n == 0, "untag: get [proj] now empty");
 
-    /* the point of untag: the RECORDS are still there. A record whose only key
-     * was the untagged one keeps its id and value -- it is simply unfiled. */
+    /* the RECORDS are still there: one whose only key was the untagged one keeps
+     * its id and value, simply unfiled. */
     query(&a, AIS_AND, &v, 1, "deploy");
     { long w[1] = {1}; CHECK(ids_eq(&v, w, 1), "untag: [deploy] still -> {1}"); }
     query(&a, AIS_AND, &v, 1, "s3");
@@ -992,7 +941,6 @@ static void test_untag_key(void)
     query(&a, AIS_AND, &v, 1, "other");
     { long w[1] = {4}; CHECK(ids_eq(&v, w, 1), "untag: [other] untouched"); }
 
-    /* idempotent, and reversible -- re-attaching clears the detach */
     CHECK(ais_untag_key(&a, "proj") == 0, "untag: second call -> 0");
     CHECK(ais_untag_key(&a, "nonexistent") == 0, "untag absent key -> 0");
     CHECK(ais_update(&a, 1, "proj") == 0, "untag: re-attach ok");
@@ -1007,10 +955,9 @@ static void test_untag_key(void)
     query(&a, AIS_AND, &v, 1, "proj");
     { long w[1] = {1}; CHECK(ids_eq(&v, w, 1), "untag: only the re-tagged one is back"); }
 
-    /* a whitespace key HUNG forever and wrote a bogus key onto every record:
-     * "-a b" tokenised into a detach of 'a' and an ATTACH of 'b', while the
-     * posting being polled was 'a_b', so it never shrank. Encoding first makes
-     * the read side and the write side name the same thing. */
+    /* the key is encoded before use, so the read and write sides name the same
+     * thing: unencoded, "a b" polls posting 'a_b' while tokenising into a detach
+     * of 'a' and an attach of 'b', and the poll never terminates. */
     ais_put(&a, "a_b", "w1");
     CHECK(ais_untag_key(&a, "a b") == 1, "untag: a whitespace key folds, not hangs");
     query(&a, AIS_AND, &v, 1, "a_b");
@@ -1033,11 +980,9 @@ static void test_untag_key(void)
     query(&a, AIS_AND, &v, 1, "bulk");
     CHECK(v.n == 0, "untag: nothing left under 'bulk'");
 
-    /* Untagging a TOMBSTONED record must still RECORD the detach. Pruning the
-     * posting alone left the key in the authoritative keys field with nothing
-     * masking it, so resurrecting the record brought the tag back at compaction.
-     * Mirrored from tests/cli.sh so `make codeut` -- the fast inner loop and the
-     * sanitizer gate -- catches it too, not only the CLI suite. */
+    /* Untagging a TOMBSTONED record must still RECORD the detach: pruning the
+     * posting leaves the key unmasked in the authoritative keys field, so a
+     * resurrect brings the tag back at compaction. Mirrored from tests/cli.sh. */
     snprintf(keys, sizeof keys, "rk c1");
     ais_put(&a, keys, "rv1");
     id2 = ais_put(&a, "rk c2", "rv2");
@@ -1075,7 +1020,6 @@ static void test_find(void)
     ais_put(&a, "trip", "rome was hot");            /* id 2 */
     ais_put(&a, "food", "best gelato in venice");   /* id 3 */
 
-    /* find 'venice' -> records 1 and 3 (value match), never 2 */
     fp = tmpfile();
     CHECK(ais_find(&a, "venice", fp) == 0, "find 'venice' -> 0");
     rewind(fp); got = fread(buf, 1, sizeof(buf) - 1, fp); buf[got] = '\0'; fclose(fp);
@@ -1090,7 +1034,6 @@ static void test_find(void)
     rewind(fp); got = fread(buf, 1, sizeof(buf) - 1, fp); buf[got] = '\0'; fclose(fp);
     CHECK(got == 0, "find: key text is not matched");
 
-    /* tombstoned records drop out (the coverage the stats bug taught us) */
     CHECK(ais_del(&a, 3) == 0, "find: del id 3 -> 0");
     fp = tmpfile();
     CHECK(ais_find(&a, "venice", fp) == 0, "find 'venice' after del -> 0");
@@ -1116,13 +1059,11 @@ static void test_record_fastpath(void)
     id2 = ais_put(&a, "k2", "beta");    /* id 2 */
     id3 = ais_put(&a, "k3", "gamma");   /* id 3 */
 
-    /* single-value records resolve to their value (fast path via off) */
     v.n = 0; ais_record(&a, id1, collect_val, &v);
     CHECK(v.n == 1 && strcmp(v.vals[0], "alpha") == 0, "record: id1 -> alpha (off)");
     v.n = 0; ais_record(&a, id3, collect_val, &v);
     CHECK(v.n == 1 && strcmp(v.vals[0], "gamma") == 0, "record: id3 -> gamma (off)");
 
-    /* add a 2nd value to id2 -> multi -> the scan path returns BOTH values */
     ais_add(&a, id2, "beta2");
     v.n = 0; ais_record(&a, id2, collect_val, &v);
     CHECK(v.n == 2 && strcmp(v.vals[0], "beta") == 0 &&
@@ -1165,14 +1106,13 @@ static void test_timestamp(void)
     CHECK(strstr(line, "Z|") != NULL, "timestamp: a new ts is UTC (ends with Z)");
     if (fp != NULL) fclose(fp);
 
-    /* a year used as a key is NOT mistaken for a date: recall by 2026 works */
     ais_open(&a, dir);
     query(&a, AIS_AND, &ids, 1, "2026");
     CHECK(ids.n == 1 && ids.ids[0] == 1, "timestamp: a year-key (2026) is not eaten as a date");
     ais_close(&a);
 
-    /* backward compatibility (Zoya's 0.1.4 case): a current reader still reads
-     * old v2 lines (ts with no 'Z') and v1 lines (no ts at all). */
+    /* a current reader still reads v2 lines (ts with no 'Z') and v1 lines (no
+     * ts at all). */
     {
         const char *odir = "/tmp/ais_ut_ts_old";
         ais b;
@@ -1234,7 +1174,6 @@ static void test_timeline(void)
     ais_open(&a, dir);
     ais_compact(&a);                      /* rebuilds off; next_id -> 6 */
 
-    /* full timeline: newest id first (keyset, id-descending) */
     v.n = 0;
     ais_timeline(&a, 0, 0, "", "", collect_tl, &v);
     CHECK(v.n == 5, "timeline: every live record appears");
@@ -1303,7 +1242,6 @@ static void test_timeline_dates(void)
     v.n = 0; ais_timeline(&a, 0, 0, "2000-01-01", "2099-01-01", collect_tl, &v);
     CHECK(v.n == 3, "tl-date: a bounded range excludes the dateless record");
 
-    /* date range composes with keyset paging (count + cursor) */
     v.n = 0; ais_timeline(&a, 0, 1, "2000-01-01", "2099-01-01", collect_tl, &v);
     CHECK(v.n == 1 && v.r[0].id == 3, "tl-date: range + count=1 -> newest in range {3}");
     v.n = 0; ais_timeline(&a, 3, 1, "2000-01-01", "2099-01-01", collect_tl, &v);
@@ -1494,11 +1432,9 @@ static void test_embed_find(void)
     scratch_rm(dir);
 }
 
-/* Regression: ais_embed_keys must return a record's CURRENT (visible) keys,
- * derived from the index like recall -- NOT the stale keys off the store line.
- * The bug: after an update that detaches/attaches keys, the store line still
- * holds the ORIGINAL keys, so reading them there is wrong. keys() must agree
- * with what recall can find. */
+/* ais_embed_keys must return a record's CURRENT keys, derived from the index
+ * like recall: the store line still holds the keys the record was written with,
+ * so after a detach or attach only the index agrees with what recall finds. */
 static void test_embed_keys_visible(void)
 {
     const char *dir = "/tmp/ais_ut_keysvis";
@@ -1534,7 +1470,6 @@ static void test_embed_keys_visible(void)
     }
     ais_embed_free(k);
 
-    /* keys() must match recall: 'rome' no longer finds it, 'fjord' now does */
     r = ais_embed_recall(h, "rome", 0);
     CHECK(r != NULL && r[0] == '\0', "embed-keys: recall 'rome' no longer finds the record");
     ais_embed_free(r);
@@ -1547,10 +1482,9 @@ static void test_embed_keys_visible(void)
     scratch_rm(dir);
 }
 
-/* ais_put_value: one paste -> one record. Single line stays a plain, verbatim
+/* ais_put_value: one paste -> one record. A single line stays a plain, verbatim
  * record; a lone trailing newline is trimmed (still plain); a genuinely
- * multi-line value is written to a blobs/ file and the record holds its path.
- * This is the seam every GUI calls, so it is tested at the engine level. */
+ * multi-line value is written to a blobs/ file and the record holds its path. */
 static char g_pv[AIS_PATH_MAX];   /* captured value (a path or a short test value) */
 static int grab_value(long id, const char *value, void *vp)
 {
@@ -1602,8 +1536,7 @@ static void test_put_value(void)
 
 /* ais_doc_display: the ONE resolver the web (serve.c) and Flutter (via
  * ais_embed_display) share -- a document blob shows its CONTENT (capped),
- * everything else shows verbatim. Guards the bug where a viewer showed the
- * "blobs/<ts>.txt" PATH instead of the multi-line text. */
+ * never its "blobs/<ts>.txt" path; everything else shows verbatim. */
 static void test_doc_display(void)
 {
     const char *dir = "/tmp/ais_ut_docdisplay";
@@ -1614,14 +1547,12 @@ static void test_doc_display(void)
     scratch_rm(dir);
     CHECK(ais_open(&a, dir) == 0, "doc_display: open scratch index");
 
-    /* inline value -> verbatim, flagged NOT-a-document (return -1) */
     idp = ais_put_value(&a, "u", "https://example.org/x");
     g_pv[0] = '\0'; ais_record(&a, idp, grab_value, NULL);
     n = ais_doc_display(&a, g_pv, out, sizeof out);
     CHECK(n < 0 && strcmp(out, "https://example.org/x") == 0,
           "doc_display: inline value shown verbatim, flagged not-a-document");
 
-    /* multi-line value -> a blobs/ path is stored; display resolves to CONTENT */
     idd = ais_put_value(&a, "doc", "alpha\nbeta\ngamma");
     g_pv[0] = '\0'; ais_record(&a, idd, grab_value, NULL);
     CHECK(strncmp(g_pv, "blobs/", 6) == 0,
@@ -1630,7 +1561,6 @@ static void test_doc_display(void)
     CHECK(n == 16 && strcmp(out, "alpha\nbeta\ngamma") == 0,
           "doc_display: a blob ref resolves to its CONTENT, not the path");
 
-    /* an absent blob (a blobs/ path with no file) -> verbatim + not-a-document */
     n = ais_doc_display(&a, "blobs/nope.txt", out, sizeof out);
     CHECK(n < 0 && strcmp(out, "blobs/nope.txt") == 0,
           "doc_display: an absent blob falls back to the path (viewer badges it)");
@@ -1640,9 +1570,8 @@ static void test_doc_display(void)
 }
 
 /* ---- update: attach/detach keys by id (the handle); idempotent ----------
- * The cycle the user asked for: add a key, verify it's findable; remove it,
- * verify it's gone but the record (id + value) survives; re-attach; and confirm
- * a detach is durable through compaction. Every step is idempotent. */
+ * Attach, detach (the record's id and value survive), re-attach, and a detach
+ * that is durable through compaction. Every step is idempotent. */
 static void test_update(void)
 {
     ais a;
@@ -1661,34 +1590,28 @@ static void test_update(void)
     query(&a, AIS_AND, &v, 1, "venice"); { long w[1] = {1}; CHECK(ids_eq(&v, w, 1), "update: 'venice' finds it"); }
     query(&a, AIS_AND, &v, 1, "italy");  { long w[1] = {1}; CHECK(ids_eq(&v, w, 1), "update: 'italy' finds it"); }
 
-    /* detach 'venice': recall by it empties, record survives via other keys */
     CHECK(ais_update(&a, id, "-venice") == 0, "update: detach 'venice' ok");
     query(&a, AIS_AND, &v, 1, "venice"); CHECK(v.n == 0, "update: 'venice' now empty");
     query(&a, AIS_AND, &v, 1, "italy");  { long w[1] = {1}; CHECK(ids_eq(&v, w, 1), "update: 'italy' still finds it"); }
     CHECK(read_posting(dir, "venice", vids, 16, &asc) == -1, "update: 'venice' posting file removed");
     CHECK(ktomb_contains(&a, id, "venice") == 1, "update: (id,'venice') recorded in ktomb");
 
-    /* the value and id are unchanged: the handle is stable */
     vv.n = 0; ais_record(&a, id, collect_val, &vv);
     CHECK(vv.n == 1 && strcmp(vv.vals[0], "https://trip.example/venice") == 0,
           "update: value unchanged after detach");
 
-    /* idempotent: detaching again changes nothing and does not error */
     CHECK(ais_update(&a, id, "-venice") == 0, "update: detach again ok (idempotent)");
     query(&a, AIS_AND, &v, 1, "venice"); CHECK(v.n == 0, "update: still empty after 2nd detach");
 
-    /* re-attach 'venice': back, and the posting holds the id exactly once */
     CHECK(ais_update(&a, id, "venice") == 0, "update: re-attach 'venice' ok");
     n = read_posting(dir, "venice", vids, 16, &asc);
     CHECK(n == 1 && vids[0] == 1, "update: 'venice' posting == {1} (no dup)");
     CHECK(ktomb_contains(&a, id, "venice") == 0, "update: re-attach cleared the ktomb pair");
 
-    /* idempotent re-attach: still exactly one posting */
     CHECK(ais_update(&a, id, "venice") == 0, "update: re-attach again ok");
     n = read_posting(dir, "venice", vids, 16, &asc);
     CHECK(n == 1 && vids[0] == 1, "update: posting still == {1} after 2nd attach");
 
-    /* attach a brand-new key by id; unknown id is refused */
     CHECK(ais_update(&a, id, "rome") == 0, "update: attach new key 'rome'");
     query(&a, AIS_AND, &v, 1, "rome"); { long w[1] = {1}; CHECK(ids_eq(&v, w, 1), "update: 'rome' finds it"); }
     CHECK(ais_update(&a, 999, "x") == -1, "update: unknown id -> -1");
@@ -1703,14 +1626,12 @@ static void test_update(void)
     CHECK(ktomb_contains(&a, id, "italy") == 1, "update: key-tombstone retained through compact (I1)");
     CHECK(read_posting(dir, "italy", vids, 16, &asc) == -1, "update: 'italy' posting gone after compact");
 
-    /* an ATTACH is durable through compaction too. It has no ktomb to carry it, so
-     * it only survives because the attach is mirrored into the authoritative keys
-     * field; a key left in idx/ alone is dropped when compaction rebuilds idx/ from
-     * the store (LAYOUT.md, "the keys field is authoritative"). 'rome' was attached
-     * above, BEFORE the compact just performed. */
+    /* an ATTACH is durable through compaction too. It has no ktomb, so it survives
+     * only because the attach is mirrored into the authoritative keys field; a key
+     * left in idx/ alone is dropped when compaction rebuilds idx/ from the store
+     * (LAYOUT.md). 'rome' was attached above, BEFORE the compact just performed. */
     query(&a, AIS_AND, &v, 1, "rome"); { long w[1] = {1}; CHECK(ids_eq(&v, w, 1), "update: attached 'rome' survives compact"); }
 
-    /* a deleted record cannot be updated */
     ais_del(&a, id);
     CHECK(ais_update(&a, id, "rome") == -1, "update: deleted id -> -1");
 
@@ -1744,7 +1665,6 @@ static void test_set_value(void)
             snprintf(ts_before, sizeof ts_before, "%s", tl.r[i].ts);
     CHECK(ts_before[0] != '\0', "set_value: seed record carries a ts");
 
-    /* replace the value; keys unchanged, so a wrong old value is refused first */
     CHECK(ais_set_value(&a, id, "old note", "new note") == 0,
           "set_value: matching old value -> 0");
 
@@ -1752,13 +1672,11 @@ static void test_set_value(void)
     CHECK(vv.n == 1 && strcmp(vv.vals[0], "new note") == 0,
           "set_value: ais_record now yields 'new note'");
 
-    /* keys preserved: still recalled by both 'trip' and 'rome' */
     query(&a, AIS_AND, &v, 1, "trip");
     { long w[1] = {1}; CHECK(ids_eq(&v, w, 1), "set_value: still recalled by 'trip'"); }
     query(&a, AIS_AND, &v, 1, "rome");
     { long w[1] = {1}; CHECK(ids_eq(&v, w, 1), "set_value: still recalled by 'rome'"); }
 
-    /* id and ts (timeline position) unchanged */
     tl.n = 0; ais_timeline(&a, 0, 0, "", "", collect_tl, &tl);
     CHECK(tl.n == 1 && tl.r[0].id == id, "set_value: id unchanged (single record, id 1)");
     for (i = 0; i < tl.n; i++)
@@ -1766,13 +1684,11 @@ static void test_set_value(void)
             snprintf(ts_after, sizeof ts_after, "%s", tl.r[i].ts);
     CHECK(strcmp(ts_before, ts_after) == 0, "set_value: ts unchanged");
 
-    /* a value mismatch changes nothing and returns -1 */
     CHECK(ais_set_value(&a, id, "wrong", "x") == -1, "set_value: value mismatch -> -1");
     vv.n = 0; ais_record(&a, id, collect_val, &vv);
     CHECK(vv.n == 1 && strcmp(vv.vals[0], "new note") == 0,
           "set_value: mismatch left the value 'new note'");
 
-    /* an unknown id is likewise refused, store untouched */
     CHECK(ais_set_value(&a, 999, "new note", "x") == -1, "set_value: unknown id -> -1");
     vv.n = 0; ais_record(&a, id, collect_val, &vv);
     CHECK(vv.n == 1 && strcmp(vv.vals[0], "new note") == 0,
@@ -1782,9 +1698,8 @@ static void test_set_value(void)
     scratch_rm(dir);
 }
 
-/* regression + case study: a real index accumulates all three line formats as
- * AIS evolves -- v1 (no ts), v2 (local ts, no Z), v3 (UTC ts with Z). One engine
- * must read them all (mirrors Vasili's own ~/.ais after upgrades). */
+/* An index accumulates all three line formats across upgrades -- v1 (no ts),
+ * v2 (local ts, no Z), v3 (UTC ts with Z). One engine must read them all. */
 static void test_mixed_formats(void)
 {
     const char *dir = "/tmp/ais_ut_mixed";
@@ -1893,25 +1808,20 @@ static void test_index_switch(void)
     scratch_rm(home);
     ais_home_override(home);              /* config + registry now live under home */
 
-    /* by default the current is the built-in home (no `current` line) */
     CHECK(ais_current_get(cur, sizeof cur) == 0, "switch: no current -> home by default");
     CHECK(ais_index_path("home", path, sizeof path) == 1, "home resolves to ~/.ais");
 
-    /* register two named indexes; 'home' is reserved */
     CHECK(ais_index_add("work", "/tmp/ais_ut_work") == 0, "register 'work'");
     CHECK(ais_index_add("play", "/tmp/ais_ut_play") == 0, "register 'play'");
     CHECK(ais_index_add("home", "/x") == -1, "'home' is reserved");
     n = 0; ais_index_list(count_index, &n);
     CHECK(n == 2, "two indexes registered (home not in the list)");
 
-    /* switch makes 'work' current and it resolves to its path */
     CHECK(ais_current_set("work") == 0, "switch to 'work'");
     CHECK(ais_current_get(cur, sizeof cur) == 1 && strcmp(cur, "work") == 0, "current is 'work'");
     CHECK(ais_index_path("work", path, sizeof path) == 1
           && strcmp(path, "/tmp/ais_ut_work") == 0, "'work' -> its path");
 
-    /* ais_locate honors the current named index (no -f, no local .ais): run from
-     * the override home, where find_local stops immediately (step 2 finds none). */
     /* From a fresh neutral dir (no .ais at or above it, and NOT home), ais_locate
      * must fall through find_local to the current named index. Running from home
      * itself is fragile on macOS, where /tmp is a symlink and find_local's
@@ -1932,7 +1842,6 @@ static void test_index_switch(void)
     }
     scratch_rm("/tmp/ais_ut_cwd");
 
-    /* switch back to home clears the current pointer */
     CHECK(ais_current_set("home") == 0, "switch back to home");
     CHECK(ais_current_get(cur, sizeof cur) == 0, "current cleared (home)");
 
@@ -2042,12 +1951,10 @@ static void test_crypto(void)
     rc = aisc_decrypt(file, flen, (const unsigned char *)"nope", 4, NULL, 0, &out, &olen);
     CHECK(rc == AISC_E_AUTH, "crypto: wrong password is rejected (AEAD auth)");
 
-    /* A hostile KDF cost must be refused BEFORE the KDF runs. The parameters come
-     * straight out of the file and the auth tag cannot reject them first, so one
-     * flipped byte used to buy an unbounded Argon2id: passes had no upper bound
-     * at all (only < 1 was refused), and the memory cap was 2 GiB, which Linux
-     * overcommits and then OOM-kills. On a phone that is the app dying while
-     * opening a note. Both must fail fast and cleanly. */
+    /* A hostile KDF cost must be refused BEFORE the KDF runs: the parameters come
+     * from the file and the auth tag cannot reject them first, so one flipped byte
+     * otherwise buys an unbounded Argon2id. An absurd passes count and a 2 GiB
+     * memory cost (which Linux overcommits, then OOM-kills) must both fail fast. */
     {
         unsigned char sp[4], sm[4];
         memcpy(sp, file + 13, 4); memcpy(sm, file + 9, 4);
@@ -2109,10 +2016,9 @@ static void test_crypto(void)
     aisc_wipe(file, flen); free(file);
 }
 
-/* secret_decrypt's full path: strip "aisc:" -> b64_decode -> aisc_decrypt. We
- * build the marked value with a CHEAP kdf (the file header carries the cost
- * params, so the decrypt below is fast); secret_encrypt itself uses the real
- * default cost and is exercised by hand. */
+/* secret_decrypt's full path: strip "aisc:" -> b64_decode -> aisc_decrypt. The
+ * marked value uses a CHEAP kdf (the file header carries the cost params, so
+ * the decrypt is fast); secret_encrypt itself uses the real default cost. */
 static void test_secret_value(void)
 {
     static const unsigned char plain[] = "wpa2: hunter2hunter2";
@@ -2147,9 +2053,9 @@ static void test_secret_value(void)
           "secret_decrypt: a bad base64 payload is rejected");
 }
 
-/* The mode-2 blob path: an AIS-CR1 image survives a write-to-file / read-back
- * and still decrypts. Built with a cheap kdf (mechanics test); secret_encrypt_to_file
- * is the same aisc_encrypt-then-fwrite with the real default cost. */
+/* The mode-2 blob path: an AIS-CR1 image survives a write-to-file / read-back and
+ * still decrypts. Cheap kdf here; secret_encrypt_to_file is the same
+ * aisc_encrypt-then-fwrite with the real default cost. */
 static void test_secret_blob_crypto(void)
 {
     static const unsigned char plain[] = "line1\nline2\nrecovery: abc-def-ghi\n";
@@ -2221,10 +2127,9 @@ static void test_embed_encrypted(void)
     scratch_rm(dir);
 }
 
-/* File bundle round-trip over the embed seam: export index A sealed under a
- * secret to a FILE, import it into a fresh index B (right secret -> merged),
- * and reject a wrong secret into C (-3, nothing merged). Proves the offline
- * Drive/USB/email path a GUI drives, distinct from live socket sync. */
+/* File bundle round-trip over the embed seam (the offline Drive/USB/email path,
+ * distinct from live socket sync): export index A to a FILE, import it into a
+ * fresh index B, and reject a wrong secret into C (-3, nothing merged). */
 static void test_embed_bundle_file(void)
 {
     const char *da = "/tmp/ais_ut_bundleA";
@@ -2259,7 +2164,6 @@ static void test_embed_bundle_file(void)
     }
     CHECK(fsize > 0, "embed-bundle: the bundle file is non-empty");
 
-    /* plaintext import into a fresh index -> both records merge in */
     hB = ais_embed_open(db);
     CHECK(hB != NULL, "embed-bundle: open empty index B");
     if (hB != NULL) {
@@ -2354,9 +2258,9 @@ static int value_present(ais *a, const char *value)
     return tomb_contains(a, id) == 0;
 }
 
-/* Is KEY attached to ID, as the RECALL path sees it (the posting list, filtered by
+/* Is KEY attached to ID as the RECALL path sees it (the posting list, filtered by
  * the key tombstones)? A detached key lingers in the store's keys field until the
- * next compaction, so reading the field would answer the wrong question. */
+ * next compaction, so reading the field answers a different question. */
 struct khit { long want; int found; };
 
 static int khit_cb(long id, void *ctx)
@@ -2519,9 +2423,7 @@ static void test_sync_socket(void)
 
 /* A folder sync must never CREATE its target. A typo, or an unplugged drive whose
  * mount point is an empty directory, would otherwise look exactly like a working
- * backup: every run reports success, writes a bundle nobody will ever read, and
- * the user finds out when they need the data. Refusing costs one mkdir; not
- * refusing costs the index. */
+ * backup: every run reports success and writes a bundle nobody will ever read. */
 static void test_sync_folder_refuses_to_create(void)
 {
     ais A;
@@ -2549,10 +2451,9 @@ static void test_sync_folder_refuses_to_create(void)
     scratch_rm(da); scratch_rm(missing); remove(afile);
 }
 
-/* Existence is NOT the test that matters. An unmounted drive's mount point, and a
- * share somebody emptied, are both ordinary empty directories -- indistinguishable
- * from a folder on its first day. What separates them is memory: if we have synced
- * here before, our own bundle must still be in it. */
+/* Existence is not the test that matters: an unmounted mount point and an emptied
+ * share are ordinary empty directories, indistinguishable from a folder on its
+ * first day. If we have synced here before, our own bundle must still be in it. */
 static void test_sync_folder_notices_a_vanished_bundle(void)
 {
     ais A;
@@ -2615,18 +2516,10 @@ static void test_sync_folder_first_use_is_fine(void)
     scratch_rm(da); scratch_rm(f1); scratch_rm(f2);
 }
 
-/* An EDIT made after a peer's delete must survive the merge.
- *
- * Merging compares a delete's timestamp against the record's, and the record's
- * was its CREATION time -- so a record created Monday, deleted by the phone on
- * Tuesday, and re-tagged on the laptop Wednesday still lost: the delete looked
- * newer than Monday. That contradicts the rule the re-add fix already
- * established, that a later user action beats an earlier delete. An edit is a
- * later user action.
- *
- * The fix keeps two clocks: the store line's ts stays the creation time (the
- * timeline orders by it), and the "mts" sidecar carries the last local edit.
- * Merging, and the export, use the later of the two. */
+/* An EDIT made after a peer's delete must survive the merge: a later user action
+ * beats an earlier delete. Two clocks make that decidable -- the store line's ts
+ * stays the creation time (the timeline orders by it), the "mts" sidecar carries
+ * the last local edit, and merging and the export use the later of the two. */
 static void test_edit_beats_earlier_delete(void)
 {
     ais A, B;
@@ -2653,7 +2546,6 @@ static void test_edit_beats_earlier_delete(void)
     CHECK(value_present(&A, "http://x/note") == 1,
           "edit-vs-delete: the later EDIT survives the earlier remote delete");
 
-    /* and the surviving record carries the edit, not just the value */
     CHECK(sync_folder_once(&B, fld) == 0, "edit-vs-delete: phone syncs back");
     CHECK(value_present(&B, "http://x/note") == 1,
           "edit-vs-delete: the record returns to the device that deleted it");
@@ -2662,8 +2554,8 @@ static void test_edit_beats_earlier_delete(void)
     scratch_rm(da); scratch_rm(db); scratch_rm(fld);
 }
 
-/* The edit clock is one FIXED-WIDTH slot per id, so it is bounded by the highest
- * id rather than by the number of edits ever made, and a deleted record's slot is
+/* The edit clock is one FIXED-WIDTH slot per id, so its size is bounded by the
+ * highest id, not by the number of edits ever made. A deleted record's slot is
  * blanked: delete is delete, including the note of when it was last touched. */
 static void test_mts_slots(void)
 {
@@ -2704,9 +2596,8 @@ static void test_mts_slots(void)
     scratch_rm(da);
 }
 
-/* Every LOCAL way of changing a record counts as an edit, not just --update.
- * Re-saving a value that is already in the index is how a tag gets attached, and
- * it is what every GUI save path calls. */
+/* Every LOCAL way of changing a record counts as an edit, not just --update:
+ * re-saving a value already in the index is how a tag gets attached. */
 static void test_mts_all_edit_paths(void)
 {
     ais A;
@@ -2744,9 +2635,8 @@ static void test_mts_all_edit_paths(void)
 }
 
 /* An arriving M| link is a fact the SENDING device already timed, so it must not
- * touch the local edit clock. Stamping it made a record's fate depend on when its
- * bundle happened to be read: the same M| and D| facts, split across two peer
- * bundles, resolved one way or the other by readdir order. */
+ * touch the local edit clock: stamped, the same M| and D| facts split across two
+ * peer bundles resolve by the readdir order the bundles were read in. */
 static void test_incoming_link_is_not_a_local_edit(void)
 {
     ais A;
@@ -2764,7 +2654,6 @@ static void test_incoming_link_is_not_a_local_edit(void)
     CHECK(ais_merge_addval(&A, h, "http://x/second") == 0, "m-link: the link merges");
     CHECK(mts_get(&A, id, m, sizeof m) == 0, "m-link: an arriving link is not a local edit");
 
-    /* the local --add of a second link still IS one, so the clock still works */
     CHECK(ais_add(&A, id, "http://x/third") == 0, "m-link: a local --add succeeds");
     CHECK(mts_get(&A, id, m, sizeof m) == 1, "m-link: a local --add is still an edit");
 
@@ -2772,10 +2661,9 @@ static void test_incoming_link_is_not_a_local_edit(void)
     scratch_rm(da);
 }
 
-/* Delete is delete, by whichever door. --del-under tombstones through a different
- * path from --del, and left the edit clock and the key-attach notes behind: the
- * next export then carried T| lines asserting a key was attached to a record the
- * SAME stream tombstones, which every peer pays a store pass for and re-propagates. */
+/* Delete is delete by whichever door: --del-under must clear the edit clock and
+ * the key-attach notes too, or the next export carries T| lines asserting a key
+ * is attached to a record the SAME stream tombstones, which peers re-propagate. */
 static void test_del_under_clears_the_clocks(void)
 {
     ais A;
@@ -2836,8 +2724,7 @@ static void test_attach_batch_matches_one_at_a_time(void)
         snprintf(f[i].ts, sizeof f[i].ts, "2030-01-01T00:00:00Z");
     }
     CHECK(ais_merge_attach_many(&A, f, AIS_ATT_BATCH) == 0, "attach batch: a full batch applies");
-    {   /* derived from the constant, not spelled out: hardcoding "tag63" made
-         * this fail the moment AIS_ATT_BATCH was retuned, for no real reason. */
+    {   /* derived from AIS_ATT_BATCH, so retuning the constant does not break it */
         char last[32];
         snprintf(last, sizeof last, "tag%d", AIS_ATT_BATCH - 1);
         CHECK(key_has_id(&A, "tag0", 1) == 1, "attach batch: the first fact landed");
@@ -2857,13 +2744,9 @@ static void test_attach_batch_matches_one_at_a_time(void)
 }
 
 /* A bidirectional exchange whose SECOND leg never happens is half done, not
- * failed: the records that did cross are merged and kept. Reported as a plain
- * error, that told a user whose sync IS their backup that nothing had been
- * copied when in fact one whole direction had.
- *
- * Forced deterministically: the host offers a two-way exchange, the peer takes
- * the one-way half and leaves. The host's read of the peer's stream then hits a
- * clean EOF on a closed socket -- no timing involved. */
+ * failed: the records that did cross are merged and kept. Forced
+ * deterministically -- the host offers a two-way exchange, the peer takes the
+ * one-way half and leaves, so the host's read hits a clean EOF, no timing. */
 static void test_half_done_sync_is_not_a_failure(void)
 {
     ais A;
@@ -2913,9 +2796,8 @@ static void test_half_done_sync_is_not_a_failure(void)
     scratch_rm(db);
 }
 
-/* The record count a front-end shows after a sync. Live ids only: a tombstoned
- * record must not be counted, or "12 records arrived" would include the ones a
- * peer deleted. */
+/* The record count a front-end shows after a sync counts LIVE ids only: a
+ * tombstoned record must not appear in "12 records arrived". */
 static void test_count_live_counts_only_live_records(void)
 {
     ais A;
@@ -2939,11 +2821,9 @@ static void test_count_live_counts_only_live_records(void)
     scratch_rm(da);
 }
 
-/* Re-attaching a key must leave exactly ONE entry, and must never leave none.
- * katt_set was a remove followed by an append: a crash between the two left the
- * pair with no attach time at all, and without it a peer's older detach wins and
- * takes the key away again. One rewrite + rename means the file holds the old
- * entry or the new one, never neither. */
+/* Re-attaching a key must leave exactly ONE entry and never none: a pair with no
+ * attach time loses to a peer's older detach. katt_set is one rewrite + rename,
+ * so the file holds the old entry or the new one, never neither. */
 static void test_attach_time_is_replaced_atomically(void)
 {
     ais A;
@@ -2980,12 +2860,10 @@ static void test_attach_time_is_replaced_atomically(void)
 }
 
 /* The fixed-width edit/survival clocks are pure POSITION -- slot k is id k+1 --
- * so a file whose length is not a whole number of slots shifts every id after the
- * ragged point onto another record's timestamp. slot_get refuses a misaligned
- * file, which keeps a wrong answer from being given, but a later write used to
- * pad from wherever the file ended and carry the misalignment forward for ever.
- * And clearing a slot past the end used to extend the file with a hole to record
- * that a just-deleted record has no edit time, which its absence already says. */
+ * so a file that is not a whole number of slots shifts every id after the ragged
+ * point onto another record's timestamp. slot_get refuses a misaligned file, the
+ * next write squares it up rather than padding from wherever it ended, and
+ * clearing a slot past the end must not extend the file to reach it. */
 static void test_edit_clock_survives_a_ragged_file(void)
 {
     ais a;
@@ -3032,14 +2910,11 @@ static void test_edit_clock_survives_a_ragged_file(void)
     scratch_rm(dir);
 }
 
-/* The document cap has to bite BEFORE the bytes are written, not after. A bundle
- * assembles in memory, so checking the total at the end means a huge blobs/ is
- * fully allocated before being refused -- on a phone that is an OOM kill instead
- * of a message. Checked here by capping small and asserting the export both fails
- * and stops writing.
- *
- * feed_export (uncapped) must still emit everything: the CLI's --export goes to a
- * pipe or a file the user chose, where there is no memory ceiling to respect. */
+/* The document cap has to bite BEFORE the bytes are written: a bundle assembles
+ * in memory, so a check at the end allocates a huge blobs/ in full before
+ * refusing it. Capped small here, the export must fail AND stop writing.
+ * feed_export (uncapped) must still emit everything: the CLI's --export goes to
+ * a pipe or a file the user chose, with no memory ceiling to respect. */
 static void test_the_document_cap_stops_before_writing(void)
 {
     ais a;
@@ -3084,13 +2959,10 @@ static void test_the_document_cap_stops_before_writing(void)
     scratch_rm(dir);
 }
 
-/* A compaction that FAILS must leave `multi` describing the store that is still
- * there. It used to be truncated at the start of the pass, before the store was
- * committed by rename, so a run killed in between left it empty against the old
- * store -- and an empty `multi` makes the export emit each value of a multi-value
- * record as its own A|, so one record lands on every peer as several. `off` is
- * size-checked and id-verified on use; `multi` has no such guard and
- * compact_recover does not rebuild it. */
+/* A compaction that FAILS must leave `multi` describing the store still on disk:
+ * an empty `multi` makes the export emit each value of a multi-value record as
+ * its own A|, landing one record on every peer as several. `off` is size-checked
+ * and id-verified on use; `multi` is not, and compact_recover does not rebuild it. */
 static void test_a_failed_compaction_leaves_multi_intact(void)
 {
     ais a;
@@ -3128,12 +3000,10 @@ static void test_a_failed_compaction_leaves_multi_intact(void)
     scratch_rm(dir);
 }
 
-/* A torn last line must not swallow the NEXT record. A record can be 64 KB
- * against stdio's 4 KB buffer, so an append is several writes; interrupted, it
- * leaves a line with no newline, and appending onto that fused two records into
- * one. The first lost its value, the second became unreachable, and the next
- * compaction wrote the fusion back permanently -- two records gone from one torn
- * write. Damage has to stay local (STYLE.md). */
+/* A torn last line must not swallow the NEXT record. A record can be 64 KB against
+ * stdio's 4 KB buffer, so an append is several writes; interrupted, it leaves a
+ * line with no newline, and appending onto that fuses two records -- the first
+ * loses its value, the second is unreachable. Damage stays local (STYLE.md). */
 static void test_a_torn_last_line_does_not_eat_the_next_record(void)
 {
     ais A;
@@ -3162,7 +3032,6 @@ static void test_a_torn_last_line_does_not_eat_the_next_record(void)
     CHECK(value_present(&A, "value one") == 1, "torn: earlier records are untouched");
     CHECK(value_present(&A, "value two") == 1, "torn: both of them");
 
-    /* and compaction must not turn the damage into permanent loss */
     CHECK(ais_compact(&A) == 0, "torn: compaction runs over the damaged store");
     CHECK(value_present(&A, "value four") == 1, "torn: the record survives compaction");
     CHECK(value_present(&A, "value one") == 1, "torn: so do the earlier ones");
@@ -3172,12 +3041,9 @@ static void test_a_torn_last_line_does_not_eat_the_next_record(void)
     scratch_rm(da);
 }
 
-/* Join by NAME, not only by dotted quad. The address a user can actually read off
- * another machine is usually a name -- "mylaptop.local" from mDNS, a router's
- * DHCP name, an /etc/hosts entry -- and every one of them used to fail as the
- * same generic "could not sync" as a wrong token or a host that was not running.
- * "localhost" is the one name guaranteed to resolve on any machine that can run
- * this test at all. */
+/* Join by NAME, not only by dotted quad: the address readable off another machine
+ * is usually a name -- "mylaptop.local" from mDNS, a DHCP name, an /etc/hosts
+ * entry. "localhost" is the one name guaranteed to resolve anywhere this runs. */
 static void test_sync_joins_by_hostname(void)
 {
     ais B;
@@ -3211,7 +3077,6 @@ static void test_sync_joins_by_hostname(void)
     ais_close(&B);
     waitpid(pid, NULL, 0);
 
-    /* a name that cannot resolve still fails, and fails fast */
     ais_open(&B, db);
     CHECK(sync_pull(&B, "no-such-host.invalid", port, tok, 5, 0) != 0,
           "hostname: a name that does not resolve is still a failure");
@@ -3223,10 +3088,8 @@ static void test_sync_joins_by_hostname(void)
 
 /* Bringing a deleted record back must apply the arriving KEYS even when the
  * survival note cannot be written. `sts` takes only the canonical 20-char
- * timestamp, but a store upgraded from format v2 holds 19-char (no 'Z') and
- * date-only times and re-exports them verbatim -- and those made the put bail
- * AFTER the record had already been un-tombstoned, so it came back with the
- * peer's tags thrown away while the import reported nothing at all. */
+ * timestamp, but a store upgraded from v2 holds 19-char (no 'Z') and date-only
+ * times; bailing on those after un-tombstoning throws the peer's tags away. */
 static void test_resurrect_keeps_keys_on_a_legacy_timestamp(void)
 {
     static const char *forms[] = {
@@ -3258,12 +3121,8 @@ static void test_resurrect_keeps_keys_on_a_legacy_timestamp(void)
 
 /* A round that ends with the two devices still different must not claim they
  * match. The host sends its stream BEFORE it reads the peer's, so a survival
- * decided while merging the peer's half (a local edit beating their delete)
- * cannot go out until the next exchange -- the peer still has the record
- * deleted. That round used to report plain success, under the words "both
- * devices now have the same records", which was false.
- *
- * Set up: both hold the record, the peer deletes it, the host then edits it. */
+ * decided while merging the peer's half cannot go out until the next exchange.
+ * Set up: both hold the record, the peer deletes it, the host edits it later. */
 static void test_a_round_that_leaves_them_different_says_so(void)
 {
     ais A, B;
@@ -3308,7 +3167,7 @@ static void test_a_round_that_leaves_them_different_says_so(void)
     ais_close(&A);
     waitpid(pid, NULL, 0);
 
-    {   /* and the peer really is still behind -- which is why it must be said */
+    {   /* and the peer really is still behind */
         ais C;
         ais_open(&C, db);
         CHECK(value_present(&C, "http://x/keep") == 0,
@@ -3316,7 +3175,6 @@ static void test_a_round_that_leaves_them_different_says_so(void)
         ais_close(&C);
     }
 
-    /* one more exchange settles it, which is exactly what the message asks for */
     pid = fork();
     if (pid == 0) {
         ais cB;
@@ -3342,10 +3200,9 @@ static void test_a_round_that_leaves_them_different_says_so(void)
     scratch_rm(db);
 }
 
-/* The edit clock must NOT ride out on the wire. The exported A| timestamp also
- * decides key-attach conflicts, so sending an edit time would let an unrelated
- * edit on one device resurrect a tag another device deliberately removed -- and
- * destroy the ktomb that proves the removal. */
+/* The edit clock must NOT ride out on the wire: the exported A| timestamp also
+ * decides key-attach conflicts, so an edit time would let an unrelated edit
+ * resurrect a tag another device removed, destroying the ktomb that proves it. */
 static void test_edit_does_not_resurrect_a_removed_tag(void)
 {
     ais A, B;
@@ -3374,9 +3231,9 @@ static void test_edit_does_not_resurrect_a_removed_tag(void)
     scratch_rm(da); scratch_rm(db); scratch_rm(fld);
 }
 
-/* An edit that beats a delete must beat it on EVERY device, not just the one that
- * made it -- otherwise the record flaps in and out as the tombstone comes back
- * round after round. Three devices, and the middle one never edits anything. */
+/* An edit that beats a delete must beat it on EVERY device, or the record flaps
+ * in and out as the tombstone comes back round after round. Three devices, and
+ * the middle one never edits anything. */
 static void test_surviving_edit_reaches_the_whole_mesh(void)
 {
     ais A, B, C;
@@ -3409,12 +3266,10 @@ static void test_surviving_edit_reaches_the_whole_mesh(void)
     scratch_rm(f1); scratch_rm(f2);
 }
 
-/* The delete-conflict version of the tag test above, which is the one that broke:
- * a record that survives a delete gets restamped, and the restamp raises the very
- * timestamp that decides key attaches. A record coming back from a peer must come
- * back as the PEER describes it, or the stale keys field it was deleted with
- * re-advertises tags another device removed -- at the new, later timestamp, which
- * outranks their ktombs everywhere. */
+/* The delete-conflict version of the tag test above: a record that survives a
+ * delete is restamped, and the restamp raises the timestamp that decides key
+ * attaches. It must come back as the PEER describes it, or the stale keys field
+ * re-advertises removed tags at a time that outranks every ktomb. */
 static void test_delete_conflict_keeps_a_removed_tag_removed(void)
 {
     ais A, B;
@@ -3449,9 +3304,8 @@ static void test_delete_conflict_keeps_a_removed_tag_removed(void)
     scratch_rm(da); scratch_rm(db); scratch_rm(fld);
 }
 
-/* A delete that simply loses on creation time changes nothing, so it must not
- * rewrite the store. It did -- on every sync round, forever, dropping the "off"
- * accelerator each time: tens of megabytes written to say nothing. */
+/* A delete that loses on creation time changes nothing, so it must not rewrite
+ * the store: that costs tens of megabytes and drops "off" on every sync round. */
 static void test_losing_delete_is_free(void)
 {
     ais A;
@@ -3517,8 +3371,8 @@ static void test_mts_rejects_a_damaged_slot(void)
     ais_merge_del(&A, h, "2030-01-01T00:00:00Z");  /* newer: must simply delete */
     CHECK(value_present(&A, "http://x/one") == 0, "damaged: the delete still resolves");
 
-    /* The corruption this produced was a SPLIT line whose id is the number the
-     * second half starts with -- 2099, not 2. Reading id 2 could never fail. */
+    /* a damaged slot written into a store line splits it, and the second half's
+     * id is the number it starts with -- 2099, not 2 */
     CHECK(ais_record(&A, 2099, NULL, NULL) <= 0, "damaged: no phantom record was created");
     CHECK(store_count_lines(da) == 1, "damaged: the store still holds exactly one line");
 
@@ -3552,11 +3406,9 @@ static void test_merge_delete_forgets_and_add_refuses(void)
     scratch_rm(da);
 }
 
-/* Re-adding a deleted value describes the record afresh, whoever re-adds it. The
- * keys it had when it was deleted are a relic: kept, they are re-advertised at the
- * record's new timestamp and outrank the key tombstones of devices that removed
- * them. The rule has to be the same locally, or the local relic is the one that
- * gets exported as authoritative while every peer's live tag is dropped. */
+/* Re-adding a deleted value describes the record afresh, whoever re-adds it: the
+ * keys it was deleted with, kept, are re-advertised at the new timestamp and
+ * outrank the ktombs of devices that removed them. Same rule locally. */
 static void test_readd_adopts_the_new_keys(void)
 {
     ais A;
@@ -3578,9 +3430,8 @@ static void test_readd_adopts_the_new_keys(void)
 }
 
 /* C|: a record raised to survive a peer's delete exports at the raised time, and
- * the importer used that one timestamp for the key attaches too -- so the raise
- * outranked every peer's key tombstone. C| carries the line's TRUE time beside
- * the raised A|, and only key attaches read it. */
+ * that time used for key attaches too would outrank every peer's key tombstone.
+ * C| carries the line's TRUE time beside the raised A|; only key attaches read it. */
 static void test_true_ts_verb_shields_key_tombstones(void)
 {
     ais D;
@@ -3684,15 +3535,11 @@ static void test_old_peer_ignores_the_new_verbs(void)
     scratch_rm(dn); scratch_rm(dopath);
 }
 
-/* THE FORMER KNOWN LIMIT, kept as the regression guard for what closed it. A
- * detach stamped at or before a delete's second, on a device the raising one has
- * never heard from -- here A syncs with C only, so C's delete reaches it while
- * B's detach never does. The raised A| used to answer the key question too, so it
- * re-attached the tag on the relay and destroyed the ktomb that would have
- * carried the removal to A. C| now carries the record's true time beside the
- * raise, the relay keeps its ktomb, and the detach reaches A on the round after.
- * That extra hop is why this needs a fourth round: the relay must resurrect the
- * record before it can apply the detach to it and pass it on. */
+/* A detach stamped at or before a delete's second, on a device the raising one
+ * has never heard from -- A syncs with C only, so C's delete reaches it while B's
+ * detach never does. C| carries the record's true time beside the raise, so the
+ * relay keeps its ktomb and the detach reaches A one round later. Hence four
+ * rounds: the relay must resurrect the record before it can apply the detach. */
 static void test_known_limit_restamp_outranks_an_unseen_detach(void)
 {
     ais A, B, C;
@@ -3729,12 +3576,9 @@ static void test_known_limit_restamp_outranks_an_unseen_detach(void)
     scratch_rm(da); scratch_rm(db); scratch_rm(dc); scratch_rm(f1); scratch_rm(f2);
 }
 
-/* The invariant the minimal raise buys: a detach stamped LATER than the delete
- * wins on every device, whatever order the devices reach the folder in. The raise
- * goes one second past the tombstone and no further, so it cannot reach a key
- * tombstone that came after it. Sweeping the orders is the point -- this used to
- * come down to which device published first, and to which peer bundle readdir
- * happened to return first inside a single pass. */
+/* A detach stamped LATER than the delete wins on every device, in whatever order
+ * the devices reach the folder and readdir returns the peer bundles. The raise
+ * goes one second past the tombstone, so it cannot reach a later key tombstone. */
 static void test_later_detach_holds_in_every_sync_order(void)
 {
     static const char *orders[6][3] = {
@@ -3784,11 +3628,10 @@ static void test_later_detach_holds_in_every_sync_order(void)
     }
 }
 
-/* THE RE-ATTACH BUG. Once a key had been detached anywhere in the mesh, no device
- * could ever put it back: a K| was judged against the record's creation time, and a
- * detach is by construction at or after that, so the peer's K| kept re-applying and
- * undid the attach even on the device that made it. katt gives the key its own
- * attach time, which an incoming K| must now beat, and T| carries it to the peers. */
+/* A key detached anywhere in the mesh must still be re-attachable. Judged against
+ * the record's creation time a peer's K| always wins -- a detach is by
+ * construction at or after it -- undoing the attach even on the device that made
+ * it. katt gives the key its own attach time an incoming K| must beat; T| carries it. */
 static void test_reattach_after_a_detach_propagates(void)
 {
     ais A, B;
@@ -3924,9 +3767,8 @@ static void test_sync_frame_reject(void)
     scratch_rm(da); scratch_rm(db); scratch_rm(dc); scratch_rm(dd);
 }
 
-/* B3: a delete must survive compaction. A deletes+compacts (which used to GC the
- * tombstone); a peer still holding the record must still learn of the delete, and its
- * re-export must NOT resurrect the record in A. */
+/* B3: a delete must survive compaction. A deletes+compacts; a peer still holding
+ * the record must learn of the delete, and its re-export must not resurrect it. */
 static void test_sync_delete_survives_compact(void)
 {
     ais A, B;
@@ -3953,9 +3795,9 @@ static void test_sync_delete_survives_compact(void)
     scratch_rm(da); scratch_rm(db);
 }
 
-/* B1: a device-id clone (the same syncid copied to a second device) is detected and
- * healed: one device regenerates a fresh id, so the two never clobber a shared file
- * and both still converge. */
+/* B1: a device-id clone (the same syncid copied to a second device) is detected
+ * and healed -- one device regenerates a fresh id, so the two never clobber a
+ * shared file and both still converge. */
 static void test_sync_clone_heal(void)
 {
     ais A, B;
@@ -3994,8 +3836,8 @@ static void test_sync_clone_heal(void)
     scratch_rm(da); scratch_rm(db); scratch_rm(fld);
 }
 
-/* I1: a tag removed on one device must propagate (and NOT resurrect) on a peer that
- * still has it, and the detach must survive compaction. Uses the merge stream directly
+/* I1: a tag removed on one device must propagate (and NOT resurrect) on a peer
+ * that still has it, and survive compaction. Over the merge stream directly
  * (feed_export/import), the same core the folder bundle carries. */
 static void test_sync_tag_detach(void)
 {
@@ -4021,7 +3863,6 @@ static void test_sync_tag_detach(void)
     feed_export(&B, t); rewind(t); feed_import_from(&A, t); fclose(t);
     query(&A, AIS_AND, &v, 1, "wifi"); CHECK(v.n == 0, "detach: peer re-export does not resurrect the tag");
 
-    /* durable through compaction: A compacts, then B (re-attached-free) still stays put */
     CHECK(ais_compact(&A) == 0, "detach: A compacts");
     t = tmpfile();
     feed_export(&A, t); rewind(t); feed_import_from(&B, t); fclose(t);
@@ -4034,8 +3875,7 @@ static void test_sync_tag_detach(void)
 #ifdef AIS_UT_HAVE_CRYPTO
 /* The FFI seam's sync (embed.h) -- the EXACT call path the mobile/desktop GUI
  * uses: ais_embed_pull (Receive) and ais_embed_serve (Send) over a forked
- * loopback, plus their bad-arg / return-code contract. Lets us test the sync
- * feature without rolling an APK. */
+ * loopback, plus their bad-arg / return-code contract. */
 static void test_embed_sync(void)
 {
     const char *da = "/tmp/ais_ut_embsyncA", *db = "/tmp/ais_ut_embsyncB";
@@ -4209,12 +4049,10 @@ static void test_sync_exchange(void)
 #endif /* AIS_UT_HAVE_CRYPTO */
 
 #ifdef AIS_UT_HAVE_CRYPTO
-/* Carry a doc BLOB over the socket sync: A stores a MULTI-LINE value (which
- * ais_put_value turns into a blobs/<ts>.txt file + a record holding the path);
- * B pulls and must end up with BOTH the record AND the actual blob file on disk,
- * content-identical. A second pull is idempotent (dedup, no error, no dup file).
- * Finally, a payload sealed with a WRONG protocol version byte must be rejected
- * LOUDLY with -2 and merge nothing. */
+/* Carry a doc BLOB over the socket sync: A stores a MULTI-LINE value (ais_put_value
+ * writes a blobs/<ts>.txt file and a record holding the path); B pulls and must get
+ * both the record and the blob file, content-identical. A second pull is idempotent
+ * (dedup, no dup file). A wrong protocol version byte is rejected with -2. */
 static void test_sync_blob(void)
 {
     ais B;
@@ -4256,7 +4094,6 @@ static void test_sync_blob(void)
     ais_close(&B);
     waitpid(pid, NULL, 0);
 
-    /* the actual blob FILE must now exist under B and round-trip its content */
     snprintf(bpath, sizeof bpath, "%s/%s", db, relval);
     {
         FILE *f = fopen(bpath, "rb");
@@ -4267,7 +4104,6 @@ static void test_sync_blob(void)
         CHECK(n == strlen(doc) && memcmp(got, doc, n) == 0, "blob: B's blob content matches A's");
     }
 
-    /* second pull: idempotent -- no error and the blob is deduped (not duplicated) */
     pid = fork();
     if (pid == 0) {
         ais cA;
@@ -4291,10 +4127,9 @@ static void test_sync_blob(void)
         CHECK(cnt == 1, "blob: dedup kept exactly one blob file on B");
     }
 
-    /* version guard: seal a payload whose plaintext version byte is NOT AIS_SYNC_PROTO(1);
-     * sync_import_sealed must return -2 and merge nothing. We build the sealed blob with
-     * the same subkey derivation sync_export_sealed uses, so the auth passes and only the
-     * version check can trip. */
+    /* version guard: a payload whose plaintext version byte is NOT AIS_SYNC_PROTO(1)
+     * must give -2 and merge nothing. Sealed with the subkey derivation
+     * sync_export_sealed uses, so auth passes and only the version check can trip. */
     {
         ais V;
         uint8_t kseal[32], *sealed = NULL;
@@ -4316,7 +4151,6 @@ static void test_sync_blob(void)
               "blob(ver): wrong version byte -> -2 (loud, not silent)");
         CHECK(value_present(&V, "Should Not Merge") == 0,
               "blob(ver): nothing merged on a version mismatch");
-        /* and the current format still round-trips (auth + version both good) */
         {
             ais S;
             uint8_t *good = NULL;
@@ -4404,9 +4238,8 @@ static void test_record_too_long(void)
     scratch_rm(dir);
 }
 
-/* Deletes arrive batched (one store pass per run of D| lines), so pin that the batch
- * changes nothing: an add and a delete for one value in a SINGLE stream resolve by
- * timestamp, in either arrival order. */
+/* Deletes arrive batched (one store pass per run of D| lines): an add and a delete
+ * for one value in a SINGLE stream resolve by timestamp, in either arrival order. */
 static void test_merge_del_batch_lww_in_one_stream(void)
 {
     ais a;
@@ -4459,10 +4292,9 @@ static void test_merge_del_batch_lww_in_one_stream(void)
     scratch_rm(dir);
 }
 
-/* The batch boundary: more deletes than one buffer holds must all apply (two flushes),
- * and a delete whose value only arrives LATER in the same stream must still bite
- * nothing -- the run is resolved before the add that follows it, exactly as when each
- * delete was resolved on its own line. */
+/* The batch boundary: more deletes than one buffer holds must all apply (two
+ * flushes), and a delete whose value arrives LATER in the same stream must bite
+ * nothing -- the run is resolved before the add that follows it. */
 static void test_merge_del_batch_boundary(void)
 {
     ais a;
@@ -4649,10 +4481,8 @@ static void test_merge_del_many_keeps_stream_order(void)
     scratch_rm(dir);
 }
 
-/* The point of the batch: a run of D| lines costs ONE store pass, not one per line.
- * Measured against the same deletes resolved one at a time on the same index and
- * machine -- the shape the import had before, and the one that made a sync with a
- * peer that had deleted a lot take minutes. */
+/* A run of D| lines costs ONE store pass, not one per line. Measured against the
+ * same deletes resolved one at a time on the same index and machine. */
 static void test_merge_del_batch_is_one_pass(void)
 {
     ais a;
@@ -4706,8 +4536,8 @@ static void test_merge_del_batch_is_one_pass(void)
     scratch_rm(dir);
 }
 
-/* Deferred behavior (decision A): a multi-value record (ais_add) survives a merge, but its
- * values un-group into separate records on the peer. Pin it so a future change is noticed. */
+/* A multi-value record (ais_add) survives a merge as ONE record: the M| verb
+ * carries the grouping, so the values must not un-group on the peer. */
 static void test_merge_multivalue(void)
 {
     ais A, B;
@@ -4735,10 +4565,6 @@ static void test_merge_multivalue(void)
           "multivalue: both values survive the merge");
     store_find_value(&B, "v1", &i1);
     store_find_value(&B, "v2", &i2);
-    /* This assertion used to demand the OPPOSITE (i1 != i2), pinning the split as
-     * expected behaviour -- which is why the suite stayed green while every backup
-     * silently turned one multi-link record into several. The M| verb carries the
-     * grouping now; the values must land on ONE record. */
     CHECK(i1 == i2, "multivalue: the values stay on ONE record across the merge");
 
     ais_close(&A);
@@ -4766,13 +4592,10 @@ static void test_sync_url(void)
     CHECK(sync_parse_url("http://", host, sizeof host, &port) == -1, "url: empty host rejected");
 }
 
-/* The scratch indexes below live at FIXED /tmp paths, so two copies of this
- * binary running at once delete each other's fixtures -- which shows up as a
- * scatter of unrelated failures (the sleep-driven sync tests worst of all) and
- * reads exactly like a real regression. It cost one false alarm already. Hold a
- * lock for the run instead of renaming a hundred literals; the suite is seconds
- * long, so serialising costs nothing and the lock cannot go stale (the kernel
- * drops it when the process dies). */
+/* The suite's scratch indexes live at FIXED /tmp paths, so two copies of this
+ * binary at once delete each other's fixtures, which reads as a scatter of
+ * unrelated failures (the sleep-driven sync tests worst). A run-long lock
+ * serialises them, and cannot go stale: the kernel drops it when the process dies. */
 static void serialise_runs(void)
 {
     static const char *lock = "/tmp/ais_ut.lock";

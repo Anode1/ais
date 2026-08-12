@@ -1,10 +1,10 @@
 /* embed.h -- in-process API for EMBEDDERS (Flutter dart:ffi, a native mobile
  * plugin, any host that links the engine instead of shelling out to the CLI).
  *
- * It is the same engine as the CLI and `ais serve`: recall returns the exact
+ * The same engine as the CLI and `ais serve`: recall returns the exact
  * "id|value\n" text the web /api/get returns, so every front-end shares one
- * contract. Handles are void* on purpose -- the host sees an opaque pointer
- * (Dart Pointer<Void>), with no struct layout to track across the FFI boundary.
+ * contract. Handles are void*: an opaque pointer (Dart Pointer<Void>), no struct
+ * layout to track across the FFI boundary.
  *
  *   void *h = ais_embed_open("/path/to/index");   // NULL on failure
  *   char *r = ais_embed_recall(h, "venice italy", 0);  // 0 = AND, 1 = OR
@@ -37,10 +37,9 @@ char *ais_embed_recall_page(void *handle, const char *keys, int or_mode,
                             long after, int count);
 
 /* Content search: recall records whose VALUE contains NEEDLE (a plain, case-
- * sensitive substring), for a "forgot the key" fallback. Same "id|value\n" line
- * format as ais_embed_recall, so the host reuses one parser. Returns a newly
- * allocated, NUL-terminated buffer (empty string if nothing matches); free with
- * ais_embed_free(). NULL on bad args / OOM. */
+ * sensitive substring). Same "id|value\n" line format as ais_embed_recall.
+ * Returns a newly allocated, NUL-terminated buffer (empty string if nothing
+ * matches); free with ais_embed_free(). NULL on bad args / OOM. */
 char *ais_embed_find(void *handle, const char *needle);
 
 /* Store VALUE under KEYS. Returns the record id (> 0), or -1 on error. */
@@ -54,8 +53,8 @@ long  ais_embed_store_encrypted(void *handle, const char *keys,
 
 /* Decrypt a marked ("aisc:") inline VALUE under PASSPHRASE, returning the
  * cleartext as a freshly-allocated string (free with ais_embed_free), or NULL
- * (wrong passphrase, not an inline secret, or crypto not built). For a GUI's
- * reveal; encrypted DOCUMENTS (aisc:@blob) are revealed via the CLI. */
+ * (wrong passphrase, not an inline secret, or crypto not built). Encrypted
+ * DOCUMENTS (aisc:@blob) are revealed via the CLI, not here. */
 char *ais_embed_reveal(const char *marked_value, const char *passphrase);
 
 /* Delete record ID (the id is the "id|value" handle from recall/timeline).
@@ -67,10 +66,9 @@ int   ais_embed_del(void *handle, long id);
 int   ais_embed_update(void *handle, long id, const char *keys);
 
 /* Replace record ID's VALUE (OLD_VALUE -> NEW_VALUE), preserving its id, ts and
- * keys -- the in-place value edit, for a GUI's "edit value". OLD_VALUE must be
- * the record's exact stored value (the "id|value" handle from recall/timeline).
- * Returns 0, or -1 if the id is unknown, the value does not match (nothing is
- * changed), or on IO error. */
+ * keys. OLD_VALUE must be the record's exact stored value (the "id|value" handle
+ * from recall/timeline). Returns 0, or -1 if the id is unknown, the value does
+ * not match (nothing is changed), or on IO error. */
 int   ais_embed_set_value(void *handle, long id, const char *old_value,
                           const char *new_value);
 
@@ -91,28 +89,25 @@ int   ais_embed_serve(void *handle, int port, const char *token);
 
 /* The direction-less "Sync": like pull/serve, but a SYMMETRIC exchange -- after
  * the one-way transfer each side also sends the other way, so BOTH converge in
- * one round (no sender/receiver role). Same return codes. One device hosts
- * (sync_serve), the other joins (sync_pull); either way both end up merged.
+ * one round (no sender/receiver role). One device hosts (sync_serve), the other
+ * joins (sync_pull); either way both end up merged.
  *
  * Same return codes, plus two POSITIVE ones. Neither is a failure: nothing was
  * lost, and running the sync again finishes the job.
  *   1 = HALF DONE -- one direction completed and the other did not, so records
- *       crossed but the two devices are not identical yet. Reporting this as -2
- *       told a user that a backup which had half happened had not happened.
+ *       crossed but the two devices are not identical yet.
  *   2 = RUN IT AGAIN -- both directions completed, but a record here outlived a
- *       delete that arrived in this same round, and that news was decided after
- *       our own stream had gone out. The peer still has the record deleted; one
- *       more exchange settles it. Reporting this as 0, under the words "both
- *       devices now have the same records", was simply untrue. */
+ *       delete that arrived in this same round, decided after our own stream had
+ *       gone out. The peer still has the record deleted; one more exchange
+ *       settles it. */
 int   ais_embed_sync_pull(void *handle, const char *url, const char *token);
 int   ais_embed_sync_serve(void *handle, int port, const char *token);
 
 /* File bundle (offline sync): write the WHOLE index to PATH as a PLAINTEXT bundle
- * (no passphrase, no AEAD), for the user to save/move by any channel (Drive / USB /
- * email) and import elsewhere -- covering PC<->PC and Windows, which live LAN sync
- * can't. Encrypted VALUES stay opaque (they are already "aisc:" ciphertext in the
- * store, carried as-is). File I/O only, no sockets. Returns 0, or -1 (bad args /
- * write). */
+ * (no passphrase, no AEAD), to move by any channel (Drive / USB / email) and import
+ * elsewhere -- covering PC<->PC and Windows, which live LAN sync can't. Encrypted
+ * VALUES stay opaque (already "aisc:" ciphertext in the store, carried as-is).
+ * File I/O only, no sockets. Returns 0, or -1 (bad args / write). */
 int   ais_embed_export_bundle(void *handle, const char *path);
 
 /* Read the plaintext bundle at PATH (capped at AIS_SYNC_MAX_BLOB) and merge it into
@@ -128,9 +123,8 @@ int   ais_embed_import_bundle(void *handle, const char *path);
  * Returns 0, or one of the AIS_FOLDER_* codes (sync.h): -2 no such folder, -3 not a
  * folder, -4 unreadable, -5 we have synced here before and our own bundle is gone
  * (an unmounted drive, an emptied share), -6 the merge applied but our bundle could
- * not be written; -1 anything else. A front end must SHOW which: the remedies differ,
- * and reporting a plain failure for all of them is how a dead sync goes unnoticed.
- * FORCE (0/1) accepts the -5 folder and re-establishes it. It creates nothing. */
+ * not be written; -1 anything else. A front end must SHOW which -- the remedies
+ * differ. FORCE (0/1) accepts the -5 folder and re-establishes it. Creates nothing. */
 int   ais_embed_sync_folder(void *handle, const char *folder);
 int   ais_embed_sync_folder_force(void *handle, const char *folder, int force);
 
@@ -155,25 +149,23 @@ char *ais_embed_tags_page(void *handle, long after_count, const char *after_key,
                           int count);
 
 /* Record ID's keys as one space-separated string (the same KEYS field the
- * timeline emits), for a GUI's "edit keys" chip editor. Free with
- * ais_embed_free(). Returns "" (empty, not NULL) if the record has no keys or
- * ID is unknown/deleted; NULL only on bad args / allocation failure. */
+ * timeline emits). Free with ais_embed_free(). Returns "" (empty, not NULL) if
+ * the record has no keys or ID is unknown/deleted; NULL only on bad args /
+ * allocation failure. */
 char *ais_embed_keys(void *handle, long id);
 
 /* Resolve VALUE to the bounded text a GUI SHOWS (see ais_doc_display): a document
  * blob's CONTENT, else VALUE verbatim. Returns a freshly-allocated, NUL-terminated
- * string (free with ais_embed_free), or NULL on bad args / OOM. The Flutter app
- * calls this instead of reading blob files itself, so blob resolution lives in
- * ONE place (this engine), shared with `ais serve` -- no viewer can drift. */
+ * string (free with ais_embed_free), or NULL on bad args / OOM. Hosts call this
+ * instead of reading blob files, so blob resolution stays in one place. */
 char *ais_embed_display(void *handle, const char *value);
 
 /* Free a buffer returned by ais_embed_recall() / _timeline() / _tags() / _display(). */
 void  ais_embed_free(char *buf);
 
-/* How many LIVE records the index holds. A front-end shows it after a sync: a
- * flat "Synced" says nothing about whether anything actually arrived, and sync
- * IS the backup here, so the count is the confirmation. Returns the count (>= 0),
- * or -1 on bad args / read error. */
+/* How many LIVE records the index holds -- the count a front-end shows after a
+ * sync, which is the only confirmation that anything arrived. Returns the count
+ * (>= 0), or -1 on bad args / read error. */
 long  ais_embed_count(void *handle);
 
 /* Release the lock, flush the id counter, free the handle. */
@@ -187,19 +179,15 @@ int   ais_embed_default_set(const char *dir);
  * keeps the deletions exportable, which is what a peer needs to learn about them;
  * FORGET=1 also strips the content hash from every tombstone, so the deletions
  * stay in force HERE but stop travelling and stop being testable against a guess.
- *
- * A phone has no CLI, so without this the store grows forever, tags of deleted
- * records linger in the index, and the privacy note's advice ("run ais --compact
- * --forget-deleted") is unreachable for the people who most need it. Safe to run
- * unattended: it is atomic, and an interrupted run is rolled back at the next
- * open. With FORGET=1 warn first -- a device that has not synced since can push
- * the deleted records back. 0 on success, -1 on failure. */
+ * A phone has no CLI, so without this the store grows forever and tags of deleted
+ * records linger in the index. Safe to run unattended: atomic, and an interrupted
+ * run is rolled back at the next open. With FORGET=1 warn first -- a device that
+ * has not synced since can push the deleted records back. 0/-1. */
 int   ais_embed_compact(void *handle, int forget);
 
 /* Resolve the index a bare run would use (same precedence as the CLI: nearest
  * .ais/, then ~/.ais/config, then ~/.ais), writing it into OUT (size OUTSZ).
- * 0 on success, -1 on error. Lets an embedder open the same index as the CLI
- * without duplicating the resolution logic. */
+ * 0 on success, -1 on error. */
 int   ais_embed_locate(char *out, size_t outsz);
 
 #endif /* AIS_EMBED_H */

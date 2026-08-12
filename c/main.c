@@ -37,9 +37,8 @@
 #include "sync.h"
 #include "secret.h"
 
-/* Stamped from the git tag at build time (-DAIS_VERSION, see c/Makefile, single
- * source of truth). This default applies only to a build with no git/tag (e.g. a
- * bare source copy). */
+/* Stamped from the git tag at build time (-DAIS_VERSION, c/Makefile, the single
+ * source of truth). This default applies only to a build with no git tag. */
 #ifndef AIS_VERSION
 #define AIS_VERSION "0.0.0-dev"
 #endif
@@ -110,23 +109,18 @@ static int delkey_count_cb(long id, void *vp)
     return 0;
 }
 
-/* One preview line per record, on STDERR. Deliberately NOT the recall printer:
- *  - recall writes to stdout, so `ais --del-key k > file` showed the user an
- *    EMPTY kill-list above the prompt -- the most dangerous state this can be in;
- *  - recall prints every link of a multi-link record and cats a --doc blob whole,
- *    burying the record boundaries;
- *  - recall reveals secrets, so previewing a key holding encrypted records asked
- *    for passphrases in the middle of a delete confirmation.
- * Shows the FIRST value only, truncated, and never decrypts. */
+/* One preview line per record, on STDERR. Not the recall printer, which writes
+ * to stdout (`ais --del-key k > file` would put the kill-list in the file, not
+ * above the prompt), prints every link and cats a --doc blob whole (burying the
+ * record boundaries), and reveals secrets (prompting for passphrases in the
+ * middle of a delete confirmation). FIRST value only, truncated, never decrypted. */
 #define DELKEY_PREVIEW_MAX 10
 #define DELKEY_VALUE_WIDTH 68
 struct delkey_preview { ais *a; long shown; };
 
-/* Prints the record's FIRST value, then keeps counting the rest: a record can
- * hold several links and showing only one made the manifest UNDERSTATE what the
- * delete takes -- the user consented to one line and lost four. Only the first is
- * printed (a --doc blob or a ten-link record must not bury the record boundaries);
- * the others are summarised as a count. VP is a long * (links seen). */
+/* Prints the record's FIRST value only -- a --doc blob or a ten-link record must
+ * not bury the record boundaries -- and counts the rest, so the manifest cannot
+ * understate what the delete takes. VP is a long * (links seen). */
 static int delkey_line_cb(long id, const char *value, void *vp)
 {
     long *nlink = vp;
@@ -137,8 +131,8 @@ static int delkey_line_cb(long id, const char *value, void *vp)
     return 0;
 }
 
-/* Print one manifest entry. Also THE counter: a separate ais_get to count first
- * walked the whole posting twice, and the two walks could disagree. */
+/* Print one manifest entry, and count them: one walk of the posting, so the
+ * manifest and the count cannot disagree. */
 static int delkey_show_cb(long id, void *vp)
 {
     struct delkey_preview *p = vp;
@@ -328,25 +322,24 @@ static int confirm(const char *prompt)
     FILE *tty;
     size_t n;
 
-    /* Read the answer from the TERMINAL, not stdin -- the same seam
-     * feed_import_interactive uses. Reading stdin let a redirected data file
-     * answer a destructive prompt: `ais --del-key kul < notes.txt` was confirmed
-     * by whatever the first line happened to start with. */
+    /* The answer comes from the TERMINAL, not stdin (the seam
+     * feed_import_interactive uses): stdin can be a redirected data file, whose
+     * first line would then answer a destructive prompt. */
 #ifdef _WIN32
     tty = fopen(ttypath != NULL ? ttypath : "CONIN$", "r");
 #else
     tty = fopen(ttypath != NULL ? ttypath : "/dev/tty", "r");
 #endif
     if (tty == NULL) {
-        /* No terminal to ask on. Aborting quietly with status 0 would tell a
-         * script the work was done, so say what is missing and fail. */
+        /* No terminal to ask on. Exiting 0 would tell a script the work was
+         * done, so say what is missing and fail. */
         fprintf(stderr, "no terminal to confirm on -- pass -y (or set AIS_TTY=FILE)\n");
         exit(2);
     }
     if (ttypath != NULL)
-        /* The seam must never be SILENT. A destructive command run with AIS_TTY
-         * left set in the environment would otherwise be confirmed by a file with
-         * no sign on screen that nobody was asked. */
+        /* The seam is never silent: with AIS_TTY left set in the environment, a
+         * destructive command is confirmed by a file, and nothing on screen
+         * would otherwise say that nobody was asked. */
         fprintf(stderr, "ais: reading the answer from AIS_TTY=%s, not a terminal\n",
                 ttypath);
     fprintf(stderr, "%s [y/N] ", prompt);
@@ -359,7 +352,7 @@ static int confirm(const char *prompt)
     fclose(tty);
     n = strcspn(buf, "\r\n");
     buf[n] = '\0';
-    /* Exactly "y" or "yes". A prefix test accepted "yolo" as consent. */
+    /* Exactly "y" or "yes", never a prefix ("yolo" is not consent). */
     return (strcmp(buf, "y") == 0 || strcmp(buf, "Y") == 0 ||
             strcasecmp(buf, "yes") == 0);
 }
@@ -424,9 +417,9 @@ int main(int argc, char **argv)
     ais_mode mode = AIS_AND;
     int assume_yes = 0, interactive = 0, project_given = 0, create = 0, encrypt = 0;
     int cmd = 0, serve_flag = 0;
-    /* Which long option spelled the command. Scanning argv for "--del-key" both
-     * misfired on a KEY literally named that and missed getopt's own unambiguous
-     * abbreviation ("--del-k"), so take the answer from getopt itself. */
+    /* Which long option spelled the command, from getopt itself: scanning argv
+     * for "--del-key" misfires on a KEY named that and misses getopt's own
+     * unambiguous abbreviations ("--del-k"). */
     const char *cmd_spelling = "";
     int purge_deletes = 0;             /* --forget-deleted, a modifier on --compact */
     int li = -1;
@@ -475,7 +468,7 @@ int main(int argc, char **argv)
     }
 
     /* --serve is a command on its own (web GUI) and also a modifier of --export
-     * (serve the merge stream over the LAN). Resolve the combination here. */
+     * (serve the merge stream over the LAN). */
     if (serve_flag) {
         if (cmd == 0) cmd = CMD_SERVE;            /* --serve alone -> web GUI */
         else if (cmd != CMD_EXPORT && cmd != CMD_SYNC)
@@ -607,42 +600,37 @@ int main(int argc, char **argv)
             }
             break;
         }
-        /* Replace ONE of a record's values in place. The counterpart to --add,
-         * which could attach a link but leave no way to correct it: a wrong link
-         * could only be removed by deleting the whole record, and a local re-add
-         * of any matching value resurrects it (ais_put_at, last-write-wins), so
-         * delete-and-recreate silently restores what it just removed. --set edits
-         * the one line instead, keeping the id, ts and keys. */
+        /* Replace ONE of a record's values in place, keeping the id, ts and keys.
+         * The counterpart to --add: delete-and-recreate is not a substitute,
+         * since a local re-add of any matching value resurrects the record
+         * (ais_put_at, last-write-wins). */
         case CMD_SET: {
             long id;
             if (optind >= argc) die("--set needs an ID");
             if (nval != 2) die("--set needs -v OLD_VALUE -v NEW_VALUE");
             id = atol(argv[optind]);
-            /* ais_set_value fails for several reasons and prints its own message for
-             * the ones it can explain (a multi-line value), so word this as the
-             * likely cause rather than asserting one and contradicting it. */
+            /* ais_set_value fails for several reasons and prints its own message
+             * for the ones it can explain (a multi-line value); this names the
+             * likely cause, not a certain one. */
             if (ais_set_value(&a, id, values[0], values[1]) != 0)
                 die("--set: record %ld unchanged (no such id, or no value '%s')", id, values[0]);
-            /* The replaced value may have been the ONLY reference to an encrypted
-             * blob. Shred it once the store no longer points at it, matching the
-             * promise --del/--del-key make; secret_shred_blob is a no-op for any
-             * value that is not an aisc: blob. Ordered AFTER the edit so a refused
-             * --set never destroys a payload the record still holds. */
+            /* The replaced value may be the ONLY reference to an encrypted blob;
+             * shred it once the store no longer points at it, as --del/--del-key
+             * do. A no-op for any value that is not an aisc: blob. AFTER the
+             * edit, so a refused --set never destroys a payload still held. */
             secret_shred_blob(a.dir, values[0]);
             /* An in-place value edit has NO representation in the merge stream:
              * it emits A| for the new value and nothing retiring the old, so a
              * synced peer keeps the old one and feeds it back, leaving BOTH on
-             * both devices. Say so rather than let the correction silently undo
-             * itself. Only warn on an index that actually syncs. */
+             * both devices. Warn only on an index that actually syncs. */
             {
                 char sp[AIS_PATH_MAX];
                 FILE *sf;
                 int peered = 0;
                 if (snprintf(sp, sizeof sp, "%s/syncid", a.dir) < (int)sizeof sp &&
                     (sf = fopen(sp, "r")) != NULL) { fclose(sf); peered = 1; }
-                /* syncid is the FOLDER protocol's identity and a LAN round never
-                 * writes it, so keying only on it made this warning invisible to
-                 * exactly the users most likely to need it. */
+                /* syncid is the FOLDER protocol's identity; a LAN round never
+                 * writes it, so `synced` has to be checked as well. */
                 if (!peered &&
                     snprintf(sp, sizeof sp, "%s/synced", a.dir) < (int)sizeof sp &&
                     (sf = fopen(sp, "r")) != NULL) { fclose(sf); peered = 1; }
@@ -667,9 +655,9 @@ int main(int argc, char **argv)
             if (keys[0] == '\0')
                 die("--update needs at least one key (KEY to add, -KEY to remove)");
             if (ais_update(&a, id, keys) != 0)
-                /* ais_update fails for several reasons -- unknown or deleted id, a
-                 * key that would push the line past AIS_LINE_MAX, IO. Name the
-                 * likely one rather than asserting a cause that may be wrong. */
+                /* ais_update fails for several reasons -- unknown or deleted id,
+                 * a key that would push the line past AIS_LINE_MAX, IO -- so
+                 * this names the likely one, not a certain one. */
                 die("--update: record %ld unchanged (no such live id, or the keys "
                     "would not fit on one line)", id);
             break;
@@ -680,23 +668,20 @@ int main(int argc, char **argv)
             id = atol(argv[optind]);
             if (!assume_yes) {
                 char p[64];
-                /* SHOW the record before asking. "Delete record 42?" tells the user
-                 * nothing they can check -- an id is not something anyone recognises,
-                 * and --del-under now previews what it destroys, so this asking blind
-                 * would be the odd one out. */
+                /* SHOW the record before asking: an id is not something anyone
+                 * recognises, so "Delete record 42?" alone gives the user
+                 * nothing to check. */
                 long nlink = 0;
                 /* ais_record reads the STORE, which still holds tombstoned lines
-                 * until compaction. Without this the preview showed a record that
-                 * was already deleted and offered to delete it again. */
+                 * until compaction, so an already-deleted id is screened here. */
                 int gone = (id > 0) ? tomb_contains(&a, id) : 0;
                 if (gone < 0) die("--del: cannot read the tombstone log");
                 fprintf(stderr, "About to delete:\n");
                 if (!gone)
                     ais_record(&a, id, delkey_line_cb, &nlink);
                 if (nlink == 0) {
-                    /* Nothing to show means nothing to delete. Printing an empty
-                     * manifest and then asking "permanently delete record 42?"
-                     * invited a yes to a record that was never there. */
+                    /* Nothing to show means nothing to delete: never prompt over
+                     * an empty manifest. */
                     fprintf(stderr, "  no live record %ld\n", id);
                     ais_close(&a);
                     return 1;
@@ -713,9 +698,9 @@ int main(int argc, char **argv)
             break;
         }
         case CMD_UNTAG: {
-            /* The non-destructive counterpart to --del-under: the records stay,
-             * they just stop being filed under KEY. Reversible by re-tagging, so
-             * it gets a count and a plain y/N rather than a manifest. */
+            /* The non-destructive counterpart to --del-under: records stay, they
+             * just stop being filed under KEY. Reversible by re-tagging, so a
+             * count and a plain y/N, not a manifest. */
             const char *key = (optind < argc) ? argv[optind]
                             : (nexk ? exkeys[0] : NULL);
             char p[AIS_KEY_MAX + 128];
@@ -744,26 +729,23 @@ int main(int argc, char **argv)
                             : (nexk ? exkeys[0] : NULL);
             char p[AIS_KEY_MAX + 128];
             long nprev = 0;              /* how many the manifest counted */
-            /* The old spelling reads like "remove the tag", which is the one thing
-             * it does not do. Kept working forever; just say so once per use. */
+            /* --del-key keeps working forever, but reads like "remove the tag",
+             * the one thing it does not do: say so once per use. */
             if (strcmp(cmd_spelling, "del-key") == 0)
                 fprintf(stderr, "ais: --del-key is now --del-under "
                                 "(it deletes the records, not the tag); "
                                 "--untag removes just the tag\n");
             if (key == NULL) die("--%s needs a KEY", cmd_spelling);
-            /* SHOW what is about to go before asking. This deletes whole records,
+            /* SHOW what is about to go before asking: this deletes whole records,
              * not just the key, and a record filed under several keys disappears
-             * from all of them -- so a bare "are you sure?" is not enough to
-             * consent to. Skipped under -y, which is the caller saying they know. */
+             * from all of them. Skipped under -y. */
             if (!assume_yes) {
                 char *k1[1];
                 struct delkey_preview pv;
                 k1[0] = (char *)key;
-                /* Name the DIFFERENCE, not just the danger. "--del-under" still
-                 * reads like "remove the tag", and that is the one thing it does
-                 * not do: the records themselves go, from every key they are filed
-                 * under. A user who meant to untag needs to be told before
-                 * answering, and told what to type instead. */
+                /* "--del-under" still reads like "remove the tag", so the header
+                 * names the difference: the records go, from every key they are
+                 * filed under, and here is what to type to untag instead. */
                 fprintf(stderr, "--%s deletes RECORDS, not the tag.\n\n"
                                 "Filed under '%s' -- all of these will be deleted, and\n"
                                 "each disappears from every other key it is filed under too:\n\n",
@@ -784,8 +766,8 @@ int main(int argc, char **argv)
                     "\nTo remove the tag and KEEP the records: ais --untag %s\n\n",
                     key);
             }
-            /* The count is repeated here because with a long list the header has
-             * scrolled off; the prompt is the only line guaranteed to be on screen. */
+            /* The count is repeated: with a long list the header has scrolled
+             * off, and the prompt is the only line guaranteed to be on screen. */
             snprintf(p, sizeof(p), "Permanently delete %s %ld record%s filed under '%s'?",
                      nprev == 1 ? "this" : "these", nprev, nprev == 1 ? "" : "s", key);
             if (assume_yes || confirm(p)) {
@@ -801,9 +783,8 @@ int main(int argc, char **argv)
         }
         case CMD_COMPACT:
             if (purge_deletes) {
-                /* Name the price before asking. Forgetting a deletion is the one
-                 * thing here that another device can undo for you, and the user
-                 * cannot be expected to know that a peer still holds the record. */
+                /* Name the price before asking: a device that has not seen these
+                 * deletions can send the records back. */
                 if (!assume_yes) {
                     fprintf(stderr,
                         "This also FORGETS what was deleted.\n\n"
@@ -933,12 +914,11 @@ int main(int argc, char **argv)
 
     /* ---- save (put mode): -v or -i ---- */
     if (nval > 0 || interactive || encrypt) {
-        /* A key beginning '-' cannot be stored: '-key' is the DETACH operator
-         * in this grammar (ais --update ID -KEY), and put shares the posting
-         * pass with update, so such a token is dropped before it can emit a
-         * detach on a brand-new record. That is correct, but it used to be
-         * SILENT: `ais -v note -- -todo` stored an untagged, unfindable
-         * record and exited 0. Say so instead. */
+        /* A key beginning '-' cannot be stored: '-key' is the DETACH operator in
+         * this grammar (ais --update ID -KEY), and put shares the posting pass
+         * with update, so such a token is dropped before it can emit a detach on
+         * a brand-new record. Refuse loudly: `ais -v note -- -todo` would
+         * otherwise store an untagged, unfindable record and exit 0. */
         {
             int ki;
             for (ki = optind; ki < argc; ki++)

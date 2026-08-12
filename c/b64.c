@@ -1,5 +1,4 @@
-/* b64.c -- base64 (RFC 4648 standard alphabet, padded). See b64.h.
- * Bounded buffers, no heap; the caller sizes DST via AIS_B64_ENCLEN. */
+/* b64.c -- base64 (RFC 4648 standard alphabet, padded). See b64.h. */
 #include "b64.h"
 
 static const char ENC[64] =

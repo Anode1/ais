@@ -7,13 +7,11 @@
 #include <fcntl.h>      /* _O_BINARY, _fmode */
 #include <string.h>
 
-/* AIS's store/idx/off files are LF plain text addressed by EXACT byte offsets
+/* The store/idx/off files are LF plain text addressed by exact byte offsets
  * (store.c fseek by id*width; compact.c ftell). MinGW defaults new streams to
- * TEXT mode, which inserts CR on write and makes ftell/fseek return opaque
- * cookies -- corrupting that offset arithmetic (recall then finds nothing).
- * Force BINARY mode for every fopen, before main() runs, so the on-disk format
- * stays byte-exact and LF-only, identical to POSIX. (Cygwin was binary already,
- * which is why this never showed there.) */
+ * text mode, which inserts CR on write and makes ftell/fseek return opaque
+ * cookies, corrupting that arithmetic. Force binary mode for every fopen,
+ * before main() runs, so the on-disk format stays byte-exact and LF-only. */
 __attribute__((constructor))
 static void ais_force_binary_mode(void) { _fmode = _O_BINARY; }
 
@@ -37,9 +35,8 @@ int ais_flock(int fd, int op)
     return LockFileEx(h, flags, 0, MAXDWORD, MAXDWORD, &ov) ? 0 : -1;
 }
 
-/* rename(2) with POSIX replace-existing semantics: MSVCRT rename() fails if TO
- * exists; MoveFileEx replaces it (atomic on NTFS). Called via the win.h macro,
- * which #undefs rename first, so this definition itself is not remapped. */
+/* rename(2) with POSIX replace-existing semantics; atomic on NTFS. Reached via
+ * the win.h macro, which #undefs rename so this definition is not remapped. */
 int ais_rename(const char *from, const char *to)
 {
     return MoveFileExA(from, to, MOVEFILE_REPLACE_EXISTING | MOVEFILE_COPY_ALLOWED) ? 0 : -1;

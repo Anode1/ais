@@ -1,10 +1,10 @@
 /* sync.h -- LAN sync transport endpoints.
  *
  * The merge engine (feed_export / feed_import_from) and the AEAD (ais_crypto) do the
- * work; these two functions glue them: seal an index's merge stream under a one-time
- * token, and apply a received sealed stream by unsealing then merging. The socket
- * transport (`ais --export --serve` / `ais --import <url>`) only moves the sealed blob
- * between two devices on the same LAN; it calls these. POSIX + crypto only.
+ * work; these glue them: seal an index's merge stream under a one-time token, and
+ * unseal + merge a received stream. The socket transport (`ais --export --serve` /
+ * `ais --import <url>`) only moves the sealed blob between two LAN devices; it calls
+ * these. POSIX + crypto only.
  */
 #ifndef AIS_SYNC_H
 #define AIS_SYNC_H
@@ -38,22 +38,17 @@ int sync_export_sealed(ais *a, const char *token, uint8_t **out, size_t *out_len
 int sync_import_sealed(ais *a, const char *token, const uint8_t *sealed, size_t len);
 
 /* HALF a bidirectional exchange succeeded: THIS device merged the peer's records
- * (so nothing was lost and the data is here), but the other direction did not
- * complete, so the peer has not got ours. Distinct from -1 because the two need
- * opposite advice: -1 means try again, this means try again to finish copying
- * the other way -- and reporting it as a plain failure told a user their backup
- * had not happened when in fact half of it had. Only ever returned when BIDIR. */
+ * (nothing was lost, the data is here), but the other direction did not complete,
+ * so the peer has not got ours. Distinct from -1 because the advice differs: -1
+ * means try again, this means try again to finish copying the other way. Only
+ * ever returned when BIDIR. */
 #define AIS_SYNC_PARTIAL 1
 
 /* Both directions completed, but the two devices are still NOT identical: this
  * round merged a delete that a local edit beat, and the news of that survival
  * (`sts`) was decided after our own stream had already been sent. The peer
  * therefore still has the record deleted, and one more exchange settles it.
- *
- * A round that ends this way was reported as a plain success, under the words
- * "both devices now have the same records" -- which was simply untrue, and for a
- * feature that stands in for a backup that is the one thing not to be wrong
- * about. Positive, like AIS_SYNC_PARTIAL: nothing failed and nothing was lost. */
+ * Positive, like AIS_SYNC_PARTIAL: nothing failed and nothing was lost. */
 #define AIS_SYNC_AGAIN 2
 
 /* Serve ONE peer over the LAN: bind PORT, accept a client, check its TOKEN, then send the
@@ -111,11 +106,10 @@ int sync_import_framed(ais *a, const uint8_t *data, size_t len,
 /* One folder-sync pass: import every well-formed peer <id>.aisb in FOLDER, then write
  * our own atomically; heals a device-id clone (nonce mismatch).
  *
- * The folder is never CREATED, and a folder we have synced with before is never
- * silently accepted once it holds no device bundle at all. Both refusals exist
- * because sync IS the backup here: a pass that reports success while writing into
- * a typo, an unmounted drive, or an emptied share is the one failure the user
- * cannot detect until the data is needed.
+ * The folder is never CREATED, and a folder synced with before is refused once it
+ * holds no device bundle at all: sync IS the backup here, and a pass that reports
+ * success while writing into a typo, an unmounted drive, or an emptied share is
+ * the one failure the user cannot detect until the data is needed.
  *
  *   0                       synced
  *   AIS_FOLDER_MISSING      no such folder (or a dangling symlink)
@@ -130,8 +124,8 @@ int sync_import_framed(ais *a, const uint8_t *data, size_t len,
  * does not create anything and does not bypass the other checks.
  *
  * Known limit: a folder is identified by its PATH, never by the filesystem behind
- * it. The very first pass into an unmounted mount point therefore succeeds and
- * writes into the underlying directory. */
+ * it, so the first pass into an unmounted mount point succeeds and writes into the
+ * underlying directory. */
 #define AIS_FOLDER_MISSING   (-2)
 #define AIS_FOLDER_NOTDIR    (-3)
 #define AIS_FOLDER_STAT      (-4)

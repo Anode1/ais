@@ -1,13 +1,12 @@
 /* doc.c -- document (blob) storage, shared by every front-end (see doc.h).
  *
- * A short key addressing a body of content is the compression; a multi-line
- * body does not belong inline in the line-oriented store, so it is written to
- * its own file under blobs/ and the record holds only the relative path. The
- * three GUIs and the CLI all route multi-line input through ais_put_value(),
- * so "one paste -> one record" is identical everywhere.
+ * A multi-line body does not belong inline in the line-oriented store, so it is
+ * written to its own file under blobs/ and the record holds only the relative
+ * path. The three GUIs and the CLI all route multi-line input through
+ * ais_put_value(), so one paste is one record everywhere.
  *
- * die()-free by contract: callers here (a socket server, a linked library)
- * must survive a write error, so every path returns -1 instead of exiting. */
+ * die()-free: a socket server and a linked library must survive a write error,
+ * so every path returns -1 instead of exiting. */
 #define _POSIX_C_SOURCE 200809L     /* mkdir, access */
 #include <errno.h>
 #include <stdio.h>
@@ -36,10 +35,9 @@ int ais_doc_blobname_ext(const ais *a, const char *ext, char *relval, size_t rvs
     if (mkdir(dirpath, 0777) != 0 && errno != EEXIST)
         return -1;
 
-    /* Name the blob by local timestamp: blobs/ then sorts chronologically and
-     * is readable -- `ls blobs/` lists your documents in time order. A second
-     * document within the same second gets a -N suffix, so names stay unique
-     * with no hashing. The extension marks the kind (.txt plain, .aisc encrypted). */
+    /* Local timestamp, so blobs/ sorts chronologically. A second document
+     * within the same second gets a -N suffix; names stay unique with no
+     * hashing. The extension marks the kind (.txt plain, .aisc encrypted). */
     now = time(NULL);
     lt = localtime(&now);
     if (lt == NULL || strftime(ts, sizeof(ts), "%Y-%m-%d-%H%M%S", lt) == 0)

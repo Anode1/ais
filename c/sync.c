@@ -1,10 +1,10 @@
 /* sync.c -- LAN sync transport: seal an index's merge stream under a one-time token,
- * and apply a received sealed stream. See sync.h. The socket layer (a later piece) only
- * moves the sealed blob between two devices; the crypto + merge happen here.
+ * and apply a received sealed stream. See sync.h. The socket layer only moves the
+ * sealed blob between two devices; the crypto + merge happen here.
  *
  * POSIX (open_memstream / fmemopen) and the crypto module are required; without either
- * the two functions compile to inert stubs that return -1 (the transport is unavailable,
- * the rest of ais is unaffected). */
+ * the functions compile to inert stubs that return -1, leaving the rest of ais
+ * unaffected. */
 #define _DEFAULT_SOURCE
 #define _POSIX_C_SOURCE 200809L
 #include <stdio.h>
@@ -14,11 +14,9 @@
 #include "feed.h"
 #include "sync.h"
 
-/* Mark this index as having a sync peer. `syncid` is the FOLDER protocol's device
- * identity and is never written by a LAN round, so anything keyed on it is blind
- * to every LAN user: --set's "this index syncs" warning fired for nobody who
- * paired two phones, which is most of them. A separate marker keeps the folder
- * protocol's identity semantics untouched. */
+/* Mark this index as having a sync peer, with a marker of its own: `syncid` is the
+ * FOLDER protocol's device identity and is never written by a LAN round, so anything
+ * keyed on it is blind to every LAN user. */
 static void sync_mark_peered(ais *a)
 {
     char path[AIS_PATH_MAX];
@@ -29,9 +27,9 @@ static void sync_mark_peered(ais *a)
 }
 
 
-/* Sealed-plaintext protocol version, the very first byte of every unsealed payload.
- * A future format bumps this; a peer that reads a byte it does not recognize fails
- * LOUDLY (-2 from sync_import_sealed) instead of mis-parsing binary as records. */
+/* Sealed-plaintext protocol version, the first byte of every unsealed payload. A
+ * future format bumps this; a peer reading a byte it does not recognize fails LOUDLY
+ * (-2 from sync_import_sealed) instead of mis-parsing binary as records. */
 
 #if !defined(_WIN32) && defined(__has_include) && __has_include("crypto/monocypher.h")
 #  define SYNC_HAVE 1
@@ -94,14 +92,10 @@ int sync_export_plain(ais *a, uint8_t **out, size_t *out_len)
     if (ms == NULL)
         return -1;
     if (fwrite(&ver, 1, 1, ms) != 1) { fclose(ms); free(buf); return -1; }
-    /* feed_export emits the blob sections itself, so calling export_blobs here
-     * shipped every document TWICE: it doubled each bundle and halved the usable
-     * size cap, which failed a large document outright.
-     *
-     * CAPPED as it streams. This buffer grows in memory, so the size check after
-     * fclose below can only fire once the whole thing has already been allocated
-     * -- fine for the record text, hopeless for documents, where a large blobs/
-     * is an OOM before it is ever a refusal. */
+    /* feed_export emits the blob sections itself; do not add them here. CAPPED as it
+     * streams: this buffer grows in memory, so the size check after fclose below can
+     * only fire once the whole thing is already allocated -- fine for the record text,
+     * hopeless for documents, where a large blobs/ is an OOM before it is a refusal. */
     if (feed_export_capped(a, ms, AIS_SYNC_MAX_BLOB) != 0) {
         fclose(ms);
         free(buf);
@@ -288,11 +282,11 @@ static char *ren_rewrite(char *text, const struct renmap *m)
     return text;
 }
 
-/* Parse + merge a raw (UNSEALED) bundle DATA[0..len): version gate, blob-import
- * loop, then feed the record text into the merge. The shared core both the file
- * bundle (plaintext) and LAN sync (which unseals into this) use. DATA is owned by
- * the caller (not freed/wiped here). Returns 0, -1 (bad args / malformed / I/O),
- * or -2 (unrecognized version byte -- a LOUD failure, never a silent mis-parse). */
+/* Parse + merge a raw (UNSEALED) bundle DATA[0..len): version gate, blob-import loop,
+ * then feed the record text into the merge. Shared by the file bundle (plaintext) and
+ * LAN sync (which unseals into this). DATA is owned by the caller (not freed/wiped
+ * here). Returns 0, -1 (bad args / malformed / I/O), or -2 (unrecognized version
+ * byte -- a LOUD failure, never a silent mis-parse). */
 int sync_import_plain(ais *a, const uint8_t *data, size_t len)
 {
     int ret = -1;
@@ -305,14 +299,11 @@ int sync_import_plain(ais *a, const uint8_t *data, size_t len)
         return -1;
 
     /* Which container is this? The app's bundle is a version byte followed by
-     * exactly the bytes `ais --export` writes, so refusing everything without
-     * that byte meant the app could not read a single file the CLI produced --
-     * on a product whose promise is "plain files, yours, portable". Sniff instead.
-     *
-     * The framed device bundle is still refused: it has a binary header, so
-     * reading it as records would invent them. And the whole 0x00-0x1F range
-     * stays reserved for future container versions, so those still fail LOUDLY
-     * rather than being taken for text. */
+     * exactly the bytes `ais --export` writes, so a bare merge stream without that
+     * byte is sniffed and accepted too. The framed device bundle is refused: it has
+     * a binary header, so reading it as records would invent them. The whole
+     * 0x00-0x1F range stays reserved for future container versions, which fail
+     * LOUDLY rather than being taken for text. */
     if (len < 1)
         return -2;
     if (len >= 4 && memcmp(data, "AISB", 4) == 0)
@@ -496,10 +487,7 @@ int sync_serve(ais *a, int port, const char *token, int timeout_s, int bidir) {
             uint8_t *rblob = NULL;
             size_t rblen = 0;
             /* Our stream is already on the wire and the peer merges it, so from
-             * here on the exchange is at least HALF done. Say so: a failure to
-             * read their half back is not "nothing happened", and reporting it
-             * as one told the user their records had not reached the other
-             * device when they had. */
+             * here on the exchange is at least HALF done. */
             rc = AIS_SYNC_PARTIAL;
             if (read_all(cli, rlen, 4) == 0) {
                 rblen = ((size_t)rlen[0] << 24) | ((size_t)rlen[1] << 16)
@@ -541,12 +529,9 @@ int sync_pull(ais *a, const char *host, int port, const char *token, int timeout
     addr.sin_family = AF_INET;
     addr.sin_port = htons((unsigned short)port);
     if (inet_pton(AF_INET, host, &addr.sin_addr) != 1) {
-        /* Not a dotted quad, so resolve it. Only a literal was accepted before,
-         * which meant the names people actually have for their own machines --
-         * "mylaptop.local" from mDNS, a router's DHCP name, an /etc/hosts entry
-         * -- failed as the generic "could not sync", indistinguishable from a
-         * wrong token or the host not running. getaddrinfo covers all three and
-         * costs nothing on the literal path, which inet_pton has already taken. */
+        /* Not a dotted quad, so resolve it: "mylaptop.local" from mDNS, a router's
+         * DHCP name and an /etc/hosts entry are the names people have for their own
+         * machines. Costs nothing on the literal path, which inet_pton has taken. */
         struct addrinfo hints, *res = NULL;
         char portstr[16];
         int gai;
@@ -594,13 +579,9 @@ int sync_pull(ais *a, const char *host, int port, const char *token, int timeout
     if (rc == 0 && bidir) {
         /* symmetric exchange: seal and send our own stream back so the peer
          * converges too. Our index now includes what we just merged; the peer
-         * re-merges idempotently.
-         *
-         * The local merge above has ALREADY succeeded, so a failure from here is
-         * partial, not total: this device has the peer's records and keeps them.
-         * Returning -1 here reported a sync that had half worked as one that had
-         * not worked at all -- the wrong half to lie about, since the user is
-         * being told whether their data is safe. */
+         * re-merges idempotently. The local merge above has ALREADY succeeded, so
+         * a failure from here is partial, not total: this device has the peer's
+         * records and keeps them. */
         uint8_t *mine = NULL;
         size_t mlen = 0;
         rc = AIS_SYNC_PARTIAL;
@@ -664,8 +645,7 @@ int sync_serve_lan(ais *a, int port, int timeout_s, int bidir) {
         int rc = sync_serve(a, port, token, timeout_s, bidir);
         if (rc == AIS_SYNC_PARTIAL) {
             /* The peer HAS our records -- our stream went out and it merged --
-             * we just never got its half back. Reported as a failure, that read
-             * as "nothing was copied", which is the opposite of what happened. */
+             * we just never got its half back. */
             fprintf(stderr, "sync: the other device got your records, but its own did not come back.\n"
                             "      Nothing was lost. Run the same command again to finish.\n");
             aisc_wipe(token, sizeof token);
@@ -710,10 +690,8 @@ int sync_pull_url(ais *a, const char *url, const char *token, int timeout_s, int
             return -1;
         }
         if (rc == AIS_SYNC_PARTIAL) {
-            /* Half done, and the half that worked is the half that matters here:
-             * this device HAS the peer's records. Do not call that a failure --
-             * but do not call it "converged" either, which is what sent a user
-             * away believing both devices matched when only one had changed. */
+            /* Half done: this device HAS the peer's records, so it is not a
+             * failure -- but the two are not converged either. */
             fprintf(stderr, "sync: got %s:%d's records, but could not send yours back.\n"
                             "      Nothing was lost. Run the same command again to finish.\n",
                     host, port);
@@ -732,9 +710,9 @@ int sync_pull_url(ais *a, const char *url, const char *token, int timeout_s, int
 
 /* ===== folder auto-sync: a framed plaintext bundle per device in a shared folder,
  * moved by an external tool (Syncthing / a cloud folder). The merge is already
- * conflict-free; this adds the FILE-LEVEL protocol the design review found missing:
- * a length+checksum frame so a torn/partial read is REJECTED (never merged), and a
- * per-writer nonce so a cloned device-id is detected and healed. See spec v1. ===== */
+ * conflict-free; this adds the FILE-LEVEL protocol: a length+checksum frame so a
+ * torn/partial read is REJECTED (never merged), and a per-writer nonce so a cloned
+ * device-id is detected and healed. See spec v1. ===== */
 
 /* File frame (little-endian ints): "AISB" | ver(1) | nonce(16) | seq(8) |
  * payload_len(8) | crc32(4) | payload. Payload = sync_export_plain's bytes.
@@ -942,16 +920,16 @@ static int atomic_write(const char *dir, const char *path, const uint8_t *data, 
 }
 
 /* Folders this device has already synced with, one absolute path per line in
- * INDEX/foldsync. The point is to tell "a folder I have never used" (fine, first
- * pass) apart from "the folder I have been backing up to, which no longer holds
- * my bundle" (an unmounted drive, a wiped share, a replaced USB stick). Existence
- * cannot make that distinction: an unmounted drive's mount point is an ordinary
- * empty directory, which is exactly what a working folder looks like on day one. */
-/* The canonical path, or "" when it cannot be trusted as a key. A path that does
- * not resolve, or that contains the newline this file uses as its separator, is
- * simply not remembered: a memory that can match the WRONG folder is worse than
- * no memory at all. (realpath's contract is a PATH_MAX buffer; AIS_PATH_MAX is
- * PATH_MAX here, and the assert keeps that from drifting.) */
+ * INDEX/foldsync. Tells "a folder I have never used" (fine, first pass) apart from
+ * "the folder I have been backing up to, which no longer holds my bundle" (an
+ * unmounted drive, a wiped share, a replaced USB stick). Existence cannot make that
+ * distinction: an unmounted drive's mount point is an ordinary empty directory,
+ * exactly what a working folder looks like on day one. */
+/* The canonical path, or "" when it cannot be trusted as a key. A path that does not
+ * resolve, or that contains the newline this file uses as its separator, is not
+ * remembered: a memory that can match the WRONG folder is worse than none. (realpath's
+ * contract is a PATH_MAX buffer; AIS_PATH_MAX is PATH_MAX here, and the guard below
+ * keeps that from drifting.) */
 static void fold_canon(const char *folder, char *out, size_t outsz)
 {
     char buf[AIS_PATH_MAX];
@@ -1042,18 +1020,16 @@ int sync_folder_once_force(ais *a, const char *folder, int force) {
 
     if (!a || !folder) return -1;
     {
-        /* The folder must ALREADY exist. Creating it turned a typo, or an SD card
-         * that was not mounted, into a brand-new empty directory that this device
-         * happily "synced" with forever -- reporting success while nothing ever
-         * arrived from the other side. Sync is the backup here, so a silent
-         * no-op is the worst outcome available. Refuse instead; a first-time
-         * user creating the folder themselves is a far cheaper cost. */
+        /* The folder must ALREADY exist. Creating it turns a typo, or an SD card
+         * that is not mounted, into a brand-new empty directory this device
+         * "syncs" with forever, reporting success while nothing ever arrives from
+         * the other side. Sync is the backup here, so a silent no-op is the worst
+         * outcome available. */
         struct stat st;
         if (stat(folder, &st) != 0)
-            /* Only ENOENT means "not there". EACCES, ELOOP, EIO and -- the one that
-             * matters here -- ENOTCONN from a stale FUSE mount are real conditions
-             * with real remedies, and telling that user to create a folder that
-             * already exists sends them the wrong way. */
+            /* Only ENOENT means "not there". EACCES, ELOOP, EIO and ENOTCONN from a
+             * stale FUSE mount are real conditions with real remedies, and telling
+             * that user to create a folder that exists sends them the wrong way. */
             return (errno == ENOENT) ? AIS_FOLDER_MISSING : AIS_FOLDER_STAT;
         if (!S_ISDIR(st.st_mode))
             return AIS_FOLDER_NOTDIR;
@@ -1064,16 +1040,12 @@ int sync_folder_once_force(ais *a, const char *folder, int force) {
 
     /* The folder exists and is a directory -- which is also true of an unmounted
      * drive's mount point and of a share somebody emptied. If we have synced here
-     * before, it must still hold at least one device bundle.
-     *
-     * ANY bundle, deliberately, not this device's own. Our own file's name follows
-     * our device id, and the clone-heal below changes that id whenever a copied
-     * index turns up -- which the recommended whole-directory Syncthing setup makes
-     * an ordinary event. Keying on our own name meant that one heal made every
-     * other remembered folder look wiped, and told the user their drive was
-     * unplugged when it was sitting there intact. An empty folder is the honest
-     * signal: it is what a wipe, an unmounted drive, and a mount point that has had
-     * a filesystem mounted over it all look like. */
+     * before, it must still hold at least one device bundle. ANY bundle, deliberately,
+     * not this device's own: our own file's name follows our device id, and the
+     * clone-heal below changes that id whenever a copied index turns up, which the
+     * recommended whole-directory Syncthing setup makes an ordinary event. An empty
+     * folder is the honest signal -- it is what a wipe, an unmounted drive, and a
+     * mount point that has had a filesystem mounted over it all look like. */
     fold_canon(folder, canon, sizeof canon);
     if (!force && fold_known(a, canon)) {
         int has = folder_has_bundle(folder);

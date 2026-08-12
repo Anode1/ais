@@ -1,5 +1,5 @@
 /* b64.h -- base64 (RFC 4648 standard alphabet, padded). Bounded, no heap.
- * Used to carry an encrypted file image as one printable "aisc:" store line. */
+ * Carries an encrypted file image as one printable "aisc:" store line. */
 #ifndef AIS_B64_H
 #define AIS_B64_H
 

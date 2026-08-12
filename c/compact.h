@@ -20,10 +20,10 @@ int tomb_contains(const ais *a, long id);
 int tomb_active(const ais *a);    /* 1 if anything is deleted, 0 if not, -1 */
 
 /* When each record was last edited HERE, one fixed-width slot per id in "mts".
- * LOCAL ONLY: never exported, because the exported timestamp also decides
- * key-attach conflicts and raising it would resurrect tags other devices removed.
- * Merging compares mts_effective(); a record that survives a delete is restamped,
- * which is how that decision reaches the other devices. */
+ * LOCAL ONLY: the exported timestamp also decides key-attach conflicts, so
+ * raising it would resurrect tags other devices removed. Merging compares
+ * mts_effective(); a record that survives a delete is restamped, which is how
+ * that decision reaches the other devices. */
 int  mts_set(const ais *a, long id, const char *ts);
 int  mts_clear(const ais *a, long id);                          /* delete is delete */
 int  mts_get(const ais *a, long id, char *out, size_t outsz);   /* 1 found / 0 / -1 */
@@ -31,9 +31,9 @@ void mts_effective(const ais *a, long id, const char *add_ts, char *out, size_t 
 int  mts_forget_dead(const ais *a);   /* compaction: blank the deleted ids' slots */
 
 /* "sts": the time a record was restamped to after SURVIVING a peer's delete. Kept
- * out of the store line -- writing it there made a K| detach's outcome depend on
- * the order peer bundles happened to be read in -- and applied only by the export,
- * which is what the deleting peer needs in order to converge. */
+ * out of the store line (there it makes a K| detach's outcome depend on the order
+ * peer bundles are read in) and applied only by the export, which is what the
+ * deleting peer needs in order to converge. */
 int  sts_active(const ais *a);        /* 1 if any record has survived a delete */
 int  sts_set(const ais *a, long id, const char *ts);
 int  sts_clear(const ais *a, long id);
@@ -55,7 +55,7 @@ int tomb_lookup(const ais *a, long id, char *ts, size_t tsz);
 /* Remove every tomb entry for ID (rewrite) -- resurrect the record. 0/-1. */
 int tomb_remove(const ais *a, long id);
 
-/* Key-level tombstones (INDEX/ktomb): "record ID no longer carries KEY", the
+/* Key-level tombstones (INDEX/ktomb): "record ID does not carry KEY", the
  * append-only counterpart of the record tomb. Detach records the pair here (with a
  * ts + the record's value-hash, its cross-device identity) and drops the posting;
  * dump/timeline hide the key; compaction strips it from the store line but RETAINS
@@ -73,26 +73,24 @@ typedef int (*ktomb_cb)(long id, const char *ts, const char *hash, const char *k
 int ktomb_each(const ais *a, ktomb_cb cb, void *ctx);
 
 /* Key-level ATTACH times (INDEX/katt): "record ID gained KEY at TS", ktomb's
- * mirror image, same "id|ts|hash|key" lines and the same accessors. It exists
- * because a record's own timestamp cannot express a key attached later, and the
- * A| line carries only that one timestamp -- so once any device had detached a
- * key, no device could ever re-attach it. An entry is written only for an attach
- * to an ALREADY-EXISTING record (a key attached at creation is already in the
- * record's keys field at the record's own time), travels as K|'s counterpart
- * T|<ts>|<hash>|<key>, and is what an incoming K| must beat to remove a key.
+ * mirror image, same "id|ts|hash|key" lines and the same accessors. The A| line
+ * carries only the record's own timestamp, which cannot express a key attached
+ * later, so without katt a key any device had detached could never be re-attached.
+ * An entry is written only for an attach to an ALREADY-EXISTING record (a key
+ * attached at creation is already in the record's keys field at the record's own
+ * time), travels as K|'s counterpart T|<ts>|<hash>|<key>, and is what an incoming
+ * K| must beat to remove a key.
  *
  * One entry per (id,key) -- the time it was last attached, not a log -- so
- * katt_set replaces. Detaching drops it (the key is no longer attached),
- * deleting the record drops all of them (delete is delete), and compaction
- * sweeps whatever those two missed. */
+ * katt_set replaces. Detaching drops it, deleting the record drops all of them
+ * (delete is delete), and compaction sweeps whatever those two missed. */
 int katt_set(const ais *a, long id, const char *ts, const char *hash, const char *key);
 
-/* katt_set for a pair the caller has just looked up and knows is NOT recorded.
- * "Replaces" means rewriting the whole file to drop the old entry first; with no
- * old entry there is nothing to drop, and on a first import -- where every
- * arriving attach is new -- paying a rewrite each made the import quadratic in
- * the number of tags. Appends. Wrong to call when the pair IS present: it would
- * leave two entries for it. */
+/* katt_set for a pair the caller has just looked up and knows is NOT recorded:
+ * appends, rather than rewriting the file to drop an old entry that cannot exist.
+ * On a first import, where every arriving attach is new, a rewrite each is
+ * quadratic in the number of tags. Wrong to call when the pair IS present: it
+ * would leave two entries for it. */
 int katt_add(const ais *a, long id, const char *ts, const char *hash, const char *key);
 int katt_lookup(const ais *a, long id, const char *key, char *ts, size_t tsz); /* 1/0/-1 */
 int katt_each(const ais *a, ktomb_cb cb, void *ctx);

@@ -44,10 +44,9 @@
 int ais_flock(int fd, int op);
 #define flock(fd, op) ais_flock((fd), (op))
 
-/* rename(2): POSIX atomically REPLACES an existing destination, but the MSVCRT
- * rename FAILS if the target exists. AIS updates idx/off files by writing a .tmp
- * then renaming over the live file (post.c detach, compact.c), so without this
- * those updates fail on Windows. MoveFileEx restores replace-existing. */
+/* rename(2): POSIX atomically replaces an existing destination; MSVCRT rename
+ * fails if the target exists. idx/off updates write a .tmp then rename over the
+ * live file (post.c detach, compact.c). MoveFileEx restores replace-existing. */
 int ais_rename(const char *from, const char *to);
 #ifdef rename
 #undef rename

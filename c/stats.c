@@ -2,8 +2,7 @@
  *
  * Streaming throughout: store and tomb are read line by line into one fixed
  * buffer, the idx/ tree is walked with opendir/readdir. Peak footprint is the
- * struct/buffer sizes, never the data (STYLE.md: bounded memory).
- */
+ * struct/buffer sizes, never the data (STYLE.md: bounded memory). */
 #define _DEFAULT_SOURCE      /* dirent */
 #define _POSIX_C_SOURCE 200809L
 #include <errno.h>
@@ -70,11 +69,10 @@ static int stats_count_ids(const ais *a, const char *name, long *out)
 
 /* Count distinct LIVE record ids: store ids not present in tomb. The store IS
  * id-ordered (ids are monotonic and it is append-only), but the TOMB IS NOT --
- * it is in delete order, which is user order. A streaming merge over both
- * therefore miscounts as soon as anyone deletes a higher id before a lower one
- * (delete 3 then 1: the head advances past 1 and never comes back). So the tomb
- * is asked per id instead. Memory stays O(1); the tomb is small by nature and
- * tomb_contains early-exits on a hit. Returns 0 on success, -1 on error. */
+ * it is in delete order. A streaming merge over both would miscount as soon as a
+ * higher id is deleted before a lower one (delete 3 then 1: the head advances
+ * past 1 and never comes back), so the tomb is asked per id. Memory stays O(1);
+ * the tomb is small and tomb_contains early-exits on a hit. Returns 0, or -1. */
 int ais_count_live(const ais *a, long *out)
 {
     char spath[AIS_PATH_MAX];
@@ -96,15 +94,13 @@ int ais_count_live(const ais *a, long *out)
         long id = stats_line_id(line);
         int  t;
         /* Count an id the FIRST time it appears, by taking only ids ABOVE the
-         * highest counted so far. Comparing with the PREVIOUS line's id was not
-         * enough: --add appends a continuation line carrying an OLD id at the
-         * END of the store, so the two lines of a multi-link record are not
-         * adjacent and it was counted twice. ("records: 3" for two records, and
-         * the same figure a sync would have reported as arrivals.) First
-         * occurrences ascend -- ids are monotonic and the store is append-only,
-         * and compaction rewrites in store order -- so this counts each exactly
-         * once and skips every continuation, whose id can only be lower or
-         * equal. */
+         * highest counted so far. Comparing with the PREVIOUS line's id is not
+         * enough: --add appends a continuation line carrying an OLD id at the END
+         * of the store, so the two lines of a multi-link record are not adjacent.
+         * First occurrences ascend -- ids are monotonic, the store is append-only,
+         * and compaction rewrites in store order -- so each is counted exactly
+         * once and every continuation, whose id can only be lower or equal, is
+         * skipped. */
         if (id == 0 || id <= maxseen)
             continue;   /* blank, or another link line of an id already counted */
         maxseen = id;

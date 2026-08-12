@@ -1,11 +1,10 @@
 /* doc.h -- store a document (a multi-line value) as a blob file under
  * <index>/blobs/ and put its relative path as a record value. Shared by the
- * CLI (feed_doc), the web server (serve.c), and the FFI seam (embed.c) so the
- * rule "a multi-line paste becomes ONE blob-backed record, never one record
- * per line" is decided in a single place.
+ * CLI (feed_doc), the web server (serve.c) and the FFI seam (embed.c): a
+ * multi-line paste becomes one blob-backed record, never one record per line.
  *
- * Unlike feed.c, these are die()-free: every failure returns -1, never exits.
- * A server and a linked library must not call exit() on a write error. */
+ * die()-free: every failure returns -1. A server and a linked library must not
+ * call exit() on a write error. */
 #ifndef AIS_DOC_H
 #define AIS_DOC_H
 
@@ -33,21 +32,19 @@ long ais_doc_put(ais *a, const char *keys, const char *content, size_t len);
 long ais_put_value(ais *a, const char *keys, const char *value);
 
 /* Is VALUE a document-blob reference ("blobs/<...>", the out-of-line store for a
- * multi-line value)? Unlike a URL or a file-location bookmark (references shown
- * verbatim), a blob's CONTENT is what the user meant, so a viewer resolves it.
- * If so, build the blob's absolute path under the index in PATH and return 1;
- * else 0. Existence is the caller's to check (open PATH, show VALUE if it fails). */
+ * multi-line value)? If so, build the blob's absolute path under the index in
+ * PATH and return 1; else 0. Existence is the caller's to check (open PATH,
+ * show VALUE if it fails). */
 int  ais_doc_is_blob(const ais *a, const char *value, char *path, size_t psz);
 
-/* Resolve VALUE to the text a GUI should DISPLAY (a bounded PREVIEW), so the web
- * server and the Flutter app share ONE implementation and cannot drift (the CLI
- * cats the FULL blob instead -- a different, deliberate mode). If VALUE is a
- * document blob, read its content into OUT, capped to OUTSZ-1 bytes with a
- * trailing "…" when truncated, and return the byte length (>= 0). For anything
- * else -- inline text, a URL, a path, an "aisc:" secret -- or an absent/unreadable
- * blob, copy VALUE verbatim into OUT and return -1 (so a caller can tell it was
- * NOT a resolved document: the web sends it as-is so URLs stay linkable; a viewer
- * may badge an absent blob). OUT is always NUL-terminated (unless OUTSZ == 0). */
+/* Resolve VALUE to the bounded preview a GUI should display; the web server and
+ * the Flutter app share this one implementation (the CLI cats the full blob
+ * instead). If VALUE is a document blob, read its content into OUT, capped to
+ * OUTSZ-1 bytes with a trailing "…" when truncated, and return the byte length
+ * (>= 0). For anything else -- inline text, a URL, a path, an "aisc:" secret,
+ * an absent or unreadable blob -- copy VALUE verbatim into OUT and return -1,
+ * so a caller can tell it was not a resolved document. OUT is always
+ * NUL-terminated unless OUTSZ == 0. */
 long ais_doc_display(const ais *a, const char *value, char *out, size_t outsz);
 
 #endif /* AIS_DOC_H */

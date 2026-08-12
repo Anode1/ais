@@ -2,14 +2,14 @@
  *
  * INDEX/store holds one record line per write:  id|ts|keys|value
  * ts is the save time ("YYYY-MM-DDThh:mm:ss", local). ids are monotonic, so the
- * file is physically in id order. A record may span several lines sharing one
- * id (multi-link; see ais_add). The store is the source of truth and the
- * value->id map (idempotent put scans it). Legacy v1 lines (id|keys|value, no
- * ts) still parse -- their ts comes back empty.
+ * file is physically in id order. A record may span several lines sharing one id
+ * (multi-link; see ais_add). The store is the source of truth and the value->id
+ * map (idempotent put scans it). Legacy v1 lines (id|keys|value, no ts) still
+ * parse; their ts comes back empty.
  *
- * INDEX/next_id caches the next id; if missing it is recovered by one
- * streaming pass taking max(id)+1. Reads take no lock; writers take an
- * exclusive flock on INDEX/lock for the duration of one mutating op.
+ * INDEX/next_id caches the next id; if missing it is recovered by one streaming
+ * pass taking max(id)+1. Reads take no lock; writers take an exclusive flock on
+ * INDEX/lock for one mutating op.
  *
  * Modules return 0/-1 (or a value/-1); only main.c turns errors into die().
  */
@@ -49,9 +49,9 @@ int store_write_version(const ais *a);
  * AIS_TS_MAX). Sets BUF to "" and returns -1 if the clock cannot be read. */
 int store_now(char *buf, size_t bufsz);
 
-/* Would P parse as a store line's ts field? Exposed so the in-place rewrites can
- * avoid emitting a legacy (no-ts) line whose keys field would be read as a date,
- * which would shift every field right and turn the value into a key. */
+/* Would P parse as a store line's ts field? Exposed so the in-place rewrites do
+ * not emit a legacy (no-ts) line whose keys field would read as a date, shifting
+ * every field right and turning the value into a key. */
 int store_looks_like_ts(const char *p);
 
 /* One second after TS ("YYYY-MM-DDThh:mm:ssZ"), same form. 0, or -1 on a bad TS. */
@@ -63,11 +63,10 @@ int store_append(const ais *a, long id, const char *ts,
                  const char *keys, const char *value);
 
 /* Read one line into BUF. 1 = a whole line, 0 = EOF, -1 = the line was longer
- * than the buffer, whose remainder is DROPPED rather than handed back.
- * fgets alone cannot say which happened, and the difference is a data-integrity
- * bug: an over-long line comes back as TWO, the head is rejected as too long,
- * and the tail is then parsed as a record the input never contained. Every
- * reader that parses untrusted lines uses this and refuses the -1. */
+ * than the buffer, whose remainder is DROPPED rather than handed back. fgets
+ * alone cannot say which happened: under it an over-long line comes back as TWO
+ * and the tail parses as a record the input never contained. Every reader of
+ * untrusted lines uses this and refuses the -1. */
 int store_read_line(char *buf, size_t sz, FILE *fp);
 
 /* Scan the store for a line whose value field exactly equals VALUE.
@@ -128,7 +127,7 @@ int  multi_contains(const ais *a, long id);   /* 1 yes, 0 no, -1 error */
 
 /* Stable content hash of a record's VALUE -- its cross-device identity for merge
  * (put dedups by value; keys are labels). FNV-1a 64-bit, hex, 16 chars + NUL.
- * NOT a security hash. Same value -> same hash on any device. */
+ * NOT a security hash. Same value -> the same hash on any device. */
 void content_hash(const char *value, char out[17]);
 
 #endif /* AIS_STORE_H */

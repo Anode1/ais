@@ -9,14 +9,8 @@
  * For #4, if ~/.ais does not exist yet but the pre-1.0 location does, the old
  * one is used (with a one-line notice) so existing data is never stranded.
  *
- * Multiple indexes are like git branches: ~/.ais/config holds a registry of
- * `index.NAME = PATH` entries plus a `current = NAME` pointer; "home" (~/.ais)
- * is the always-present built-in. `--switch` moves current; `--indexes` lists.
- * Switching just repoints "current": indexes are separate stores, so there is
- * no merge of history (move records with --import / --import-interactively).
- *
- * Everything lives under one self-evident dir, ~/.ais (the SSH model: ~/.ssh +
- * ~/.ssh/config) -- no env-var indirection, identical on every OS.
+ * The named-index registry (`index.NAME = PATH` lines plus `current = NAME`)
+ * lives in ~/.ais/config; "home" (~/.ais) is the built-in, never stored.
  */
 #define _DEFAULT_SOURCE      /* getcwd, mkdir */
 #define _POSIX_C_SOURCE 200809L
@@ -102,10 +96,9 @@ static int home_base(char *out, size_t outsz)
 
 /* Walk up from CWD looking for a ".ais" directory. Writes its path into OUT and
  * returns 1 if found, 0 if none, -1 on error. The walk STOPS at the home
- * directory: ~/.ais is the built-in default (step 4), not a "discovered local"
- * index -- otherwise it would shadow the saved default for anyone working under
- * their home dir (which is almost always). So a local index must be strictly
- * below home; ~/.ais is reached only via ais_locate's default step. */
+ * directory: a local index must be strictly below home, so ~/.ais is reached
+ * only as ais_locate's default (step 4) and never shadows the saved default for
+ * someone working under their home dir. */
 static int find_local(char *out, size_t outsz)
 {
     char dir[AIS_PATH_MAX], home[AIS_PATH_MAX], cand[AIS_PATH_MAX];
@@ -269,8 +262,8 @@ static int config_set(const char *key, const char *value)
                 continue;
             ll = strlen(line);
             if (klen + ll >= sizeof keep) {   /* would overflow the rewrite buffer: refuse
-                                               * rather than silently drop registry lines,
-                                               * which would lose named indexes on --switch. */
+                                               * rather than drop registry lines, which
+                                               * loses named indexes on --switch. */
                 fclose(f);
                 return -1;
             }
