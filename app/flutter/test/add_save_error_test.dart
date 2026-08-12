@@ -1,6 +1,5 @@
-// Regression: the Add sheet's Save must never fail silently. Each non-proceed
-// path yields a message; a valid save yields null. (Bug: Save did nothing, no
-// feedback, during a sync / with an empty value.)
+// The Add sheet's Save must never fail silently: each non-proceed path yields a
+// message, a valid save yields null.
 import 'package:flutter_test/flutter_test.dart';
 import 'package:ais/add_validation.dart';
 
@@ -38,9 +37,8 @@ void main() {
     });
   });
 
-  // Regression: an over-long or NUL-bearing key/value used to be silently
-  // truncated by the engine behind a generic "Could not save"; now it gets a
-  // specific, up-front message.
+  // An over-long or NUL-bearing key/value, which the engine would silently
+  // truncate, gets a specific message up front.
   group('contentError / engine limits', () {
     test('a value within limits is fine (null)', () {
       expect(contentError(value: 'a note', keys: 'home wifi'), isNull);
@@ -69,8 +67,7 @@ void main() {
     });
   });
 
-  // Regression: the handler used to pop the sheet and show "Saved" even when
-  // store()/storeEncryptedAsync() returned -1 (nothing persisted).
+  // store()/storeEncryptedAsync() returning -1 persisted nothing.
   group('saveOutcomeMessage / saveSucceeded', () {
     test('failed store (id < 0) is reported, NOT "Saved"', () {
       expect(saveSucceeded(-1), isFalse);
@@ -89,8 +86,7 @@ void main() {
     });
   });
 
-  // Regression: the handler showed "Tags updated" unconditionally, even when
-  // the engine's update() returned false (unknown/deleted record).
+  // update() is false for an unknown or deleted record.
   group('tagsUpdateMessage', () {
     test('update failure is reported, NOT "Tags updated"', () {
       expect(tagsUpdateMessage(false), "Couldn't update tags");

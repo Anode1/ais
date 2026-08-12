@@ -1,16 +1,14 @@
 #!/bin/sh
-# inter.sh -- GUI layer: real click-and-assert interaction test of `ais --serve`,
-# driven through a minimal Chrome DevTools Protocol client written in C
-# (tests/gui/cdp.c). Where ui.sh only asserts the page RENDERS with its controls
-# (headless --dump-dom), this one drives the live page: it types a query, presses
-# Enter, and asserts the seeded record renders -- the actual input + fetch path.
+# inter.sh -- click-and-assert interaction test of `ais --serve`, driven through a
+# minimal Chrome DevTools Protocol client in C (tests/gui/cdp.c). Where ui.sh
+# asserts the page renders, this drives the live page: it types a query, presses
+# Enter, and asserts the seeded record renders.
 #
-# It compiles cdp.c + cdptest.c with the system cc (no framework, no library),
-# seeds a throwaway /tmp index, starts the server headless and a headless Chrome
-# with remote debugging, then runs the C driver against both.
+# It compiles cdp.c + cdptest.c with the system cc, seeds a throwaway /tmp index,
+# and starts the server plus a headless Chrome with remote debugging.
 #
 # Needs: the ais binary, cc, curl, and Chrome/Chromium on PATH.
-# Exit 0 = all passed, 1 = a failure, 77 = SKIP (missing toolchain).
+# Exit 0 = passed, 1 = a failure, 77 = SKIP (missing toolchain).
 #
 # Usage:  sh tests/gui/inter.sh [path-to-ais]      (default ./c/ais)
 
@@ -63,9 +61,8 @@ if ! curl -s -o /dev/null "$V";  then echo "  FAIL chrome debug port not up on $
 rc1=$?
 
 # Second front-end, SAME driver: app/index.html served via $AIS_WEB. It is a
-# separate page from the embedded PAGE and had no coverage at all, so a feature
-# could land in one and not the other (it had, for the tag actions). The element
-# ids are deliberately identical, so one driver asserts both.
+# separate page from the embedded PAGE, with deliberately identical element ids,
+# so one driver asserts both.
 APPDIR=$(cd "$DIR/../../app" && pwd)
 IDX2="$TMP/idx2"; SPORT2=$(( SPORT + 900 )); SRV2=   # +1 would collide with ui.sh, see there
 "$AIS" -f "$IDX2" --init >/dev/null 2>&1

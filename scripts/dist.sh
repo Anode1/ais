@@ -3,18 +3,14 @@
 #   make dist       this platform's BINARY bundle + the SOURCE bundle
 #   make dist-src   just the source bundle (build anywhere)
 #
-# Names (OS+arch = binary, -src = source). Every bundle is a .zip so a single
-# tool opens any download on any OS (the SQLite precompiled-binaries convention);
-# one bundle per platform serves BOTH the CLI (the `ais` binary) and the GUI (a
-# double-click launcher), since the GUIs are thin wrappers over the one binary:
+# Every bundle is a .zip so one tool opens any download on any OS. One bundle per
+# platform serves both the CLI and the GUI launcher, which wraps the same binary:
 #   ais-<ver>-src.zip                 source
 #   ais-<ver>-<os>-<arch>.zip         binary  (linux, macos)
-# Each bundle gets a same-named .md5 sidecar -- the md5 lives OUTSIDE the artifact
-# (you verify the download against it).
+# Each gets a same-named .md5 sidecar, OUTSIDE the artifact.
 #
-# One machine can't cross-build the others -> run `make dist` on each. Windows is
-# NOT built here, and is not currently published while the desktop GUI is reworked;
-# the native (MinGW) build is CI-validated only (see .github/workflows/native-windows.yml).
+# One machine cannot cross-build the others -> run `make dist` on each. Windows is
+# not built here; the native MinGW build is CI-validated only.
 set -e
 cd "$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
 VERSION=$(git describe --tags --always --dirty 2>/dev/null | sed 's/^v//')
@@ -63,9 +59,6 @@ build_bin() {
     [ -f COPYING ]      && cp COPYING      "$stage/"
     [ -f doc/about.txt ] && cp doc/about.txt "$stage/"
     [ -f doc/USING.txt ] && cp doc/USING.txt "$stage/"
-    # (gui/ais.tcl -- the old Tk desktop GUI -- was removed; gui/ now holds only
-    # the ais-web launchers, which start `ais --serve`. The [ -f ] guard meant
-    # this line silently copied nothing for months rather than failing.)
     [ -f man/ais.1 ] && { mkdir -p "$stage/man"; sed "s/@VERSION@/$VERSION/" man/ais.1 > "$stage/man/ais.1"; }
     [ -f "$launcher" ]  && cp "$launcher"  "$stage/"
 
@@ -101,10 +94,8 @@ in your browser.
 EOF
     fi
 
-    # Preset deterministic perms now that every file exists (incl. README), so
-    # the archive is identical no matter the git mode or the build umask -- zip
-    # stores unix perms and unzip restores them: dirs 0755, data 0644, and the
-    # runnable files 0755 (a+x).
+    # Deterministic perms now that every file exists: zip stores unix modes and
+    # unzip restores them. Dirs 0755, data 0644, runnable files 0755.
     find "$stage" -type d -exec chmod 0755 {} +
     find "$stage" -type f -exec chmod 0644 {} +
     for x in ais "$lname"; do

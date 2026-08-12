@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
-# Xvfb UI test for the Flutter desktop app: drives the real Host/Join sync UI in
-# a headless X server and asserts a record crosses to/from a CLI peer. Renderer-
-# agnostic (pixels in, X events out), so it works where uiautomator is blind to
-# Flutter's single Skia surface. Same spirit as mincdp, for the native surface.
+# Xvfb UI test for the Flutter desktop app: drives the real Host/Join sync UI in a
+# headless X server and asserts a record crosses to/from a CLI peer. Renderer-
+# agnostic (pixels in, X events out), where uiautomator is blind to Flutter's
+# single Skia surface.
 #
 #   ./run.sh            # headless: Xvfb on :99, one pass, assert, tear down
 #   HEADED=1 ./run.sh   # watch it on your own $DISPLAY instead of Xvfb
 #   KEEP=1 ./run.sh     # leave stores + screenshots for inspection
 #
-# Needs: Xvfb xdotool (X input) and ImageMagick `import` (screenshots), plus a
-# Flutter linux toolchain. On Debian/Ubuntu: sudo apt install xvfb xdotool imagemagick
+# Needs Xvfb, xdotool (X input), ImageMagick `import` (screenshots) and a Flutter
+# linux toolchain. Debian/Ubuntu: sudo apt install xvfb xdotool imagemagick
 set -euo pipefail
 
 # --- config -----------------------------------------------------------------
@@ -27,14 +27,10 @@ SHOTS="$WORK/shots"; mkdir -p "$SHOTS"         # the "sync" link and dialogs at 
 PROOF_CLI="PROOF-from-cli-42"                  # seeded on the peer, must reach the app
 PROOF_APP="PROOF-from-app-99"                  # seeded on the app, must reach the peer
 
-# The Sync sheet is opened by KEYBOARD (Ctrl+Shift+S), not by clicking. It used to
-# be a pixel coordinate for an inline "sync" link; that control moved into the ⋮
-# overflow menu and the click started landing on a record row instead, so this
-# test drove the wrong screen and asserted nothing for weeks without failing
-# loudly. A shortcut does not move when the layout does. The remaining
-# coordinates are inside the dialogs, which are centred on the pinned 1280x720
-# window -- re-tune them from $SHOTS if a dialog changes, or graduate to
-# integration_test Keys (see README) if they churn.
+# The Sync sheet is opened by KEYBOARD (Ctrl+Shift+S): a shortcut does not move
+# when the layout does. The remaining coordinates sit inside the dialogs, centred
+# on the pinned 1280x720 window -- re-tune from $SHOTS if a dialog changes, or
+# graduate to integration_test Keys (see README).
 JOIN_BTN="831 405"                             # "Join / scan a nearby device" in the sheet
 ADDR_FIELD="640 327"                           # "Address" field (pre-filled "http://")
 TOKEN_FIELD="640 367"                          # "Token" field
@@ -56,10 +52,9 @@ if [ ! -x "$APP" ]; then
 fi
 
 # --- display ----------------------------------------------------------------
-# Force the GTK/Flutter app onto X11. On a Wayland session GTK prefers
-# WAYLAND_DISPLAY and ignores DISPLAY (and Xvfb), so it renders on the real
-# screen where xdotool cannot reach it. x11 => it uses our Xvfb when headless,
-# or XWayland on the real display when HEADED (still xdotool-drivable).
+# Force the GTK/Flutter app onto X11: on a Wayland session GTK prefers
+# WAYLAND_DISPLAY, ignores DISPLAY and Xvfb, and renders on the real screen where
+# xdotool cannot reach it. x11 uses Xvfb when headless, XWayland when HEADED.
 export GDK_BACKEND=x11
 unset WAYLAND_DISPLAY
 if [ -n "${HEADED:-}" ]; then
@@ -97,10 +92,9 @@ echo "peer hosting on :$PORT, token $TOKEN"
 WIN=""
 for _ in $(seq 1 100); do WIN="$(xdotool search --sync --name '^ais$' 2>/dev/null | head -1)"; [ -n "$WIN" ] && break; sleep 0.1; done
 [ -n "$WIN" ] || { echo "FAIL: app window never appeared"; cat "$WORK/app.log"; exit 1; }
-# Bare Xvfb has no window manager, so windowactivate (_NET_ACTIVE_WINDOW) fails.
-# windowfocus is a direct XSetInputFocus and needs none; the app is a single X
-# window (Flutter paints dialogs into the same surface), so this one focus is
-# enough for every keystroke to reach it.
+# Bare Xvfb has no window manager, so windowactivate (_NET_ACTIVE_WINDOW) fails;
+# windowfocus is a direct XSetInputFocus. The app is a single X window, so one
+# focus is enough for every keystroke.
 xdotool windowmove "$WIN" 0 0 windowsize "$WIN" 1280 720 2>/dev/null || true
 xdotool windowfocus "$WIN" 2>/dev/null || true
 sleep 1
@@ -123,9 +117,8 @@ sleep "$((TIMEOUT>10?10:TIMEOUT))"; shot done
 
 # --- assert: the record crossed in BOTH directions --------------------------
 rc=0
-# A layout drift shows up here first: if the sheet never opened, the clicks below
-# it went somewhere arbitrary and the sync failure that follows is a symptom, not
-# the cause. Say which it was.
+# A layout drift shows up here first: if the sheet never opened, the clicks went
+# somewhere arbitrary and the sync failure is a symptom, not the cause.
 if ! grep -q "$PROOF_CLI" "$APPDIR/store" && ! grep -q "$PROOF_APP" "$PEER/store"; then
   echo "NOTE: nothing crossed at all -- check $SHOTS/02-sync-sheet.png actually shows"
   echo "      the Sync & backup sheet. If it does not, the Ctrl+Shift+S binding or the"

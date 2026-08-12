@@ -1,8 +1,6 @@
 #!/bin/sh
 # example.sh -- build the shipped example/demo index from the CURRENT docs.
-# It is a real AIS index (plain files), so a user can inspect it to learn the
-# format (ls example/idx, cat example/store, example/blobs/) and tour the app
-# before storing anything. Rebuilt fresh; it is never the user's personal index.
+# A real AIS index in plain files, rebuilt fresh; never the user's own index.
 set -e
 cd "$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
 
@@ -16,8 +14,7 @@ rm -rf "$EX"
 "$AIS" -f "$EX" --doc about docs  < doc/about.txt >/dev/null
 "$AIS" -f "$EX" --doc docs readme < README.md     >/dev/null
 
-# A few records that show the key model: one item filed under several keys is a
-# small graph, recalled by any of them.
+# One item filed under several keys is a small graph, recalled by any of them.
 "$AIS" -f "$EX" -v "https://en.wikipedia.org/wiki/Memex" memex history reference >/dev/null
 "$AIS" -f "$EX" -v "keys are words you choose, not folders you nest" tip example >/dev/null
 "$AIS" -f "$EX" -v "https://gavr144.substack.com/p/intelligence-is-the-discovery-of" article ai compression >/dev/null

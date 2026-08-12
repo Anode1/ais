@@ -1,8 +1,7 @@
 #!/bin/sh
-# PostToolUse hook: when an AIS C source (c/*.c or c/*.h) is written/edited,
-# run `make ut` and report the result. Reads the tool-event JSON on stdin and
-# prints a JSON {"systemMessage": ...}. Inert (exit 0) for any other file.
-# Registered in .claude/settings.json. No jq dependency (uses python3).
+# PostToolUse hook: on a write/edit to c/*.c or c/*.h, run `make ut` and report.
+# Reads the tool-event JSON on stdin, prints {"systemMessage": ...}, and is inert
+# (exit 0) for any other file. Registered in .claude/settings.json; needs python3.
 python3 -c '
 import json, sys, os, subprocess
 try:

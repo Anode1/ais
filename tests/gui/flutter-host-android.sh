@@ -1,24 +1,13 @@
 #!/bin/sh
-# flutter-host-android.sh -- drive the REAL Android app as the sync HOST.
+# flutter-host-android.sh -- drive the REAL Android app as the sync HOST, the
+# half flutter-sync-android.sh (which drives Join) does not cover.
 #
-# WHY THIS EXISTS. flutter-sync-android.sh proves the app can JOIN: a CLI peer
-# runs `--sync --serve`, the app is handed an ais:// link and taps Join. The
-# opposite half -- the app hosting while something else joins it -- was driven by
-# nothing at all. serve.sh does exercise POST /api/sync/host, but that is the
-# desktop web GUI over HTTP, a different front end entirely. So the flow two
-# friends with two phones actually use, one taps Host and shows a QR, had never
-# run end to end on either side.
+# The camera half needs a human; the HOST half does not: the app prints the
+# address and token as text beside the QR, so a CLI peer joins it exactly as a
+# second phone would.
 #
-# The camera half genuinely needs a human. The HOST half does not: the app prints
-# the address and token as text beside the QR ("Or type the address and token on
-# the other device"), so a CLI peer can join it exactly as a second phone would.
-#
-# It reaches the app's listener through `adb forward`, since the emulator's own
-# LAN address is not routable from the host.
-#
-# Nodes are located by uiautomator TEXT, never by screen coordinates. The
-# percentage-based taps in the sibling script are the reason a layout change can
-# silently stop testing anything, which AGENTS.md records having been bitten by.
+# Nodes are located by uiautomator TEXT, never by screen coordinates, so a layout
+# change cannot silently stop the test from asserting anything.
 #
 # NON-DESTRUCTIVE: merges one proof record and asserts it crossed. Set
 # AIS_ANDROID_CLEAR=1 to wipe the app's data first (that DELETES what is there).
@@ -104,9 +93,8 @@ bad()  { fail=$((fail+1)); echo "  FAIL $1"; }
 
 # --- build and install the shipped artifact ----------------------------------
 abi=$("$ADB" shell getprop ro.product.cpu.abi 2>/dev/null | tr -d '\r')
-# An empty ABI means the device went away, not that it is exotic. Say which:
-# running this straight after flutter-sync-android.sh does exactly that, because
-# that script tears down the AVD it booted.
+# An empty ABI means the device went away, not that it is exotic: running this
+# straight after flutter-sync-android.sh tears down the AVD that script booted.
 [ -n "$abi" ] || { echo "  SKIP device not reachable (adb returned nothing)"; exit 77; }
 case $abi in
     x86_64)      tp=android-x64 ;;

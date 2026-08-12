@@ -1,8 +1,6 @@
-// main.dart -- AIS native client. Recall-first: a frosted search header, a
-// results list, and a clear "Add" form. All logic is the C engine via AisEngine
-// (ais_ffi.dart); this is just the surface. The header is a translucent
-// (glassy) strip ABOVE the list -- never an overlay, so the list is always
-// visible.
+// main.dart -- AIS native client. All logic is the C engine via AisEngine
+// (ais_ffi.dart). The header is a translucent strip ABOVE the list, never an
+// overlay, so the list stays visible.
 import 'dart:async';
 import 'dart:io';
 import 'dart:ui';
@@ -23,9 +21,8 @@ import 'version.dart';
 
 void main() => runApp(const AisApp());
 
-// Session-only theme choice (System/Light/Dark). Lifted out of AisApp so the
-// overflow menu's Theme picker can drive it via ValueListenableBuilder without
-// a full app rebuild path. Not persisted -- resets to System on next launch.
+// Session-only theme choice, driven from the overflow menu via a
+// ValueListenableBuilder. Not persisted: resets to System on next launch.
 final ValueNotifier<ThemeMode> themeModeNotifier =
     ValueNotifier(ThemeMode.system);
 
@@ -33,9 +30,7 @@ class AisApp extends StatelessWidget {
   const AisApp({super.key});
   @override
   Widget build(BuildContext context) {
-    // One seed, two schemes: follow the system between light and dark. The
-    // scaffold background and every surface come from the ColorScheme now (no
-    // hardcoded light surfaces), so both themes read correctly.
+    // One seed, two schemes; every surface comes from the ColorScheme.
     const seed = Color(0xFF1A0DAB);
     return ValueListenableBuilder<ThemeMode>(
       valueListenable: themeModeNotifier,
@@ -68,13 +63,11 @@ class RecallPage extends StatefulWidget {
 class _RecallPageState extends State<RecallPage> {
   final _q = TextEditingController();
   final _speech = SpeechToText();
-  // Live search: each keystroke reschedules this; _recall() fires once typing
-  // pauses, so the list filters as you type without pressing Search.
+  // Live search: each keystroke reschedules this, _recall() fires on the pause.
   Timer? _debounce;
   AisEngine? _ais;
   List<Hit> _results = const [];
-  // id -> how many FURTHER links that record holds beyond the one shown, so a row
-  // can say so rather than implying the record is just the one value.
+  // id -> how many FURTHER links that record holds beyond the one shown.
   Map<int, int> _resultExtra = const {};
   // Tags for the current recall/find results, keyed by record id. The recall Hit
   // carries only id+value, so tags are fetched ONCE when results load (here, not
@@ -87,8 +80,8 @@ class _RecallPageState extends State<RecallPage> {
   String _tlFrom = ''; // timeline date range, "YYYY-MM-DD" ('' = open)
   String _tlTo = '';
   static const int _tlPage = 100;
-  // Recall is keyset-paged too: a million-hit query loads one page, then scrolls.
-  // Cursor is the largest id shown (recall emits ascending). find() is unpaged.
+  // Recall is keyset-paged: the cursor is the largest id shown (recall emits
+  // ascending). find() is unpaged.
   static const int _recallPage = 100;
   int _recallBefore = 0;
   bool _recallMore = false;
@@ -98,25 +91,21 @@ class _RecallPageState extends State<RecallPage> {
   int _tagsAfterCount = 0;
   String _tagsAfterKey = '';
   bool _tagsMore = false;
-  // Multi-tag search mode: false = AND (records under EVERY tag), true = OR
-  // (records under ANY tag). Mirrors the web "Match any tag" box; the engine
-  // and FFI already carry the orMode flag, this just exposes it.
+  // Multi-tag search mode: false = AND (under EVERY tag), true = OR (under ANY).
   bool _matchAny = false;
   String _view = 'timeline'; // recall | timeline | tags -- open on content, not a blank search
   // Ids optimistically removed from the lists but not yet committed to the
-  // engine: they sit in their Undo window. A commit (snackbar closes without
-  // Undo, or a second delete supersedes it) clears the id and calls del().
+  // engine: they sit in their Undo window. A commit clears the id and calls del().
   final Set<int> _pendingDelete = {};
-  // The live "Deleted / UNDO" snackbar per pending id, so a commit can dismiss
-  // it -- once del() has run, UNDO would only fake-restore a row the engine no
-  // longer holds. Cleared when the snackbar closes.
+  // The live "Deleted / UNDO" snackbar per pending id: once del() has run, UNDO
+  // would fake-restore a row the engine no longer holds, so a commit dismisses it.
   final Map<int, ScaffoldFeatureController<SnackBar, SnackBarClosedReason>>
       _delSnack = {};
   bool _voice = false;
   bool _searched = false;
-  // Full-text fallback is SECONDARY: only shown after a key search finds nothing
-  // and the user explicitly taps "Search note text instead". True while find()
-  // results are on screen; reset on any new key search, clear, or view change.
+  // Full-text fallback is SECONDARY: shown only after a key search finds nothing
+  // and the user taps "Search note text instead". Reset on any new key search,
+  // clear, or view change.
   bool _textSearch = false;
   String _status = 'opening index…';
   String _query = '';
@@ -126,19 +115,15 @@ class _RecallPageState extends State<RecallPage> {
   // through the barrier dialog, so it could otherwise start a second sync on the
   // shared engine handle mid-sync (data race). This gates every sync entry point.
   bool _syncBusy = false;
-  // Folder auto-sync (a Syncthing / cloud folder keeps devices in sync). Path is
-  // remembered per-index in <dir>/syncfolder. Purely user-driven: a pass runs on
-  // open, after a save/delete, and on the explicit "Sync now" control -- no
-  // background polling. Empty = off.
+  // Folder auto-sync (a Syncthing / cloud folder). Path remembered per-index in
+  // <dir>/syncfolder. A pass runs on open, after a save/delete, and on "Sync now":
+  // no background polling. Empty = off.
   String _syncFolder = '';
   String _syncFolderSaid = '';   // the last folder-sync problem reported, to not repeat it
 
-  // When this device last synced by ANY route, so the Sync sheet can say so. Sync
-  // IS the backup here (there is no cloud copy and no trash), and a backup you
-  // cannot date is one you cannot trust: "Last synced 3 months ago" is the whole
-  // warning a user gets before losing a phone. Kept BESIDE the index, not inside
-  // it, so it stays this device's own answer -- a peer's copy of the file would
-  // otherwise overwrite it and report a sync this device never made.
+  // When this device last synced by ANY route, so the Sync sheet can say so.
+  // Kept BESIDE the index, not inside it, so it stays this device's own answer:
+  // a peer's copy of the file would report a sync this device never made.
   DateTime? _lastSync;
 
   // Custom-scheme deep links (ais://sync?...). The native side (MainActivity /
@@ -151,16 +136,15 @@ class _RecallPageState extends State<RecallPage> {
   static const _backupChannel = MethodChannel('ais/backup');
 
   // Hosting shows a QR and waits up to ~2 minutes for the other device to scan
-  // it -- far longer than a phone's screen timeout, so the code the user was
-  // aiming a camera at went dark mid-scan. Held only while the host dialog is up.
+  // it -- far longer than a phone's screen timeout, so the code would go dark
+  // mid-scan. Held only while the host dialog is up.
   static const _screenChannel = MethodChannel('ais/screen');
 
   Future<void> _keepAwake(bool on) async {
     try {
       await _screenChannel.invokeMethod<bool>('keepAwake', on);
     } catch (_) {
-      // desktop, or an older bundle with no handler: the screen just behaves
-      // normally, which is what it did before. Not worth telling the user.
+      // desktop, or an older bundle with no handler: the screen behaves normally
     }
   }
 
@@ -170,9 +154,8 @@ class _RecallPageState extends State<RecallPage> {
     _init();
   }
 
-  // Desktop shares the user's REAL index (the same one the CLI resolves: nearest
-  // .ais/, ~/.ais/config, else ~/.ais) via the engine, so no env vars and no
-  // duplicated logic. Mobile uses the app's private dir.
+  // Desktop shares the index the CLI resolves (nearest .ais/, ~/.ais/config, else
+  // ~/.ais) through the engine, so no env vars. Mobile uses the app's private dir.
   Future<String> _indexDir() async {
     if (Platform.isAndroid || Platform.isIOS) {
       final docs = await getApplicationDocumentsDirectory();
@@ -185,12 +168,10 @@ class _RecallPageState extends State<RecallPage> {
     return dir;
   }
 
-  // Nothing goes to any cloud. iOS backs Documents/ up to iCloud BY DEFAULT, so the
-  // index would be uploaded unless it is explicitly opted out with
-  // NSURLIsExcludedFromBackupKey -- a native-only flag, hence the channel. Must run
-  // AFTER the directory exists (the flag is set on an existing item) and on every
-  // launch, because it does not survive the dir being recreated. Failure is not
-  // fatal to the app, but it is the privacy promise, so it is logged, not swallowed.
+  // iOS backs Documents/ up to iCloud BY DEFAULT, so the index is uploaded unless
+  // opted out with NSURLIsExcludedFromBackupKey -- a native-only flag, hence the
+  // channel. Must run AFTER the directory exists and on every launch: it does not
+  // survive the dir being recreated. Failure is logged, not swallowed.
   Future<void> _excludeFromICloud(String dir) async {
     if (!Platform.isIOS) return;
     try {
@@ -214,22 +195,19 @@ class _RecallPageState extends State<RecallPage> {
       _loadTimeline(); // open showing recent items, not a blank search pane
       _runFolderSync(silent: true); // pull peer changes on open (opening is the user action)
     } catch (e) {
-      // The likeliest real cause is a shared index folder (Syncthing) that a
-      // newer AIS on another device has already upgraded: the engine refuses it
-      // rather than resolve deletes the old way and undo edits made over there.
-      // Say what to do; "cannot open index: <errno>" reads like data loss.
+      // The likeliest cause is a shared index folder (Syncthing) a newer AIS has
+      // upgraded: the engine refuses it rather than resolve deletes the old way.
       _status = 'This library was written by a newer version of AIS. '
           'Your data is safe and unchanged: update this app to open it.\n($e)';
     }
-    // Speech is initialized lazily on the first mic tap (see _listen), so the
-    // permission prompt is tied to a user gesture rather than app launch.
+    // Speech initializes on the first mic tap (see _listen), tying the permission
+    // prompt to a user gesture rather than app launch.
     if (mounted) setState(() {});
     _wireDeepLinks();
   }
 
 
-  // Custom-scheme deep links (ais://sync?...): register the live-link handler and
-  // check for a link that cold-started the app. No plugin; the native side is thin.
+  // Register the live-link handler, then check for a link that cold-started us.
   void _wireDeepLinks() {
     _linkChannel.setMethodCallHandler((call) async {
       if (call.method == 'onLink' && call.arguments is String) {
@@ -241,9 +219,9 @@ class _RecallPageState extends State<RecallPage> {
     }).catchError((_) {}); // no such channel on desktop; ignore
   }
 
-  // A scanned ais://sync?host=IP:PORT&token=HEX link: the phone's own camera
-  // opened it and the OS routed it here (no in-app scanner). Confirm first -- a
-  // link can come from anywhere and a sync shares this device's records -- then join.
+  // A scanned ais://sync?host=IP:PORT&token=HEX link, opened by the phone's own
+  // camera and routed here by the OS. Confirm before joining: a link can come from
+  // anywhere and a sync shares this device's records.
   Future<void> _handleLink(String link) async {
     if (_ais == null || !mounted) return;
     final Uri uri;
@@ -261,9 +239,8 @@ class _RecallPageState extends State<RecallPage> {
           content: Text('A sync is already running. Finish it first.')));
       return;
     }
-    // The scan can arrive while a sheet/dialog is already open (e.g. an empty Join
-    // the user opened first) -- dismiss it so the confirm isn't lost behind it, then
-    // open Join with the scanned host + token FILLED IN for the user to confirm.
+    // The scan can arrive while a sheet/dialog is already open, so dismiss it
+    // before opening Join with the scanned host + token FILLED IN to confirm.
     Navigator.of(context).popUntil((r) => r.isFirst);
     await _syncJoin(prefillUrl: 'http://$host', prefillToken: token);
   }
@@ -272,12 +249,11 @@ class _RecallPageState extends State<RecallPage> {
     final keys = _normKeys(_q.text);
     if (_ais == null || keys.isEmpty) return;
     final t0 = DateTime.now();
-    // Page one only: a huge match set scrolls in, it does not load whole. The
-    // cursor/more come from the RAW page so the Undo-window filter below can't
-    // make the page look short and stop pagination early.
+    // Page one only. The cursor/more come from the RAW page, so the Undo-window
+    // filter below cannot make the page look short and stop pagination early.
     final page = _ais!.recallPage(keys, orMode: _matchAny, after: 0, count: _recallPage);
-    // Exclude ids still inside their Undo window, so a live re-query can't
-    // resurrect a row the user just swiped away.
+    // Exclude ids still inside their Undo window: a re-query must not resurrect
+    // a row the user just swiped away.
     final g = oneRowPerRecord(
         page.where((h) => !_pendingDelete.contains(h.id)).toList());
     final r = g.rows;
@@ -296,17 +272,14 @@ class _RecallPageState extends State<RecallPage> {
     });
   }
 
-  // Flip AND/OR match mode. Re-run the current key search from page one so the
-  // result set widens/narrows immediately (a no-op off the recall view or with
-  // an empty query -- the new mode simply applies to the next search).
+  // Flip AND/OR match mode and re-run the current key search from page one.
   void _setMatchAny(bool v) {
     setState(() => _matchAny = v);
     if (_view == 'recall' && !_textSearch && _q.text.trim().isNotEmpty) _recall();
   }
 
-  // Page on with the recall cursor: fetch the next page of matches with a larger
-  // id than the last we hold, append it, and advance the cursor. No-op for the
-  // find() text fallback (unpaged) and when the last page was short.
+  // Page on with the recall cursor. No-op for the find() text fallback (unpaged)
+  // and when the last page was short.
   void _loadMoreRecall() {
     if (_ais == null || !_recallMore || _textSearch || _query.isEmpty) return;
     final page = _ais!.recallPage(_query, orMode: _matchAny, after: _recallBefore, count: _recallPage);
@@ -325,9 +298,8 @@ class _RecallPageState extends State<RecallPage> {
   }
 
   // Live/submitted search from the persistent header field. That field shows on
-  // every tab, so typing must also bring the recall view forward -- otherwise
-  // _recall() fills _results while the body still shows the timeline and the
-  // header count desyncs from what's actually on screen.
+  // every tab, so typing must bring the recall view forward: otherwise _recall()
+  // fills _results while the body still shows the timeline.
   void _recallLive() {
     if (_view == 'recall') {
       _recall();
@@ -336,10 +308,9 @@ class _RecallPageState extends State<RecallPage> {
     }
   }
 
-  // The SECONDARY full-text fallback. Reached ONLY by an explicit tap on
-  // "Search note text instead" from the empty key-search state -- never on
-  // typing, debounce, submit, or view change. AIS stays key-first; this is the
-  // "I forgot which tag I used" escape hatch, searching note VALUES via find().
+  // The SECONDARY full-text fallback, over note VALUES via find(). Reached ONLY by
+  // an explicit tap on "Search note text instead" -- never on typing, debounce,
+  // submit, or view change.
   void _findText() {
     if (_ais == null || _query.isEmpty) return;
     final t0 = DateTime.now();
@@ -398,8 +369,7 @@ class _RecallPageState extends State<RecallPage> {
     });
   }
 
-  // Page on with the tag cursor: the next slice after the last (count, key) we
-  // hold, in busiest-first order.
+  // Page on with the tag cursor: the next slice after the last (count, key).
   void _loadMoreTags() {
     if (_ais == null || !_tagsMore) return;
     final page = _ais!.tagsPage(
@@ -414,20 +384,17 @@ class _RecallPageState extends State<RecallPage> {
     });
   }
 
-  // Fresh timeline load: reset the cursor and pull page one from the newest,
-  // within the current [_tlFrom, _tlTo] range.
+  // Fresh timeline load: page one from the newest, within [_tlFrom, _tlTo].
   void _loadTimeline() {
     final page = _ais?.timeline(before: 0, count: _tlPage, from: _tlFrom, to: _tlTo) ?? const [];
     setState(() {
-      // Hide ids inside their Undo window; take the cursor/more from the raw
-      // page so pagination stays correct.
+      // Hide ids inside their Undo window; cursor/more come from the raw page.
       _tl = page.where((r) => !_pendingDelete.contains(r.id)).toList();
       _tlBefore = page.isNotEmpty ? page.last.id : 0;
       _tlMore = page.length == _tlPage;
     });
   }
 
-  // Open a date picker for one bound; on pick, store it and reload from page one.
   Future<void> _pickDate({required bool isFrom}) async {
     final cur = isFrom ? _tlFrom : _tlTo;
     final init = cur.isNotEmpty ? DateTime.tryParse(cur) ?? DateTime.now() : DateTime.now();
@@ -466,10 +433,9 @@ class _RecallPageState extends State<RecallPage> {
     // prompt on Android/iOS. _voice stays false on desktop or if denied.
     if (!_voice) {
       try {
-        // onError also carries the case below that matters most: a device with no
-        // OFFLINE language model refuses an on-device session rather than falling
-        // back to the cloud, and without a listener that arrives as silence the
-        // user reads as a broken button.
+        // onError carries the case that matters most: a device with no OFFLINE
+        // language model refuses an on-device session rather than falling back to
+        // the cloud, and with no listener that arrives as silence.
         _voice = await _speech.initialize(onError: (e) {
           if (!mounted) return;
           final noModel = e.errorMsg.contains('language') ||
@@ -491,14 +457,8 @@ class _RecallPageState extends State<RecallPage> {
       }
     }
     // ON-DEVICE ONLY. The package default is onDevice: false, which streams the
-    // audio to the platform's cloud recogniser -- Google's, on Android. Every
-    // promise this app makes says otherwise: PRIVACY.md ("does not transmit
-    // personal data to the developer or to third parties"), the store listing
-    // ("your data never leaves your phone unless you sync it yourself") and the
-    // iOS mic usage string ("Audio is not recorded or sent anywhere"). A search
-    // phrase is as revealing as the records it finds, so the default is not a
-    // default we can take: a device with no local recogniser gets no dictation
-    // and is told why, rather than quietly sending the audio away.
+    // audio to the platform's cloud recogniser -- Google's, on Android. A device
+    // with no local recogniser gets no dictation and is told why.
     await _speech.listen(
       onResult: (r) {
         _q.text = r.recognizedWords;
@@ -510,28 +470,22 @@ class _RecallPageState extends State<RecallPage> {
 
   bool _isUrl(String v) => v.startsWith('http://') || v.startsWith('https://');
 
-  // Accept a comma as an optional key separator and ignore surplus whitespace,
-  // so "home, wifi" and "home   wifi" both resolve to the tags home + wifi. The
-  // engine tokenizes on spaces, so we just fold commas to spaces and collapse.
+  // Fold commas to spaces and collapse runs, so "home, wifi" and "home   wifi"
+  // both give the tags home + wifi. The engine itself tokenizes on spaces.
   String _normKeys(String s) =>
       s.replaceAll(',', ' ').trim().replaceAll(RegExp(r'\s+'), ' ');
 
-  // A blob-backed value holds only an internal "blobs/<ts>.txt" path; the list
-  // shows its resolved content via _display. In-place "Edit value" edits the raw
-  // stored string, so on a blob it would show the path and, on Save, replace the
-  // pointer with inline text -- orphaning the blob. So it's omitted for blobs,
-  // the same way encrypted/away rows are.
+  // A blob-backed value holds only an internal "blobs/<ts>.txt" path. In-place
+  // "Edit value" edits the raw stored string, so on a blob it would show the path
+  // and, on Save, replace the pointer with inline text -- orphaning the blob.
   bool _isBlob(String v) => v.startsWith('blobs/');
 
-  // A multi-line paste is stored out-of-line as a blob (blobs/<ts>.txt); the
-  // record holds only that path, an internal detail. Blob resolution lives in
-  // the C engine (ais_embed_display), shared with the CLI and `ais serve`, so
-  // this viewer can't drift -- we never read blob files in Dart. Cache resolved
-  // content by absolute path (blobs are immutable) to skip the FFI on rebuilds;
-  // an absent blob resolves to its path (uncached), so _notHere still badges it.
+  // A multi-line paste is stored out-of-line as a blob; the record holds the path.
+  // Resolution lives in the C engine (ais_embed_display), so no blob file is read
+  // in Dart. Cache by absolute path (blobs are immutable) to skip the FFI on
+  // rebuilds; an absent blob resolves to its path (uncached), so _notHere badges it.
   final Map<String, String> _blobCache = {};
-  // Open a URL value in the external browser. Guards against launch failure so a
-  // bad/unsupported link surfaces a hint instead of throwing.
+  // Open a URL value in the external browser; a failed launch surfaces a hint.
   Future<void> _openUrl(String v) async {
     try {
       final uri = Uri.parse(v);
@@ -546,17 +500,14 @@ class _RecallPageState extends State<RecallPage> {
     }
   }
 
-  // Render a record's value. A URL is a tappable link (tap opens the external
-  // browser; long-press/drag still selects and copies). Everything else keeps
-  // the plain, verbatim rendering. Callers handle encrypted/blob cases first.
-  // [maxLines] bounds a list row so a huge single-line paste can't blow up its
-  // height; the detail page passes null to show the value in full.
+  // Render a record's value: a URL as a tappable link (long-press/drag still
+  // selects), everything else verbatim. Callers handle encrypted/blob cases first.
+  // [maxLines] bounds a list row so a huge paste cannot blow up its height.
   Widget _valueLabel(String v, ColorScheme cs, {int? maxLines}) {
     if (!_isUrl(v)) return SelectableText(_display(v), maxLines: maxLines);
     final shown = _display(v);
-    // A link needs more than colour (colour-blind users can't see it) and must
-    // be reachable by a screen reader / keyboard, which a bare TextSpan isn't.
-    // Underline it and wrap it in a real link semantic.
+    // A link needs more than colour (colour-blind users) and must be reachable
+    // by a screen reader / keyboard, which a bare TextSpan is not.
     return Semantics(
       link: true,
       label: 'Link: $shown',
@@ -587,10 +538,8 @@ class _RecallPageState extends State<RecallPage> {
     return shown;
   }
 
-  // Hand the record's shareable text to the OS share sheet. For a URL the value
-  // is the URL; otherwise it's the display text (same as Copy). Desktop/Linux
-  // has limited share_plus support, so a failure is a graceful no-op with a hint
-  // rather than a crash.
+  // Hand the display text to the OS share sheet. Desktop/Linux share_plus support
+  // is limited, so a failure is a no-op with a hint rather than a crash.
   Future<void> _share(String v) async {
     try {
       await SharePlus.instance.share(ShareParams(text: _display(v)));
@@ -601,15 +550,14 @@ class _RecallPageState extends State<RecallPage> {
     }
   }
 
-  // "Not here": the value points at a file that is absent on THIS device -- an
-  // AIS blob not yet synced down, or a local-file reference added elsewhere.
-  // http(s) URLs and inline text always resolve, so never a badge. Display-only.
+  // "Not here": the value points at a file absent on THIS device -- an AIS blob
+  // not yet synced down, or a local-file reference added elsewhere. http(s) URLs
+  // and inline text always resolve. Display-only.
   //
   // Cached per value: the row builders call this for every visible row on every
-  // rebuild, and a bare File.existsSync() there stats the disk per frame while
-  // scrolling (jank). Presence only changes when a blob syncs down or the library
-  // switches, so the cache is cleared on every view reload (_setView) and on a
-  // library change (_changeStore).
+  // rebuild, and File.existsSync() there stats the disk per frame while scrolling
+  // (jank). Presence changes only when a blob syncs down or the library switches,
+  // so the cache is cleared in _setView and in _changeStore.
   final Map<String, bool> _notHereCache = {};
   bool _notHere(String v) => _notHereCache[v] ??= _notHereCompute(v);
   bool _notHereCompute(String v) {
@@ -626,7 +574,6 @@ class _RecallPageState extends State<RecallPage> {
     return false;
   }
 
-  // The subtle, muted "not on this device" marker reused by both lists.
   Widget _notHereBadge(ColorScheme cs) => Padding(
         padding: const EdgeInsets.only(left: 6),
         child: Tooltip(
@@ -635,12 +582,7 @@ class _RecallPageState extends State<RecallPage> {
         ),
       );
 
-  // Switch the active index: type a folder path, reopen the engine there.
-  // Sync (Receive): pull + merge from another device running `ais --export
-  // --serve`. Off the UI isolate; every outcome gets a plain-language SnackBar.
-  // The one-tap "Sync": pick a role, both devices converge (symmetric exchange).
-  //
-  // Two clearly-separated ways in, so they can't be confused:
+  // Sync & backup. Three clearly-separated ways in, so they can't be confused:
   //   * A NEARBY DEVICE, live over Wi-Fi (Host / Join+scan) -- QR/camera.
   //   * A FILE you move by Drive / USB / email (Export / Import) -- no network.
   Future<void> _syncSheet() async {
@@ -662,9 +604,7 @@ class _RecallPageState extends State<RecallPage> {
                   Text('Sync & backup',
                       style: Theme.of(ctx).textTheme.titleMedium),
                   const SizedBox(height: 2),
-                  // Said plainly, because it is true and nothing else in the app
-                  // says it: there is no cloud copy and no trash, so a second
-                  // device (or an exported file) IS the backup.
+                  // No cloud copy, no trash: a second device IS the backup.
                   Text(
                       'Your notes live only on this device. Copying them to '
                       'another device, or to a file, is what backs them up.',
@@ -696,7 +636,6 @@ class _RecallPageState extends State<RecallPage> {
                 ],
               ),
             ),
-            // --- Live, over Wi-Fi: the camera/QR pairing path. ---
             _syncGroupLabel(ctx, 'A nearby device (same Wi-Fi)'),
             ListTile(
               leading: const Icon(Icons.wifi_tethering),
@@ -711,7 +650,6 @@ class _RecallPageState extends State<RecallPage> {
               onTap: () => Navigator.pop(ctx, 'join'),
             ),
             const Divider(height: 24),
-            // --- A file: no network; move it by Drive / USB / email. ---
             _syncGroupLabel(ctx, 'A file (move it by Drive, USB, or email)'),
             ListTile(
               leading: const Icon(Icons.save_alt),
@@ -726,7 +664,6 @@ class _RecallPageState extends State<RecallPage> {
               onTap: () => Navigator.pop(ctx, 'import'),
             ),
             const Divider(height: 24),
-            // --- A shared folder: a tool like Syncthing keeps devices in sync. ---
             _syncGroupLabel(ctx, 'A shared folder (Syncthing or cloud)'),
             ListTile(
               leading: const Icon(Icons.folder_shared_outlined),
@@ -812,9 +749,7 @@ class _RecallPageState extends State<RecallPage> {
     }
   }
 
-  // Every route that converges with another device calls this: Host, Join, a
-  // folder pass, and a file import. One of them being missed is how a screen that
-  // says "never synced" appears on a device that just did.
+  // Every converging route calls this: Host, Join, a folder pass, a file import.
   void _markSynced() {
     _lastSync = DateTime.now();
     try {
@@ -824,8 +759,7 @@ class _RecallPageState extends State<RecallPage> {
 
   void _saveLastSync() => _markSynced();
 
-  // "just now" / "3 hours ago" / "12 Mar 2026" -- vague near, exact far, because
-  // near is reassurance and far is a decision.
+  // "just now" / "3 hours ago" / "12 Mar 2026": vague near, exact far.
   String get _lastSyncLabel {
     final t = _lastSync;
     if (t == null) return 'Never synced on this device';
@@ -841,14 +775,10 @@ class _RecallPageState extends State<RecallPage> {
     return 'Last synced ${t.day} ${_months[t.month - 1]} ${t.year}';
   }
 
-  // Pick a shared folder and run the first sync pass.
-  //
-  // The folder is REMEMBERED ONLY IF THAT PASS WORKS. It used to be written to
-  // <dir>/syncfolder first: a folder the engine cannot read -- which on Android is
-  // most of them, since a SAF pick lands on shared storage this app has no
-  // permission to opendir() -- was then retried and re-reported at every launch,
-  // and "Stop folder sync" was the only way out of it. A setting the user cannot
-  // tell is broken is worse than one that refuses to be set.
+  // Pick a shared folder and run the first pass. The folder is REMEMBERED ONLY IF
+  // THAT PASS WORKS: on Android a SAF pick usually lands on shared storage this app
+  // cannot opendir(), and a remembered unreadable folder is re-reported at every
+  // launch.
   Future<void> _pickSyncFolder() async {
     if (_ais == null || _syncBlocks()) return;
     final messenger = ScaffoldMessenger.of(context);
@@ -863,10 +793,9 @@ class _RecallPageState extends State<RecallPage> {
     _tryFolder(dir, messenger);
   }
 
-  // Run one pass against DIR and keep it only on success. Shared by the picker and
-  // by the "Sync anyway" override, so neither can leave a folder set that does not
-  // work. FORCE accepts a folder that is merely empty (a replaced stick, a share
-  // that was cleared) -- the one refusal the user is entitled to overrule.
+  // Run one pass against DIR and keep it only on success, so neither the picker
+  // nor the "Sync anyway" override can leave a folder set that does not work.
+  // FORCE accepts a folder that is merely empty (a replaced stick, a cleared share).
   void _tryFolder(String dir, ScaffoldMessengerState messenger,
       {bool force = false}) {
     if (_ais == null) return;
@@ -896,10 +825,10 @@ class _RecallPageState extends State<RecallPage> {
             : null));
   }
 
-  // A LAN Host/Join sync runs on a BACKGROUND isolate holding the SAME engine handle;
-  // flock on the shared fd does not exclude it, so a concurrent UI-isolate write would
-  // race the store. Block a mutating action while any sync (even a hidden one) is in
-  // flight; reads/browsing stay available. Returns true (and warns) if blocked.
+  // A LAN Host/Join sync runs on a BACKGROUND isolate holding the SAME engine
+  // handle; flock on the shared fd does not exclude it, so a concurrent UI-isolate
+  // write would race the store. Blocks a mutating action while any sync is in
+  // flight (reads stay available) and warns; reads true when blocked.
   bool _syncBlocks() {
     if (!_syncBusy) return false;
     if (mounted) {
@@ -917,19 +846,15 @@ class _RecallPageState extends State<RecallPage> {
     final code = _ais!.syncFolderCode(_syncFolder);
     final problem = AisEngine.syncFolderProblem(code);
     if (problem == null) {
-      // Clear on ANY success, silent or not: otherwise a folder that breaks, gets
-      // fixed, and breaks again the same way is never mentioned a second time.
+      // Clear on ANY success, so the same problem is reported again if it returns.
       _syncFolderSaid = '';
       _markSynced();
       if (mounted) _setView(_view);
     }
     if (!mounted) return;
-    // A FAILURE is always reported, even from a background pass. Silence is what
-    // let a folder sync quietly stop working while the user believed it was their
-    // backup; only success is allowed to be quiet.
+    // A FAILURE is always reported, even from a background pass; only success is quiet.
     if (problem != null) {
-      // Once per problem: this pass runs at open and after every save, and the
-      // same sentence on each one is noise the user learns to swipe away.
+      // Once per problem: this pass runs at open and after every save.
       if (problem != _syncFolderSaid) {
         _syncFolderSaid = problem;
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
@@ -946,17 +871,15 @@ class _RecallPageState extends State<RecallPage> {
     }
   }
 
-  // The user looked at the folder and wants it used as it now stands (a replaced
-  // stick, a share they emptied). Re-establishes it; it still creates nothing.
-  // The same cross-isolate guard as _runFolderSync: this is reachable from a
-  // SnackBar action that outlives the message, so a LAN sync can have started
-  // holding the engine handle in between.
+  // Use the folder as it now stands (a replaced stick, an emptied share); this
+  // still creates nothing. Same cross-isolate guard as _runFolderSync: reachable
+  // from a SnackBar action that outlives the message, so a LAN sync can have
+  // started holding the engine handle in between.
   void _forceFolderSync(String dir) {
     if (_ais == null || _syncBlocks()) return;
     _tryFolder(dir, ScaffoldMessenger.of(context), force: true);
   }
 
-  // A small primary-tinted section label for the two sync groups above.
   Widget _syncGroupLabel(BuildContext ctx, String text) => Padding(
         padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
         child: Align(
@@ -967,18 +890,15 @@ class _RecallPageState extends State<RecallPage> {
         ),
       );
 
-  // Export the whole index to a single plaintext file (the "aisb" bundle) the
-  // user can carry by any channel. Desktop gets a native Save dialog defaulting
-  // to Downloads (a visible, shareable place -- not the .ais dotfolder); mobile
-  // has no browsable filesystem, so it writes a temp copy and hands it to the OS
-  // share sheet (Drive / email / Files). The write is fast, so it runs inline.
+  // Export the whole index to a single plaintext "aisb" bundle. Desktop gets a
+  // native Save dialog; mobile has no browsable filesystem, so it writes a temp
+  // copy and hands it to the OS share sheet. The write is fast: it runs inline.
   Future<void> _exportFile() async {
     if (_ais == null) return;
     final messenger = ScaffoldMessenger.of(context);
 
     if (Platform.isAndroid || Platform.isIOS) {
-      // Dated, so a user who exports monthly ends up with a series they can tell
-      // apart, not one file that silently replaces last month's copy.
+      // Dated, so repeated exports form a series instead of replacing each other.
       final now = DateTime.now();
       final stamp = '${now.year.toString().padLeft(4, '0')}'
           '${now.month.toString().padLeft(2, '0')}'
@@ -998,9 +918,7 @@ class _RecallPageState extends State<RecallPage> {
         if (!mounted) return;
         // This file sits in the CACHE directory -- the only place an app can
         // write before the user picks a destination -- and the OS may delete it
-        // whenever it likes. So a share the user dismissed has left them with
-        // nothing, and saying "exported" there would be the exact false
-        // reassurance this whole screen exists to avoid.
+        // whenever it likes, so a dismissed share has left them nothing.
         if (result.status == ShareResultStatus.success) {
           _markSynced();
           messenger.showSnackBar(const SnackBar(
@@ -1018,7 +936,6 @@ class _RecallPageState extends State<RecallPage> {
       return;
     }
 
-    // Desktop: a real Save dialog, defaulting to Downloads.
     final downloads = await getDownloadsDirectory();
     final location = await getSaveLocation(
       acceptedTypeGroups: const [
@@ -1030,8 +947,7 @@ class _RecallPageState extends State<RecallPage> {
     if (location == null || _ais == null) return; // cancelled
     final rc = _ais!.exportBundle(location.path);
     if (!mounted) return;
-    // A file the user chose the location of IS saved, so unlike the mobile
-    // share-sheet path this can say so plainly -- and it counts as a backup.
+    // A file the user chose the location of IS saved, so it counts as a backup.
     if (rc == 0) _markSynced();
     messenger.showSnackBar(SnackBar(
         content: Text(rc == 0
@@ -1040,8 +956,7 @@ class _RecallPageState extends State<RecallPage> {
   }
 
   // Import a plaintext bundle file and merge it into this index (same
-  // tombstone-union LWW merge as live sync). Distinct from Join/scan: this
-  // reads a file that reached this device by Drive / USB / email, no network.
+  // tombstone-union LWW merge as live sync). File I/O only, no network.
   Future<void> _importFile() async {
     if (_ais == null) return;
     final messenger = ScaffoldMessenger.of(context);
@@ -1077,9 +992,7 @@ class _RecallPageState extends State<RecallPage> {
   }
 
   // Join: connect to a device that is hosting; both converge (bidirectional).
-  // Prefill (URL, token) arrives from a scanned ais:// QR (see _handleLink); with no
-  // in-app camera, the phone's own camera scans the host's QR and the OS routes the
-  // link here, which opens this dialog with the fields already filled.
+  // Prefill (URL, token) arrives from a scanned ais:// QR (see _handleLink).
   Future<void> _syncJoin({String? prefillUrl, String? prefillToken}) async {
     final scanned = prefillUrl != null && prefillToken != null;
     final urlCtrl = TextEditingController(text: prefillUrl ?? 'http://');
@@ -1168,8 +1081,7 @@ class _RecallPageState extends State<RecallPage> {
         _markSynced();
         break;
       case 1:
-        // Half done. Their records ARE here, so this is not a failure and must
-        // not read as one -- but the other device is still missing ours.
+        // Half done: their records ARE here, so this is not a failure.
         msg = 'Got their records, but yours did not reach them. '
             'Nothing was lost. Sync again to finish.';
         _markSynced();
@@ -1189,8 +1101,7 @@ class _RecallPageState extends State<RecallPage> {
     if (rc >= 0) _setView(_view); // a half-done sync still merged theirs
   }
 
-  // Host: wait for another device to join; both converge (bidirectional). The
-  // address + token stay visible while waiting.
+  // Host: wait for another device to join; both converge (bidirectional).
   Future<void> _syncHost() async {
     if (_ais == null) return;
     final messenger = ScaffoldMessenger.of(context);
@@ -1206,12 +1117,9 @@ class _RecallPageState extends State<RecallPage> {
           content: Text("Couldn't find your Wi-Fi address. Are you on Wi-Fi?")));
       return;
     }
-    // 8766 is the default both ends assume, but it can be taken -- by a sync that
-    // has not finished releasing it, or by anything else on the machine. The port
-    // travels in the QR and in the printed address, so the peer does not have to
-    // assume it, and stepping to the next free one turns a dead end ("try again
-    // in a moment", with nothing the user could actually do) into a sync that
-    // simply works.
+    // 8766 is the default both ends assume, but it can be taken by a sync still
+    // releasing it or by anything else. The port travels in the QR and in the
+    // printed address, so stepping to the next free one still pairs.
     final port = await _freeSyncPort();
     if (!mounted) return;
     if (port == 0) {
@@ -1220,9 +1128,8 @@ class _RecallPageState extends State<RecallPage> {
       return;
     }
     final token = _genToken();
-    // Same ais:// pairing link the desktop web host encodes, so one QR format
-    // feeds the one deep-link handler (see _handleLink). Another phone scans it
-    // with its camera; a desktop can type the address + token instead.
+    // The same ais:// pairing link the desktop web host encodes, so one QR format
+    // feeds the one deep-link handler (see _handleLink).
     final link =
         'ais://sync?host=${Uri.encodeQueryComponent('$ip:$port')}&token=$token';
     final detail = 'http://$ip:$port\ntoken: $token\n\n'
@@ -1250,9 +1157,8 @@ class _RecallPageState extends State<RecallPage> {
     _syncBusy = false;
     _keepAwake(false);                  // release it however the wait ended
     if (!mounted) return;
-    // If the user hid the dialog and it then timed out, don't surprise them with
-    // a late failure snackbar ~2 min later; a success -- whole or half -- is
-    // still worth announcing.
+    // A hidden dialog that then timed out must not surprise with a late failure
+    // snackbar ~2 min later; a success, whole or half, is still announced.
     if (hidden && rc < 0) return;
     final String msg;
     switch (rc) {
@@ -1283,10 +1189,8 @@ class _RecallPageState extends State<RecallPage> {
     if (rc >= 0) _setView(_view); // a half-done sync still merged theirs
   }
 
-  // What a sync actually did, in records. "Synced" on its own leaves the user no
-  // way to tell a working backup from one that silently moved nothing -- and a
-  // sync that moves nothing is the normal, correct outcome when both devices are
-  // already in step, so the two have to be told apart in words.
+  // What a sync actually did, in records. Moving nothing is the correct outcome
+  // when both devices are in step, and must be distinguishable from a failure.
   String _mergeDetail(int before) {
     if (_ais == null || before < 0) return '';
     final after = _ais!.countLive();
@@ -1309,11 +1213,9 @@ class _RecallPageState extends State<RecallPage> {
         16, (_) => r.nextInt(256).toRadixString(16).padLeft(2, '0')).join();
   }
 
-  // The first port at or after the default that we can actually bind. Probed by
-  // binding and closing at once: the engine's serve call only reports a busy port
-  // AFTER the dialog has already shown a QR advertising it, which is too late to
-  // put a different number in the code the other device is about to scan.
-  // 0 if the whole small range is taken.
+  // The first port at or after the default that we can actually bind, probed by
+  // binding and closing at once: the engine's serve call reports a busy port only
+  // AFTER the dialog has shown a QR advertising it. 0 if the whole range is taken.
   Future<int> _freeSyncPort() async {
     for (var p = 8766; p < 8776; p++) {
       try {
@@ -1384,17 +1286,16 @@ class _RecallPageState extends State<RecallPage> {
     if (picked == null || picked.isEmpty || picked == _dir) return;
     final chosen = picked; // non-null from here (a setState closure below can't promote picked)
     // A sync can start while the dialog is open (a scanned deep link arrives off
-    // the platform channel, not through the barrier), so re-check before we free
-    // the old handle -- otherwise the swap races the sync isolate.
+    // the platform channel, not through the barrier), so re-check before freeing
+    // the old handle: the swap would race the sync isolate.
     if (_syncBlocks()) return;
-    // Commit any in-flight swipe-delete against the CURRENT library BEFORE swapping.
-    // Otherwise its deferred snackbar-close would fire del(id) on the NEW library and
-    // silently delete an unrelated same-numbered record there.
+    // Commit any in-flight swipe-delete against the CURRENT library BEFORE swapping:
+    // its deferred snackbar-close would otherwise fire del(id) on the NEW library and
+    // delete an unrelated same-numbered record there.
     _flushPendingDeletes();
     try {
-      // Open the new index FIRST; only if that succeeds do we close the old one
-      // and swap. Otherwise a bad path would throw after close(), leaving _ais
-      // pointing at a closed handle -- every later call a use-after-close.
+      // Open the new index FIRST, and only then close the old one: a bad path would
+      // otherwise throw after close(), leaving _ais on a closed handle.
       Directory(chosen).createSync(recursive: true);
       final next = AisEngine(chosen);
       _ais?.close();
@@ -1405,8 +1306,7 @@ class _RecallPageState extends State<RecallPage> {
       setState(() {
         _dir = chosen;
         _syncFolder = _loadSyncFolder(); // sync-folder is per-index
-        // Blob content and file-presence are keyed per library; drop them so the
-        // new library doesn't show the old one's resolved/absent answers.
+        // Blob content and file-presence are keyed per library.
         _blobCache.clear();
         _notHereCache.clear();
         _results = const [];
@@ -1433,8 +1333,6 @@ class _RecallPageState extends State<RecallPage> {
     }
   }
 
-  // Session-only theme picker (System/Light/Dark) driven from the overflow menu.
-  // Feeds the module-level themeModeNotifier that AisApp listens on.
   Future<void> _pickTheme() async {
     final current = themeModeNotifier.value;
     final picked = await showDialog<ThemeMode>(
@@ -1459,10 +1357,9 @@ class _RecallPageState extends State<RecallPage> {
     if (picked != null) themeModeNotifier.value = picked;
   }
 
-  // The on-disk format version, read from the index's own `version` file (the one
-  // c/store.c writes). Absent means a legacy index predating versioning, which the
-  // engine treats as 0. Null when no index is open or the file is unreadable, and
-  // then the About line simply omits it.
+  // The on-disk format version, from the index's own `version` file (c/store.c
+  // writes it). Absent means a legacy index, which the engine treats as 0. Null
+  // when no index is open or the file is unreadable.
   int? _indexFormatVersion() {
     if (_dir.isEmpty) return null;
     try {
@@ -1474,11 +1371,10 @@ class _RecallPageState extends State<RecallPage> {
     }
   }
 
-  // About: app version, the ENGINE version this bundle actually links, and the index
-  // format version -- the three numbers a bug report needs, on one copyable line. The
-  // engine one matters: a Flutter bundle can ship a stale libais (it has), and with
-  // nothing on screen to reveal it, testers re-file bugs that are already fixed.
-  // "engine: unknown" is the honest answer from a library with no ais_version().
+  // App version, the ENGINE version this bundle actually links, and the index
+  // format version -- the three numbers a bug report needs, on one copyable line.
+  // A Flutter bundle can ship a stale libais; "engine: unknown" means no
+  // ais_version() in the loaded library.
   void _showAbout() {
     final messenger = ScaffoldMessenger.of(context);
     final engine = AisIndex.engineVersion() ?? 'unknown';
@@ -1511,12 +1407,9 @@ class _RecallPageState extends State<RecallPage> {
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
-    // Ctrl+Shift+S opens Sync & backup from anywhere. Two reasons, both real:
-    // a desktop user should not have to hunt a mouse through an overflow menu
-    // for the one action that protects their data, and the headless UI test
-    // (uitest/run.sh) needs an entry point that does not move when the layout
-    // does -- it was driving a pixel coordinate for a control that had since
-    // moved into the ⋮ menu, so it had been testing nothing for weeks.
+    // Ctrl+Shift+S opens Sync & backup from anywhere: a desktop user should not
+    // have to hunt an overflow menu for it, and the headless UI test (uitest/run.sh)
+    // needs an entry point that does not move when the layout does.
     return CallbackShortcuts(
       bindings: <ShortcutActivator, VoidCallback>{
         const SingleActivator(LogicalKeyboardKey.keyS,
@@ -1529,12 +1422,9 @@ class _RecallPageState extends State<RecallPage> {
   }
 
   Widget _buildScaffold(ColorScheme cs) {
-    // Views (Search/Timeline/Tags) live in the bottom NavigationBar below; the
-    // header is just search + Get + the store row.
     return Scaffold(
       body: SafeArea(
         child: Column(children: [
-          // frosted header strip (sized to its content; list goes below it)
           ClipRect(
             child: BackdropFilter(
               filter: ImageFilter.blur(sigmaX: 14, sigmaY: 14),
@@ -1550,9 +1440,8 @@ class _RecallPageState extends State<RecallPage> {
                     Row(children: [
                       Text('AIS', style: Theme.of(context).textTheme.titleLarge),
                       const Spacer(),
-                      // The count is a SEARCH-result count, so show it only on the
-                      // Search view -- otherwise it lingers as a wrong number over
-                      // the Recent/Tags lists (which carry their own content).
+                      // A SEARCH-result count: off this view it would linger as a
+                      // wrong number over the Recent/Tags lists.
                       if (_view == 'recall' && _searched)
                         Text(
                           '${_results.length} result${_results.length == 1 ? '' : 's'} · $_ms ms',
@@ -1561,9 +1450,7 @@ class _RecallPageState extends State<RecallPage> {
                               .bodySmall
                               ?.copyWith(color: cs.onSurfaceVariant),
                         ),
-                      // Config home: gathers the store/sync/theme/about actions
-                      // that used to be sub-48dp header text-links. Standard
-                      // 48dp target, top-right where mainstream apps put it.
+                      // Config home for store/sync/theme/about. 48dp target.
                       PopupMenuButton<String>(
                         icon: const Icon(Icons.more_vert),
                         tooltip: 'Settings',
@@ -1596,10 +1483,8 @@ class _RecallPageState extends State<RecallPage> {
                           PopupMenuItem(
                             value: 'sync',
                             enabled: _ais != null,
-                            // Named for what a user is looking for. Someone who
-                            // wants their notes safe searches the menu for
-                            // "backup", not "sync", and the badge is the only
-                            // place the app can admit it has never been done.
+                            // Named "backup" as well as "sync": the badge is the
+                            // only place the app admits it never happened.
                             child: ListTile(
                               contentPadding: EdgeInsets.zero,
                               leading: Icon(_lastSync == null
@@ -1643,8 +1528,7 @@ class _RecallPageState extends State<RecallPage> {
                             textInputAction: TextInputAction.search,
                             onSubmitted: (_) => _recallLive(),
                             onChanged: (v) {
-                              // Debounced live filter: reschedule on each
-                              // keystroke, run _recall() once typing pauses.
+                              // Debounced live filter: run on the typing pause.
                               _debounce?.cancel();
                               if (v.trim().isEmpty) {
                                 // cleared: fall back to the hint, don't search
@@ -1696,15 +1580,12 @@ class _RecallPageState extends State<RecallPage> {
                         ),
                       ],
                     ),
-                    // "Match any tag" (OR): off = records under EVERY tag,
-                    // on = records under ANY tag. Toggling re-runs the live
-                    // search so results update at once. Mirrors the web box.
+                    // "Match any tag" (OR). Toggling re-runs the live search.
                     InkWell(
                       onTap: () => _setMatchAny(!_matchAny),
                       borderRadius: BorderRadius.circular(6),
                       child: Row(mainAxisSize: MainAxisSize.min, children: [
-                        // A full 48dp touch target (the row's InkWell also toggles
-                        // it, but the box itself must meet the minimum on its own).
+                        // A full 48dp target: the box must meet the minimum alone.
                         SizedBox(
                           width: 48,
                           height: 48,
@@ -1722,8 +1603,7 @@ class _RecallPageState extends State<RecallPage> {
                       ]),
                     ),
                     const SizedBox(height: 4),
-                    // Store path stays visible as a NON-interactive muted label;
-                    // changing it (and sync) now live in the top-right menu.
+                    // Store path as a non-interactive muted label.
                     Text(
                       _dir.isEmpty ? 'Library: (default)' : 'Library: $_dir',
                       style: Theme.of(context)
@@ -1738,7 +1618,6 @@ class _RecallPageState extends State<RecallPage> {
             ),
           ),
 
-          // body (always visible, fills the rest): recall / timeline / tags
           Expanded(child: _body(cs)),
         ]),
       ),
@@ -1747,12 +1626,9 @@ class _RecallPageState extends State<RecallPage> {
         icon: const Icon(Icons.add),
         label: const Text('Add'),
       ),
-      // Three peer destinations, thumb-reachable. The label is "Search"; the
-      // internal view key stays 'recall' (RecallPage / _view). The header's
-      // "Get" is the ACTION button -- one word per concept, no two "Get"s.
-      // Float the bar over the soft keyboard: Scaffold resizes the body above
-      // the keyboard but not this slot, so pad it up by the keyboard height
-      // (animated). The FAB anchors above the bar, so it rides up too.
+      // The label is "Search"; the internal view key stays 'recall'. Scaffold
+      // resizes the body above the soft keyboard but not this slot, so pad it up by
+      // the keyboard height (animated); the FAB anchors above the bar and rides up.
       bottomNavigationBar: AnimatedPadding(
         duration: const Duration(milliseconds: 100),
         padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
@@ -1787,16 +1663,14 @@ class _RecallPageState extends State<RecallPage> {
         ),
       );
 
-  // Re-run the engine open after a failure (the Retry button on the gate below).
   void _retryOpen() {
     setState(() => _status = 'opening index…');
     _init();
   }
 
-  // Whether the engine can answer for an empty list yet. Returns a spinner while
-  // it is still OPENING, or the real error + Retry if the open FAILED; null once
-  // the engine is live (the caller then shows its genuine empty state). Keeps a
-  // slow/failed open from reading as "nothing saved yet".
+  // Whether the engine can answer for an empty list yet: a spinner while it is
+  // still OPENING, the real error + Retry if the open FAILED, null once it is live.
+  // Keeps a slow or failed open from reading as "nothing saved yet".
   Widget? _engineGate(ColorScheme cs) {
     if (_ais != null) return null;
     if (_status.startsWith('cannot open') || _status.startsWith('cannot resolve')) {
@@ -1841,40 +1715,35 @@ class _RecallPageState extends State<RecallPage> {
     }
   }
 
-  // The standard delete: pull the row from the visible list NOW and offer Undo
-  // in a SnackBar; only touch the engine if the window closes without an Undo
-  // tap. No engine-side undo needed -- del() is deferred, not reversed. Swipe
-  // and the ⋮ "Delete" menu both route here, so they behave identically.
   // Commit a still-pending delete for real. Idempotent: only fires if the id is
-  // still pending (not undone, not already committed). Input-driven so it never
+  // still pending (not undone, not already committed). Input-driven, so it never
   // depends on the snackbar's animated close alone.
   void _commitDelete(int id) {
     if (_pendingDelete.remove(id) && _ais != null) {
-      // del() returns false when the engine kept the record (unknown/already-gone
-      // id, or a write error). The row was optimistically hidden already, so don't
-      // leave a false "Deleted" standing: say it failed and re-sync so the row
-      // reappears instead of silently vanishing.
+      // del() returns false when the engine kept the record (unknown id, or a
+      // write error). The row was already hidden, so say it failed and re-sync.
       if (!_ais!.del(id) && mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text("Couldn't delete that item")));
         _setView(_view);
       }
     }
-    // A committed delete must not keep offering UNDO -- that would only
-    // fake-restore a record the engine no longer has. Dismiss its snackbar if
-    // it is still up. (When the commit comes from the snackbar's own .closed
-    // callback, the id is already off the map, so this is a no-op there.)
+    // A committed delete must not keep offering UNDO: it would only fake-restore
+    // a record the engine no longer has. Dismiss its snackbar if it is still up.
     _delSnack.remove(id)?.close();
   }
 
-  // Flush every pending delete now -- called before a new delete and before any
-  // view re-query, so a "deleted" row can never resurrect on refresh.
+  // Called before a new delete and before any view re-query, so a "deleted" row
+  // cannot resurrect on refresh.
   void _flushPendingDeletes() {
     for (final id in _pendingDelete.toList()) {
       _commitDelete(id);
     }
   }
 
+  // The standard delete: pull the row from the visible list NOW and offer Undo in
+  // a SnackBar; the engine is touched only if that window closes without an Undo
+  // tap. Swipe and the ⋮ "Delete" menu both route here.
   void _deferDelete(int id) {
     if (_syncBlocks()) {
       if (mounted) _setView(_view); // restore a swipe-dismissed row (nothing was deleted)
@@ -1889,9 +1758,8 @@ class _RecallPageState extends State<RecallPage> {
     final TlRow? tlRow = tlIdx >= 0 ? _tl[tlIdx] : null;
     if (recallHit == null && tlRow == null) {
       // The id left both loaded lists during an async gap (e.g. an Edit-tags
-      // re-query dropped it before Detail -> Delete ran). Don't silently no-op:
-      // honor the delete outright. No snapshot to restore, so there's no Undo,
-      // just a plain confirmation -- or an honest failure if the engine refused.
+      // re-query dropped it before Detail -> Delete ran). With no snapshot there
+      // is no Undo, so honor the delete outright.
       final ok = _ais?.del(id) ?? false;
       messenger.showSnackBar(SnackBar(
           content: Text(ok ? 'Deleted' : "Couldn't delete that item")));
@@ -1899,8 +1767,7 @@ class _RecallPageState extends State<RecallPage> {
     }
     _pendingDelete.add(id);
     setState(() {
-      // remove EVERY row of that id: a record can appear more than once across
-      // pages, and removeAt(firstIndex) took the wrong one when it did
+      // remove EVERY row of that id: a record can appear more than once across pages
       if (recallHit != null) _results = _results.where((h) => h.id != id).toList();
       if (tlRow != null) _tl = [..._tl]..removeAt(tlIdx);
     });
@@ -1911,9 +1778,8 @@ class _RecallPageState extends State<RecallPage> {
       action: SnackBarAction(
         label: 'UNDO',
         onPressed: () {
-          // If the delete already committed (a later delete or a view change
-          // flushed it), the snackbar should be gone -- but guard anyway so
-          // UNDO can never fake-restore a record the engine no longer has.
+          // Guard against an already-committed delete (a later delete or a view
+          // change flushed it): UNDO must never fake-restore a gone record.
           if (!_pendingDelete.contains(id)) return;
           undone = true;
           _pendingDelete.remove(id);
@@ -1935,8 +1801,7 @@ class _RecallPageState extends State<RecallPage> {
     _delSnack[id] = ctl;
     ctl.closed.then((_) {
       _delSnack.remove(id);
-      // Closed for any reason other than an Undo tap: commit the delete. No-op if
-      // it was already flushed by a later delete or a view change.
+      // Closed without an Undo tap: commit (a no-op if already flushed).
       if (undone) return;
       _commitDelete(id);
       // Re-sync the visible view now the delete is real. Guard on _pendingDelete
@@ -1948,7 +1813,6 @@ class _RecallPageState extends State<RecallPage> {
     });
   }
 
-  // The red swipe-away background revealed under an endToStart Dismissible.
   Widget _deleteBg(ColorScheme cs) => Container(
         color: cs.error,
         alignment: Alignment.centerRight,
@@ -1956,8 +1820,7 @@ class _RecallPageState extends State<RecallPage> {
         child: Icon(Icons.delete, color: cs.onError),
       );
 
-  // A friendly, actionable empty / first-run state: an icon, a line about what
-  // AIS is for, and a filled button that opens the same Add sheet as the FAB.
+  // The empty / first-run state; its button opens the same Add sheet as the FAB.
   Widget _emptyState(ColorScheme cs,
           {required IconData icon, required String line}) =>
       Center(
@@ -1985,8 +1848,7 @@ class _RecallPageState extends State<RecallPage> {
         ),
       );
 
-  // Edit a record's tags as chips: each × detaches a tag, the field appends a
-  // new one; on Apply we send the minimal +tag/-tag delta to the engine.
+  // Edit a record's tags as chips. Apply sends the minimal +tag/-tag delta.
   Future<void> _editKeys(Hit hit) async {
     if (_ais == null) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
@@ -2004,9 +1866,8 @@ class _RecallPageState extends State<RecallPage> {
     final ctrl = TextEditingController();
     final focus = FocusNode();
 
-    // Split on spaces/commas so a pasted (or submitted) multi-word string
-    // becomes one chip PER tag -- matching how the engine tokenizes on update,
-    // so the chips never disagree with what gets stored.
+    // Split on spaces/commas so a pasted or submitted multi-word string becomes
+    // one chip PER tag, matching how the engine tokenizes on update.
     void addToken(StateSetter setDlg, String raw) {
       final parts =
           raw.split(RegExp(r'[,\s]+')).where((p) => p.isNotEmpty).toList();
@@ -2065,13 +1926,11 @@ class _RecallPageState extends State<RecallPage> {
         ),
       ),
     );
-    // Capture any token still sitting in the field, then dispose the controller
-    // and focus node (the dialog is gone now).
+    // Capture any token still in the field, then dispose (the dialog is gone).
     final trailing = ctrl.text;
     ctrl.dispose();
     focus.dispose();
     if (ok != true || _ais == null) return;
-    // fold any token(s) still sitting in the field into the final set
     for (final p in trailing.split(RegExp(r'[,\s]+')).where((p) => p.isNotEmpty)) {
       if (!tags.contains(p)) tags.add(p);
     }
@@ -2086,8 +1945,7 @@ class _RecallPageState extends State<RecallPage> {
       }
       return;
     }
-    // A NUL or an over-long tag would be silently dropped by the engine; surface
-    // it with a specific message instead (A6/B6).
+    // A NUL or an over-long tag would be silently dropped by the engine.
     final content = contentError(value: '', keys: tags.join(' '));
     if (content != null) {
       if (mounted) {
@@ -2096,8 +1954,7 @@ class _RecallPageState extends State<RecallPage> {
       }
       return;
     }
-    // update() returns false when the engine rejected the change (unknown or
-    // deleted record); don't claim "Tags updated" in that case.
+    // update() is false when the engine rejected the change (unknown or deleted).
     final updated = _ais!.update(hit.id, delta);
     if (mounted) {
       ScaffoldMessenger.of(context)
@@ -2110,10 +1967,8 @@ class _RecallPageState extends State<RecallPage> {
   }
 
   // Fix a record's value in place: the engine keeps its id and timeline slot.
-  // Only offered for plain (non-encrypted, here) values — the raw text edits
-  // safely. Encrypted/away rows omit the menu item instead.
-  // Returns the new value when it actually changed (so a caller — e.g. the
-  // detail page — can refresh its display), or null on cancel/no-op/failure.
+  // Offered only for plain values; encrypted/away/blob rows omit the menu item.
+  // Returns the new value when it changed, else null (cancel/no-op/failure).
   Future<String?> _editValue(int id, String oldValue) async {
     final messenger = ScaffoldMessenger.of(context);
     if (_ais == null) {
@@ -2148,16 +2003,14 @@ class _RecallPageState extends State<RecallPage> {
     final newValue = ctrl.text;
     ctrl.dispose(); // dialog is gone; free the controller
     if (ok != true || _ais == null) return null;
-    // Empty value: say so instead of silently closing the dialog (the Add
-    // sheet's empty-value bug, here on the edit path). An unchanged value is a
-    // genuine no-op and stays quiet. Don't trim into the stored value.
+    // Empty value: say so instead of silently closing the dialog. An unchanged
+    // value is a genuine no-op and stays quiet. Don't trim into the stored value.
     if (newValue.trim().isEmpty) {
       messenger.showSnackBar(const SnackBar(content: Text("Value can't be empty")));
       return null;
     }
     if (newValue == oldValue) return null;
-    // A NUL or an over-long value would be silently truncated by the engine; give
-    // a length-specific message instead (A6/B6).
+    // A NUL or an over-long value would be silently truncated by the engine.
     final content = contentError(value: newValue, keys: '');
     if (content != null) {
       messenger.showSnackBar(SnackBar(content: Text(content)));
@@ -2171,9 +2024,7 @@ class _RecallPageState extends State<RecallPage> {
     return done ? newValue : null;
   }
 
-  // Reveal an encrypted ("aisc:") hit: ask for the passphrase, decrypt
-  // in-process, and show the cleartext in a dialog (encrypted documents are
-  // revealed via the CLI).
+  // Reveal an encrypted ("aisc:") hit. Encrypted DOCUMENTS need the CLI.
   Future<void> _revealHit(Hit hit) async {
     final ctrl = TextEditingController();
     final pass = await showDialog<String>(
@@ -2214,12 +2065,9 @@ class _RecallPageState extends State<RecallPage> {
     );
   }
 
-  // A full-screen detail/edit page for one record — the natural home for its
-  // actions. Opened by TAPPING a recall or timeline row (the row ⋮ menu stays
-  // as a secondary path). Reuses the same handlers the menu uses (_editValue /
-  // _editKeys / _share / _deferDelete) and refreshes its own value/tags after
-  // an in-place edit, so a change shows without going back. `ts` is the save
-  // time when known (timeline rows carry it; recall hits don't).
+  // A full-screen detail/edit page for one record, opened by TAPPING a row. Reuses
+  // the row handlers and refreshes its own value/tags after an in-place edit. `ts`
+  // is the save time when known: timeline rows carry it, recall hits don't.
   void _openDetail(int id, String value, {String ts = ''}) {
     Navigator.of(context).push(MaterialPageRoute(
       builder: (routeCtx) {
@@ -2278,12 +2126,10 @@ class _RecallPageState extends State<RecallPage> {
                     tooltip: 'More',
                     onSelected: (a) async {
                       if (a == 'value') {
-                        // reuse the row's editor; refresh on a real change
                         final nv = await _editValue(id, curValue);
                         if (nv != null) setLocal(() => curValue = nv);
                       } else if (a == 'tags') {
                         await _editKeys(Hit(id, curValue));
-                        // re-read the tags so the chips reflect the edit
                         setLocal(() => keys = _ais?.keysOf(id).trim() ?? '');
                       } else if (a == 'delete') {
                         Navigator.of(ctx).pop(); // back to the list first…
@@ -2304,8 +2150,7 @@ class _RecallPageState extends State<RecallPage> {
               body: ListView(
                 padding: const EdgeInsets.all(20),
                 children: [
-                  // The value in full: selectable, tappable when a URL. Encrypted
-                  // and away rows keep the same treatment they have in the list.
+                  // Encrypted and away rows keep their treatment from the list.
                   if (isSecret)
                     Row(children: [
                       Icon(Icons.lock_outline, size: 18, color: cs.outline),
@@ -2329,7 +2174,6 @@ class _RecallPageState extends State<RecallPage> {
                       ],
                     ),
                   const SizedBox(height: 24),
-                  // Tags as chips; tap one to recall everything filed under it.
                   Text('Tags',
                       style: Theme.of(ctx)
                           .textTheme
@@ -2381,19 +2225,17 @@ class _RecallPageState extends State<RecallPage> {
     if (_results.isEmpty) {
       // Text fallback already ran (via explicit tap) and also found nothing.
       if (_textSearch) return _centerMsg('No text match either.', cs);
-      // Key search found nothing: offer the SECONDARY full-text fallback, not
-      // a dead end. This is the only place the offer appears.
+      // Key search found nothing: the only place the full-text fallback is offered.
       if (_searched && _query.isNotEmpty) return _noTagMatch(cs);
       if (_searched) return _centerMsg('No results for "$_query"', cs);
-      // First-run / not-yet-searched: an error keeps its plain message; a healthy
-      // engine shows the friendly, actionable empty state instead of a bare hint.
+      // First-run: an error keeps its plain message, a healthy engine the empty state.
       if (_ais == null) return _centerMsg(_status, cs);
       return _emptyState(cs,
           icon: Icons.note_add_outlined,
           line: 'Save a link, a note, or a fact, then find it later by its tags.');
     }
-    // find() results reuse the exact recall row builder; a quiet header above the
-    // list is the only thing marking them as TEXT matches rather than tag matches.
+    // find() results reuse the recall row builder; the header above the list is the
+    // only thing marking them as TEXT matches rather than tag matches.
     final list = NotificationListener<ScrollNotification>(
       onNotification: (n) {
         if (_recallMore && _nearBottom(n)) _loadMoreRecall();
@@ -2401,7 +2243,6 @@ class _RecallPageState extends State<RecallPage> {
       },
       child: ListView.separated(
       padding: const EdgeInsets.only(bottom: 88),
-      // one trailing row while more pages exist: a slim "loading" footer
       itemCount: _results.length + (_recallMore ? 1 : 0),
       separatorBuilder: (_, __) => const Divider(height: 1),
       itemBuilder: (_, i) {
@@ -2416,8 +2257,7 @@ class _RecallPageState extends State<RecallPage> {
           background: _deleteBg(cs),
           onDismissed: (_) => _deferDelete(hit.id),
           child: ListTile(
-          // Primary path: tap the row to open its detail/edit page (the ⋮ menu
-          // on the right stays as a quick secondary path).
+          // Primary path: tap the row for its detail/edit page.
           onTap: () => _openDetail(hit.id, v),
           title: Row(mainAxisSize: MainAxisSize.min, children: [
             Flexible(
@@ -2431,11 +2271,8 @@ class _RecallPageState extends State<RecallPage> {
             ),
             if (away) _notHereBadge(cs),
           ]),
-          // Show the record's tags (fetched once when results loaded), so a recall
-          // row reads the same as a timeline row rather than value-only.
-          // Tags, plus a note when the record holds links this row does not show.
-          // Deleting removes the whole record, so the user has to be able to SEE
-          // that there is more to it than the one value in front of them.
+          // The record's tags (fetched once when results loaded), plus a note when
+          // it holds links this row does not show: deleting removes the WHOLE record.
           subtitle: Text(
             ((_resultKeys[hit.id]?.isNotEmpty ?? false)
                     ? _resultKeys[hit.id]!
@@ -2458,7 +2295,6 @@ class _RecallPageState extends State<RecallPage> {
                   tooltip: 'Reveal',
                   onPressed: () => _revealHit(hit),
                 ),
-              // copy / edit keys / delete behind one overflow -> clean rows
               PopupMenuButton<String>(
                 icon: const Icon(Icons.more_vert),
                 tooltip: 'More',
@@ -2502,9 +2338,8 @@ class _RecallPageState extends State<RecallPage> {
     return list;
   }
 
-  // A slim centered spinner used as the trailing row of a paged list while the
-  // next keyset page loads (infinite scroll). Kept tiny so it reads as "more
-  // coming", not as a blocking state.
+  // The trailing row of a paged list while the next keyset page loads. Kept tiny
+  // so it reads as "more coming", not as a blocking state.
   Widget _loadingFooter() => const Padding(
         padding: EdgeInsets.symmetric(vertical: 16),
         child: Center(
@@ -2516,8 +2351,8 @@ class _RecallPageState extends State<RecallPage> {
         ),
       );
 
-  // The empty key-search state: state plainly that no TAG matched, then offer the
-  // secondary full-text fallback as a quiet TextButton -- not a primary action.
+  // The empty key-search state: no TAG matched, plus the full-text fallback as a
+  // quiet TextButton rather than a primary action.
   Widget _noTagMatch(ColorScheme cs) => Center(
         child: Padding(
           padding: const EdgeInsets.all(24),
@@ -2541,8 +2376,7 @@ class _RecallPageState extends State<RecallPage> {
         ),
       );
 
-  // A thin, quiet marker above find() results so the user knows these are note-
-  // TEXT matches, not tag matches -- the fallback, kept visually subordinate.
+  // A quiet marker above find() results: note-TEXT matches, not tag matches.
   Widget _textMatchHeader(ColorScheme cs) => Padding(
         padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
         child: Row(children: [
@@ -2558,15 +2392,13 @@ class _RecallPageState extends State<RecallPage> {
         ]),
       );
 
-  // Infinite scroll: true when the view is scrolled to within a page of the
-  // bottom, so the next keyset page should be fetched. One threshold for every
-  // list (recall / timeline / tags), so they page in the same, modern way.
+  // Infinite scroll: true within 600px of the bottom, so the next keyset page
+  // should be fetched. One threshold for every list (recall / timeline / tags).
   bool _nearBottom(ScrollNotification n) =>
       n.metrics.axis == Axis.vertical &&
       n.metrics.pixels >= n.metrics.maxScrollExtent - 600;
 
-  // Page on with the keyset cursor: fetch the next page of records older than
-  // the last id we hold, append it, and advance the cursor.
+  // Page on with the keyset cursor: the next page older than the last id we hold.
   void _loadMoreTimeline() {
     if (_ais == null) return;
     final page = _ais!.timeline(before: _tlBefore, count: _tlPage, from: _tlFrom, to: _tlTo);
@@ -2577,7 +2409,6 @@ class _RecallPageState extends State<RecallPage> {
     });
   }
 
-  // A compact from/to date-range filter, shown above the timeline list only.
   Widget _rangeBar(ColorScheme cs) {
     final on = _tlFrom.isNotEmpty || _tlTo.isNotEmpty;
     return Padding(
@@ -2604,8 +2435,7 @@ class _RecallPageState extends State<RecallPage> {
 
   // Timeline: dateless rows surface first, then newest; grouped by day.
   Widget _timelineBody(ColorScheme cs) {
-    // Opening (spinner) or open-failed (error + Retry) must not read as an empty
-    // timeline; only show the "nothing saved yet" state once the engine is live.
+    // Opening or open-failed must not read as an empty timeline.
     final gate = _engineGate(cs);
     if (gate != null) return gate;
     if (_tl.isEmpty) {
@@ -2643,8 +2473,7 @@ class _RecallPageState extends State<RecallPage> {
         background: _deleteBg(cs),
         onDismissed: (_) => _deferDelete(r.id),
         child: ListTile(
-        // Tap opens the detail/edit page; carry the ts so it can show the save
-        // time. The ⋮ menu stays as the secondary path.
+        // Tap opens the detail/edit page; carry the ts so it can show the save time.
         onTap: () => _openDetail(r.id, r.value, ts: r.ts),
         title: Row(mainAxisSize: MainAxisSize.min, children: [
           Flexible(
@@ -2663,8 +2492,7 @@ class _RecallPageState extends State<RecallPage> {
                 .textTheme
                 .bodyMedium
                 ?.copyWith(color: cs.onSurfaceVariant)),
-        // same copy / edit tags / delete overflow as recall rows, so items
-        // found only in the timeline (e.g. a keyless add) stay actionable.
+        // The recall rows' overflow, so a keyless add stays actionable here too.
         trailing: PopupMenuButton<String>(
           icon: const Icon(Icons.more_vert),
           tooltip: 'More',
@@ -2714,8 +2542,7 @@ class _RecallPageState extends State<RecallPage> {
     return Column(children: [
       _rangeBar(cs),
       Expanded(
-        // builder so only the on-screen rows of a large loaded range mount, and
-        // a scroll near the bottom pulls the next keyset page automatically.
+        // builder so only the on-screen rows of a large loaded range mount.
         child: NotificationListener<ScrollNotification>(
           onNotification: (n) {
             if (_tlMore && _nearBottom(n)) _loadMoreTimeline();
@@ -2759,8 +2586,7 @@ class _RecallPageState extends State<RecallPage> {
     );
   }
 
-  // The Add form: value first (the thing to remember), keys second (optional,
-  // prefilled from the search box). No hidden dependency on the search field.
+  // The Add form. Keys are optional and prefilled from the search box.
   void _showAdd() {
     final valCtrl = TextEditingController();
     final keysCtrl = TextEditingController(text: _q.text.trim());
@@ -2847,9 +2673,8 @@ class _RecallPageState extends State<RecallPage> {
               onPressed: saving
                   ? null
                   : () async {
-                      // Store the value verbatim (no trim), matching the in-place
-                      // edit path; addSaveError treats a whitespace-only value as
-                      // empty for the "type something" guard.
+                      // Store the value verbatim (no trim), like the in-place edit
+                      // path; addSaveError treats whitespace-only as empty.
                       final value = valCtrl.text;
                       final keys = _normKeys(keysCtrl.text);
                       final err = addSaveError(
@@ -2867,10 +2692,10 @@ class _RecallPageState extends State<RecallPage> {
                       setSheet(() => error = null);
                       final messenger = ScaffoldMessenger.of(context);
                       final nav = Navigator.of(ctx);
-                      // Commit any armed swipe-delete BEFORE a background encrypt so a
-                      // UI-isolate del() can't run on the shared handle concurrently
-                      // with the off-isolate ais_put (a cross-isolate write race). The
-                      // sheet is modal, so no new delete can be armed during the write.
+                      // Commit any armed swipe-delete BEFORE a background encrypt: a
+                      // UI-isolate del() must not run on the shared handle while the
+                      // off-isolate ais_put does (a cross-isolate write race). The
+                      // sheet is modal, so no new delete can be armed meanwhile.
                       _flushPendingDeletes();
                       int id = -1;
                       try {
@@ -2881,24 +2706,22 @@ class _RecallPageState extends State<RecallPage> {
                           id = _ais!.store(keys, value);
                         }
                       } catch (e) {
-                        // The sheet is swipe-dismissible during "Encrypting…"; only
-                        // touch its state if it's still up (setSheet on a disposed
-                        // element throws -- the mounted check below is the wrong one).
+                        // The sheet is swipe-dismissible during "Encrypting…", and
+                        // setSheet on a disposed element throws, so check ctx.mounted
+                        // (not the State's own mounted).
                         if (ctx.mounted) setSheet(() { saving = false; error = 'Could not save: $e'; });
                         return;
                       }
                       // The engine returns -1 when nothing was stored (bad args,
-                      // blob write failure, crypto not built). Don't pop the sheet
-                      // and announce "Saved" -- surface it, like the guards above.
+                      // blob write failure, crypto not built).
                       if (!saveSucceeded(id)) {
                         if (ctx.mounted) setSheet(() { saving = false; error = saveOutcomeMessage(id, keys); });
                         return;
                       }
                       if (!mounted) return;
                       if (ctx.mounted) nav.pop(); // only pop if the sheet is still open
-                      // After saving, show the new record at the top of Recent (it is
-                      // the newest). Saving is not a query: don't drop into a search for
-                      // it, and don't leave its tags stuck in the search box.
+                      // Show the new record at the top of Recent. Saving is not a
+                      // query: don't drop into a search for it.
                       _setView('timeline');
                       _runFolderSync(silent: true); // push the new record to peers
                       messenger.showSnackBar(SnackBar(
@@ -2910,7 +2733,7 @@ class _RecallPageState extends State<RecallPage> {
       ),
       ),
     ).whenComplete(() {
-      // The sheet closed (saved, cancelled, or swipe-dismissed): free its fields.
+      // saved, cancelled, or swipe-dismissed: free the fields either way
       valCtrl.dispose();
       keysCtrl.dispose();
       ppCtrl.dispose();
@@ -2923,17 +2746,15 @@ class _RecallPageState extends State<RecallPage> {
     _speech.cancel(); // stop any active recognizer session
     // A background LAN sync may still hold this handle by address; close()ing
     // (freeing) it now would be a use-after-free in that isolate. This is the
-    // top-level page, so a dispose means the app is going away -- let the OS
-    // reclaim the handle rather than free it out from under an in-flight sync.
+    // top-level page, so a dispose means the app is going away: let the OS reclaim it.
     if (!_syncBusy) _ais?.close();
     super.dispose();
   }
 }
 
 // A non-dismissible barrier dialog shown while a sync FFI call blocks: it keeps
-// the UI from touching the shared engine handle during the sync, shows an
-// optional desktop command (send), and closes itself when the future completes
-// (peer done, or timeout). Used by both receive and send.
+// the UI off the shared engine handle during the sync and closes itself when the
+// future completes (peer done, or timeout). Used by both receive and send.
 class _SyncWaitDialog extends StatefulWidget {
   final String title;
   final String? qrData;       // ais:// pairing link; shown as a QR on host, null hides it
@@ -2958,8 +2779,8 @@ class _SyncWaitDialogState extends State<_SyncWaitDialog> {
   @override
   void initState() {
     super.initState();
-    // Auto-close when the sync finishes; pop(false) marks "completed on its own"
-    // so the caller can tell it apart from the user hiding it (pop(true)).
+    // Auto-close on finish: pop(false) means "completed on its own", pop(true) is
+    // the user hiding it.
     widget.done.whenComplete(() {
       if (mounted) Navigator.of(context).pop(false);
     });
@@ -2970,7 +2791,7 @@ class _SyncWaitDialogState extends State<_SyncWaitDialog> {
         title: Text(widget.title),
         // Bound the width: QrImageView is a CustomPaint with no intrinsic size,
         // so an unbounded-width AlertDialog content collapses it and the whole
-        // card never paints (the Host pane bug; Join has no QR, so it was fine).
+        // card never paints.
         content: SizedBox(
           width: 260,
           child: Column(
@@ -3011,8 +2832,7 @@ class _SyncWaitDialogState extends State<_SyncWaitDialog> {
                       .bodySmall
                       ?.copyWith(fontFamily: 'monospace')),
               // Selecting monospace text is fiddly on a phone, and the fallback
-              // when a camera refuses the ais:// scheme is retyping 32 hex
-              // characters between two devices. One tap instead.
+              // when a camera refuses the ais:// scheme is retyping 32 hex chars.
               Align(
                 alignment: Alignment.centerLeft,
                 child: TextButton.icon(
@@ -3046,9 +2866,9 @@ class _SyncWaitDialogState extends State<_SyncWaitDialog> {
           ],
         )),
         actions: [
-          // "Hide", not "Cancel": an in-flight network sync can't be safely
-          // aborted mid-merge, so this only dismisses the dialog -- the sync
-          // keeps running (see note above) and the result arrives as a snackbar.
+          // "Hide", not "Cancel": an in-flight network sync cannot be safely
+          // aborted mid-merge, so this only dismisses the dialog; the sync keeps
+          // running and the result arrives as a snackbar.
           TextButton(
               onPressed: () => Navigator.pop(context, true),
               child: const Text('Hide')),

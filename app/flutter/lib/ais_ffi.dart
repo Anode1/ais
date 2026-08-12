@@ -1,6 +1,5 @@
 // ais_ffi.dart -- Dart FFI binding to the AIS C engine (see ../../../c/embed.h).
-// The C does the work; this only marshals strings across the boundary. Same
-// engine, same `id|value` contract as the CLI and `ais serve`.
+// Marshals strings across the boundary; same `id|value` contract as the CLI.
 import 'dart:ffi';
 import 'dart:io' show Platform;
 import 'dart:isolate';
@@ -72,7 +71,6 @@ class TlRow {
   const TlRow(this.id, this.ts, this.keys, this.value);
 }
 
-/// One tag: the key and how many records are filed under it.
 class TagRow {
   final String key;
   final int count;
@@ -87,9 +85,9 @@ DynamicLibrary _load() {
   throw UnsupportedError('AIS: unsupported platform');
 }
 
-/// Index resolution and saved-default, independent of an open handle -- so the
-/// app can find the same index the CLI would (and persist a new choice) before
-/// it opens anything. No env vars: the C resolves home via the OS.
+/// Index resolution and saved-default, independent of an open handle: the app
+/// finds the index the CLI would, and persists a new choice, before opening
+/// anything. No env vars; the C resolves home via the OS.
 class AisIndex {
   static final DynamicLibrary _lib = _load();
   static final _LocateD _locate =
@@ -120,14 +118,13 @@ class AisIndex {
   }
 
   /// The version of the ENGINE this build actually links, e.g. "0.4.0" -- not the
-  /// app's version. A Flutter bundle can ship a stale libais (it has: a two-week-old
-  /// engine had testers re-filing fixed bugs), and nothing on screen revealed it.
+  /// app's version; a Flutter bundle can ship a stale libais.
   ///
-  /// Null when the loaded library does not export `ais_version` -- older engines do
-  /// not, so this is looked up lazily and per call rather than as a `static final`
-  /// (an eager binding would throw at field initialization and take the whole class
-  /// with it). The caller shows "engine: unknown". The returned `const char *` is a
-  /// static string owned by the library: read it, never free it.
+  /// Null when the loaded library does not export `ais_version`: older engines do
+  /// not, so it is looked up lazily and per call rather than as a `static final`,
+  /// whose eager binding would throw at field initialization and take the whole
+  /// class with it. The returned `const char *` is a static string owned by the
+  /// library: read it, never free it.
   static String? engineVersion() {
     try {
       final p = _lib.lookupFunction<_VersionC, _VersionD>('ais_version')();
@@ -184,18 +181,16 @@ class AisEngine {
   }
 
   /// Recall the records filed under [keys]. orMode false = AND, true = OR.
-  /// Each hit keeps its id (the handle for [del]/[update]) and value.
   List<Hit> recall(String keys, {bool orMode = false}) =>
       recallPage(keys, orMode: orMode); // whole set (after 0, count 0)
 
   /// A recall page: the [count] records under [keys] with id > [after], ids
   /// ascending. after <= 0 starts from the first; pass the largest id shown to
   /// page on. A page shorter than [count] means there are no more. count <= 0
-  /// returns the whole match set (what [recall] does). This is the keyset cursor
-  /// the search view scrolls, so a million-hit query never loads whole.
+  /// returns the whole match set (what [recall] does).
   List<Hit> recallPage(String keys, {bool orMode = false, int after = 0, int count = 0}) {
-    // try/finally so the input AND the engine's result buffer are freed even if
-    // toDartString() throws on invalid UTF-8 (both would otherwise leak).
+    // try/finally frees the input AND the engine's result buffer even if
+    // toDartString() throws on invalid UTF-8.
     Pointer<Utf8> k = nullptr, p = nullptr;
     try {
       k = keys.toNativeUtf8();
@@ -217,9 +212,8 @@ class AisEngine {
     }
   }
 
-  /// Content search: the records whose VALUE contains [needle] (a plain, case-
-  /// sensitive substring), for a "forgot the key" fallback. Each hit keeps its
-  /// id and value, exactly like [recall].
+  /// Content search: the records whose VALUE contains [needle] (a plain,
+  /// case-sensitive substring), for a "forgot the key" fallback.
   List<Hit> find(String needle) {
     Pointer<Utf8> n = nullptr, p = nullptr;
     try {
@@ -273,8 +267,7 @@ class AisEngine {
 
   /// A tag page: up to [count] tags after the ([afterCount], [afterKey]) cursor
   /// in busiest-first order. afterKey '' is the first page; pass the last row's
-  /// count+key to page on. count <= 0 returns the whole cloud (what [tags]
-  /// does). Lets the Tags view scroll a large cloud instead of building it whole.
+  /// count+key to page on. count <= 0 returns the whole cloud (what [tags] does).
   List<TagRow> tagsPage({int afterCount = 0, String afterKey = '', int count = 0}) {
     Pointer<Utf8> ak = nullptr, p = nullptr;
     try {
@@ -291,9 +284,8 @@ class AisEngine {
     }
   }
 
-  /// Record [id]'s keys as one space-separated string (the same KEYS the
-  /// timeline shows), for an "edit keys" chip editor. '' if the record has no
-  /// keys or the id is unknown/deleted.
+  /// Record [id]'s keys as one space-separated string, for a chip editor. '' if
+  /// the record has no keys or the id is unknown/deleted.
   String keysOf(int id) {
     final p = _keysFn(_h, id);
     if (p == nullptr) return '';
@@ -351,8 +343,8 @@ class AisEngine {
   }
 
   /// Resolve [value] to the text to SHOW: a document blob's content (bounded),
-  /// else [value] verbatim. Blob resolution lives in the C engine (shared with
-  /// the CLI and `ais serve`), so the app never reads blob files itself.
+  /// else [value] verbatim. Blob resolution lives in the C engine, so the app
+  /// never reads blob files itself.
   String display(String value) {
     Pointer<Utf8> v = nullptr, p = nullptr;
     try {
@@ -366,9 +358,8 @@ class AisEngine {
     }
   }
 
-  /// [storeEncrypted] off the UI isolate: the Argon2 KDF is ~1s, so run it in a
-  /// background isolate to keep the UI responsive. The engine handle is shared
-  /// across isolates (same process), so it is passed by address.
+  /// [storeEncrypted] off the UI isolate: the Argon2 KDF is ~1s. The engine handle
+  /// is shared across isolates (same process), so it is passed by address.
   Future<int> storeEncryptedAsync(String keys, String value, String passphrase) {
     final addr = _h.address;
     return Isolate.run(() {
@@ -453,10 +444,9 @@ class AisEngine {
     });
   }
 
-  /// Write the WHOLE index to [path] as a PLAINTEXT bundle (no passphrase), for
-  /// offline sync (save/move the file by Drive / USB / email, import elsewhere).
+  /// Write the WHOLE index to [path] as a PLAINTEXT bundle (no passphrase).
   /// Encrypted values stay opaque (already ciphertext in the store). File I/O
-  /// only, no network. Returns the C int: 0 = written, -1 = bad args / write error.
+  /// only, no network. Returns 0 = written, -1 = bad args / write error.
   int exportBundle(String path) {
     final p = path.toNativeUtf8();
     try {
@@ -466,9 +456,7 @@ class AisEngine {
     }
   }
 
-  /// How many LIVE records this index holds; -1 on error. Shown after a sync:
-  /// "Synced" alone does not tell the user whether anything arrived, and here
-  /// the sync IS the backup.
+  /// How many LIVE records this index holds; -1 on error.
   int countLive() => _count(_h);
 
   /// Read the plaintext bundle at [path] and merge it into this index (same
@@ -484,14 +472,13 @@ class AisEngine {
   }
 
   /// One folder-sync pass over [folder] (a Syncthing / cloud folder): import every
-  /// peer's framed bundle, then (re)write our own; heals a device-id clone. Returns
-  /// true on success.
+  /// peer's framed bundle, then (re)write our own; heals a device-id clone.
   bool syncFolder(String folder) => syncFolderCode(folder) == 0;
 
   /// The same pass, keeping the engine's reason for a failure. 0 = synced; the
   /// negative codes are AIS_FOLDER_* (see c/sync.h) and each has its own remedy,
-  /// so the UI must show WHICH rather than a flat "sync failed". [force] accepts a
-  /// folder we have synced with before that now holds no device copies at all.
+  /// so the UI must show WHICH. [force] accepts a folder we have synced with
+  /// before that now holds no device copies at all.
   ///
   /// The forcing entry point is looked up lazily, in a try/catch: an older bundled
   /// libais.so does not export it, and an eager binding would take the class down
@@ -550,10 +537,9 @@ class AisEngine {
     }
   }
 
-  /// Replace record [id]'s value ([oldValue] -> [newValue]), preserving its id,
-  /// save time and keys (the in-place value edit). [oldValue] must be the
-  /// record's exact stored value. True on success (false if id unknown or the
-  /// value did not match, leaving the store untouched).
+  /// Replace record [id]'s value, preserving its id, save time and keys.
+  /// [oldValue] must be the record's exact stored value; a mismatch or an unknown
+  /// id returns false and leaves the store untouched.
   bool setValue(int id, String oldValue, String newValue) {
     Pointer<Utf8> o = nullptr, n = nullptr;
     try {

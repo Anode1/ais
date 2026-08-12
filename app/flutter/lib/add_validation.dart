@@ -1,14 +1,12 @@
 // add_validation.dart -- the pure decision behind the Add sheet's Save button,
-// kept engine- and widget-free so it is unit-testable. The bug this guards: the
-// Save handler used to `return` silently on an empty value, during a sync, or on
-// a missing passphrase, leaving the dialog open with no feedback ("nothing
-// happens, very confusing"). Every non-proceed path now yields a message.
+// kept engine- and widget-free so it is unit-testable. Every non-proceed path
+// yields a message: Save never fails silently.
 
 // Engine limits (see c/common.h). One encoded key (a path component) is bounded
-// by AIS_KEY_MAX; one whole store line (id|ts|keys|value) by AIS_LINE_MAX. We
-// bound the value by AIS_LINE_MAX as a coarse guard -- the engine enforces the
+// by AIS_KEY_MAX; one whole store line (id|ts|keys|value) by AIS_LINE_MAX. The
+// value is bounded by AIS_LINE_MAX as a coarse guard -- the engine enforces the
 // exact line budget -- so an over-long paste gets a length-specific message
-// instead of being silently truncated behind the generic "Could not save".
+// instead of the generic "Could not save".
 const int kAisKeyMax = 512;
 const int kAisLineMax = 65536;
 
@@ -33,8 +31,7 @@ String? addSaveError({
 /// A length/character problem the engine would silently swallow, or null when
 /// [value] and [keys] are within the engine's limits. A NUL byte truncates the
 /// record at the C-string boundary; an over-long key or value is dropped or
-/// truncated. Surface WHY rather than let a save look like it worked and lose
-/// text. [keys] is the normalized, space-separated tag string.
+/// truncated. [keys] is the normalized, space-separated tag string.
 String? contentError({required String value, required String keys}) {
   if (value.contains('\u0000') || keys.contains('\u0000')) {
     return 'Remove the special (null) character before saving.';
@@ -54,15 +51,12 @@ String? contentError({required String value, required String keys}) {
 /// storeEncryptedAsync() return the new id, or -1 when nothing was written.
 bool saveSucceeded(int id) => id >= 0;
 
-/// The message after an Add save. The bug this guards: the handler popped the
-/// sheet and showed "Saved" even when the engine returned -1 (bad args, blob
-/// write failure, crypto not built), so a failed write looked successful.
+/// The message after an Add save. id < 0 (bad args, blob write failure, crypto
+/// not built) is reported as a failure, never as "Saved".
 String saveOutcomeMessage(int id, String keys) => !saveSucceeded(id)
     ? 'Could not save. Check storage and try again.'
     : (keys.isEmpty ? 'Saved (no tags)' : 'Saved under: $keys');
 
 /// The message after an in-place tag edit; the engine's update() bool decides.
-/// The bug this guards: the handler showed "Tags updated" unconditionally, even
-/// when update() returned false (unknown/deleted record), telling the user an
-/// edit succeeded that changed nothing.
+/// It is false for an unknown or deleted record, where nothing changed.
 String tagsUpdateMessage(bool ok) => ok ? 'Tags updated' : "Couldn't update tags";

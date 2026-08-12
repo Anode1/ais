@@ -1,14 +1,10 @@
 /// Collapsing a recall page to one row per RECORD.
 ///
-/// recall returns one hit per LINK, and a record can hold several. Rendering
-/// those as separate rows was actively dangerous rather than merely untidy:
-/// there is no "delete one link" operation, so deleting any of those rows
-/// deleted the whole record -- every link -- and the delete path removed the
-/// FIRST row carrying that id, which was usually not the row the user tapped.
-/// Three acceptance testers hit it independently; one watched a row they had
-/// not touched vanish while the one they deleted stayed on screen.
+/// recall returns one hit per LINK, and a record can hold several. There is no
+/// "delete one link" operation: a per-link row deletes the whole record, and the
+/// delete path removes the FIRST row carrying that id, not the row tapped.
 ///
-/// Kept here, out of the widget, so it can be tested without a Flutter binding.
+/// Kept out of the widget so it can be tested without a Flutter binding.
 library;
 
 import 'ais_ffi.dart';
@@ -22,8 +18,8 @@ class GroupedRows {
 }
 
 /// Keep the first hit per id, in the order the engine returned them, and count
-/// the rest. Order matters: it is the engine's relevance/id order, and shuffling
-/// it would make the same query look different between pages.
+/// the rest. The order is the engine's relevance/id order; re-sorting it would
+/// make the same query look different from one page to the next.
 GroupedRows oneRowPerRecord(List<Hit> page) {
   final rows = <Hit>[];
   final extra = <int, int>{};

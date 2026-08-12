@@ -1,13 +1,12 @@
 #!/bin/sh
-# run.sh -- the whole ais test suite (this is what `make ut` runs), in two groups:
+# run.sh -- the whole ais test suite (what `make ut` runs), in two groups:
 #
 #   CORE  the must-pass gate: engine tests (codeut) + CLI black-box (cliut).
-#   GUI   the front-ends over the one engine: --serve (uiut = HTTP api + browser
-#         render), native Windows, Flutter. May lag; a layer whose toolchain is
-#         absent (no curl/Chrome, no MinGW, no Flutter SDK) reports SKIP, not FAIL.
+#   GUI   the front-ends over the one engine. A layer whose toolchain is absent
+#         (no curl/Chrome, no MinGW, no Flutter SDK) reports SKIP, not FAIL.
 #
-# A green CORE with a red or skipped GUI is fine to commit -- the summary says
-# which side. Exit is non-zero iff a non-skipped layer FAILS.
+# A green CORE with a red or skipped GUI is fine to commit. Exit is non-zero iff
+# a non-skipped layer FAILS.
 #
 # Usage:  make ut        (or  sh tests/run.sh)
 

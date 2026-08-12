@@ -1,11 +1,10 @@
 #!/bin/sh
-# serve.sh -- GUI layer: end-to-end tests of the `ais --serve` HTTP API (the web
-# GUI's backend), including the encrypt save + reveal round-trip. Starts the
-# server HEADLESS (AIS_NO_OPEN=1) on a throwaway /tmp index and a high port,
-# curls the endpoints, asserts, and tears it down. POSIX sh.
+# serve.sh -- end-to-end tests of the `ais --serve` HTTP API. Starts the server
+# HEADLESS (AIS_NO_OPEN=1) on a throwaway /tmp index and a high port, curls the
+# endpoints, and tears it down. POSIX sh.
 #
-# Needs: the ais binary, curl, and the crypto module built (encrypt/reveal cases).
-# Exit 0 = all passed, 1 = a failure, 77 = SKIP (curl absent).
+# Needs the ais binary, curl, and the crypto module (encrypt/reveal cases).
+# Exit 0 = passed, 1 = a failure, 77 = SKIP (curl absent).
 #
 # Usage:  sh tests/gui/serve.sh [path-to-ais]      (default ./c/ais)
 
@@ -18,11 +17,9 @@ IDX=$(mktemp -d)
 PORT=$(( 18000 + ($$ % 2000) ))
 SRV=
 
-# /api/store persists the chosen index to the developer's REAL ~/.ais/config
-# (ais_default_set), and this suite points it at temp dirs it then deletes. Without
-# a snapshot every `make ut` left the developer's saved default pointing at a
-# directory that no longer exists, so their next plain `ais` call could not open
-# its index. Same guard as tests/cli.sh around --default.
+# /api/store persists the chosen index to the REAL ~/.ais/config (ais_default_set),
+# and this suite points it at temp dirs it then deletes: snapshot and restore it,
+# the same guard tests/cli.sh uses around --default.
 CFG="$HOME/.ais/config"
 CFGBAK="$IDX.config.orig"; HADCFG=no
 [ -f "$CFG" ] && { cp "$CFG" "$CFGBAK"; HADCFG=yes; }
@@ -50,7 +47,6 @@ B="http://127.0.0.1:$PORT"
 i=0; while [ $i -lt 50 ]; do curl -s -o /dev/null "$B/" && break; i=$((i+1)); sleep 0.1; done
 if ! curl -s -o /dev/null "$B/"; then echo "  FAIL server did not start on $PORT"; exit 1; fi
 
-# plain put + get
 ok "put (plain)"   "saved 1"      "$(printf 'hello venice' | curl -s -X POST --data-binary @- "$B/api/put?keys=venice")"
 ok "get (plain)"   "hello venice" "$(curl -s "$B/api/get?keys=venice")"
 
@@ -78,8 +74,7 @@ curl -s "$B/api/get?keys=pgk" | cut -d'|' -f1 | while read -r pid; do
   [ -n "$pid" ] && curl -s -X POST "$B/api/del?id=$pid" >/dev/null; done
 
 # --- CSRF: cross-origin browser calls to the API are refused ----------------
-# A malicious page's fetch carries Sec-Fetch-Site: cross-site (browsers always
-# send it); the GUI's own fetch carries same-origin; a bare curl sends neither.
+# A page's fetch sends Sec-Fetch-Site: cross-site or same-origin; curl sends none.
 ok "csrf: cross-site GET refused"  "cross-origin request refused" \
    "$(curl -s -H 'Sec-Fetch-Site: cross-site' "$B/api/get?keys=venice")"
 ok "csrf: cross-site sync/join refused (exfil vector)" "cross-origin request refused" \
@@ -94,11 +89,8 @@ no "csrf: the page itself is not gated" "refused" \
    "$(curl -s -H 'Sec-Fetch-Site: cross-site' "$B/")"
 
 # --- Regression: split-packet POST -----------------------------------------
-# A browser's fetch() sends the POST body in a SEPARATE TCP segment from the
-# headers. curl (above) coalesces them, so a server that reads once and assumes
-# the whole request arrived together passes curl but RESETS a real browser
-# ("failed to fetch", nothing saved). These force the split with a pause between
-# writes -- the reproduction the old suite lacked. SKIP if python3 is absent.
+# A browser's fetch() sends the POST body in a separate TCP segment from the
+# headers, which curl coalesces. SKIP if python3 is absent.
 if command -v python3 >/dev/null 2>&1; then
   split_post() {   # split_post PATH BODY  ->  response body
     python3 - "$PORT" "$1" "$2" <<'PY'
@@ -129,10 +121,8 @@ else
 fi
 
 # --- Regression: oversized POST body -> 413, never a truncated silent save ----
-# A body past the ~64KB request buffer used to be read up to the buffer, the
-# TRUNCATED value persisted while the route still returned "saved 1", and the
-# unread tail RST the socket ("failed to fetch") on close. Now the server drains
-# the remainder and returns 413, storing nothing. curl-only (no python needed).
+# A body past the ~64KB request buffer must be drained and answered 413, storing
+# nothing; an unread tail RSTs the socket on close. curl-only, no python needed.
 BIGF=$(mktemp)
 if command -v python3 >/dev/null 2>&1; then python3 -c "open('$BIGF','w').write('A'*100000)"
 else awk 'BEGIN{for(i=0;i<100000;i++)printf "A"}' > "$BIGF"; fi
@@ -142,9 +132,8 @@ empty "oversized body stored nothing"                       "$(curl -s "$B/api/g
 rm -f "$BIGF"
 
 # --- Regression: header block split across TCP segments ------------------------
-# Content-Length used to be parsed only from the first read; a request whose
-# headers arrived in >1 packet left body_len=0, skipped the drain, and silently
-# saved nothing ("saved 0"). Now the server reads until the header terminator.
+# The server must read until the header terminator: Content-Length parsed from
+# the first read alone leaves body_len=0 and saves nothing.
 if command -v python3 >/dev/null 2>&1; then
   split_header() {  # split_header PATH BODY  ->  response body
     python3 - "$PORT" "$1" "$2" <<'PY'
@@ -173,7 +162,6 @@ ok "put (encrypted)" "saved 1"    "$(printf 'pw123\ns3cr3t-token' | curl -s -X P
 MARKED=$(curl -s "$B/api/get?keys=gmail" | sed 's/^[0-9]*|//')
 ok "stored opaque (aisc:)" "aisc:" "$MARKED"
 
-# reveal round-trip
 ok    "reveal (right passphrase)" "s3cr3t-token" "$(printf 'pw123\n%s' "$MARKED" | curl -s -X POST --data-binary @- "$B/api/reveal")"
 empty "reveal (wrong passphrase fails closed)"   "$(printf 'nope\n%s'  "$MARKED" | curl -s -X POST --data-binary @- "$B/api/reveal")"
 
@@ -185,9 +173,8 @@ ok "page: sync sheet title"  "Sync with another device"  "$PAGE"
 ok "page: host label"        "synchostbtn"               "$PAGE"
 ok "page: join label"        "syncjoinbtn"               "$PAGE"
 ok "page: QR encoder (pure JS, no server dep)" "function qrGen" "$PAGE"
-# Regression: actually RUN the encoder and compare to a golden that decodes. The
-# old check above only greps for the string -- a malformed QR (wrong Reed-Solomon
-# ECC) passes it but no phone can scan it. Needs node to run the shipped JS.
+# Run the encoder and compare against a decodable golden: grepping for the
+# function name passes a malformed QR no phone can scan. Needs node.
 if command -v node >/dev/null 2>&1; then
   printf '%s' "$PAGE" > "$IDX/_page.html"
   ok "QR encoder output matches decodable golden" "MATCH" \
@@ -199,12 +186,10 @@ fi
 # Join: a malformed address is rejected as "bad url" (no network touched).
 ok "join (bad url)" "bad url" "$(printf 'notaurl' | curl -s -X POST --data-binary @- "$B/api/sync/join")"
 
-# Host: fork a child that serves one peer; the route returns "http://ip:port"
-# and a 32-hex token at once (never blocking the single-threaded HTTP loop).
-# Port 8766 (AIS_SYNC_PORT) may be held by a lingering host child from a prior
-# run; if so the child can't bind and status goes straight to timeout -- assert
-# the route CONTRACT either way, and only run the live host<->join case when the
-# host actually reaches "waiting".
+# Host: fork a child that serves one peer; the route returns "http://ip:port" and
+# a 32-hex token at once, never blocking the single-threaded HTTP loop. Port 8766
+# (AIS_SYNC_PORT) may still be held by a host child from a prior run, so the live
+# host<->join case runs only when status reaches "waiting".
 HOST=$(curl -s -X POST "$B/api/sync/host")
 HURL=$(printf '%s' "$HOST" | sed -n 1p)
 HTOK=$(printf '%s' "$HOST" | sed -n 2p)
@@ -236,8 +221,7 @@ esac
 for p in $(command -v ss >/dev/null 2>&1 && ss -ltnp 2>/dev/null | grep ':8766 ' | grep -o 'pid=[0-9]*' | cut -d= -f2 | sort -u); do kill "$p" 2>/dev/null; done
 
 # --- the two tag-level operations the Tags view offers -------------------
-# They are one keystroke apart in the UI and opposite in consequence, so the
-# API contract for each is pinned separately: untag must destroy NOTHING.
+# One keystroke apart in the UI and opposite in consequence: untag destroys nothing.
 printf 'u one' | curl -s -X POST --data-binary @- "$B/api/put?keys=utag+ukeep" >/dev/null
 printf 'u two' | curl -s -X POST --data-binary @- "$B/api/put?keys=utag" >/dev/null
 ok "untag: reports how many it detached" "untagged 2" \
@@ -264,9 +248,8 @@ ok "untag: a multi-key value is refused"  "400" \
    "$(curl -s -o /dev/null -w '%{http_code}' -X POST "$B/api/untag?keys=aa+bb")"
 ok "del-under: a multi-key value is refused" "400" \
    "$(curl -s -o /dev/null -w '%{http_code}' -X POST "$B/api/del-under?keys=aa+bb")"
-# /api/del-under shreds encrypted blobs before tombstoning, exactly as /api/del
-# and the CLI do: the ciphertext must not outlive the record. The blob reference
-# is written by hand so this pins the WIRING without needing the crypto module.
+# /api/del-under shreds encrypted blobs before tombstoning, as /api/del and the
+# CLI do. The blob reference is written by hand, so no crypto module is needed.
 mkdir -p "$IDX/blobs"
 printf 'ciphertext\n' > "$IDX/blobs/w1.aisc"
 printf 'ciphertext\n' > "$IDX/blobs/w2.aisc"
@@ -290,8 +273,7 @@ curl -s -X POST "$B/api/del?id=$delid" >/dev/null
 okd=$(curl -s "$B/api/stats" | grep -c 'deleted: [1-9]')
 okeq2() { if [ "$2" = "$3" ]; then pass=$((pass+1)); echo "  ok   $1"; else fail=$((fail+1)); echo "  FAIL $1 (want '$2', got '$3')"; fi; }
 okeq2 "stats: reports what clean-up would reclaim" "1" "$okd"
-# a browser cannot run `ais --version`, and which of the four numbers moved is the
-# first thing a bug report needs -- see doc/dev/VERSIONING.md
+# a browser cannot run `ais --version`; see doc/dev/VERSIONING.md
 ver=$(curl -s "$B/api/version")
 ok "version: reports the engine version"      "engine: " "$ver"
 ok "version: reports the on-disk format"      "format: v" "$ver"
@@ -307,10 +289,8 @@ ok "compact: forget=1 also drops the delete facts" "cleaned and forgotten" \
 okno() { case "$3" in *"$2"*) fail=$((fail+1)); echo "  FAIL $1";; *) pass=$((pass+1)); echo "  ok   $1";; esac; }
 okno "compact: nothing is left to test a guess against" "cmpf" "$(cat "$IDX/tomb" 2>/dev/null)"
 
-# --- folder sync over HTTP: each refusal names its own cause, and the page's
-#     "Sync with it anyway" really reaches the engine. That button was dead once,
-#     because the query loop consumes `query` before an endpoint ever reads it,
-#     and nothing here noticed.
+# --- folder sync over HTTP: each refusal names its own cause, and force=1 (the
+#     page's "Sync with it anyway") really reaches the engine.
 FS="${TMPDIR:-/tmp}/ais_serve_fld.$$"
 rm -rf "$FS"
 ok "sync-folder: a missing folder is named"  "no such folder" \
@@ -328,12 +308,8 @@ ok "sync-folder: and force=1 accepts it (the page's Sync anyway)" "synced" \
    "$(curl -s -X POST --data-binary "$FS" "$B/api/sync-folder?force=1")"
 rm -rf "$FS"
 
-# --- /api/del: the GUI's delete, finally asserted ----------------------------
-#     It was called three times in this suite already, every time as SETUP for a
-#     different test, and never once checked. A destructive endpoint whose effect
-#     nothing asserts is indistinguishable from one that silently does nothing:
-#     every test that used it would still pass if del were a no-op, because they
-#     only ever cared that it returned.
+# --- /api/del: the GUI's delete, asserted for its effect ---------------------
+#     Elsewhere it is only ever setup, so every use would pass if del were a no-op.
 printf 'delete me' | curl -s -X POST --data-binary @- "$B/api/put?keys=delk" >/dev/null
 printf 'keep me'   | curl -s -X POST --data-binary @- "$B/api/put?keys=delkeep" >/dev/null
 did=$(curl -s "$B/api/get?keys=delk" | head -1 | cut -d'|' -f1)
@@ -341,25 +317,21 @@ ok    "del: the record is there before"       "delete me" "$(curl -s "$B/api/get
 ok    "del: reports what it removed"          "deleted"   "$(curl -s -X POST "$B/api/del?id=$did")"
 empty "del: and the record is really gone"    "$(curl -s "$B/api/get?keys=delk")"
 ok    "del: the neighbour is untouched"       "keep me"   "$(curl -s "$B/api/get?keys=delkeep")"
-# Deleting an already-gone id reports "deleted" and succeeds. That is IDEMPOTENT,
-# not a bug: `ais -y --del <gone-id>` exits 0 too, so both front ends agree, and a
-# double-tap on a phone must not raise an error. Pinned here so the two cannot
-# drift apart silently. It does mean a wrong id reports success, which is worth
-# revisiting after the release, not days before it.
+# Deleting an already-gone id reports "deleted" and succeeds, matching `ais -y
+# --del <gone-id>`, so a double-tap on a phone raises no error. It does mean a
+# wrong id reports success.
 ok    "del: a second delete is idempotent, not an error" "deleted" \
       "$(curl -s -X POST "$B/api/del?id=$did")"
 ok    "del: and the CLI agrees, so the front ends match" "deleted" \
       "$(curl -s -X POST "$B/api/del?id=999999")"
 
 # --- the bundle endpoints: "Export to a file" / "Import from a file" ---------
-#     Both had zero coverage anywhere, while being the backup-and-restore path a
-#     tester reaches for first. import-bundle also carries a special case in the
-#     request reader (the one route allowed to arrive in a later packet), so it
-#     is exactly where an untested body path would bite.
+#     import-bundle carries a special case in the request reader: it is the one
+#     route allowed to arrive in a later packet.
 BND=$(curl -s "$B/api/export-bundle")
 ok "export-bundle: serves the A| merge stream"     "A|"           "$BND"
 # the filename is a contract: the Flutter save dialog and its .aisb type group
-# both key off it, so a change here breaks Export on the phone, silently.
+# key off it, so a change here silently breaks Export on the phone.
 ok "export-bundle: offers it as a .aisb attachment" 'filename="ais-export.aisb"' \
    "$(curl -s -D - -o /dev/null "$B/api/export-bundle")"
 

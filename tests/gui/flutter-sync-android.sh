@@ -1,11 +1,9 @@
 #!/bin/sh
 # flutter-sync-android.sh -- drive the REAL Android app through a real sync.
 #
-# WHY ANDROID AND NOT THE DESKTOP BUILD. app/flutter/uitest/run.sh drives the
-# Linux desktop build with xdotool, which needs clang + ninja + libgtk-3-dev.
-# On a Pop!_OS box those cannot be installed without downgrading the running
-# desktop's Wayland libraries, so that harness cannot run at all there -- and an
-# APK is what users actually install, so this is the more honest target anyway.
+# The Linux desktop harness (app/flutter/uitest/run.sh) needs clang + ninja +
+# libgtk-3-dev, which on Pop!_OS cannot be installed without downgrading the
+# running desktop's Wayland libraries. An APK is also what users install.
 #
 # What it proves, end to end, on the shipped artifact:
 #   - the ais:// deep link opens the app and prefills Join (the scan-to-pair path)
@@ -13,12 +11,11 @@
 #   - records cross in BOTH directions against a CLI peer on the host
 #
 # The emulator reaches the host at 10.0.2.2. The app's index is app-private, so
-# assertions read it back with `run-as`, which works because this is a debug build.
+# assertions read it back with `run-as`, which needs this debug build.
 #
-# NON-DESTRUCTIVE by default: it merges one proof record into whatever index the
-# emulator already holds and asserts that record crossed. Set AIS_ANDROID_CLEAR=1
-# to wipe the app's data first for a clean-room run -- that DELETES whatever is on
-# the emulator, so it is opt-in.
+# NON-DESTRUCTIVE by default: it merges one proof record and asserts it crossed.
+# AIS_ANDROID_CLEAR=1 wipes the app's data first, which DELETES what is on the
+# emulator, so it is opt-in.
 #
 # Exit 0 = pass, 1 = fail, 77 = SKIP (no emulator/toolchain).
 
@@ -40,9 +37,8 @@ command -v flutter >/dev/null 2>&1 || { echo "  SKIP no flutter SDK"; exit 77; }
 booted_here=""
 dev=$("$ADB" devices | awk 'NR>1 && $2=="device" {print $1; exit}')
 if [ -z "$dev" ]; then
-    # Booting an AVD costs a minute or two, which is too much to spend on every
-    # `make ut`. With nothing attached this SKIPs; set AIS_ANDROID_BOOT=1 to have
-    # it start one (what CI, or a deliberate pre-release run, would do).
+    # Booting an AVD costs a minute or two, too much for every `make ut`: with
+    # nothing attached this SKIPs, and AIS_ANDROID_BOOT=1 starts one.
     [ -n "${AIS_ANDROID_BOOT:-}" ] || { echo "  SKIP no device attached (AIS_ANDROID_BOOT=1 to boot an AVD)"; exit 77; }
     [ -x "$EMU" ] || { echo "  SKIP no emulator and no device attached"; exit 77; }
     avd=$("$EMU" -list-avds 2>/dev/null | head -1)
@@ -63,10 +59,9 @@ fi
 work=$(mktemp -d "${TMPDIR:-/tmp}/ais_androidsync.XXXXXX")
 peer_pid=""
 cleanup() {
-    # Every step is best-effort AND the function ends in `true`. The peer is
-    # single-shot, so by the time we get here it has usually exited on its own
-    # and `kill` fails -- and in dash the EXIT trap's last status overrides the
-    # script's, which turned a passing run into "ok" followed by exit 1.
+    # Every step is best-effort and the function ends in `true`: the peer is
+    # single-shot, so `kill` usually fails here, and in dash the EXIT trap's last
+    # status overrides the script's.
     [ -n "$peer_pid" ] && kill "$peer_pid" 2>/dev/null || true
     [ -n "$booted_here" ] && "$ADB" emu kill >/dev/null 2>&1 || true
     rm -rf "$work" || true

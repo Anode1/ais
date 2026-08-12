@@ -1,16 +1,11 @@
 #!/bin/sh
-# ui.sh -- GUI layer: browser render test of the `ais --serve` web page. Drives real
-# headless Chrome against a live server on a throwaway /tmp index and asserts on the
-# RENDERED DOM (after the page's JS runs) -- the browser-side complement to serve.sh,
-# which asserts the /api JSON. Breadth, read-only: the page loads and its controls exist
-# by id (the same rule as any UI test: anchor on ids, never presentational classes).
-#
-# This is the static render cut (controls exist post-JS). The click-and-assert
-# complement -- typing a query and asserting the result renders -- is inter.sh,
-# driven by the C CDP client (tests/gui/cdp.c). See tests/README.md.
+# ui.sh -- browser render test of the `ais --serve` web page: headless Chrome
+# against a live server on a throwaway /tmp index, asserting on the RENDERED DOM
+# (after the page's JS runs). Controls are anchored by id, never by class.
+# The click-and-assert complement is inter.sh; the /api JSON is serve.sh.
 #
 # Needs: the ais binary, curl (to wait for the server), and Chrome/Chromium on PATH.
-# Exit 0 = all passed, 1 = a failure, 77 = SKIP (no browser or no curl).
+# Exit 0 = passed, 1 = a failure, 77 = SKIP (no browser or no curl).
 #
 # Usage:  sh tests/gui/ui.sh [path-to-ais]      (default ./c/ais)
 
@@ -39,7 +34,6 @@ B="http://127.0.0.1:$PORT"
 i=0; while [ $i -lt 50 ]; do curl -s -o /dev/null "$B/" && break; i=$((i+1)); sleep 0.1; done
 if ! curl -s -o /dev/null "$B/"; then echo "  FAIL server did not start on $PORT"; exit 1; fi
 
-# render the page in headless Chrome; capture the post-JS DOM
 DOM=$("$BR" --headless --disable-gpu --no-sandbox --virtual-time-budget=3000 \
             --dump-dom "$B/" 2>/dev/null)
 
@@ -68,8 +62,7 @@ has "ui: detail sheet (#sheet)"     'id="sheet"'
 has "ui: timeline range (#tlrange)" 'id="tlrange"'
 has "ui: nav has Timeline"          "Timeline"
 has "ui: nav has Tags"              "Tags"
-# the destructive tag sheet and its three guards: the escape hatch to untag, the
-# type-to-confirm input, and the confirm button that ships DISABLED.
+# the destructive tag sheet and its three guards
 has "ui: delete-under sheet (#dsheet)"   'id="dsheet"'
 has "ui: sheet is a dialog"              'role="dialog"'
 has "ui: escape hatch to untag (#dskeep)" 'id="dskeep"'
@@ -88,18 +81,15 @@ tag() {  # tag LABEL NEEDLE
 }
 tag "ui: #tags opens the Tags view"      "tagrow"
 tag "ui: the safe action names the TAG"  "Remove tag"
-# the destructive label must name the RECORDS and their count, never the tag:
-# that wording is the whole defence against confusing the two.
+# the destructive label must name the RECORDS and their count, never the tag
 tag "ui: the destructive action names the RECORDS" "Delete 1 record"
 
 # --- the OTHER front end: app/index.html, served via $AIS_WEB -------------
-# It is a separate page from the embedded PAGE and had no render coverage, so a
-# control could exist in one and not the other (it did, for the tag actions and
-# the edit sheet). Same ids, so the same assertions apply.
+# A separate page from the embedded PAGE, with deliberately identical ids, so a
+# control can exist in one and not the other.
 APPDIR=$(cd "$(dirname "$0")/../../app" && pwd)
-# +1 collides: these scripts run back-to-back, so their PIDs (and thus their base
-# ports) usually differ by one, and one script's SECOND server lands on the next
-# script's FIRST. Disjoint offsets instead.
+# +1 collides: these scripts run back-to-back, so their PIDs (and base ports)
+# differ by one and one script's SECOND server lands on the next script's FIRST.
 IDX2=$(mktemp -d); PORT2=$(( PORT + 500 ))
 "$AIS" -f "$IDX2" -v "https://example.org/venice" venice >/dev/null 2>&1
 # a DOCUMENT: stored as aisdoc:<base64>, so the page has to decode it to show it
@@ -120,8 +110,7 @@ case $(curl -s "$B2/api/timeline?count=20") in *aisc:*) ENC=yes ;; esac
 
 ADOM=$("$BR" --headless --disable-gpu --no-sandbox --virtual-time-budget=3000 \
              --dump-dom "$B2/#tags" 2>/dev/null)
-# the record list lives in the Timeline view, so the value-rendering assertions
-# need their own dump
+# the record list lives in the Timeline view, so it needs its own dump
 ADOM2=$("$BR" --headless --disable-gpu --no-sandbox --virtual-time-budget=3000 \
               --dump-dom "$B2/#timeline" 2>/dev/null)
 # (server torn down after the sw.js fetch below)
@@ -161,9 +150,8 @@ app "app: the destructive one names RECORDS" "Delete 1 record"
 # the Add sheet can encrypt, like the embedded page's
 app "app: encrypt toggle (#enc)"            'id="enc"'
 app "app: passphrase field (#pp)"           'id="pp"'
-# A DOCUMENT is stored base64-encoded; the page decodes it. Both halves matter:
-# the content on screen, and the marker NOT on screen. Neither string exists in
-# the page source, so only the render can put them there.
+# A DOCUMENT is stored base64-encoded and the page decodes it: assert the text on
+# screen and the base64 NOT on screen. Neither string exists in the page source.
 tl "app: a document renders its text"        "line one"
 tl "app: it keeps its line breaks"           "line three"
 tlno "app: the base64 never reaches the screen" "bGluZSBvbmU"
@@ -182,8 +170,7 @@ case "$SW" in
     *"/api/"*) pass=$((pass + 1)); echo "  ok   app: the worker excludes /api/ from the cache" ;;
     *)         fail=$((fail + 1)); echo "  FAIL app: the worker does not exclude /api/" ;;
 esac
-# NETWORK-FIRST, not cache-first: the old worker also contained "/api/", so that
-# check alone passed with the fix absent. These two exist only in the new one.
+# NETWORK-FIRST, not cache-first: the /api/ check alone passes on a cache-first worker.
 case "$SW" in
     *"clients.claim"*) pass=$((pass + 1)); echo "  ok   app: the worker claims open clients" ;;
     *) fail=$((fail + 1)); echo "  FAIL app: the worker does not claim clients (stale app)" ;;

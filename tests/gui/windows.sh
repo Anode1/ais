@@ -1,15 +1,12 @@
 #!/bin/sh
 # windows.sh -- GUI layer: the native Win32 GUI (win32/ais-gui.c).
 #
-# Building it needs MinGW-w64; driving its UI needs a Windows desktop. Where a
-# MinGW cross-compiler is present (CI), this at least proves the GUI still
-# COMPILES against the engine. With no MinGW (a normal POSIX box, this env), it
-# reports SKIP -- the real click/assert UI test belongs on a Windows runner, or a
-# C CDP client under tests/ (see tests/shot/README.md).
+# Building it needs MinGW-w64; driving its UI needs a Windows desktop. With a
+# MinGW cross-compiler present (CI) this proves the GUI still COMPILES against
+# the engine; with none, it SKIPs.
 #
-# Exit 0 = passed, 77 = SKIP. Native win32 is DEMOTED: a cross-compile failure
-# reports SKIP (non-blocking), never FAIL -- the Flutter app covers Windows, so this
-# native GUI is kept but must not gate a commit.
+# Exit 0 = passed, 77 = SKIP. Native win32 is DEMOTED: even a cross-compile
+# failure reports SKIP, never FAIL, so it cannot gate a commit.
 
 root=$(cd "$(dirname "$0")/../.." && pwd)
 

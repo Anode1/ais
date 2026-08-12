@@ -1,10 +1,8 @@
-// Regression: a recall page must show ONE ROW PER RECORD, not one per link.
+// A recall page must show ONE ROW PER RECORD, not one per link.
 //
-// There is no "delete one link" operation, so a per-link row meant deleting any
-// of them destroyed the whole record, and the delete path removed the first row
-// carrying that id -- usually not the row the user tapped. Three acceptance
-// testers hit it; the app removed a row they had not touched and left the one
-// they deleted on screen.
+// There is no "delete one link" operation: deleting a per-link row destroys the
+// whole record, and the delete path removes the first row carrying that id, not
+// the row tapped.
 import 'package:flutter_test/flutter_test.dart';
 import 'package:ais/ais_ffi.dart';
 import 'package:ais/record_rows.dart';

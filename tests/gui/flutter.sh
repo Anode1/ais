@@ -1,10 +1,9 @@
 #!/bin/sh
 # flutter.sh -- GUI layer: the Flutter app (app/flutter).
 #
-# If the app has unit/widget tests (a test/ dir) and the Flutter SDK is present,
-# run them. Otherwise -- the usual case so far -- `dart analyze` the app, which
-# catches the FFI binding and widget errors without needing the full SDK or a
-# device. With no Dart at all, SKIP.
+# With a test/ dir and the Flutter SDK, run `flutter test`. Otherwise `dart
+# analyze lib`, which catches FFI binding and widget errors without a device.
+# With no Dart at all, SKIP.
 #
 # Exit 0 = passed, 1 = failed, 77 = SKIP.
 

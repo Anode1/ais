@@ -1,18 +1,10 @@
 #!/bin/sh
-# sync.sh -- two-way sync between two ais indexes over loopback, with no device,
-# no emulator and no Flutter toolchain.
+# sync.sh -- two-way sync between two ais indexes over loopback: no device, no
+# emulator, no Flutter toolchain. Two CLI peers on 127.0.0.1 need only a socket,
+# so this runs everywhere and belongs in CORE.
 #
-# Why this exists: `--sync --serve` and `--sync <url> --token` were driven by
-# exactly one script, tests/gui/flutter-sync-android.sh, which SKIPs unless a
-# phone is attached. So the headline feature of the release was never exercised
-# by `make ut` on a developer machine or on CI -- covered on paper, unrun in
-# practice. That is the same shape as the bug recorded in AGENTS.md, where a
-# harness existed but was wired into nothing and sync stopped being tested for
-# weeks. Two CLI peers on 127.0.0.1 need nothing but a socket, so this belongs in
-# CORE and runs everywhere.
-#
-# It also pins --token, which had no assertion anywhere: a wrong token must be
-# refused, or the pairing secret is decorative.
+# It also pins --token: a wrong token must be refused, or the pairing secret is
+# decorative.
 #
 # Usage:  sh tests/sync.sh [path-to-ais]      (default ./c/ais)
 
@@ -79,8 +71,7 @@ case $TOK in
     *) fail=$((fail+1)); echo "  FAIL host: token is not 32 hex (got '$TOK')" ;;
 esac
 
-# A WRONG token must be refused. Nothing anywhere asserted this, so the pairing
-# secret could have been ignored entirely and every test would still have passed.
+# A WRONG token must be refused.
 bad=$("$AIS" -f "$W/b" --sync "http://127.0.0.1:$PORT" --token 00000000000000000000000000000000 2>&1); badrc=$?
 no      "token: a wrong token does not merge"        "merged"      "$bad"
 okeq    "token: and it fails loudly"                 "1"           "$badrc"
@@ -100,8 +91,7 @@ if [ -n "$TOK" ]; then
     ok  "converge: b received a's record"            "http://from-a" "$("$AIS" -f "$W/b" atag 2>/dev/null)"
     ok  "converge: a received b's record"            "http://from-b" "$("$AIS" -f "$W/a" btag 2>/dev/null)"
 
-    # A second identical round must add nothing: sync is idempotent, or repeated
-    # pairing silently duplicates every record.
+    # A second identical round must add nothing: sync is idempotent.
     before=$("$AIS" -f "$W/b" --dump 2>/dev/null | grep -c .)
     TOK2=$(host_token "$PORT" "$W/a")
     if [ -n "$TOK2" ]; then
@@ -113,11 +103,9 @@ if [ -n "$TOK" ]; then
 fi
 
 # --- --set must warn on a LAN-synced index, not only a folder-synced one -------
-#     An in-place edit has no representation in the merge stream, so the peer
-#     keeps the old value and feeds it back and BOTH end up on both devices. The
-#     warning that says so was keyed on `syncid`, which is the FOLDER protocol's
-#     device identity and is never written by a LAN round. So the documented
-#     safety net existed for nobody who paired two phones, which is most people.
+#     An in-place edit has no representation in the merge stream: the peer keeps
+#     the old value, feeds it back, and both end up on both devices. `syncid` is
+#     the FOLDER protocol's marker and is never written by a LAN round.
 if [ -f "$W/b/synced" ]; then
     pass=$((pass+1)); echo "  ok   set-warn: a LAN round marks the index as peered"
 else
