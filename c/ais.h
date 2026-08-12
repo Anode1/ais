@@ -254,8 +254,9 @@ int ais_timeline(ais *a, long before_id, int count,
 typedef int (*ais_tag_cb)(const char *key, long count, void *ctx);
 
 /* Emit every distinct key with its record count, busiest first (ties: key
- * ascending) -- a plain-list "tag cloud". Counts are postings as filed; a
- * deleted-but-not-yet-compacted record still counts until ais_compact runs.
+ * ascending) -- a plain-list "tag cloud". Counts are LIVE records: a deleted
+ * record stops counting at once, without waiting for ais_compact to remove its
+ * posting, and a key whose every record is deleted is not emitted at all.
  * Returns 0, the callback's stop code, or -1 on error. */
 int ais_tags(ais *a, ais_tag_cb cb, void *ctx);
 
