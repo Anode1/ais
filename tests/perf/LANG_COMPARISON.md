@@ -77,7 +77,7 @@ does not, and it does something we did not expect: the first pass is the fastest
 one (74 ms), and the steady state after JIT compilation settles ~40% *slower*
 (~107 ms, 2.1x C). The effect is stable across all 10 launches, and the native
 builds show flat per-iteration times on the same data, so it is not thermal
-drift. We have not chased down which C2 decision costs it; the honest reading is
+drift. We have not chased down which C2 decision costs it; the reading is
 that "the JIT reaches C speed" holds for the merge here and not for the scan.
 
 ## But idiomatic Python delegates the loop to C builtins
@@ -112,7 +112,7 @@ measurement — repeated sweeps put it anywhere from +5% to +20%, so read it as
 zero, and the binaries say why: the checks-on build carries 35 check-raise call
 sites (`__gnat_rcheck_*`), the `-gnatp` build carries none.
 
-So the honest version of the Ada story is not "safety was free". It is: **Ada
+So the Ada story is not "safety was free". It is: **Ada
 gives you C's speed and C's startup with the checks off, and the checks cost
 real time when they are on — which is exactly what makes proving them
 removable worth something.** That is the next section.

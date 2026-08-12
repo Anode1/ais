@@ -378,8 +378,8 @@ static const char PAGE[] =
 "tgN+=L.length;$('count').textContent=tgN+' tag'+(tgN==1?'':'s');"
 "if(L.length==tlPage){tgMore=true;var mo=document.createElement('button');mo.id='tgmore';mo.className='loadmore';mo.textContent='Load more';mo.onclick=pageMore;o.appendChild(mo)}else tgMore=false}"
 /* The two tag-level operations, opposite in consequence: untag reuses the record
- * delete's deferred-commit + Undo window (nothing has happened yet, so the Undo is
- * honest); delete-under gets a modal with a preview, an escape hatch to untag, and
+ * delete's deferred-commit + Undo window (nothing has been sent to the engine yet,
+ * so the Undo really does undo); delete-under gets a modal with a preview, an escape hatch to untag, and
  * type-to-confirm, because it destroys records that are NOT on this screen -- each
  * also disappears from every other tag it is filed under. */
 /* Finds its own row, so both front ends expose the same untagKey(key,count). */

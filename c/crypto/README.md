@@ -6,7 +6,7 @@ security-critical surface fits on a couple of screens and can be reviewed in
 isolation. This file is the module reference: file format, build, and API.
 
 > **Why this exists** rather than the OS keystore (Windows DPAPI, Linux Secret
-> Service) or a browser's built-in manager, the threat model, and the honest
+> Service) or a browser's built-in manager, the threat model, and the
 > limits: see [WHY.md](WHY.md). Short version: those gate secrets on "are you the
 > logged-in user", so any process running as you can read them; this gates on a
 > passphrase that never touches the OS.
@@ -117,4 +117,4 @@ drops into any project, GPL included.
 The file is protected at rest, but while a secret is decrypted for use its
 cleartext is in process memory and code running as you can read it. The module
 shrinks that window (derive on demand, wipe immediately, no plaintext temp file)
-but cannot remove it; full discussion in [WHY.md](WHY.md)'s "Honest limits".
+but cannot remove it; full discussion in [WHY.md](WHY.md)'s "Limits".

@@ -62,7 +62,7 @@ editor, or a tool not yet written reads the store directly, with nothing of
 AIS present. The format outlives the program that wrote it. Programs change;
 plain text does not.
 
-## What we gave up, honestly
+## What we gave up
 
 Raw throughput at web scale, and sub-millisecond hot-key recall without warming
 file handles. Neither matters for one person's memory. The hard limits and the

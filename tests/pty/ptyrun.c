@@ -5,7 +5,7 @@
  * bypass -- a passphrase must never be readable from $AIS_TTY, from argv, or
  * from a file, because the environment is visible in `ps -e` and /proc, and a
  * file is a file. That is the right design, and it means the CLI encrypt path
- * cannot be driven by redirecting stdin. The honest way to test it is to hand
+ * cannot be driven by redirecting stdin. The way to test it is to hand
  * the program a terminal, which is what forkpty does. Nothing here weakens the
  * binary under test: it runs exactly as shipped.
  *

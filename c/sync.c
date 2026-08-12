@@ -1044,7 +1044,7 @@ int sync_folder_once_force(ais *a, const char *folder, int force) {
      * not this device's own: our own file's name follows our device id, and the
      * clone-heal below changes that id whenever a copied index turns up, which the
      * recommended whole-directory Syncthing setup makes an ordinary event. An empty
-     * folder is the honest signal -- it is what a wipe, an unmounted drive, and a
+     * folder is the signal to trust -- it is what a wipe, an unmounted drive, and a
      * mount point that has had a filesystem mounted over it all look like. */
     fold_canon(folder, canon, sizeof canon);
     if (!force && fold_known(a, canon)) {

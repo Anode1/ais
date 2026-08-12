@@ -5,7 +5,7 @@ One-operation proof of concept for a Rust engine. It reimplements the core of
 exports it with a C ABI as `ais_merge_ids`, links it into a C harness, and checks
 it against a C reference on the real index. The streaming plumbing (tombstones,
 the emit callback, `post_stream` file heads) stays in C for now; this is the pure
-compute core, the smallest honest slice to measure.
+compute core, the smallest slice worth measuring.
 
     make                      # build poc (C + Rust) and poc_c (C only)
     make check IDX=/tmp/ais_1m   # intersect the two busiest keys, both ways

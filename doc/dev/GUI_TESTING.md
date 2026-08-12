@@ -183,5 +183,5 @@ normal `make ut` stays fast; `AIS_ANDROID_BOOT=1` lets it start one.
 - **A throwaway index, always.** `mktemp -d`, never the repo's `.ais` and never a
   personal `~/.ais`. A subagent once wrote junk records into a real index by
   running `ais` with no `-f`; scope agents to a disposable one explicitly.
-- **SKIP honestly.** A layer that cannot run must exit 77 with a reason naming
+- **A SKIP names what is missing.** A layer that cannot run must exit 77 with a reason naming
   the missing tool. A SKIP that reads as a PASS is worse than a failure.

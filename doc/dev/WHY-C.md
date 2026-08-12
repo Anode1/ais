@@ -17,7 +17,7 @@ to stay. Full table and reproduction: `../../tests/perf/LANG_COMPARISON.md`.
 
 ## What a rewrite would actually buy
 
-Honestly, one thing: memory safety, meaning no buffer overflow, use-after-free,
+One thing: memory safety, meaning no buffer overflow, use-after-free,
 or undefined behavior. It would not buy speed (identical), startup (identical,
 both native), or mobile reach: the C engine already cross-compiles to Android and
 iOS through the same LLVM/Clang the NDK and Xcode use. The entire case reduces to

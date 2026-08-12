@@ -25,7 +25,7 @@ keyring is running (headless, or a browser configured with `--password-store=bas
 the browser falls back to a **hardcoded key**, which is obfuscation, not
 encryption.
 
-So the honest answer to "can a malicious process running as me get the
+So the answer to "can a malicious process running as me get the
 plaintext?" on Windows and Linux is **yes**. The access decision is "are you this
 user", and you already are.
 
@@ -92,7 +92,7 @@ exposed, because the agent is logged in as you; a vault gated by a *passphrase t
 agent does not hold* removes that free win. The shift is real but bounded: from
 "passively scraped in bulk, any time" to "must actively capture you at the moment
 of use" (an actively present agent can still keylog the passphrase or read the one
-entry you decrypt, see "Honest limits"). So the agent-era rule: keep anything an
+entry you decrypt, see "Limits"). So the agent-era rule: keep anything an
 agent must never touch (banking, personal logins) in a passphrase-gated store,
 never in the OS keystore.
 
@@ -103,7 +103,7 @@ separate cloud vault, so you carry your whole memory store as files you own and
 sync however you already do, with the same small auditable engine on PC, Mac,
 Linux, and phone.
 
-## Honest limits (so this is reasoning, not marketing)
+## Limits
 
 macOS is not magic either: malware can inject into the authorized app, root can
 bypass, and users get trained to click "Always Allow." And no software manager
@@ -114,7 +114,7 @@ not a security one: you type a passphrase to unlock and you run one more tool.
 That friction is the price of not handing your secrets to the OS at login; it is
 worth paying for the few secrets that matter, and not for the many that do not.
 
-## The claim, stated honestly
+## The claim
 
 ais_crypto raises the bar from **"trivial for any process running as you"** (the
 Windows and Linux keystores) to **"requires actively capturing your passphrase at

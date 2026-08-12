@@ -189,7 +189,7 @@ int main(int argc, char **argv) {
         "document.getElementById('out').innerText.indexOf('canal')>=0", 5000) == 0);
     cdp_eval_bool(c, "(function(){untagKey('canal',1);return true})()", &(int){0});
     /* a reversible action gets an undo WINDOW, not a modal: nothing has been sent
-     * to the engine yet, which is what makes that Undo honest */
+     * to the engine yet, so the Undo has something to undo */
     ok("untag opens an undo window", cdp_wait_bool(c,
         "!document.getElementById('toast').hidden"
         "&&document.getElementById('toast').innerText.indexOf(\"Removed tag 'canal'\")>=0", 5000) == 0);
