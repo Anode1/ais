@@ -33,7 +33,7 @@ encoded keys. `value` is the literal resource: a URL, URI, absolute path, or a
 path relative to INDEX (relative keeps the whole INDEX portable). Because ids are
 monotonic, the store is physically in id order.
 
-### mts -- the edit clock, and why it stays local
+### mts, the edit clock
 
 One fixed-width slot per id, exactly like `off`: 20 characters of timestamp plus a
 newline at offset `(id-1)*21`, blank means never edited. O(1) in and out, no
@@ -59,7 +59,7 @@ same `M|` and `D|` facts in two peer bundles, a folder sync resolved the delete
 one way or the other by `readdir` order -- the very non-determinism `C|` and
 `sts` exist to remove.
 
-**It is never exported, and that is the whole point of keeping it separate.** The
+It is never exported, and that is the whole point of keeping it separate. The
 exported `A|` line carries ONE timestamp for the record and its entire key set,
 and the import side hands that same timestamp to `attach_wins`. Raising it would
 not merely outrank record deletes, it would outrank KEY deletes: a device that

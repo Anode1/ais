@@ -70,7 +70,7 @@ initialisation and takes the whole class down when the symbol is absent, which
 would make an old library a crash instead of a message. Absent means the About
 screen says `engine: unknown`.
 
-## The on-disk format is versioned separately, and must be
+## The on-disk format is versioned separately
 
 `AIS_FORMAT_VERSION` (`c/common.h`) is written to `INDEX/version`. `store_open`
 refuses an index newer than it understands, loudly, rather than misreading it,

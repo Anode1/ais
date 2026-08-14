@@ -104,7 +104,7 @@ by hand), unlike a running context a machine compacts by algorithm. The structur
 reference-indexed form, and the point that the index is the bias. None of
 these manufacture the prior; they lower the cost of keeping the scarce thing.
 
-## What is new here, and what is not
+## What is new here
 Every block above is established and named: combinatorial/recombinant growth (Weitzman; Kauffman);
 the collapse to a few canonical forms (Thom; Arnold; Wolfram); compression as the mark of interest
 (Schmidhuber); culture as parallel contagion with attractors (Sperber; Rogers); variation and

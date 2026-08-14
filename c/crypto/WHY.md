@@ -29,7 +29,7 @@ So the answer to "can a malicious process running as me get the
 plaintext?" on Windows and Linux is **yes**. The access decision is "are you this
 user", and you already are.
 
-## Why macOS is stronger, and Linux/Windows are not
+## Why macOS is stronger
 
 Apple's Keychain adds three things the others lack:
 
@@ -75,7 +75,7 @@ the OS keystore or tied to your login session:
 - **Portable and uniform.** The same guarantees on Linux, Windows, and macOS,
   instead of whatever the local OS keystore happens to enforce.
 
-## Agents make this urgent, not obsolete
+## Why agents make this urgent
 
 An AI agent runs *as you*, with your shell privileges, so it is a new and now
 *everyday* instance of "a process running as you", the exact thing the OS and

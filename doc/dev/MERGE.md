@@ -141,7 +141,7 @@ A bundle fed to `--import` is named and refused rather than parsed line by line;
 it has a binary header and length-prefixed blobs, so reading it as a stream
 invents records.
 
-## The tombstone digest is the value, and only the value
+## The tombstone digest
 
 `content_hash(value)`, FNV-1a. Identity has to be derivable from what two devices
 can agree on with NOTHING shared -- no key, no pairing, no prior sync. The value is

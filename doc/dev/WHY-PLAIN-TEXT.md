@@ -1,4 +1,4 @@
-# Why plain text, and why it is fast
+# Why plain text
 
 A recurring objection: "plain text is a relic; a real index needs a binary
 database." This is the rebuttal, with measurements, not opinion.
@@ -20,7 +20,7 @@ table and reproduction steps: `../performance.txt`.
 Reads are O(matches) seeks through the id->offset index, or one streaming pass.
 Nothing scans superlinearly at query time.
 
-## The data is bounded by a human life, not by Moore's law
+## The data is bounded by a human life
 
 This is a *personal* memory, so estimate its ceiling. A person files on the
 order of 100 to 1,000,000 things in a whole lifetime (a few dozen a day for ~70
@@ -39,7 +39,7 @@ deliberate correction, not an oversight. Noted here to prevent re-introducing
 balancing that the hardware no longer requires.) The "it won't scale" critique
 assumes web scale; one person's memory is not web scale and never will be.
 
-## Unix tools and hand-editing are the point, not a fallback
+## Unix tools and hand-editing are the point
 
 Because it is plain text, the whole toolbox already works on it:
 

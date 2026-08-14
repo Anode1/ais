@@ -54,7 +54,7 @@ code) makes it public and fixed, which is the worst case. So the salt is random
 per file and stored in the header in cleartext. That costs nothing and is
 strictly stronger.
 
-**The real second factor is a keyfile, not a baked-in secret.** If you want
+The real second factor is a keyfile, not a baked-in secret. If you want
 "two parts," use a keyfile: something you have, in addition to the passphrase you
 know. It is fed into Argon2's secret-key slot, so it changes the derived key and
 is never written into the file. Lose either factor and the data is unrecoverable;

@@ -1,4 +1,4 @@
-# Why C, and why it is safe enough
+# Why C
 
 A recurring objection: "C is unsafe; a memory-safe language like Rust would be
 the responsible choice." This is the rebuttal. The short version: speed does not

@@ -10,6 +10,8 @@ working on it. Read it, then `doc/dev/STYLE.md` and `doc/dev/LAYOUT.md`.
   any `malloc` to the core, check it against STYLE.md's sanctioned-heap list ("The only
   heap the core sanctions"); the record path allocates nothing.
 - **`doc/dev/LAYOUT.md`** -- on-disk format, module map, algorithms, CLI, build order.
+- **`doc/dev/PROSE.md`** -- how the documents are written: what the bold means, what
+  the titles may say, and which of the `X, not Y` contrasts are load-bearing.
 - **`doc/dev/LOCKING.md`** -- reader/writer lock model and `next_id` correctness.
 - **`doc/dev/FORMAT_V2.md`** -- the decided `--dump`/`--import` grammar
   (`KEY... -v VALUE`), why ids leave that surface and stay everywhere else, and

@@ -92,7 +92,7 @@ Reuses the existing dump/import vocabulary. The only new verb is `--export`; the
 it (a `http(s)://` URL is remote, otherwise local). The only remote-only flag is `--token`
 (auth, not source). Phone GUI: scan the QR to fill url+token, one tap to import.
 
-## Wire protocol (as built: a raw length-framed exchange, not HTTP)
+## Wire protocol (a raw length-framed exchange)
 The client is `ais` itself, not a browser, so the protocol is a small raw exchange. The token
 is NEVER sent; the client proves knowledge by answering a fresh challenge:
 
@@ -164,7 +164,7 @@ per line made an import cost O(lines x records); the buffers preserve stream ord
 An older AIS skips a verb it does not know, loudly, and imports the rest intact -- which
 is why a verb may only be WRITTEN one release after the skip that tolerates it shipped
 (`MERGE.md`). `C|` and `T|` are sanctioned from 0.3.15 on that rule.
-**Additions and deletions both converge**,
+Additions and deletions both converge,
 last-write-wins by the store's `ts` column (delete-after-add wins; re-add-after-delete
 wins), deterministic for one user across their own devices. One-way by nature: after A
 imports B, A holds A+B and B is unchanged; full convergence is both sides importing from

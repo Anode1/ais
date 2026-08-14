@@ -1,4 +1,4 @@
-# The dump/import format, and hiding ids
+# The dump/import format
 
 Decision record. Implementation waits until after the Play closed test, because
 this changes a documented interface.
@@ -65,7 +65,7 @@ one key too many. Warn, do not guess silently.
 
 ## Ids: what the audits found
 
-**They are device-local surrogates and always were.** `MERGE.md:18` is headed
+They are device-local surrogates and always were. `MERGE.md:18` is headed
 "The core problem: ids are device-local"; `SYNC.md:8` says the id is "never
 shared". The `--export` stream has no id field: `A|ts|keys|value`,
 `D|ts|hash`, `M|ts|hash|value`. Cross-device identity is `content_hash` over the
@@ -75,13 +75,13 @@ correctly. Verified, not inferred.
 So the whole data model is already expressible without ids, and `--export` is the
 existence proof.
 
-**They must remain internal.** Postings *are* ascending id files and the read
+They must remain internal. Postings *are* ascending id files and the read
 path is a numeric k-way merge over them. `off` seeks by `(id-1)*width`. `multi`,
 `mts`, `sts`, `tomb`, `ktomb` slot-address by id. `next_id` must stay monotonic
 and must never regress past a retained tombstone. Recency order is id-descending
 because `ts` is non-unique, second-resolution, and absent on legacy lines.
 
-**They can leave the command line.** Every consumer has a value-addressed
+They can leave the command line. Every consumer has a value-addressed
 replacement, and two of the four are already redundant with `put`:
 
     ais --add ID -v NEW        ->  ais -v EXISTING -v NEW KEY...   (already works)
@@ -189,7 +189,7 @@ and the typo heuristic all go away together.
    script depend on it; `feed_stdin` already prints nothing, so silence has
    precedent)
 
-## Related, and separate: blob STORAGE could be content-addressed
+## Related: content-addressed blob storage
 
 CORRECTION to an earlier reading of this file. `--doc` not deduping is not a gap:
 `SYNC.md:12` settles it deliberately -- "Blob (`--doc`): identified by OCCURRENCE,

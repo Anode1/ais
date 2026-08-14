@@ -6,7 +6,7 @@ A command-line program over an index in plain text on your own disk. You save an
 
 One engine, thin front-ends. The CLI is the contract; the web GUI (`ais --serve`), the Flutter mobile app and a native Win32 wrapper sit over it, and the engine depends on none of them. C, no database, no runtime to install.
 
-It also saves tokens, which is not obvious and is worth stating plainly: this is not an AI product, but if you work with a coding agent, letting it recall from your index costs a fraction of letting it grep and read your tree again. Measured: four times fewer tokens at the median, 69x less content pulled into the context window, and every answer exact. [The numbers are below](#for-coding-agents-recall-instead-of-searching-again).
+It also saves tokens, which is not obvious: this is not an AI product, but if you work with a coding agent, letting it recall from your index costs a fraction of letting it grep and read your tree again. Measured: four times fewer tokens at the median, 69x less content pulled into the context window, and every answer exact. [The numbers are below](#for-coding-agents-recall-instead-of-searching-again).
 
 Because it is plain text, it outlives its own tools: your index survives decades of archiving, still opens in fifty years, and exports into anything, no lock-in. Keeping data readable that long is computing's unsolved *digital dark age*, where file formats and the apps that open them die faster than the data. Plain text, readable since the 1960s on any machine with no special program, is the oldest and safest answer.
 
@@ -85,7 +85,7 @@ It is deliberately minimal and not the main interface. `ais --serve` is one thin
 It overlaps all three and copies none. Not a bookmark manager: it saves *anything* under *any* keys, not URLs in a browser. Not full-text (recoll): it indexes the keys you choose, not document bodies. Not org-mode: no single tree, no app lock-in, no markup to learn, just keys with set algebra (AND / OR) over plain files. The distinctive part is that the index *is your bias*, kept unaveraged and portable.
 
 **Does it replace my photo library or files?**
-No, it points *into* them. For files, photos and pages ais is an index of pointers, not a store of copies: a photo stays in Immich, a file on disk, a page at its URL. You save the *reference* under your own keys and recall it by association; the silo keeps the bytes. It does not compete with Immich or the filesystem, it sits across them as the one associative layer that remembers where a thing is and why it mattered. An index of pointers, not another silo to fill. (Secrets are the one exception: those it stores inline, encrypted, see below.)
+No, it points *into* them. For files, photos and pages ais is an index of pointers, not a store of copies: a photo stays in Immich, a file on disk, a page at its URL. You save the *reference* under your own keys and recall it by association; the silo keeps the bytes. It does not compete with Immich or the filesystem, it sits across them as the one associative layer that remembers where a thing is and why it mattered. (Secrets are the one exception: those it stores inline, encrypted, see below.)
 
 **Can it hold passwords? Is it a password manager?**
 Yes. A secret is stored encrypted inline (`-e`), so a login lives right next to the context it belongs to, and two things set it apart from a built-in manager. It is **cross-platform**: Apple Keychain and Google Password Manager are locked to one ecosystem, while ais is the same plain-text index on Windows, macOS, Linux, Android and the CLI, so your secrets travel with you. And it is **agent-safe**: decryption is interactive (a passphrase you supply at a terminal or in the app), so an agent reading your index sees an opaque `aisc:` marker, not the secret, with no master key or unlocked vault to drain. What it is *not* is a bulk web-login manager: no autofill, no generation, no shared vaults, so for hundreds of site logins a dedicated cross-platform manager is still more convenient. See [`about.txt`](doc/about.txt).
@@ -101,13 +101,14 @@ Yes. A secret is stored encrypted inline (`-e`), so a login lives right next to 
 | [`doc/OVERVIEW.md`](doc/OVERVIEW.md) | Design philosophy, status, provenance. |
 | [`doc/ROADMAP.md`](doc/ROADMAP.md) | What's planned, and where to help. |
 | [`doc/dev/LAYOUT.md`](doc/dev/LAYOUT.md) | On-disk format and module map. |
+| [`doc/dev/PROSE.md`](doc/dev/PROSE.md) | How these documents are written. |
 | `man ais` | Full command reference. |
 
 ## For coding agents: recall instead of searching again
 
 An agent that greps and reads to find something you already saved pays that cost on every question. Recall by key costs one line, and it is exact: a wrong key returns nothing rather than something plausible.
 
-This is measured, not asserted. Eight questions, five repeats each, one agent run both ways over the same corpus:
+The measurement: eight questions, five repeats each, one agent run both ways over the same corpus.
 
 <p align="center">
   <img src="screenshots/agent-tokens.png" width="78%" alt="File search: 24,500 tokens mean, sometimes wrong. Recall: 2,900 tokens, of which 68 are the answer, 40 of 40 exact. At the terminal: no model at all.">

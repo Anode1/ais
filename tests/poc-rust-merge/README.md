@@ -31,7 +31,7 @@ freestanding subset of Rust, no runtime, no allocator), no allocation, and **no
 external crates at all**. So it links into a C program exactly like a `.o`, and
 the C side keeps owning `main`, malloc, and libc.
 
-### What is cargo / "cargo vendor", and why it does not apply here
+### Why "cargo vendor" does not apply here
 
 - **cargo** is Rust's build-and-package manager (roughly `make` + a package
   fetcher in one). **crates** are third-party libraries it downloads from
@@ -71,7 +71,7 @@ Two things matter here:
    drops the dead code and takes the delta from 2.4 MB to ~4 KB. Same machine
    code runs either way; the difference is purely dead-code removal.
 
-## What this proves, and what it does not
+## What this proves
 
 Proves: the FFI drop-in is real (same `.a`-into-`cc` model as C), the algorithm
 ports cleanly and matches on real data, and both the dependency and size costs

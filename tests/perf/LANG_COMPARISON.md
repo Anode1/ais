@@ -91,7 +91,7 @@ that "the JIT reaches C speed" holds for the merge here and not for the scan.
 hash-join, so competent Python is within a few x of C HERE, as long as the hot
 work stays inside CPython's C internals and not in Python bytecode.
 
-## Ada: native like C, and the checks are not free
+## Ada: native like C, with checks that cost
 
 GNAT is a GCC front end, so Ada compiles to the same native code and starts
 instantly like C. With checks suppressed it is a dead heat with C on the scan
@@ -134,18 +134,18 @@ behaviour, which is far less of a concern in Ada. On these two loops:
 | Ada -O2 `-gnatp`          | 50.9ms |        | 1.25ms |        |
 | Ada -O3 `-gnatp`          | 57.1ms | +12.2% | 1.20ms |  -4.2% |
 
-**For C, `-O3` buys nothing here** — both operations land inside the run-to-run
+For C, `-O3` buys nothing here — both operations land inside the run-to-run
 spread, for 17% more `.text` (4289 -> 5029 bytes). Declining the extra UB
 exposure costs zero performance on this code. Rust at opt-level=3 is likewise a
 small loss.
 
-**The one build `-O3` clearly helps is Ada with checks on**, ~10% on the scan,
+The one build `-O3` clearly helps is Ada with checks on, ~10% on the scan,
 reproducible across sweeps. The extra inlining and loop unswitching give GNAT
 more context to hoist or fold range checks, so `-O3` recovers roughly a third of
 what the checks cost. On the `-gnatp` build there is no check overhead left to
 absorb, and the scan measures ~12% slower.
 
-**That ~12% is code placement, not a transformation cost**, which took some
+That ~12% is code placement, not a transformation cost, which took some
 digging to establish. Three findings, all pointing the same way. First,
 `-fopt-info-loop-optimized` reports no `-O3` loop pass firing on the scan loop at
 all: the only added transformations are at `bench.adb:58` and `:63`, both inside
