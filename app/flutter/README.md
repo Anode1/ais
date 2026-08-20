@@ -36,10 +36,9 @@ This scaffold holds only the Dart + the native CMake. Generate the
 
   and ensure `libais.so` is bundled next to the runner.
 
-- **iOS** (on a Mac): add the `../../c/*.c` files (except `main.c`) to the
-  Runner target in Xcode (or a small podspec), with `../../c` on the header
-  search path. The FFI uses `DynamicLibrary.process()`, so the symbols just need
-  to be in the app binary.
+- **iOS** (on a Mac): the engine is statically linked into the Runner target.
+  Full instructions, prerequisites, signing and the acceptance checklist are in
+  `doc/dev/IOS_NATIVE.md`, which is the one file to hand an iOS developer.
 
 ## Build / run
 

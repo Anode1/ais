@@ -37,10 +37,12 @@ secrets — have shipped (see above).
 
 The **Android** app has shipped (above); **iOS** is the next focus. The same
 **Flutter** app (`app/flutter/`) runs over the C engine through the FFI seam
-(`make lib` builds the shared library; `embed.h` is the contract). iOS needs a
-native shell (App Store signing, and native speech later), but the engine already
-compiles small and dependency-free, so the work is UI + platform plumbing, not
-core changes. A browser **PWA** (`app/`) is a parallel, lower-friction track (see
+(`embed.h` is the contract), and the iOS scaffold, its platform channels and the
+`ais://` scheme are already written. What is left is compiling the engine into
+the Runner target and the Apple side: signing, a device, TestFlight. No interface
+work, since the screens are shared with Android, and no core changes.
+[`dev/IOS_NATIVE.md`](dev/IOS_NATIVE.md) is the whole brief, and the one file to
+hand an iOS developer. A browser **PWA** (`app/`) is a parallel, lower-friction track (see
 [`dev/DISTRIBUTION.md`](dev/DISTRIBUTION.md) for the WASM/standalone plan).
 
 ### F-Droid (Android)
