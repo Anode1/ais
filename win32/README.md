@@ -16,7 +16,7 @@ shims), no `main`/`serve`/`feed`.
 ## What it does
 
 A no-browser native Windows window over the engine's FFI seam
-(`win32/ais-gui.c` -> `embed.h`/`locate.h`): a keys box + **Recall** (with an
+(`win32/ais-gui.c` -> `embed.h`/`locate.h`): a keys box + **Search** (with an
 **OR** toggle) -> results list (double-click an `http(s)` result to open it), and
 a **value** + **keys** row + **Add** to store. It opens the same default index
 the CLI uses (`ais_locate`): `-f`/nearest `.ais/`/`~/.ais/config`/`~/.ais`.
