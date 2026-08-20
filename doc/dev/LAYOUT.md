@@ -332,16 +332,39 @@ them when the user wants, and every new delete is salted. The one thing that mus
 never happen is a peer computing a digest the other cannot reproduce, which is
 why the salt is per-record data both sides already hold rather than a shared key.
 
-**One deliberate asymmetry: an ENCRYPTED blob is shredded at delete time, not at
-compaction.** So a deleted plain record is recoverable until `compact` (truncate
-`tomb`), while a deleted secret is gone immediately -- its ciphertext is zero-filled
-and unlinked by `secret_shred_blob` before the tombstone is written. Deferring the
-shred to compaction would make the two uniform, but at the cost of leaving deleted
-ciphertext on disk for however long the user waits to compact, and exportable to a
-peer in the meantime. Destroying a secret promptly is worth more than a tidy rule,
-so this stays. The consequence to know: "deleted, recoverable until compaction" is
-true of ordinary records and NOT of encrypted ones. Do not tell users a delete is
-undoable without saying which kind.
+**A delete takes the file the INDEX made, and never the file it merely points
+at.** That line is the whole rule, and it is about ownership, not about how a
+value looks: `blobs/<ts>.txt` and `blobs/<ts>.aisc` are documents this index
+wrote, so they go when their record goes (`ais_doc_discard`, doc.h); a path
+anywhere else on disk, a URL, or inline text names something that was the
+user's before ais saw it, and nothing happens to it, ever. The product is an
+index of your things where they are, so destroying one would be the worst bug
+this program could have.
+
+Three moments dispose of a payload, and every front end needs all three:
+
+- **A local delete**: the front end calls `ais_doc_discard` before tombstoning
+  (`--del`/`--del-under` in main.c, serve.c, embed.c), and after a `--set`
+  replaces a value the store no longer points at.
+- **A delete arriving from a PEER**: `ais_merge_del_many` hands each retired
+  value to the disposer registered with `ais_on_discard`. Without it a document
+  deleted on the laptop stayed on the phone forever -- and since an export
+  streams the whole of `blobs/`, the phone handed it straight back to the laptop
+  on the next round. The engine itself stays oblivious: it reports a value whose
+  last reference it dropped and lets the front end decide, because only the
+  front end knows what a path means.
+- **Compaction**: dropping a tombstoned store line is the last moment anything
+  knows the file was referenced, so `compact_line` discards it there. This is the
+  sweep for deletes made before any of the above existed.
+
+Encrypted and plain differ only in HOW: ciphertext is zero-filled before it is
+unlinked (`secret_shred_blob`), a plain document is simply removed. Neither
+overwrite is a security boundary on flash or CoW storage; a document that must be
+unrecoverable should have been saved with `-e`.
+
+The consequence to know: a deleted record's LINE is recoverable until `compact`
+(truncate `tomb`), but its blob is gone at delete time. Do not tell users a
+delete is undoable.
 
 ### Idempotent put -- by store scan, no index, no hash
 `put(keys, value)`: find whether `value` is already stored by streaming `store`

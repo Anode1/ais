@@ -1616,6 +1616,110 @@ static void test_put_value(void)
     scratch_rm(dir);
 }
 
+/* ais_doc_discard: the index destroys what IT made and never what it points at.
+ * The distinction is ownership, not shape: blobs/ holds documents this index
+ * wrote, while every other value names a thing that was already the user's. */
+static void test_doc_discard(void)
+{
+    const char *dir = "/tmp/ais_ut_discard";
+    const char *mine = "/tmp/ais_ut_a_file_of_my_own.txt";
+    ais a;
+    long doc_id;
+    char blob[2 * AIS_PATH_MAX];
+    FILE *f;
+
+    scratch_rm(dir);
+    remove(mine);
+    ais_open(&a, dir);
+
+    /* a document the app made for the user: the value is a blobs/ path */
+    doc_id = ais_put_value(&a, "notes", "first line\nsecond line");
+    g_pv[0] = '\0'; ais_record(&a, doc_id, grab_value, NULL);
+    snprintf(blob, sizeof blob, "%s/%s", dir, g_pv);
+    CHECK(access(blob, F_OK) == 0, "discard: the document blob exists (setup)");
+
+    /* a file that was the user's before ais ever saw it, saved by path */
+    f = fopen(mine, "w");
+    if (f != NULL) { fputs("mine\n", f); fclose(f); }
+    ais_put(&a, "scan", mine);
+    CHECK(access(mine, F_OK) == 0, "discard: the user's own file exists (setup)");
+
+    ais_doc_discard(dir, mine);
+    CHECK(access(mine, F_OK) == 0,
+          "discard: a path the user gave us is NEVER removed");
+    ais_doc_discard(dir, "https://example.org/page");   /* must not crash or wander */
+    ais_doc_discard(dir, "just some inline text");
+
+    ais_doc_discard(dir, g_pv);
+    CHECK(access(blob, F_OK) != 0,
+          "discard: the document this index wrote goes with its record");
+
+    ais_close(&a);
+    remove(mine);
+    scratch_rm(dir);
+}
+
+/* A delete that arrives from a PEER retires the payload here too: the phone has
+ * no CLI and no compaction, so waiting for one would keep a deleted document on
+ * disk forever -- and an export streams all of blobs/, handing it back to the
+ * device that deleted it. */
+static void test_doc_discard_on_merged_delete(void)
+{
+    const char *dir = "/tmp/ais_ut_discard_merge";
+    ais a;
+    long doc_id;
+    char blob[2 * AIS_PATH_MAX], hash[17];
+    char ts[AIS_TS_MAX];
+
+    scratch_rm(dir);
+    ais_open(&a, dir);
+    ais_on_discard(&a, ais_doc_discard_cb, a.dir);   /* what every front end does */
+
+    doc_id = ais_put_value(&a, "notes", "a document\nsaved on two devices");
+    g_pv[0] = '\0'; ais_record(&a, doc_id, grab_value, NULL);
+    snprintf(blob, sizeof blob, "%s/%s", dir, g_pv);
+    CHECK(access(blob, F_OK) == 0, "merged delete: the blob exists (setup)");
+
+    /* the peer's delete fact: the hash is of the VALUE, which for a document is
+     * its blobs/ path, and a ts new enough to win last-write-wins */
+    content_hash(g_pv, hash);
+    snprintf(ts, sizeof ts, "2099-01-01T00:00:00Z");
+    CHECK(ais_merge_del(&a, hash, ts) == 0, "merged delete: the fact applied");
+    CHECK(access(blob, F_OK) != 0,
+          "merged delete: the peer's delete took the document file with it");
+
+    ais_close(&a);
+    scratch_rm(dir);
+}
+
+/* Compaction is the sweep: a delete made before any of this existed left its
+ * blob behind, and dropping the store line is the last moment anything knows
+ * the file was ever referenced. */
+static void test_doc_discard_on_compact(void)
+{
+    const char *dir = "/tmp/ais_ut_discard_compact";
+    ais a;
+    long doc_id;
+    char blob[2 * AIS_PATH_MAX];
+
+    scratch_rm(dir);
+    ais_open(&a, dir);                       /* NO discard hook: the old behaviour */
+
+    doc_id = ais_put_value(&a, "notes", "left behind\nby an older ais");
+    g_pv[0] = '\0'; ais_record(&a, doc_id, grab_value, NULL);
+    snprintf(blob, sizeof blob, "%s/%s", dir, g_pv);
+    ais_del(&a, doc_id);
+    CHECK(access(blob, F_OK) == 0,
+          "compact sweep: an unhooked delete leaves the blob (setup)");
+
+    CHECK(ais_compact(&a) == 0, "compact sweep: compaction ran");
+    CHECK(access(blob, F_OK) != 0,
+          "compact sweep: dropping the line removed the orphaned document");
+
+    ais_close(&a);
+    scratch_rm(dir);
+}
+
 /* ais_doc_display: the ONE resolver the web (serve.c) and Flutter (via
  * ais_embed_display) share -- a document blob shows its CONTENT (capped),
  * never its "blobs/<ts>.txt" path; everything else shows verbatim. */
@@ -4771,6 +4875,9 @@ int main(void)
     test_tags_page();
     printf("put_value (one paste -> one record):\n");
     test_put_value();
+    test_doc_discard();
+    test_doc_discard_on_merged_delete();
+    test_doc_discard_on_compact();
     printf("doc_display (blob -> content, shared by web + Flutter):\n");
     test_doc_display();
     printf("embed (FFI seam):\n");

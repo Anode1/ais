@@ -29,6 +29,14 @@ long ais_version_number(void);
 
 /* Open handle. Holds only the path, the id counter, and the writer lock.
  * Declare one on the stack:  ais a; ais_open(&a, dir); ... ais_close(&a); */
+/* Called with a value whose LAST reference the engine has just dropped, because
+ * a delete arrived from another device. The engine stores paths and knows
+ * nothing about what they point at, so deciding whether a file goes with the
+ * record belongs to the front end: pass ais_doc_discard_cb (doc.h), which
+ * destroys what the index made and never touches the user's own files. Unset,
+ * nothing is disposed of and the file waits for the next compaction. */
+typedef void (*ais_discard_cb)(const char *value, void *ctx);
+
 typedef struct ais {
     char dir[AIS_PATH_MAX];   /* the INDEX directory                         */
     long next_id;             /* next id to assign (monotonic)               */
@@ -43,6 +51,8 @@ typedef struct ais {
                                * genuinely still differ when this round ends.
                                * Sync compares it across a round to say "run it
                                * again". Not persisted. */
+    ais_discard_cb discard;   /* see ais_on_discard; NULL = dispose of nothing  */
+    void *discard_ctx;
 } ais;
 
 /* Open (creating if absent) the INDEX directory `dir`, taking a single-writer
@@ -77,6 +87,13 @@ long ais_put_at_k(ais *a, const char *keys, const char *value, const char *ts,
  * tombstone the local record whose value hashes to HASH iff the delete is at least as
  * new as that record's add-ts and it is not already deleted. No-op if absent. 0/-1. */
 int  ais_merge_del(ais *a, const char *hash, const char *ts);
+
+/* Register the disposer for values a merged delete retires (see ais_discard_cb).
+ * Every front end should set it right after ais_open, or a document deleted on
+ * another device leaves its file here forever -- and this index keeps handing
+ * that file back to the peer that deleted it, since an export streams all of
+ * blobs/. */
+void ais_on_discard(ais *a, ais_discard_cb cb, void *ctx);
 
 /* One delete fact off the wire: the content hash (16 hex digits, content_hash)
  * and the delete time. */

@@ -61,6 +61,14 @@ void ais_close(ais *a)
     store_close(a);
 }
 
+void ais_on_discard(ais *a, ais_discard_cb cb, void *ctx)
+{
+    if (a == NULL)
+        return;
+    a->discard = cb;
+    a->discard_ctx = ctx;
+}
+
 /* Post each whitespace-separated key of KEYS to record ID. A bare token is
  * ATTACHED (post_insert keeps each posting ascending and duplicate-free, so
  * re-puts add nothing); a "-key" token is DETACHED -- the posting is removed and
@@ -1225,7 +1233,9 @@ static int mdel_apply(ais *a, long id, const char *line_ts,
     char add_ts[AIS_TS_MAX];
 
     /* last-write-wins: delete iff the incoming delete is at least as new as the local
-     * add and the value is not already deleted; an absent value has nothing to delete. */
+     * add and the value is not already deleted; an absent value has nothing to delete.
+     * Returns 1 when this call tombstoned the record, 0 when it left it alone, -1 on
+     * error: only a 1 may dispose of the record's payload. */
     if (tomb_contains(a, id) != 0)
         return 0;
     /* The EFFECTIVE time: a record edited after a peer deleted it must not lose to
@@ -1237,6 +1247,7 @@ static int mdel_apply(ais *a, long id, const char *line_ts,
             mts_clear(a, id);            /* delete is delete, however it arrived */
             sts_clear(a, id);
             katt_forget(a, id, NULL);
+            return 1;                    /* tombstoned HERE, now: the caller disposes */
         }
         return rc;
     }
@@ -1300,6 +1311,16 @@ static int mbatch_seek(long id, const char *ts, const char *keys, const char *va
     return (B->left == 0) ? -1 : 0;      /* nothing left to look for: stop reading */
 }
 
+/* Every value of a record a peer's delete just retired, offered to the front
+ * end's disposer. */
+static int mdel_discard_value(long id, const char *value, void *vp)
+{
+    ais *a = vp;
+    (void)id;
+    a->discard(value, a->discard_ctx);
+    return 0;
+}
+
 int ais_merge_del_many(ais *a, const ais_del_fact *facts, int n)
 {
     struct mbatch_ctx B;
@@ -1319,9 +1340,20 @@ int ais_merge_del_many(ais *a, const ais_del_fact *facts, int n)
     if (store_wlock(a) != 0)
         return -1;
     store_each_record(a, mbatch_seek, &B);
-    for (i = 0; i < n; i++)
-        if (B.id[i] != 0 && mdel_apply(a, B.id[i], B.ts[i], facts[i].hash, facts[i].ts) != 0)
+    for (i = 0; i < n; i++) {
+        int applied;
+        if (B.id[i] == 0)
+            continue;
+        applied = mdel_apply(a, B.id[i], B.ts[i], facts[i].hash, facts[i].ts);
+        if (applied < 0)
             rc = -1;
+        else if (applied == 1 && a->discard != NULL)
+            /* The record is tombstoned but its store line stands until
+             * compaction, so its values still read back: hand each to the front
+             * end, which knows which of them name files this index made. Reads
+             * take no lock, so doing it under the write lock is safe. */
+            ais_record(a, B.id[i], mdel_discard_value, a);
+    }
     store_wunlock(a);
     return rc;
 }

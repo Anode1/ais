@@ -257,6 +257,8 @@ int store_open(ais *a, const char *dir)
     a->purge_deletes = 0;
     a->next_id = 1;
     a->survivals = 0;
+    a->discard = NULL;               /* a front end opts in with ais_on_discard */
+    a->discard_ctx = NULL;
 
     n = snprintf(a->dir, sizeof(a->dir), "%s", dir);
     if (n < 0 || (size_t)n >= sizeof(a->dir))

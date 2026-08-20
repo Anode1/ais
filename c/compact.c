@@ -12,6 +12,7 @@
 
 #include "common.h"
 #include "compact.h"
+#include "doc.h"        /* ais_doc_discard: a dropped line's blob goes with it */
 #include "log.h"        /* debug: report a recovered idx/ */
 #include "key.h"      /* ktomb stores and compares keys in key_encode() form */
 #include "post.h"
@@ -870,8 +871,14 @@ static int compact_line(long id, const char *ts, const char *keys,
         c->error = 1;
         return -1;
     }
-    if (t == 1)
-        return 0;   /* dropped */
+    if (t == 1) {
+        /* Dropped: this line was the last thing pointing at any blob it holds,
+         * so the file goes with it. Deletes made before ais_doc_discard existed
+         * left theirs behind, and until a peer stops seeing them they keep
+         * riding every export (feed.c streams the whole blobs/ directory). */
+        ais_doc_discard(c->a->dir, value);
+        return 0;
+    }
 
     if (c->filter) {                         /* strip keys detached from this id */
         if (compact_visible_keys(c->a, id, keys, fkeys, sizeof(fkeys)) != 0) {

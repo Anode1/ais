@@ -70,6 +70,8 @@ void usage_long(FILE *out)
 "          in the 'id|value' that get and --find print)\n"
 "  ais --find TEXT                records whose value contains TEXT\n"
 "  ais --doc KEY... < FILE        save a multi-line document as a blob file\n"
+"                                 (--del removes it; a file you merely POINT at\n"
+"                                 is never touched)\n"
 "  ais --doc KEY... -e < FILE     same, ENCRYPTED to an aisc: blob (--del shreds it)\n"
 "  ais --add ID -v VALUE          attach another link to record ID\n"
 "  ais --set ID -v OLD -v NEW     replace ONE of record ID's values, in place\n"

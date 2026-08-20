@@ -37,6 +37,24 @@ long ais_put_value(ais *a, const char *keys, const char *value);
  * show VALUE if it fails). */
 int  ais_doc_is_blob(const ais *a, const char *value, char *path, size_t psz);
 
+/* Discard the file backing VALUE when the INDEX owns it, and only then: a
+ * document blob under blobs/ is removed, an encrypted blob is shredded
+ * (secret_shred_blob). A value that merely POINTS somewhere -- a path anywhere
+ * else on disk, a URL, inline text -- is left untouched, because that is the
+ * product: ais indexes your things where they are and never holds them hostage.
+ * The two cases differ in who made the file, not in how it looks.
+ *
+ * Call it while the value is still readable: before the tombstone on delete,
+ * after the store no longer points at it on replace, and when compaction drops
+ * a deleted line. Takes the index dir, not an `ais`, so a value callback can
+ * pass the one it already carries. */
+void ais_doc_discard(const char *index_dir, const char *value);
+
+/* ais_doc_discard in ais_discard_cb shape: pass it to ais_on_discard with the
+ * index dir as ctx, so a delete arriving from a peer disposes of the payload
+ * here exactly as a local delete does. */
+void ais_doc_discard_cb(const char *value, void *index_dir);
+
 /* Resolve VALUE to the bounded preview a GUI should display; the web server and
  * the Flutter app share this one implementation (the CLI cats the full blob
  * instead). If VALUE is a document blob, read its content into OUT, capped to

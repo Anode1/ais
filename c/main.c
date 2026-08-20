@@ -92,12 +92,14 @@ static int on_id(long id, void *vp)
     return 0;
 }
 
-/* Before a record is tombstoned, shred any encrypted-blob payload it holds so
- * the ciphertext file does not outlive the record. VP is the index dir. */
+/* Before a record is tombstoned, discard any file the INDEX made for it -- an
+ * encrypted blob (shredded) or a document blob (removed) -- so its content does
+ * not outlive the record. A value that points at one of the user's own files is
+ * untouched. VP is the index dir. */
 static int shred_value_cb(long id, const char *value, void *vp)
 {
     (void)id;
-    secret_shred_blob((const char *)vp, value);
+    ais_doc_discard((const char *)vp, value);
     return 0;
 }
 
@@ -499,6 +501,9 @@ int main(int argc, char **argv)
 
     if (ais_open(&a, dir) != 0)
         die("cannot open index '%s' (in use, or unwritable)", dir);
+    /* A delete arriving from a peer retires payloads here too; dispose of them
+     * the same way a local --del does. */
+    ais_on_discard(&a, ais_doc_discard_cb, a.dir);
 
     resolve_project(&a, project_arg, project_given, project, sizeof(project));
 
@@ -614,11 +619,12 @@ int main(int argc, char **argv)
              * likely cause, not a certain one. */
             if (ais_set_value(&a, id, values[0], values[1]) != 0)
                 die("--set: record %ld unchanged (no such id, or no value '%s')", id, values[0]);
-            /* The replaced value may be the ONLY reference to an encrypted blob;
-             * shred it once the store no longer points at it, as --del/--del-key
-             * do. A no-op for any value that is not an aisc: blob. AFTER the
-             * edit, so a refused --set never destroys a payload still held. */
-            secret_shred_blob(a.dir, values[0]);
+            /* The replaced value may be the ONLY reference to a blob this index
+             * made; discard it once the store no longer points at it, as
+             * --del/--del-key do. A no-op for a value that points at one of the
+             * user's own files. AFTER the edit, so a refused --set never
+             * destroys a payload still held. */
+            ais_doc_discard(a.dir, values[0]);
             /* An in-place value edit has NO representation in the merge stream:
              * it emits A| for the new value and nothing retiring the old, so a
              * synced peer keeps the old one and feeds it back, leaving BOTH on

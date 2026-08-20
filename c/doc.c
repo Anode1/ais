@@ -17,6 +17,7 @@
 
 #include "common.h"
 #include "doc.h"
+#include "secret.h"       /* secret_shred_blob: the encrypted half of ais_doc_discard */
 #include "win.h"          /* mkdir shim on native Windows; empty on POSIX */
 
 int ais_doc_blobname_ext(const ais *a, const char *ext, char *relval, size_t rvsz,
@@ -61,15 +62,40 @@ int ais_doc_blobname(const ais *a, char *relval, size_t rvsz,
     return ais_doc_blobname_ext(a, "txt", relval, rvsz, blobpath, bpsz);
 }
 
-int ais_doc_is_blob(const ais *a, const char *value, char *path, size_t psz)
+/* The blobs/ test on a bare dir, so ais_doc_discard can serve a value callback
+ * that carries the dir rather than the handle. */
+static int doc_blob_path(const char *dir, const char *value, char *path, size_t psz)
 {
     int n;
-    if (a == NULL || value == NULL
+    if (dir == NULL || value == NULL
         || strncmp(value, "blobs/", 6) != 0    /* our out-of-line store, not a URL/bookmark */
         || strstr(value, "..") != NULL)        /* never escape the index dir */
         return 0;
-    n = snprintf(path, psz, "%s/%s", a->dir, value);
+    n = snprintf(path, psz, "%s/%s", dir, value);
     return (n > 0 && (size_t)n < psz) ? 1 : 0;
+}
+
+int ais_doc_is_blob(const ais *a, const char *value, char *path, size_t psz)
+{
+    return (a != NULL) ? doc_blob_path(a->dir, value, path, psz) : 0;
+}
+
+void ais_doc_discard(const char *index_dir, const char *value)
+{
+    char path[AIS_PATH_MAX];
+
+    /* Encrypted first: its marker is not a blobs/ path, and it carries its own
+     * promise (zero-filled, then unlinked). */
+    secret_shred_blob(index_dir, value);
+    if (doc_blob_path(index_dir, value, path, sizeof path))
+        remove(path);
+    /* Anything else is a reference to a file this index did not create. Nothing
+     * happens to it, ever. */
+}
+
+void ais_doc_discard_cb(const char *value, void *index_dir)
+{
+    ais_doc_discard((const char *)index_dir, value);
 }
 
 long ais_doc_display(const ais *a, const char *value, char *out, size_t outsz)
@@ -119,14 +145,25 @@ long ais_doc_put(ais *a, const char *keys, const char *content, size_t len)
     bf = fopen(blobpath, "w");
     if (bf == NULL)
         return -1;
+    /* Every failure from here on removes the file it just made: a blob no record
+     * points at is the user's document left on disk with nothing able to recall
+     * or delete it. feed.c does the same for the encrypted twin. */
     if (len > 0 && fwrite(content, 1, len, bf) != len) {
         fclose(bf);
+        remove(blobpath);
         return -1;
     }
-    if (fclose(bf) != 0)
+    if (fclose(bf) != 0) {
+        remove(blobpath);
         return -1;
+    }
 
-    return ais_put(a, keys, relval);       /* store only the path */
+    {
+        long id = ais_put(a, keys, relval);   /* store only the path */
+        if (id < 0)
+            remove(blobpath);
+        return id;
+    }
 }
 
 /* A newline is "interior" when real content follows it; a lone trailing

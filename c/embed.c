@@ -34,6 +34,7 @@ void *ais_embed_open(const char *dir)
         free(a);
         return NULL;
     }
+    ais_on_discard(a, ais_doc_discard_cb, a->dir);
     return a;
 }
 
@@ -94,12 +95,13 @@ char *ais_embed_reveal(const char *marked_value, const char *passphrase)
     return out;
 }
 
-/* Shred an encrypted-blob payload before its record is tombstoned. VP is the
- * index dir; a no-op for any value that is not an aisc: blob. */
+/* Discard a payload this index made (encrypted or document blob) before its
+ * record is tombstoned. VP is the index dir; a value pointing at one of the
+ * user's own files is untouched. */
 static int embed_shred_value(long id, const char *value, void *vp)
 {
     (void)id;
-    secret_shred_blob((const char *)vp, value);
+    ais_doc_discard((const char *)vp, value);
     return 0;
 }
 

@@ -1103,6 +1103,7 @@ static void sync_host(ais *a, int fd)
          * store's file lock serializes this merge against the parent's writes. */
         if (ais_open(&fresh, a->dir) != 0)
             _exit(1);
+        ais_on_discard(&fresh, ais_doc_discard_cb, fresh.dir);
         rc = sync_serve(&fresh, port, token, SERVE_SYNC_TIMEOUT, SERVE_SYNC_BIDIR);
         ais_close(&fresh);
         /* The parent has only an exit status to read: 0 = converged, 2 = half (the
@@ -1175,12 +1176,13 @@ static void sync_join(ais *a, char *body, int fd)
 #endif /* SERVE_HAVE_SYNC */
 
 /* ---- one request -------------------------------------------------------- */
-/* Shred an encrypted-blob payload before its record is tombstoned, so the
- * ciphertext does not outlive it. VP is the index dir; a no-op for plain values. */
+/* Discard a payload this index made (encrypted or document blob) before its
+ * record is tombstoned, so the content does not outlive it. VP is the index
+ * dir; a value pointing at one of the user's own files is untouched. */
 static int serve_shred_value(long id, const char *value, void *vp)
 {
     (void)id;
-    secret_shred_blob((const char *)vp, value);
+    ais_doc_discard((const char *)vp, value);
     return 0;
 }
 
@@ -1580,9 +1582,11 @@ static void handle(ais *a, int fd)
                 static const char e[] = "HTTP/1.0 400 Bad Request\r\n"
                     "Connection: close\r\n\r\ncannot open that index\n";
                 ais_open(a, olddir);          /* restore the previous store */
+                ais_on_discard(a, ais_doc_discard_cb, a->dir);   /* a reopen clears it */
                 write_all(fd, e, sizeof(e) - 1);
                 return;                        /* accept loop closes fd */
             }
+            ais_on_discard(a, ais_doc_discard_cb, a->dir);
             ais_default_set(nd);              /* persist: it's the default next run */
         }
         send_head(fd, "text/plain");

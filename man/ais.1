@@ -250,7 +250,10 @@ Save standard input as a document: write it to
 and save that relative path as a value under the keys. For multi-line or large
 text. Blobs are named by local time, so
 .I ls blobs/
-lists your documents in chronological order.
+lists your documents in chronological order. Deleting the record deletes that
+file: the index wrote it, so the index takes it away. A value that merely names
+a file of yours elsewhere on disk, or a URL, is only a reference \(em deleting
+the record never touches what it points at.
 .TP
 .B \-\-dump
 Print every record.
