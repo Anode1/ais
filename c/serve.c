@@ -100,7 +100,10 @@ static const char PAGE[] =
 ".actions{display:flex;justify-content:flex-end;gap:.6rem}"
 ".actions button{font:inherit;padding:.6rem 1.1rem;border-radius:10px;cursor:pointer}"
 ".ghost{border:1px solid var(--line);background:var(--card)}"
-".primary{border:0;background:var(--accent);color:#fff;font-weight:600}"
+/* Self-contained: the empty-state CTA stands OUTSIDE any .actions row, and
+ * inheriting nothing it rendered as a cramped chip -- the first button a new
+ * user saw. Inside .actions the same values apply twice, harmlessly. */
+".primary{border:0;background:var(--accent);color:#fff;font:inherit;font-weight:600;padding:.6rem 1.1rem;border-radius:10px;cursor:pointer}"
 ".getbtn{border:0;background:var(--accent);color:#fff;font:inherit;font-weight:600;"
 "padding:.55rem 1.3rem;border-radius:22px;cursor:pointer;white-space:nowrap}"
 ".minibtn{border:1px solid var(--line);background:var(--card);color:var(--muted);font:inherit;"
@@ -271,14 +274,18 @@ static const char PAGE[] =
 "async function recall(more){var o=$('out');var qq=normkeys($('q').value);var g=viewGen;"
 "if(!more){if(!qq)return;rcAfter=0;rcN=0;rcQ=qq;rcOr=($('anyk')&&$('anyk').checked)?'&or=1':'';rcT0=performance.now();o.className='';o.innerHTML=''}"
 "if(!rcQ)return;"
-"var u='/api/get?keys='+encodeURIComponent(rcQ)+rcOr+'&count='+tlPage+(rcAfter>0?'&after='+rcAfter:'');"
+"var u='/api/get?keys='+encodeURIComponent(rcQ)+rcOr+'&meta=1&count='+tlPage+(rcAfter>0?'&after='+rcAfter:'');"
 "var L=(await(await fetch(u)).text()).split('\\n').filter(function(s){return s.length});"
 "if(g!=viewGen)return;"                                  /* the view moved on: drop it */
 "var mb=$('rcmore');if(mb)mb.remove();"
 "if(!rcN&&!L.length){o.textContent='No results for '+rcQ;o.className='empty';$('count').textContent='0 results';rcMore=false;return}o.className='';"
-"L.forEach(function(ln){var p=ln.indexOf('|'),id=p>=0?ln.slice(0,p):'',v=p>=0?ln.slice(p+1):ln;"
+/* meta=1 lines are id|keys|value; showing WHY a row matched (its tags) is what
+ * makes an OR result readable. */
+"L.forEach(function(ln){var p=ln.indexOf('|'),q=ln.indexOf('|',p+1),id=p>=0?ln.slice(0,p):'',ks=q>=0?ln.slice(p+1,q):'',v=q>=0?ln.slice(q+1):ln.slice(p+1);"
 "var r=document.createElement('div');r.className='hit';if(id)r.dataset.id=id;"
-"(v.indexOf('aisc:')==0?fillSecret(r,v):v.indexOf('aisdoc:')==0?fillDoc(r,v):fillVal(r,v));if(notHere(v))r.appendChild(awayBadge());if(id){r.appendChild(rowActions(id,v));rcAfter=+id}o.appendChild(r)});"
+"(v.indexOf('aisc:')==0?fillSecret(r,v):v.indexOf('aisdoc:')==0?fillDoc(r,v):fillVal(r,v));if(notHere(v))r.appendChild(awayBadge());"
+"var km=document.createElement('div');km.className='meta';km.textContent=ks||'(no tags)';r.appendChild(km);"
+"if(id){r.appendChild(rowActions(id,v));rcAfter=+id}o.appendChild(r)});"
 "rcN+=L.length;$('count').textContent=rcN+' result'+(rcN==1?'':'s')+' - '+(performance.now()-rcT0).toFixed(0)+' ms';"
 "if(L.length==tlPage){rcMore=true;var b=document.createElement('button');b.id='rcmore';b.className='loadmore';b.textContent='Load more';b.onclick=pageMore;o.appendChild(b)}else rcMore=false}"
 /* per-row edit (attach/detach keys by id) and delete; both refresh the view */
@@ -757,7 +764,50 @@ static int http_header(const char *hdrs, const char *name, char *out, size_t out
 }
 
 /* ---- get: stream each matching record's values to the socket ------------ */
-struct sink { ais *a; int fd; };
+struct sink { ais *a; int fd; int meta; };
+
+/* keys-of-id: which visible tags is record ID filed under? Mirrors the embed
+ * layer's keysOf -- walk the tags, and for each ask ais_get whether ID is a
+ * member. O(tags). Space-separated into BUF ("" if none; a full buffer drops
+ * the tail rather than overflowing). */
+struct keyhit { long want; int found; };
+static int keyhit_cb(long id, void *vp)
+{
+    struct keyhit *k = vp;
+    if (id == k->want) { k->found = 1; return 1; }   /* found: stop the scan */
+    return 0;
+}
+struct keysof { ais *a; long want; char *buf; size_t sz; size_t len; };
+static int keysof_tag(const char *key, long count, void *vp)
+{
+    struct keysof *c = vp;
+    char kbuf[AIS_LINE_MAX];
+    char *kv[1];
+    struct keyhit m;
+    (void)count;
+    if (strlen(key) >= sizeof kbuf)
+        return 0;                              /* skip an absurdly long key */
+    strcpy(kbuf, key);                         /* ais_get tokenizes in place */
+    kv[0] = kbuf;
+    m.want = c->want; m.found = 0;
+    ais_get(c->a, kv, 1, AIS_AND, keyhit_cb, &m);
+    if (m.found) {
+        int n = snprintf(c->buf + c->len, c->sz - c->len, "%s%s",
+                         c->len ? " " : "", key);
+        if (n > 0 && (size_t)n < c->sz - c->len)
+            c->len += (size_t)n;
+        else
+            c->buf[c->len] = '\0';             /* would not fit: keep what did */
+    }
+    return 0;
+}
+static void keys_of(ais *a, long id, char *buf, size_t sz)
+{
+    struct keysof c;
+    c.a = a; c.want = id; c.buf = buf; c.sz = sz; c.len = 0;
+    buf[0] = '\0';
+    ais_tags(a, keysof_tag, &c);
+}
 
 /* A multi-line value is stored as a plain-text document blob (blobs/<ts>.txt) whose
  * PATH is the record value; the GUI must show the CONTENT. If VALUE is such a blob,
@@ -782,11 +832,20 @@ static int on_value(long id, const char *value, void *vp)
 {
     struct sink *s = vp;
     static char vbuf[AIS_LINE_MAX];
-    char line[AIS_LINE_MAX];
+    char id_buf[32];
     const char *v = show_value(s->a, value, vbuf, sizeof vbuf);
-    int n = snprintf(line, sizeof(line), "%ld|%s\n", id, v);
-    if (n > 0)
-        write_all(s->fd, line, (size_t)n);
+    int n = snprintf(id_buf, sizeof id_buf, "%ld|", id);
+    if (n <= 0)
+        return 0;
+    write_all(s->fd, id_buf, (size_t)n);
+    if (s->meta) {                 /* id|keys|value: the recall view shows tags */
+        static char kbuf[AIS_LINE_MAX];
+        keys_of(s->a, id, kbuf, sizeof kbuf);
+        write_all(s->fd, kbuf, strlen(kbuf));
+        write_all(s->fd, "|", 1);
+    }
+    write_all(s->fd, v, strlen(v));
+    write_all(s->fd, "\n", 1);
     return 0;
 }
 
@@ -799,7 +858,8 @@ static int on_id(long id, void *vp)
 
 /* Get records under the keys: AND (intersection) by default, OR (union) when
  * want_or is set (the "Match any key" box). No automatic relaxation. */
-static void do_get(ais *a, char *keys, int want_or, long after, int count, int fd)
+static void do_get(ais *a, char *keys, int want_or, long after, int count,
+                   int meta, int fd)
 {
     char *kv[AIS_KEYS_MAX];
     int nkeys = 0;
@@ -810,43 +870,11 @@ static void do_get(ais *a, char *keys, int want_or, long after, int count, int f
          tok = strtok_r(NULL, " ", &save))
         kv[nkeys++] = tok;
 
-    s.a = a; s.fd = fd;
+    s.a = a; s.fd = fd; s.meta = meta;
     /* Keyset page: emit COUNT matches with id > AFTER (0/0 = the whole set), so
      * the page infinite-scrolls a large result instead of loading it whole. */
     if (nkeys > 0)
         ais_get_page(a, kv, nkeys, want_or ? AIS_OR : AIS_AND, after, count, on_id, &s);
-}
-
-/* keys-of-id: which visible tags is record ID filed under? Mirrors the embed layer's
- * keysOf -- walk the tags, and for each ask ais_get whether ID is a member. O(tags).
- * Emits the matching tags space-separated. */
-struct keyhit { long want; int found; };
-static int keyhit_cb(long id, void *vp)
-{
-    struct keyhit *k = vp;
-    if (id == k->want) { k->found = 1; return 1; }   /* found: stop the scan */
-    return 0;
-}
-struct keysof { ais *a; long want; int fd; int n; };
-static int keysof_tag(const char *key, long count, void *vp)
-{
-    struct keysof *c = vp;
-    char kbuf[AIS_LINE_MAX];
-    char *kv[1];
-    struct keyhit m;
-    (void)count;
-    if (strlen(key) >= sizeof kbuf)
-        return 0;                              /* skip an absurdly long key */
-    strcpy(kbuf, key);                         /* ais_get tokenizes in place */
-    kv[0] = kbuf;
-    m.want = c->want; m.found = 0;
-    ais_get(c->a, kv, 1, AIS_AND, keyhit_cb, &m);
-    if (m.found) {
-        if (c->n) write_all(c->fd, " ", 1);
-        write_all(c->fd, key, strlen(key));
-        c->n++;
-    }
-    return 0;
 }
 
 /* ---- put: the WHOLE body is one record ----------------------------------
@@ -1171,6 +1199,7 @@ static void handle(ais *a, int fd)
     long reqid = 0;                       /* ?id= for /api/del and /api/update      */
     long before = 0;                      /* ?before= cursor for /api/timeline paging */
     long after = 0;                       /* ?after= id cursor for /api/get paging    */
+    int meta = 0;                         /* ?meta=1: /api/get lines carry keys too   */
     long afterc = 0;                      /* ?afterc= count cursor for /api/tags paging */
     char *afterk = nokeys;                /* ?afterk= key cursor for /api/tags paging */
     long body_len = 0;                    /* Content-Length, for a big POST body      */
@@ -1316,6 +1345,8 @@ static void handle(ais *a, int fd)
             before = atol(query + 7);
         } else if (strncmp(query, "after=", 6) == 0) {
             after = atol(query + 6);
+        } else if (strncmp(query, "meta=", 5) == 0) {
+            meta = (query[5] == '1');
         } else if (strncmp(query, "afterc=", 7) == 0) {
             afterc = atol(query + 7);
         } else if (strncmp(query, "afterk=", 7) == 0) {
@@ -1335,7 +1366,7 @@ static void handle(ais *a, int fd)
 
     if (strcmp(method, "GET") == 0 && strcmp(path, "/api/get") == 0) {
         send_head(fd, "text/plain");
-        do_get(a, keys, want_or, after, count, fd);
+        do_get(a, keys, want_or, after, count, meta, fd);
     } else if (strcmp(method, "POST") == 0 && strcmp(path, "/api/put") == 0) {
         char msg[64];
         long c = enc ? do_put_enc(a, keys, body) : do_put(a, keys, body);
@@ -1476,11 +1507,12 @@ static void handle(ais *a, int fd)
         }
     } else if (strcmp(method, "GET") == 0 && strcmp(path, "/api/keys") == 0) {
         /* the visible tags of record ?id=N (for the edit dialog's chips) */
-        struct keysof c;
-        c.a = a; c.want = reqid; c.fd = fd; c.n = 0;
+        static char kb[AIS_LINE_MAX];
         send_head(fd, "text/plain");
-        if (reqid > 0)
-            ais_tags(a, keysof_tag, &c);
+        if (reqid > 0) {
+            keys_of(a, reqid, kb, sizeof kb);
+            write_all(fd, kb, strlen(kb));
+        }
     } else if (strcmp(method, "POST") == 0 && strcmp(path, "/api/setvalue") == 0) {
         /* body = "oldvalue\nnewvalue": rewrite record ?id=N's value in place,
          * keeping its id + timeline slot. Single-line values only (a multi-line

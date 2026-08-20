@@ -17,7 +17,7 @@ shapes the CLI prints. A GUI that can be debugged with `curl` is the point.
 
 | Method | Path | Answers |
 | --- | --- | --- |
-| GET | `/api/get?keys=A+B[&or=1][&count=N][&after=ID]` | `id\|value` per line, one line per LINK |
+| GET | `/api/get?keys=A+B[&or=1][&count=N][&after=ID][&meta=1]` | `id\|value` per line, one line per LINK; `meta=1` emits `id\|keys\|value` (the record's visible tags, space-separated, possibly empty) |
 | GET | `/api/timeline?count=N[&before=ID][&from=D][&to=D]` | `id\|ts\|keys\|value`, newest first |
 | GET | `/api/tags[?count=N&afterc=C&afterk=K]` | `count\|key`, busiest first |
 | GET | `/api/keys?id=N` | the visible tags of one record |
