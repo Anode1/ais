@@ -999,7 +999,9 @@ class _RecallPageState extends State<RecallPage> {
     final tokCtrl = TextEditingController(text: prefillToken ?? '');
     final go = await showDialog<bool>(
       context: context,
-      builder: (ctx) => AlertDialog(
+      builder: (ctx) => _OwnedFields(
+        owned: [urlCtrl, tokCtrl],
+        child: AlertDialog(
         title: const Text('Join a sync'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
@@ -1030,13 +1032,12 @@ class _RecallPageState extends State<RecallPage> {
           TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
           FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Sync')),
         ],
+        ),
       ),
     );
-    // Read the fields, then dispose the controllers (the dialog is gone now).
+    // Read the fields now; _OwnedFields frees the controllers with the route.
     final url = urlCtrl.text.trim();
     final token = tokCtrl.text.trim();
-    urlCtrl.dispose();
-    tokCtrl.dispose();
     if (go != true || _ais == null) return;
     if (url.isEmpty || token.isEmpty) return;
     await _runJoin(url, token);
@@ -1262,11 +1263,11 @@ class _RecallPageState extends State<RecallPage> {
     // Refuse while any sync is in flight, like every other mutating action.
     if (_syncBlocks()) return;
     final ctrl = TextEditingController(text: _dir);
-    final String? picked;
-    try {
-      picked = await showDialog<String>(
-        context: context,
-        builder: (ctx) => AlertDialog(
+    final picked = await showDialog<String>(
+      context: context,
+      builder: (ctx) => _OwnedFields(
+        owned: [ctrl],
+        child: AlertDialog(
           title: const Text('Library'),
           content: TextField(
             controller: ctrl,
@@ -1279,10 +1280,8 @@ class _RecallPageState extends State<RecallPage> {
             FilledButton(onPressed: () => Navigator.pop(ctx, ctrl.text.trim()), child: const Text('Open')),
           ],
         ),
-      );
-    } finally {
-      ctrl.dispose();
-    }
+      ),
+    );
     if (picked == null || picked.isEmpty || picked == _dir) return;
     final chosen = picked; // non-null from here (a setState closure below can't promote picked)
     // A sync can start while the dialog is open (a scanned deep link arrives off
@@ -1878,7 +1877,9 @@ class _RecallPageState extends State<RecallPage> {
 
     final ok = await showDialog<bool>(
       context: context,
-      builder: (ctx) => StatefulBuilder(
+      builder: (ctx) => _OwnedFields(
+        owned: [ctrl, focus],
+        child: StatefulBuilder(
         builder: (ctx, setDlg) => AlertDialog(
           title: const Text('Edit tags'),
           content: Column(
@@ -1924,12 +1925,11 @@ class _RecallPageState extends State<RecallPage> {
             FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Apply')),
           ],
         ),
+        ),
       ),
     );
-    // Capture any token still in the field, then dispose (the dialog is gone).
+    // Capture any token still in the field; _OwnedFields frees ctrl and focus.
     final trailing = ctrl.text;
-    ctrl.dispose();
-    focus.dispose();
     if (ok != true || _ais == null) return;
     for (final p in trailing.split(RegExp(r'[,\s]+')).where((p) => p.isNotEmpty)) {
       if (!tags.contains(p)) tags.add(p);
@@ -1984,7 +1984,9 @@ class _RecallPageState extends State<RecallPage> {
     final ctrl = TextEditingController(text: oldValue);
     final ok = await showDialog<bool>(
       context: context,
-      builder: (ctx) => AlertDialog(
+      builder: (ctx) => _OwnedFields(
+        owned: [ctrl],
+        child: AlertDialog(
         title: const Text('Edit value'),
         content: TextField(
           controller: ctrl,
@@ -1998,10 +2000,10 @@ class _RecallPageState extends State<RecallPage> {
           TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
           FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Save')),
         ],
+        ),
       ),
     );
-    final newValue = ctrl.text;
-    ctrl.dispose(); // dialog is gone; free the controller
+    final newValue = ctrl.text; // _OwnedFields frees ctrl with the route
     if (ok != true || _ais == null) return null;
     // Empty value: say so instead of silently closing the dialog. An unchanged
     // value is a genuine no-op and stays quiet. Don't trim into the stored value.
@@ -2029,7 +2031,9 @@ class _RecallPageState extends State<RecallPage> {
     final ctrl = TextEditingController();
     final pass = await showDialog<String>(
       context: context,
-      builder: (ctx) => AlertDialog(
+      builder: (ctx) => _OwnedFields(
+        owned: [ctrl],
+        child: AlertDialog(
         title: const Text('Reveal'),
         content: TextField(
           controller: ctrl,
@@ -2042,9 +2046,9 @@ class _RecallPageState extends State<RecallPage> {
           TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
           FilledButton(onPressed: () => Navigator.pop(ctx, ctrl.text), child: const Text('Reveal')),
         ],
+        ),
       ),
     );
-    ctrl.dispose(); // dialog is gone; free the controller
     if (pass == null || pass.isEmpty || _ais == null) return;
     final clear = await _ais!.revealAsync(hit.value, pass);   // off the UI isolate
     if (!mounted) return;
@@ -2599,7 +2603,9 @@ class _RecallPageState extends State<RecallPage> {
       context: context,
       isScrollControlled: true,
       showDragHandle: true,
-      builder: (ctx) => StatefulBuilder(
+      builder: (ctx) => _OwnedFields(
+        owned: [valCtrl, keysCtrl, ppCtrl],
+        child: StatefulBuilder(
         builder: (ctx, setSheet) => Padding(
         padding: EdgeInsets.only(
             bottom: MediaQuery.of(ctx).viewInsets.bottom + 16,
@@ -2731,13 +2737,11 @@ class _RecallPageState extends State<RecallPage> {
           ],
         ),
       ),
+        ),
       ),
-    ).whenComplete(() {
-      // saved, cancelled, or swipe-dismissed: free the fields either way
-      valCtrl.dispose();
-      keysCtrl.dispose();
-      ppCtrl.dispose();
-    });
+    );
+    // saved, cancelled, or swipe-dismissed: _OwnedFields frees the fields with
+    // the route either way.
   }
 
   @override
@@ -2755,6 +2759,35 @@ class _RecallPageState extends State<RecallPage> {
 // A non-dismissible barrier dialog shown while a sync FFI call blocks: it keeps
 // the UI off the shared engine handle during the sync and closes itself when the
 // future completes (peer done, or timeout). Used by both receive and send.
+// Owns a dialog's or sheet's TextEditingControllers/FocusNodes and frees them in
+// its own dispose(). Mounted INSIDE the route, so the framework runs that dispose
+// at route teardown, after the exit animation, and unmounts deepest-first -- the
+// fields have already detached. Freeing at pop instead (a .whenComplete, or the
+// line after `await showDialog`) runs while the closing route's fields still
+// listen, and every Save and Cancel dies on the '_dependents.isEmpty' red screen.
+// Reading `ctrl.text` right after the await stays safe: the pop resolves it
+// before the animation, the teardown that frees the field comes after.
+class _OwnedFields extends StatefulWidget {
+  final List<ChangeNotifier> owned;
+  final Widget child;
+  const _OwnedFields({required this.owned, required this.child});
+  @override
+  State<_OwnedFields> createState() => _OwnedFieldsState();
+}
+
+class _OwnedFieldsState extends State<_OwnedFields> {
+  @override
+  void dispose() {
+    for (final n in widget.owned) {
+      n.dispose();
+    }
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => widget.child;
+}
+
 class _SyncWaitDialog extends StatefulWidget {
   final String title;
   final String? qrData;       // ais:// pairing link; shown as a QR on host, null hides it
