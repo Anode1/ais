@@ -8,6 +8,30 @@
 <link rel="stylesheet" href="/app.css">
 <title>AIS</title>
 
+<!-- The Sync sheet reuses the Add sheet's overlay and card, so only the rules
+     that have no counterpart in app.css live here (no build step, no extra
+     asset to cache: the service worker already carries index.html). -->
+<style>
+#syncsheet { position: fixed; inset: 0; z-index: 10; background: rgba(0, 0, 0, .35);
+  display: flex; align-items: flex-end; justify-content: center; }
+#syncsheet[hidden] { display: none; }   /* the `hidden` attr must win over display:flex */
+@media (min-width: 600px) { #syncsheet { align-items: center; } }
+#syncsheet .card { max-height: 88vh; overflow-y: auto; }
+#syncsheet .card:focus { outline: none; }   /* a container, not a control */
+/* the wide accent button of the embedded page, for the actions that stand alone
+   outside an .actions row (folder Sync, and the empty-folder override) */
+.getbtn { border: 0; background: var(--accent); color: #fff; font: inherit; font-weight: 600;
+  padding: .7rem 1.4rem; border-radius: 22px; cursor: pointer; white-space: nowrap; }
+#qr { display: flex; justify-content: center; margin: .4rem 0 .8rem; }
+/* the pairing line is read aloud or typed on the other device: monospace, and it
+   wraps rather than overflowing, because a truncated token cannot be retyped */
+.pair { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: .85rem;
+  word-break: break-all; background: #fafafc; border: 1px solid var(--line);
+  border-radius: 10px; padding: .6rem; }
+.fldrow { display: flex; gap: .5rem; align-items: center; }
+.fldrow input { flex: 1; margin-bottom: 0; }
+</style>
+
 <!-- frosted header: title + count, then a rounded search row (recall-first) -->
 <header id="bar">
   <div class="titlerow"><span class="brand">AIS</span><span id="count" class="muted"></span></div>
@@ -23,7 +47,7 @@
     <span>to</span><input id="tlto" type="date" style="font:inherit">
     <button id="tlclear" class="link">clear</button>
   </div>
-  <div class="storerow"><span id="store" class="muted"></span><button id="cleanbtn" class="link">clean up</button><button id="storebtn" class="link">change</button></div>
+  <div class="storerow"><span id="store" class="muted"></span><button id="cleanbtn" class="link">clean up</button><button id="syncbtn" class="link">sync</button><button id="storebtn" class="link">change</button></div>
   <div id="storeedit" class="storerow" style="display:none;margin-top:.4rem">
     <input id="storepath" placeholder="Index folder (full path)" autocomplete="off" style="flex:1;font:inherit">
     <button id="storeok" class="link">open</button><button id="storecancel" class="link">cancel</button></div>
@@ -97,6 +121,57 @@
       <button id="dscancel" class="ghost">Cancel</button>
       <button id="dsgo" class="danger-btn" disabled>Delete</button>
     </div>
+  </div>
+</div>
+
+<!-- Sync sheet: the same three ways to move records that the embedded page
+     offers, in the same order. A nearby device (one hosts and waits, the other
+     joins), a file to carry by hand, or a shared folder that syncs itself.
+     The ids match the embedded page's so one driver tests both. -->
+<div id="syncsheet" hidden role="dialog" aria-modal="true" aria-labelledby="synctitle">
+  <div class="card" tabindex="-1">
+    <h2 id="synctitle">Sync with another device</h2>
+    <p class="muted" style="margin:.2rem 0 1rem;font-size:.9rem">Both devices end up with the same records. One hosts and waits; the other joins it. Same Wi-Fi.</p>
+    <div id="syncpick" class="actions" style="justify-content:center">
+      <button id="syncjoinbtn" class="ghost">Join</button>
+      <button id="synchostbtn" class="primary">Host</button>
+    </div>
+    <!-- File transfer: no network at all. Export the whole Library to a file, or
+         merge one in (moved by Drive, USB or email). -->
+    <div id="syncfile">
+      <p class="muted" style="margin:1rem 0 .5rem;font-size:.85rem">Or a file &mdash; move it by Drive, USB or email:</p>
+      <div class="actions" style="justify-content:center">
+        <button id="impbtn" class="ghost">Import</button>
+        <button id="expbtn" class="primary">Export</button>
+      </div>
+      <!-- Shared folder (Syncthing / a cloud folder): one tap runs a pass, and the
+           path is remembered by the server, so a pass also runs on load and after
+           each change. -->
+      <p class="muted" style="margin:1rem 0 .4rem;font-size:.85rem">Or auto-sync a shared folder. Best with Syncthing; a versioning cloud may keep deleted items:</p>
+      <div class="fldrow">
+        <input id="syncfld" placeholder="/path/to/shared/folder" autocomplete="off">
+        <button id="syncfldbtn" class="getbtn">Sync</button>
+      </div>
+      <p id="syncfldmsg" class="muted" style="margin:.4rem 0 0;font-size:.8rem"></p>
+      <button id="syncfldany" class="getbtn" style="display:none;margin-top:.4rem">Sync with it anyway</button>
+    </div>
+    <input id="fileimp" type="file" accept=".aisb" hidden>
+    <!-- Host pane: address + token to read off, a QR to scan, a live status line -->
+    <div id="synchost" hidden>
+      <p style="margin:.2rem 0 .6rem;font-size:.9rem">Scan with the AIS app, or on the other device choose Join and enter:</p>
+      <div id="qr"></div>
+      <div class="pair"><div id="hostaddr"></div><div id="hosttok" class="muted"></div></div>
+      <p id="hoststatus" class="muted" style="margin:.6rem 0 0;font-size:.9rem">Waiting for the other device...</p>
+    </div>
+    <!-- Join pane: address + token inputs and a status line -->
+    <div id="syncjoin" hidden>
+      <input id="jaddr" placeholder="Address" value="http://">
+      <input id="jtok" placeholder="Token">
+      <p class="muted" style="margin:0 0 .6rem;font-size:.85rem">On the other device: open Sync, choose Host, and read off its address and token.</p>
+      <div class="actions"><button id="jgo" class="primary">Sync</button></div>
+      <p id="joinstatus" class="muted" style="margin:.6rem 0 0;font-size:.9rem"></p>
+    </div>
+    <div class="actions" style="margin-top:1rem"><button id="synccancel" class="ghost">Close</button></div>
   </div>
 </div>
 
@@ -236,7 +311,10 @@ var delTimer = null, delCommit = null, delUndoFn = null;
 function hideToast(){ $('toast').hidden = true; }
 function delFlush() {
   if (delTimer) { clearTimeout(delTimer); delTimer = null; }
-  if (delCommit) { var f = delCommit; delCommit = null; delUndoFn = null; f(); }
+  if (delCommit) {
+    var f = delCommit; delCommit = null; delUndoFn = null; f();
+    if (syncFolderSaved()) syncFolderRun(true);   // a change: push it to the folder
+  }
   hideToast();
 }
 function delUndo() {
@@ -246,6 +324,7 @@ function delUndo() {
 }
 function delPending(label, commit, undo) {
   delFlush();                                  // commit any prior pending action
+  toastClaim();                                // take the toast back off a folder message
   $('toast').firstChild.textContent = label;
   delCommit = commit; delUndoFn = undo;
   $('toast').hidden = false;
@@ -516,6 +595,7 @@ async function save() {
   } catch (e) { alert('Save failed (' + e.message + '). Nothing was saved.'); return; }
   closeSheet();
   $('q').value = keys; recall();          // show what was just saved
+  if (syncFolderSaved()) syncFolderRun(true);   // and get it into the shared folder
 }
 
 $('q').addEventListener('keydown', function (e){ if (e.key=='Enter') setView('recall'); });
@@ -560,6 +640,7 @@ document.addEventListener('keydown', function (e) {
   if (!$('dsheet').hidden) closeDel();
   else if (!$('editsheet').hidden) $('editsheet').hidden = true;
   else if (!$('sheet').hidden) closeSheet();
+  else if (!$('syncsheet').hidden) closeSync();
 });
 
 // voice: the browser's speech-to-text -> keys -> recall (Android Chrome; absent
@@ -622,6 +703,299 @@ loadStore();
 // (and reachable by a screenshot or a UI test, which cannot click before load).
 var h0 = (location.hash || '').slice(1);
 if (h0 == 'tags' || h0 == 'recall' || h0 == 'timeline') setView(h0);
+
+// ---- Sync (nearby device / a file / a shared folder) ----------------------
+// The same feature, the same ids and the same wording as the embedded page:
+// a control in one front end and not the other is a bug, and one test driver
+// has to be able to reach both.
+//
+// qrGen: a small pure-JS byte-mode QR encoder (ECC level L, mask 0, versions
+// 1-5), ported unchanged from the embedded page, so a phone can scan the
+// address+token with no server-side or network dependency. Returns a matrix of
+// 0/1 modules. Capped at v5 (<=106 bytes): v6+ needs multi-block ECC
+// interleaving and version-info bits, unimplemented here, so a bigger payload
+// throws and qrDraw shows "(QR unavailable)" rather than painting a silently
+// unscannable code. The pairing payload is ~78 bytes max (dotted-quad host plus
+// a 32-hex token), well inside v5.
+function qrGen(s) {
+  var EXP = new Array(512), LOG = new Array(256), x = 1, i;
+  for (i = 0; i < 255; i++) { EXP[i] = x; LOG[x] = i; x <<= 1; if (x & 256) x ^= 285; }
+  for (i = 255; i < 512; i++) EXP[i] = EXP[i - 255];
+  function mul(a, b) { return (a === 0 || b === 0) ? 0 : EXP[LOG[a] + LOG[b]]; }
+  function rsGen(n) {
+    var g = [1], j;
+    for (i = 0; i < n; i++) {
+      var ng = new Array(g.length + 1).fill(0);
+      for (j = 0; j < g.length; j++) { ng[j] ^= mul(g[j], EXP[i]); ng[j + 1] ^= g[j]; }
+      g = ng;
+    }
+    return g;
+  }
+  var CAP = [[19,7],[34,10],[55,15],[80,20],[108,26]];
+  var bytes = []; for (i = 0; i < s.length; i++) bytes.push(s.charCodeAt(i) & 255);
+  var ver = -1, dataCW = 0, eccCW = 0;
+  for (i = 0; i < CAP.length; i++) {
+    var cw = CAP[i][0];
+    if (4 + 8 + 8 * bytes.length <= cw * 8) { ver = i + 1; dataCW = cw; eccCW = CAP[i][1]; break; }
+  }
+  if (ver < 0) throw 'payload too big';
+  var bits = []; function put(v, n) { for (var b = n - 1; b >= 0; b--) bits.push((v >> b) & 1); }
+  put(4, 4); put(bytes.length, 8);
+  for (i = 0; i < bytes.length; i++) put(bytes[i], 8);
+  var cap = dataCW * 8, t = Math.min(4, cap - bits.length);
+  for (i = 0; i < t; i++) bits.push(0);
+  while (bits.length % 8 !== 0) bits.push(0);
+  var data = [];
+  for (i = 0; i < bits.length; i += 8) {
+    var v = 0; for (var j = 0; j < 8; j++) v = (v << 1) | bits[i + j];
+    data.push(v);
+  }
+  var pad = [236, 17], pi = 0;
+  while (data.length < dataCW) { data.push(pad[pi & 1]); pi++; }
+  // rsg, not `gen`: this page already has a global `gen` (the view counter)
+  var rsg = rsGen(eccCW), ecc = new Array(eccCW).fill(0);
+  for (i = 0; i < data.length; i++) {
+    var f = data[i] ^ ecc[0]; ecc.shift(); ecc.push(0);
+    if (f !== 0) for (var k = 0; k < eccCW; k++) ecc[k] ^= mul(rsg[eccCW - 1 - k], f);
+  }
+  var all = data.concat(ecc);
+  var size = 17 + 4 * ver, m = [], used = [];
+  for (i = 0; i < size; i++) { m.push(new Array(size).fill(0)); used.push(new Array(size).fill(0)); }
+  function set(r, c, v) { m[r][c] = v ? 1 : 0; used[r][c] = 1; }
+  function finder(r, c) {
+    for (var dr = -1; dr <= 7; dr++) for (var dc = -1; dc <= 7; dc++) {
+      var rr = r + dr, cc = c + dc;
+      if (rr < 0 || cc < 0 || rr >= size || cc >= size) continue;
+      var on = (dr >= 0 && dr <= 6 && (dc === 0 || dc === 6))
+            || (dc >= 0 && dc <= 6 && (dr === 0 || dr === 6))
+            || (dr >= 2 && dr <= 4 && dc >= 2 && dc <= 4);
+      set(rr, cc, on ? 1 : 0);
+    }
+  }
+  finder(0, 0); finder(0, size - 7); finder(size - 7, 0);
+  for (i = 8; i < size - 8; i++) {
+    if (!used[6][i]) set(6, i, (i % 2 === 0) ? 1 : 0);
+    if (!used[i][6]) set(i, 6, (i % 2 === 0) ? 1 : 0);
+  }
+  var AL = [[],[],[6,18],[6,22],[6,26],[6,30],[6,34],[6,22,38],[6,24,42],[6,26,46],[6,28,50]];
+  var al = AL[ver];
+  for (var a = 0; a < al.length; a++) for (var b = 0; b < al.length; b++) {
+    var r = al[a], c = al[b];
+    if (used[r][c]) continue;
+    for (var dr = -2; dr <= 2; dr++) for (var dc = -2; dc <= 2; dc++) {
+      var on = (Math.abs(dr) === 2 || Math.abs(dc) === 2 || (dr === 0 && dc === 0));
+      set(r + dr, c + dc, on ? 1 : 0);
+    }
+  }
+  set(size - 8, 8, 1);
+  for (i = 0; i < 9; i++) { if (!used[8][i]) used[8][i] = 2; if (!used[i][8]) used[i][8] = 2; }
+  for (i = 0; i < 8; i++) { used[8][size - 1 - i] = 2; used[size - 1 - i][8] = 2; }
+  if (ver >= 7) for (var vr = 0; vr < 6; vr++) for (var vc = 0; vc < 3; vc++) {
+    used[vr][size - 11 + vc] = 2; used[size - 11 + vc][vr] = 2;
+  }
+  var idx = 0, dir = -1, col;
+  for (col = size - 1; col > 0; col -= 2) {
+    if (col === 6) col--;
+    for (var t2 = 0; t2 < size; t2++) {
+      var row = (dir < 0) ? (size - 1 - t2) : t2;
+      for (var q = 0; q < 2; q++) {
+        var cc = col - q;
+        if (used[row][cc]) continue;
+        var bit = (idx < all.length * 8) ? ((all[idx >> 3] >> (7 - (idx & 7))) & 1) : 0;
+        idx++;
+        if (((row + cc) % 2) === 0) bit ^= 1;
+        set(row, cc, bit);
+      }
+    }
+    dir = -dir;
+  }
+  var fmt = 0x77c4, fb = [];
+  for (i = 14; i >= 0; i--) fb.push((fmt >> i) & 1);
+  var fp1 = [[8,0],[8,1],[8,2],[8,3],[8,4],[8,5],[8,7],[8,8],[7,8],[5,8],[4,8],[3,8],[2,8],[1,8],[0,8]];
+  for (i = 0; i < 15; i++) m[fp1[i][0]][fp1[i][1]] = fb[i];
+  var fp2 = [[size-1,8],[size-2,8],[size-3,8],[size-4,8],[size-5,8],[size-6,8],[size-7,8],
+             [8,size-8],[8,size-7],[8,size-6],[8,size-5],[8,size-4],[8,size-3],[8,size-2],[8,size-1]];
+  for (i = 0; i < 15; i++) m[fp2[i][0]][fp2[i][1]] = fb[i];
+  return m;
+}
+// qrDraw: paint the matrix into EL as a crisp canvas with a 4-module quiet zone.
+// An unencodable payload leaves a sentence, not a broken code.
+function qrDraw(el, text) {
+  el.innerHTML = '';
+  try {
+    var M = qrGen(text), n = M.length, q = 4, sc = 6, px = (n + 2 * q) * sc;
+    var cv = document.createElement('canvas');
+    cv.width = px; cv.height = px; cv.style.width = px + 'px'; cv.style.height = px + 'px';
+    var g = cv.getContext('2d');
+    g.fillStyle = '#fff'; g.fillRect(0, 0, px, px); g.fillStyle = '#000';
+    for (var r = 0; r < n; r++) for (var c = 0; c < n; c++)
+      if (M[r][c]) g.fillRect((c + q) * sc, (r + q) * sc, sc, sc);
+    el.appendChild(cv);
+  } catch (e) { el.textContent = '(QR unavailable)'; }
+}
+
+// the sheet: a role picker, then a Host pane (address + token + QR, polling) or
+// a Join pane (address + token). Both ends converge: the exchange is two-way.
+var syncPoll = null;
+function openSync() {
+  $('syncpick').style.display = 'flex';
+  $('syncfile').style.display = 'block';
+  $('synchost').hidden = true; $('syncjoin').hidden = true;
+  $('syncsheet').hidden = false;
+  $('syncsheet').querySelector('.card').focus();
+}
+function closeSync() {
+  $('syncsheet').hidden = true;
+  if (syncPoll) { clearInterval(syncPoll); syncPoll = null; }
+}
+async function syncHost() {
+  $('syncpick').style.display = 'none'; $('syncfile').style.display = 'none';
+  $('synchost').hidden = false;
+  $('hoststatus').textContent = 'Starting...';
+  var r = await fetch('/api/sync/host', { method:'POST' });
+  if (!r.ok) { $('hoststatus').textContent = 'Could not start host. Is one already running?'; return; }
+  var t = (await r.text()).split('\n'), url = t[0], tok = t[1];
+  $('hostaddr').textContent = url;
+  $('hosttok').textContent = 'token: ' + tok;
+  qrDraw($('qr'), 'ais://sync?host=' + encodeURIComponent(url.split('://')[1]) + '&token=' + tok);
+  $('hoststatus').textContent = 'Waiting for the other device...';
+  if (syncPoll) clearInterval(syncPoll);
+  // poll, because the peer arrives on the host's own listener, not on this page
+  syncPoll = setInterval(async function () {
+    var s = (await (await fetch('/api/sync/status')).text()).trim();
+    if (s == 'synced') {
+      clearInterval(syncPoll); syncPoll = null;
+      $('hoststatus').textContent = 'Synced. Both devices now have the same records.';
+      setView(view);
+    } else if (s == 'half') {
+      clearInterval(syncPoll); syncPoll = null;
+      $('hoststatus').textContent = 'They got your records, but theirs did not come back. '
+        + 'Nothing was lost -- sync again to finish.';
+      setView(view);
+    } else if (s == 'again') {
+      clearInterval(syncPoll); syncPoll = null;
+      $('hoststatus').textContent = 'Synced, but one more round is needed to match exactly. '
+        + 'Nothing was lost -- sync again.';
+      setView(view);
+    } else if (s == 'timeout') {
+      clearInterval(syncPoll); syncPoll = null;
+      $('hoststatus').textContent = 'No device joined in time. Try again.';
+    }
+  }, 1500);
+}
+function syncJoinPane() {
+  $('syncpick').style.display = 'none'; $('syncfile').style.display = 'none';
+  $('syncjoin').hidden = false; $('joinstatus').textContent = ''; $('jaddr').focus();
+}
+async function syncJoinGo() {
+  var url = $('jaddr').value.trim(), tok = $('jtok').value.trim();
+  if (!url || !tok) { $('joinstatus').textContent = 'Enter an address and a token.'; return; }
+  $('joinstatus').textContent = 'Syncing...';
+  var r = await fetch('/api/sync/join', { method:'POST', body: url + '\n' + tok });
+  var s = (await r.text()).trim();
+  if (s == 'merged') {
+    $('joinstatus').textContent = 'Synced. Both devices now have the same records.';
+    setView(view);
+  } else if (s == 'half') {
+    $('joinstatus').textContent = 'Got their records, but yours did not reach them. '
+      + 'Nothing was lost -- sync again to finish.';
+    setView(view);
+  } else if (s == 'bad url') {
+    $('joinstatus').textContent = 'That address looks wrong. Use http://host:port.';
+  } else {
+    $('joinstatus').textContent = 'Could not sync. Same Wi-Fi? '
+      + 'Check the host is waiting and the token is right.';
+  }
+}
+// file export/import: no network at all -- the whole Library as one .aisb file
+function fileExport() {
+  var a = document.createElement('a');
+  a.href = '/api/export-bundle'; a.download = 'ais-export.aisb';
+  document.body.appendChild(a); a.click(); a.remove();
+}
+async function fileImport(f) {
+  var b = await f.arrayBuffer();
+  var r = await fetch('/api/import-bundle', { method:'POST', body: b });
+  if ((await r.text()).trim() == 'merged') {
+    closeSync(); setView(view); alert('Imported. Records merged.');
+  } else alert('Import failed. Is it an .aisb file from Export?');
+}
+// folder auto-sync. The saved path comes from the SERVER (<index>/syncfolder),
+// not localStorage: clearing browser data must not switch off the user's backup,
+// and the CLI and the app have to see the same setting.
+var syncFld = '';
+function syncFolderSaved() { return syncFld; }
+async function syncFolderLoad() {
+  try { syncFld = (await (await fetch('/api/sync-folder')).text()).trim(); }
+  catch (e) { syncFld = ''; }
+  if (syncFld) { $('syncfld').value = syncFld; syncFolderRun(true); }
+}
+async function syncFolderRun(silent, force) {
+  var p = ($('syncfld').value || '').trim();
+  if (!p) { if (!silent) $('syncfldmsg').textContent = 'Enter a folder path.'; return; }
+  if (!silent) $('syncfldmsg').textContent = 'Syncing...';
+  $('syncfldany').style.display = 'none';
+  try {
+    var r = await fetch('/api/sync-folder' + (force ? '?force=1' : ''), { method:'POST', body: p });
+    var s = (await r.text()).trim();
+    if (s == 'synced') {
+      syncFldSaid = ''; syncFld = p;
+      $('syncfldmsg').textContent = 'Synced.'; setView(view); return;
+    }
+    // Name the reason. The user cannot tell a typo from an unmounted drive from a
+    // read-only share, and each has a different remedy; a flat "sync failed" is
+    // what let a broken folder sync pass for a working backup.
+    var m = {
+      'no such folder': 'No such folder. Create it first, or check the drive is plugged in.',
+      'not a folder': 'That path is a file, not a folder.',
+      'cannot read that folder': 'That folder cannot be read. Check the drive and permissions.',
+      'folder empty': 'That folder holds no device copies at all, though we have synced with it '
+        + 'before. The drive may not be mounted, or it was emptied or replaced.',
+      'cannot write': 'Merged what was there, but could not write into that folder: '
+        + 'it may be read-only or full.'
+    };
+    var msg = m[s] || 'Sync failed.';
+    $('syncfldmsg').textContent = msg;
+    $('syncfldany').style.display = (s == 'folder empty') ? '' : 'none';
+    // The sheet is shut most of the time, so a message written only there is no
+    // report at all. Say it out loud.
+    syncFolderAlert(msg);
+  } catch (e) {
+    syncFolderAlert('Sync failed.'); $('syncfldmsg').textContent = 'Sync failed.';
+  }
+}
+// Once per problem: the pass runs on load and after every change, and repeating
+// the same sentence each time trains the user to ignore it.
+var syncFldSaid = '', syncFldTimer = null;
+// The toast is shared with delete/undo, so hand it back: clear the timer or a
+// later Deleted toast vanishes early, and restore the button or that delete is
+// offered with no Undo at all.
+function toastClaim() {
+  if (syncFldTimer) { clearTimeout(syncFldTimer); syncFldTimer = null; }
+  $('toastundo').hidden = false;
+}
+function syncFolderAlert(msg) {
+  if (msg == syncFldSaid) return;
+  syncFldSaid = msg;
+  var t = $('toast');
+  t.firstChild.textContent = msg; $('toastundo').hidden = true; t.hidden = false;
+  if (syncFldTimer) clearTimeout(syncFldTimer);
+  syncFldTimer = setTimeout(function () {
+    syncFldTimer = null; t.hidden = true; $('toastundo').hidden = false;
+  }, 6000);
+}
+$('syncbtn').onclick = openSync;
+$('synccancel').onclick = closeSync;
+$('synchostbtn').onclick = syncHost;
+$('syncjoinbtn').onclick = syncJoinPane;
+$('jgo').onclick = syncJoinGo;
+$('expbtn').onclick = fileExport;
+$('impbtn').onclick = function () { $('fileimp').click(); };
+$('fileimp').onchange = function () { if (this.files[0]) fileImport(this.files[0]); this.value = ''; };
+$('syncfldbtn').onclick = function () { syncFolderRun(false, 0); };
+$('syncfldany').onclick = function () { syncFolderRun(false, 1); };
+$('syncsheet').addEventListener('click', function (e) { if (e.target == $('syncsheet')) closeSync(); });
+syncFolderLoad();
 
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(function(){});
 </script>
