@@ -395,22 +395,22 @@ class _RecallPageState extends State<RecallPage> {
     });
   }
 
-  Future<void> _pickDate({required bool isFrom}) async {
-    final cur = isFrom ? _tlFrom : _tlTo;
-    final init = cur.isNotEmpty ? DateTime.tryParse(cur) ?? DateTime.now() : DateTime.now();
-    final d = await showDatePicker(
+  Future<void> _pickRange() async {
+    final r = await showDateRangePicker(
       context: context,
-      initialDate: init,
       firstDate: DateTime(2000),
       lastDate: DateTime(2100),
+      initialDateRange: (_tlFrom.isNotEmpty && _tlTo.isNotEmpty)
+          ? DateTimeRange(
+              start: DateTime.tryParse(_tlFrom) ?? DateTime.now(),
+              end: DateTime.tryParse(_tlTo) ?? DateTime.now())
+          : null,
     );
-    if (d == null) return;
-    final s = '${d.year.toString().padLeft(4, '0')}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
-    if (isFrom) {
-      _tlFrom = s;
-    } else {
-      _tlTo = s;
-    }
+    if (r == null) return;
+    String d(DateTime t) => '${t.year.toString().padLeft(4, '0')}-'
+        '${t.month.toString().padLeft(2, '0')}-${t.day.toString().padLeft(2, '0')}';
+    _tlFrom = d(r.start);
+    _tlTo = d(r.end);
     _loadTimeline();
   }
 
@@ -525,6 +525,17 @@ class _RecallPageState extends State<RecallPage> {
       ),
     );
   }
+
+  // List rows render with plain Text, not _valueLabel: SelectableText with
+  // maxLines RESERVES that many lines (a one-line row stood ~110dp tall) and
+  // consumes the tap that should open the detail page. The detail page keeps
+  // the selectable, tappable _valueLabel; here a URL is tinted only.
+  Widget _rowLabel(String v, ColorScheme cs) => Text(
+        _display(v),
+        maxLines: 2,
+        overflow: TextOverflow.ellipsis,
+        style: _isUrl(v) ? TextStyle(color: cs.primary) : null,
+      );
 
   String _display(String v) {
     if (!v.startsWith('blobs/')) return v; // inline value: no FFI, verbatim
@@ -1566,51 +1577,20 @@ class _RecallPageState extends State<RecallPage> {
                             ),
                           ),
                         ),
-                        const SizedBox(width: 8),
-                        FilledButton(
-                          onPressed: () => _setView('recall'),
-                          style: FilledButton.styleFrom(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 22, vertical: 18),
-                            shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(24)),
-                          ),
-                          child: const Text('Search'),
-                        ),
                       ],
                     ),
-                    // "Match any tag" (OR). Toggling re-runs the live search.
-                    InkWell(
-                      onTap: () => _setMatchAny(!_matchAny),
-                      borderRadius: BorderRadius.circular(6),
-                      child: Row(mainAxisSize: MainAxisSize.min, children: [
-                        // A full 48dp target: the box must meet the minimum alone.
-                        SizedBox(
-                          width: 48,
-                          height: 48,
-                          child: Checkbox(
-                            value: _matchAny,
-                            onChanged: (b) => _setMatchAny(b ?? false),
-                          ),
-                        ),
-                        const SizedBox(width: 6),
-                        Text('Match any tag',
-                            style: Theme.of(context)
-                                .textTheme
-                                .bodySmall
-                                ?.copyWith(color: cs.onSurfaceVariant)),
-                      ]),
-                    ),
-                    const SizedBox(height: 4),
-                    // Store path as a non-interactive muted label.
-                    Text(
-                      _dir.isEmpty ? 'Library: (default)' : 'Library: $_dir',
-                      style: Theme.of(context)
-                          .textTheme
-                          .bodySmall
-                          ?.copyWith(color: cs.onSurfaceVariant),
-                      overflow: TextOverflow.ellipsis,
-                    ),
+                    const SizedBox(height: 8),
+                    // "Match any tag" (OR) as a chip. The library path moved
+                    // off the home screen: it stays in About and in the Change
+                    // Library dialog, where it is actionable.
+                    Row(children: [
+                      FilterChip(
+                        label: const Text('Match any tag'),
+                        selected: _matchAny,
+                        onSelected: _setMatchAny,
+                        visualDensity: VisualDensity.compact,
+                      ),
+                    ]),
                   ],
                 ),
               ),
@@ -2248,7 +2228,7 @@ class _RecallPageState extends State<RecallPage> {
       child: ListView.separated(
       padding: const EdgeInsets.only(bottom: 88),
       itemCount: _results.length + (_recallMore ? 1 : 0),
-      separatorBuilder: (_, __) => const Divider(height: 1),
+      separatorBuilder: (_, __) => const Divider(height: 1, indent: 16, endIndent: 16),
       itemBuilder: (_, i) {
         if (i >= _results.length) return _loadingFooter();
         final hit = _results[i];
@@ -2263,6 +2243,9 @@ class _RecallPageState extends State<RecallPage> {
           child: ListTile(
           // Primary path: tap the row for its detail/edit page.
           onTap: () => _openDetail(hit.id, v),
+          visualDensity: const VisualDensity(vertical: -1),
+          minVerticalPadding: 10,
+          contentPadding: const EdgeInsets.symmetric(horizontal: 16),
           title: Row(mainAxisSize: MainAxisSize.min, children: [
             Flexible(
               child: isSecret
@@ -2271,7 +2254,7 @@ class _RecallPageState extends State<RecallPage> {
                       const SizedBox(width: 6),
                       Text('encrypted', style: TextStyle(color: cs.onSurfaceVariant)),
                     ])
-                  : _valueLabel(v, cs, maxLines: 3),
+                  : _rowLabel(v, cs),
             ),
             if (away) _notHereBadge(cs),
           ]),
@@ -2287,7 +2270,7 @@ class _RecallPageState extends State<RecallPage> {
                     : ''),
             style: Theme.of(context)
                 .textTheme
-                .bodyMedium
+                .bodySmall
                 ?.copyWith(color: cs.onSurfaceVariant),
           ),
           trailing: Row(
@@ -2419,20 +2402,12 @@ class _RecallPageState extends State<RecallPage> {
       padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
       child: Row(children: [
         InputChip(
-          label: Text(_tlFrom.isEmpty ? 'From' : 'From: $_tlFrom'),
-          onPressed: () => _pickDate(isFrom: true),
+          avatar: Icon(Icons.date_range, size: 18, color: cs.onSurfaceVariant),
+          label: Text(on ? '$_tlFrom \u2013 $_tlTo' : 'Date range'),
+          visualDensity: VisualDensity.compact,
+          onPressed: _pickRange,
+          onDeleted: on ? _clearRange : null,
         ),
-        const SizedBox(width: 8),
-        InputChip(
-          label: Text(_tlTo.isEmpty ? 'To' : 'To: $_tlTo'),
-          onPressed: () => _pickDate(isFrom: false),
-        ),
-        if (on)
-          IconButton(
-            icon: const Icon(Icons.clear, size: 18),
-            tooltip: 'Clear range',
-            onPressed: _clearRange,
-          ),
       ]),
     );
   }
@@ -2479,6 +2454,9 @@ class _RecallPageState extends State<RecallPage> {
         child: ListTile(
         // Tap opens the detail/edit page; carry the ts so it can show the save time.
         onTap: () => _openDetail(r.id, r.value, ts: r.ts),
+        visualDensity: const VisualDensity(vertical: -1),
+        minVerticalPadding: 10,
+        contentPadding: const EdgeInsets.symmetric(horizontal: 16),
         title: Row(mainAxisSize: MainAxisSize.min, children: [
           Flexible(
             child: r.value.startsWith('aisc:')
@@ -2487,14 +2465,14 @@ class _RecallPageState extends State<RecallPage> {
                     const SizedBox(width: 6),
                     Text('encrypted', style: TextStyle(color: cs.outline)),
                   ])
-                : _valueLabel(r.value, cs, maxLines: 3),
+                : _rowLabel(r.value, cs),
           ),
           if (_notHere(r.value)) _notHereBadge(cs),
         ]),
         subtitle: Text('$time${r.keys.isEmpty ? '(no tags)' : r.keys}',
             style: Theme.of(context)
                 .textTheme
-                .bodyMedium
+                .bodySmall
                 ?.copyWith(color: cs.onSurfaceVariant)),
         // The recall rows' overflow, so a keyless add stays actionable here too.
         trailing: PopupMenuButton<String>(
@@ -2573,13 +2551,19 @@ class _RecallPageState extends State<RecallPage> {
       child: ListView.separated(
       padding: const EdgeInsets.only(bottom: 88),
       itemCount: _tags.length + (_tagsMore ? 1 : 0),
-      separatorBuilder: (_, __) => const Divider(height: 1),
+      separatorBuilder: (_, __) => const Divider(height: 1, indent: 16, endIndent: 16),
       itemBuilder: (_, i) {
         if (i >= _tags.length) return _loadingFooter();
         final t = _tags[i];
         return ListTile(
-          title: Text(t.key, style: TextStyle(color: cs.primary)),
-          trailing: Chip(label: Text('${t.count}'), visualDensity: VisualDensity.compact),
+          visualDensity: const VisualDensity(vertical: -1),
+          leading: Icon(Icons.label_outline, color: cs.onSurfaceVariant),
+          title: Text(t.key),
+          trailing: Text('${t.count}',
+              style: Theme.of(context)
+                  .textTheme
+                  .labelLarge
+                  ?.copyWith(color: cs.onSurfaceVariant)),
           onTap: () {
             _q.text = t.key;
             _setView('recall');
