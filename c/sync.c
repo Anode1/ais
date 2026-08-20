@@ -447,29 +447,55 @@ int sync_serve(ais *a, int port, const char *token, int timeout_s, int bidir) {
     if (bind(srv, (struct sockaddr *)&addr, sizeof addr) != 0) { close(srv); return -2; }   /* port busy */
     if (listen(srv, 1) != 0) { close(srv); return -1; }
 
-    /* Portable accept timeout: SO_RCVTIMEO does NOT bound accept() on BSD/macOS,
-     * so wait for an incoming connection with poll() before accepting. */
+    survivals0 = a->survivals;               /* see AIS_SYNC_AGAIN in sync.h */
+
+    /* Wait for a peer that proves the token, until the deadline. A mistyped
+     * token used to end the session: the host exited, and the person had to
+     * restart it and read off a NEW token, punishing the typo rather than
+     * letting it be retyped. Only the HANDSHAKE repeats -- once our stream is on
+     * the wire the exchange is single-shot as documented, because state has
+     * moved. Retrying costs no secrecy: the token is 128 random bits, not a
+     * guessable secret whose safety rests on one attempt. */
     {
-        struct pollfd pfd;
-        pfd.fd = srv; pfd.events = POLLIN; pfd.revents = 0;
-        if (poll(&pfd, 1, timeout_s > 0 ? timeout_s * 1000 : -1) <= 0) {
-            close(srv); return -1;              /* timeout or error: no peer connected */
+        time_t deadline = time(NULL) + (timeout_s > 0 ? timeout_s : 0);
+        int warned = 0;
+
+        for (;;) {
+            struct pollfd pfd;
+            int left_ms = -1;                   /* timeout_s <= 0: wait forever */
+
+            if (timeout_s > 0) {
+                double left = difftime(deadline, time(NULL));
+                if (left <= 0) { close(srv); return -1; }   /* nobody completed in time */
+                left_ms = (int)(left * 1000);
+            }
+            pfd.fd = srv; pfd.events = POLLIN; pfd.revents = 0;
+            /* Portable accept timeout: SO_RCVTIMEO does NOT bound accept() on
+             * BSD/macOS, so wait for an incoming connection with poll() first. */
+            if (poll(&pfd, 1, left_ms) <= 0) { close(srv); return -1; }
+            cli = accept(srv, NULL, NULL);
+            if (cli < 0) { close(srv); return -1; }
+            set_timeout(cli, timeout_s);
+
+            /* Challenge-response: prove the peer knows the token WITHOUT it crossing the wire.
+             * Send a fresh random challenge; the peer must return the keyed proof of
+             * (token, challenge). */
+            if (aisc_random(challenge, sizeof challenge) != AISC_OK) goto done;
+            if (write_all(cli, challenge, sizeof challenge) == 0
+                && read_all(cli, proof_got, sizeof proof_got) == 0) {
+                aisc_subkey((const uint8_t *)token, tlen, "ais-sync-auth-v1",
+                            challenge, sizeof challenge, proof_want);
+                if (aisc_verify(proof_got, proof_want))
+                    break;                      /* authenticated: serve this peer */
+                if (!warned) {                  /* once, however many attempts follow */
+                    fprintf(stderr, "sync: a device answered with the wrong token; still waiting.\n");
+                    warned = 1;
+                }
+            }
+            close(cli);                         /* wrong token or a dropped connection */
+            cli = -1;
         }
     }
-    cli = accept(srv, NULL, NULL);
-    if (cli < 0) { close(srv); return -1; }
-    set_timeout(cli, timeout_s);
-
-    /* Challenge-response: prove the peer knows the token WITHOUT it crossing the wire. Send a
-     * fresh random challenge; the peer must return the keyed proof of (token, challenge). */
-    survivals0 = a->survivals;               /* see AIS_SYNC_AGAIN in sync.h */
-    if (aisc_random(challenge, sizeof challenge) != AISC_OK) goto done;
-    if (write_all(cli, challenge, sizeof challenge) != 0) goto done;
-    if (read_all(cli, proof_got, sizeof proof_got) != 0) goto done;
-    aisc_subkey((const uint8_t *)token, tlen, "ais-sync-auth-v1",
-                challenge, sizeof challenge, proof_want);
-    if (!aisc_verify(proof_got, proof_want))
-        goto done;                              /* wrong token: serve nothing */
 
     if (sync_export_sealed(a, token, &blob, &blen) != 0) goto done;
     lenbuf[0] = (unsigned char)(blen >> 24);

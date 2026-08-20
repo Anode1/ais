@@ -78,12 +78,13 @@ okeq    "token: and it fails loudly"                 "1"           "$badrc"
 okempty_b=$("$AIS" -f "$W/b" atag 2>/dev/null)
 okeq    "token: nothing from the host leaked in"     ""            "$okempty_b"
 
-# The host is one-shot per round, so re-arm before the good join.
-kill "$host_pid" 2>/dev/null; wait "$host_pid" 2>/dev/null
-TOK=$(host_token "$PORT" "$W/a") || { echo "  FAIL host would not restart"; fail=$((fail+1)); }
-
+# ...and the mistake must not end the session. A 32-hex token is typed by hand
+# from another device's screen, so the likeliest wrong token is a typo by the
+# right person; ending the host would make them fetch a NEW one. The SAME host
+# and the SAME token below: nothing was re-armed between these two joins.
 if [ -n "$TOK" ]; then
     out=$("$AIS" -f "$W/b" --sync "http://127.0.0.1:$PORT" --token "$TOK" 2>&1)
+    ok  "token: a typo does not end the session; the same token still joins" "converged" "$out"
     ok  "join: the round reports convergence"        "converged"   "$out"
     wait "$host_pid" 2>/dev/null; host_pid=
 
