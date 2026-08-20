@@ -1268,6 +1268,46 @@ class _RecallPageState extends State<RecallPage> {
     return a == 10 || (a == 192 && b == 168) || (a == 172 && b >= 16 && b <= 31);
   }
 
+  // Clean up: rewrite the index without the records that were deleted, which is
+  // how space comes back and how a document deleted before this app could
+  // dispose of it finally leaves the phone. The web GUI has always offered this;
+  // the phone, which has no CLI to fall back on, had no way to run it at all.
+  Future<void> _cleanUp() async {
+    if (_ais == null) return;
+    final messenger = ScaffoldMessenger.of(context);
+    if (_syncBlocks()) {
+      messenger.showSnackBar(const SnackBar(
+          content: Text('A sync is running. Try again in a moment.')));
+      return;
+    }
+    final go = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Clean up'),
+        content: const Text(
+            'Removes what you have already deleted, for good, and frees the '
+            'space it still takes. Nothing you can see is touched.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Clean up')),
+        ],
+      ),
+    );
+    if (go != true || _ais == null) return;
+    // Re-check: the dialog was open long enough for a scanned link to start one.
+    if (_syncBlocks()) {
+      messenger.showSnackBar(const SnackBar(
+          content: Text('A sync is running. Try again in a moment.')));
+      return;
+    }
+    _flushPendingDeletes();          // commit any armed swipe first, or it is lost
+    final ok = _ais!.compact() == 0;
+    if (!mounted) return;
+    messenger.showSnackBar(SnackBar(
+        content: Text(ok ? 'Cleaned up' : "Couldn't clean up")));
+    if (ok) _setView(_view);         // ids and counts moved: redraw the view
+  }
+
   Future<void> _changeStore() async {
     // A background LAN sync still holds the CURRENT engine handle by address;
     // close()ing (freeing) it below would be a use-after-free in that isolate.
@@ -1472,6 +1512,9 @@ class _RecallPageState extends State<RecallPage> {
                             case 'sync':
                               await _syncSheet();
                               break;
+                            case 'cleanup':
+                              await _cleanUp();
+                              break;
                             case 'theme':
                               await _pickTheme();
                               break;
@@ -1504,6 +1547,15 @@ class _RecallPageState extends State<RecallPage> {
                               subtitle: _lastSync == null
                                   ? const Text('Not backed up yet')
                                   : null,
+                            ),
+                          ),
+                          PopupMenuItem(
+                            value: 'cleanup',
+                            enabled: _ais != null,
+                            child: const ListTile(
+                              contentPadding: EdgeInsets.zero,
+                              leading: Icon(Icons.cleaning_services_outlined),
+                              title: Text('Clean up'),
                             ),
                           ),
                           const PopupMenuItem(

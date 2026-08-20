@@ -37,6 +37,8 @@ typedef _FoldC = Int32 Function(Pointer<Void>, Pointer<Utf8>, Int32); // (handle
 typedef _FoldD = int Function(Pointer<Void>, Pointer<Utf8>, int);
 typedef _CountC = Int64 Function(Pointer<Void>);                  // (handle)
 typedef _CountD = int Function(Pointer<Void>);
+typedef _CompactC = Int32 Function(Pointer<Void>, Int32);         // (handle, forget)
+typedef _CompactD = int Function(Pointer<Void>, int);
 typedef _FreeC = Void Function(Pointer<Utf8>);
 typedef _FreeD = void Function(Pointer<Utf8>);
 typedef _CloseC = Void Function(Pointer<Void>);
@@ -172,6 +174,7 @@ class AisEngine {
   late final _BundleD _syncFolder =
       _lib.lookupFunction<_BundleC, _BundleD>('ais_embed_sync_folder');
   late final _CountD _count = _lib.lookupFunction<_CountC, _CountD>('ais_embed_count');
+  late final _CompactD _compact = _lib.lookupFunction<_CompactC, _CompactD>('ais_embed_compact');
 
   AisEngine(String indexDir) {
     final dir = indexDir.toNativeUtf8();
@@ -458,6 +461,15 @@ class AisEngine {
 
   /// How many LIVE records this index holds; -1 on error.
   int countLive() => _count(_h);
+
+  /// Rewrite the index without the deleted records, reclaiming their space and
+  /// sweeping any document file they left behind. Atomic; an interrupted run is
+  /// rolled back at the next open. Returns 0, or -1 on error.
+  ///
+  /// [forget] also drops the delete FACTS, which stops them travelling: a device
+  /// that has not synced since can then push the deleted records back. The app
+  /// never passes true without asking first.
+  int compact({bool forget = false}) => _compact(_h, forget ? 1 : 0);
 
   /// Read the plaintext bundle at [path] and merge it into this index (same
   /// last-writer-wins as LAN sync). Returns the C int: 0 = merged, -1 = I/O /
