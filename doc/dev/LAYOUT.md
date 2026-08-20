@@ -246,10 +246,14 @@ duplicate-free, so the read path never sorts -- `get` is a pure merge.
 `get` yields ids, then resolves each to its value(s). Scanning `store` per id is
 O(matches x store) -- the one real bottleneck at scale. `off` fixes it: a
 fixed-width text file, line k = the byte offset (stored +1, so 0 = absent) of
-id k's first `store` line. `ais_record(id)` seeks straight there, and re-checks
-the line's id, so a stale offset never returns wrong data -- it just falls back
-to the scan. `off` is maintained in lockstep by `put` (append) and rebuilt by
-`compact` (with `0` sentinels for the gaps that dropped ids leave).
+id k's first `store` line. Every seek user (`ais_record`, the timeline, the
+delete stamp) re-checks the line's id at the offset and falls back to a scan on
+a mismatch, so a stale offset never returns wrong data -- and never silently
+drops a record either: the timeline once trusted a slot that was one byte off
+and lost a record that recall still found. `off` is maintained in lockstep by
+`put`, from the offset `store_append` itself reports (the store's size
+beforehand is wrong by one whenever the tail needed closing, below), and rebuilt
+by `compact` (with `0` sentinels for the gaps that dropped ids leave).
 
 `multi` lists ids carrying more than one value line (from `add`, whose
 continuations are scattered); the fast path skips these and scans, so multi-value

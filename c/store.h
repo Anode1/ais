@@ -58,9 +58,14 @@ int store_looks_like_ts(const char *p);
 int store_ts_next_second(const char *ts, char *out, size_t outsz);
 
 /* Append one record line "id|ts|keys|value\n" to INDEX/store (a "" ts falls
- * back to the legacy "id|keys|value" form). Returns 0 on success, -1 on error. */
+ * back to the legacy "id|keys|value" form). A non-NULL START receives the byte
+ * offset the line begins at, or -1 if it could not be determined. The store's
+ * size beforehand is NOT that offset: when the tail needs closing (see the
+ * comment in store_append) the line lands one byte later, and an "off" entry
+ * derived from the prior size points at the healing newline -- the timeline
+ * then drops a record recall still finds. Returns 0 on success, -1 on error. */
 int store_append(const ais *a, long id, const char *ts,
-                 const char *keys, const char *value);
+                 const char *keys, const char *value, long *start);
 
 /* Read one line into BUF. 1 = a whole line, 0 = EOF, -1 = the line was longer
  * than the buffer, whose remainder is DROPPED rather than handed back. fgets
@@ -92,10 +97,6 @@ long store_recover_next_id(const ais *a);
  * Pure accelerators, rebuildable from the store. ais_record falls back to a
  * full scan whenever they are absent, stale, or the id is multi-line, so they
  * can never return wrong data (store_value_at re-checks the line's id). */
-
-/* Byte size of the store (the offset a new line would be appended at).
- * 0 if the store does not exist yet; -1 on error. */
-long store_bytes(const ais *a);
 
 /* Write one "off" entry to an OPEN handle (offset < 0 => the absent sentinel).
  * compact uses this to rebuild "off" in one pass. */

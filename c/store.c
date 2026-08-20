@@ -354,7 +354,7 @@ int store_save_next_id(const ais *a)
 }
 
 int store_append(const ais *a, long id, const char *ts,
-                 const char *keys, const char *value)
+                 const char *keys, const char *value, long *start)
 {
     char path[AIS_PATH_MAX];
     FILE *fp;
@@ -407,6 +407,13 @@ int store_append(const ais *a, long id, const char *ts,
         }
         if (fseek(fp, 0, SEEK_END) != 0) { fclose(fp); return -1; }
     }
+
+    /* AFTER the tail is closed: the size beforehand is off by one whenever the
+     * healing newline was written, and an "off" entry built from it points at
+     * that newline instead of the record. -1 (seek/tell failure) becomes the
+     * absent sentinel downstream, which only costs the reader a fallback scan. */
+    if (start != NULL)
+        *start = (fseek(fp, 0, SEEK_END) == 0) ? ftell(fp) : -1;
 
     if (ts != NULL && ts[0] != '\0')
         fprintf(fp, "%ld|%s|%s|%s\n", id, ts, keys, value);   /* v2 */
@@ -512,18 +519,6 @@ long store_recover_next_id(const ais *a)
 }
 
 /* --- record fast path: "off" (id->offset) and "multi" (multi-line ids) ----- */
-
-long store_bytes(const ais *a)
-{
-    char path[AIS_PATH_MAX];
-    struct stat st;
-
-    if (store_path(a, "store", path, sizeof(path)) != 0)
-        return -1;
-    if (stat(path, &st) != 0)
-        return (errno == ENOENT) ? 0 : -1;   /* no store yet -> offset 0 */
-    return (long)st.st_size;
-}
 
 void off_write(FILE *fp, long offset)
 {

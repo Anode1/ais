@@ -422,8 +422,8 @@ long ais_put_at_k(ais *a, const char *keys, const char *value, const char *ts,
     {
         char now[AIS_TS_MAX];
         const char *use_ts = ts;
-        long off = store_bytes(a);          /* offset the new line gets */
-        int  ok  = (off >= 0) && off_consistent(a);
+        long off = -1;                      /* store_append reports where the line lands */
+        int  ok  = off_consistent(a);
         if (use_ts == NULL) {
             store_now(now, sizeof now);     /* "" if the clock is unreadable */
             use_ts = now;
@@ -434,8 +434,8 @@ long ais_put_at_k(ais *a, const char *keys, const char *value, const char *ts,
          * id and collide two records. */
         a->next_id = id + 1;
         if (store_save_next_id(a) != 0) { a->next_id = id; rc = -1; goto out; }
-        if (store_append(a, id, use_ts, clean, value) != 0) { rc = -1; goto out; }
-        if (ok && off_append(a, off) != 0)                  { rc = -1; goto out; }  /* keep "off" in lockstep */
+        if (store_append(a, id, use_ts, clean, value, &off) != 0) { rc = -1; goto out; }
+        if (ok && off_append(a, off) != 0)                        { rc = -1; goto out; }  /* keep "off" in lockstep */
     }
     /* 1: store_append above just wrote the line from `clean`, so the mirror
      * could not change anything -- skip its full-store scan on every new put. */
@@ -759,7 +759,7 @@ static int add_link(ais *a, long id, const char *value, int local)
     {
         char ts[AIS_TS_MAX];
         store_now(ts, sizeof(ts));
-        if (store_append(a, id, ts, L.keys, value) != 0)
+        if (store_append(a, id, ts, L.keys, value, NULL) != 0)
             goto out;
     }
     debug("add: appended link to id=%ld", id);
@@ -1786,6 +1786,27 @@ static int tl_emit_one(long id, const char *ts, const char *keys,
     return e->cb(id, ts, k, value, e->ctx);
 }
 
+/* One id's line by scan, for when its "off" slot is stale: every other seek
+ * user (ais_record, seek_record, del_stamp) already falls back this way, and
+ * the timeline silently dropping a record recall still finds is the one
+ * failure a memory product cannot afford. */
+struct tl_seek {
+    struct tl_emit *e;
+    long id;
+};
+
+static int tl_seek_one(long id, const char *ts, const char *keys,
+                       const char *value, void *vp)
+{
+    struct tl_seek *s = vp;
+
+    if (id != s->id)
+        return 0;
+    if (tl_emit_one(id, ts, keys, value, s->e) < 0)
+        return -1;
+    return 1;                                /* first line wins, like ais_record */
+}
+
 /* --- fallback (no usable "off"): one bounded scan keeping the COUNT highest
  * live ids below BOUND, one row per id, emitted id-descending. --------------- */
 struct tl_entry {
@@ -1906,6 +1927,7 @@ int ais_timeline(ais *a, long before_id, int count,
     id = (before_id > 0 && before_id - 1 < maxid) ? before_id - 1 : maxid;
     for (; id >= 1 && e.emitted < count; id--) {
         long offset;
+        int served;
         int t = tomb_contains(a, id);
         if (t < 0)
             return -1;
@@ -1913,8 +1935,16 @@ int ais_timeline(ais *a, long before_id, int count,
             continue;                          /* deleted */
         if (off_get(a, id, &offset) != 1)
             continue;                          /* gap / sentinel / short off */
-        if (store_record_at(a, id, offset, tl_emit_one, &e) < 0)
+        served = store_record_at(a, id, offset, tl_emit_one, &e);
+        if (served < 0)
             return -1;
+        if (served == 0) {                     /* stale slot: scan, never drop */
+            struct tl_seek s;
+            s.e = &e;
+            s.id = id;
+            if (store_each_record(a, tl_seek_one, &s) < -1)
+                return -1;
+        }
     }
     return 0;
 }

@@ -1198,6 +1198,88 @@ static void test_timeline(void)
     scratch_rm(dir);
 }
 
+/* ---- appending after an unterminated tail: the healing newline once shifted
+ * the new record's off slot by a byte, and the timeline dropped a record that
+ * recall still found ------------------------------------------------------- */
+static void test_timeline_after_healed_tail(void)
+{
+    const char *dir = "/tmp/ais_ut_tl_tail";
+    ais a;
+    struct tlvec v;
+    char path[AIS_PATH_MAX];
+    struct stat st;
+    FILE *fp;
+    long slot = -1;
+    int  ch = 0;
+
+    scratch_rm(dir);
+    ais_open(&a, dir);
+    ais_put(&a, "alpha", "first");        /* id 1 */
+    ais_put(&a, "beta",  "second");       /* id 2 */
+    ais_close(&a);
+
+    /* strip the final newline, as a hand edit or a torn write leaves it */
+    snprintf(path, sizeof path, "%s/store", dir);
+    CHECK(stat(path, &st) == 0 && truncate(path, st.st_size - 1) == 0,
+          "healed tail: setup stripped the trailing newline");
+
+    ais_open(&a, dir);
+    CHECK(ais_put(&a, "gamma", "third") == 3, "healed tail: the next save works");
+
+    /* the off slot must point at "3|...", not at the newline that closed the
+     * tail: seek to it and look */
+    CHECK(off_get(&a, 3, &slot) == 1, "healed tail: id 3 has an off slot");
+    fp = fopen(path, "r");
+    if (fp != NULL && fseek(fp, slot, SEEK_SET) == 0) ch = fgetc(fp);
+    if (fp != NULL) fclose(fp);
+    CHECK(ch == '3', "healed tail: the off slot points at the record itself");
+
+    v.n = 0;
+    ais_timeline(&a, 0, 0, "", "", collect_tl, &v);
+    CHECK(v.n == 3 && v.r[0].id == 3 && strcmp(v.r[0].value, "third") == 0,
+          "healed tail: the new record is on the timeline");
+    CHECK(v.n == 3 && v.r[1].id == 2 && strcmp(v.r[1].value, "second") == 0,
+          "healed tail: the record on the healed line survived intact");
+
+    ais_close(&a);
+    scratch_rm(dir);
+}
+
+/* ---- a stale off slot: the timeline falls back to the scan like every other
+ * seek user, instead of silently dropping a live record -------------------- */
+static void test_timeline_stale_off_slot(void)
+{
+    const char *dir = "/tmp/ais_ut_tl_stale";
+    ais a;
+    struct tlvec v;
+    char path[AIS_PATH_MAX];
+    FILE *fp;
+
+    scratch_rm(dir);
+    ais_open(&a, dir);
+    ais_put(&a, "alpha", "first");        /* id 1 */
+    ais_put(&a, "beta",  "second");       /* id 2 */
+    ais_put(&a, "gamma", "third");        /* id 3 */
+    ais_close(&a);
+
+    /* point id 2's slot one byte into id 1's line: parses as no record, and a
+     * seek that trusted it would drop id 2 */
+    snprintf(path, sizeof path, "%s/off", dir);
+    fp = fopen(path, "r+");
+    CHECK(fp != NULL && fseek(fp, (long)AIS_OFF_WIDTH, SEEK_SET) == 0 &&
+          fputs("00000000002\n", fp) != EOF && fclose(fp) == 0,
+          "stale slot: setup corrupted id 2's off entry");
+
+    ais_open(&a, dir);
+    v.n = 0;
+    ais_timeline(&a, 0, 0, "", "", collect_tl, &v);
+    CHECK(v.n == 3 && v.r[1].id == 2 && strcmp(v.r[1].value, "second") == 0,
+          "stale slot: the timeline scans for the record instead of dropping it");
+
+    ais_close(&a);
+    scratch_rm(dir);
+}
+
 /* ---- timeline date range: from/to bounds over the keyset page ------------ */
 static void test_timeline_dates(void)
 {
@@ -4679,6 +4761,8 @@ int main(void)
     test_mixed_formats();
     printf("timeline:\n");
     test_timeline();
+    test_timeline_after_healed_tail();
+    test_timeline_stale_off_slot();
     test_timeline_dates();
     printf("tags:\n");
     test_tags();
