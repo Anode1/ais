@@ -77,7 +77,15 @@ jobs:
           java-version: '17'
       - uses: subosito/flutter-action@v2
         with:
+          # PINNED, and to the same version flutter.yml tests with: the release
+          # must be built by the toolchain the tests validated. Left floating on
+          # `stable` it silently moved ahead of android/'s Gradle wrapper
+          # (8.11.1) and the v0.3.19 build failed with "Gradle version is lower
+          # than Flutter's minimum" -- after the tag was pushed, so the release
+          # published nothing. Raise this and the wrapper together, deliberately.
+          flutter-version: '3.44.1'
           channel: stable
+          cache: true
       - name: optional release signing (only if the keystore secret is set)
         env:
           KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
