@@ -155,4 +155,8 @@ body { font: 16px/1.45 system-ui, sans-serif; color: #14141a; background: var(--
 #dsheet input { font-size: 16px; }       /* under 16px, iOS zooms on focus */
 .danger-btn { background: var(--danger); color: #fff; border: 0; font-weight: 600; }
 .danger-btn[disabled] { opacity: .45; cursor: not-allowed; }
-.primary { border: 0; background: var(--accent); color: #fff; font-weight: 600; }
+/* Self-contained: the empty-state CTA stands outside any .actions row, where it
+   would otherwise inherit no font or padding and render as a cramped chip. */
+.primary { border: 0; background: var(--accent); color: #fff; font: inherit;
+  font-weight: 600; padding: .6rem 1.1rem; border-radius: 10px; cursor: pointer; }
+#out:has(.addcta) ~ .fab { display: none; }   /* an empty state offering its own Add hides the floating one */

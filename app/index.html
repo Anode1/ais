@@ -434,7 +434,7 @@ async function loadTimeline(more) {
   var lines = (await (await fetch(u)).text()).split('\n').filter(function (s){ return s.length; });
   if (g != gen) return;                 // the view moved on: drop it
   var mb = $('tlmore'); if (mb) mb.remove();
-  if (!tlN && !lines.length) { out.innerHTML = '<p class="empty">Nothing saved yet.</p>'; return; }
+  if (!tlN && !lines.length) { out.innerHTML = '<div class="empty"><p>Nothing saved yet.</p>' + addCTA + '</div>'; return; }
   lines.forEach(function (ln) {
     var r = parseTL(ln), lt = locDT(r.ts), d = lt ? lt.day : '';
     if (d !== tlDay) {
@@ -567,10 +567,14 @@ function setView(v) {
   $('tlrange').style.display = (v == 'timeline') ? 'flex' : 'none';  // date range: Timeline only
   if (v == 'recall') {
     if ($('q').value.trim()) recall();
-    else { $('out').innerHTML = '<p class="empty">Type tags, then Search. Tap Add to save.</p>'; $('count').textContent = ''; }
+    else { $('out').innerHTML = '<div class="empty"><p>Type tags, then Search.</p>' + addCTA + '</div>'; $('count').textContent = ''; }
   } else if (v == 'timeline') loadTimeline();
   else loadTags();
 }
+
+// The empty views offer the Add the fab would otherwise be the only route to;
+// app.css hides the fab while this is on screen, so only one Add ever shows.
+var addCTA = '<button class="primary addcta" style="margin-top:1rem" onclick="openSheet()">+ Add</button>';
 
 function openSheet(){
   $('vk').value = $('q').value.trim();
