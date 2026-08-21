@@ -1652,11 +1652,13 @@ class _RecallPageState extends State<RecallPage> {
           Expanded(child: _body(cs)),
         ]),
       ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: _ais == null ? null : _showAdd,
-        icon: const Icon(Icons.add),
-        label: const Text('Add'),
-      ),
+      floatingActionButton: _emptyStateOffersAdd
+          ? null
+          : FloatingActionButton.extended(
+              onPressed: _ais == null ? null : _showAdd,
+              icon: const Icon(Icons.add),
+              label: const Text('Add'),
+            ),
       // The label is "Search"; the internal view key stays 'recall'. Scaffold
       // resizes the body above the soft keyboard but not this slot, so pad it up by
       // the keyboard height (animated); the FAB anchors above the bar and rides up.
@@ -1733,6 +1735,23 @@ class _RecallPageState extends State<RecallPage> {
         child: CircularProgressIndicator(),
       ),
     );
+  }
+
+  // Does the body currently show an empty state that carries its own "Add
+  // something" button? Then the FAB is a SECOND copy of the same action on the
+  // same screen. One Add ever: the two web front ends hide their fab on exactly
+  // this condition (c/serve.c, app/app.css), and GUI.md's rule is that a change
+  // to one surface is a change to all three.
+  bool get _emptyStateOffersAdd {
+    if (_ais == null) return false;      // the gate or a status message is showing
+    switch (_view) {
+      case 'timeline':
+        return _tl.isEmpty;
+      case 'tags':
+        return false;                    // "No tags yet." offers nothing to press
+      default:
+        return _results.isEmpty && !_textSearch && !_searched;
+    }
   }
 
   Widget _body(ColorScheme cs) {
@@ -2266,6 +2285,7 @@ class _RecallPageState extends State<RecallPage> {
       if (_searched) return _centerMsg('No results for "$_query"', cs);
       // First-run: an error keeps its plain message, a healthy engine the empty state.
       if (_ais == null) return _centerMsg(_status, cs);
+      assert(_emptyStateOffersAdd);   // the FAB stands down on exactly this branch
       return _emptyState(cs,
           icon: Icons.note_add_outlined,
           line: 'Save a link, a note, or a fact, then find it later by its tags.');
@@ -2470,6 +2490,7 @@ class _RecallPageState extends State<RecallPage> {
     final gate = _engineGate(cs);
     if (gate != null) return gate;
     if (_tl.isEmpty) {
+      assert(_emptyStateOffersAdd);   // the FAB stands down on exactly this branch
       return Column(children: [
         _rangeBar(cs),
         Expanded(

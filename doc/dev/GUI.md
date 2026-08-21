@@ -22,7 +22,11 @@ Change a label in one, change it in all three.
 - The primary action **and** the first view are both labeled **Search** (not "Get", not
   "Recall"). The keyboard return key already renders "Search" (`TextInputAction.search`), so
   button + tab + keyboard all read the same. One word per concept.
-- The three views, in this order: **Search · Timeline · Tags**.
+- The three views, in this order: **Search · Recent · Tags** in the phone-shaped
+  bottom nav (Flutter, `serve.c`, the PWA). The middle one IS the timeline: the
+  view id, the API and the desktop app all call it `timeline`, and only the
+  phone nav label reads "Recent", because the label sits under an icon in a
+  32px slot and "Recent" is what a phone user reads there.
 - The create action is **Add**.
 - Internal identifiers may keep their original names (`recall` / `getbtn` / `ID_GET` /
   `ID_VRECALL` / `_view=='recall'` / `data-v=recall`); only the **display labels** must read
