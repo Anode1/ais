@@ -1,0 +1,2 @@
+python3: can't open file '/home/vas/ais/fuzz3.py': [Errno 2] No such file or directory
+EXIT3=2

@@ -149,6 +149,11 @@ Both workflows pin Flutter deliberately (currently 3.44.1); raise that pin and
 `android/`'s Gradle wrapper together, never one alone. iOS is not in the release
 matrix and cannot be until the app is signed (issue #1).
 
+**If the tagged build fails,** fix the cause, move the tag onto the fix commit
+(`git tag -f`, `git push -f origin vX.Y.Z`) and let it rebuild. Both v0.3.17 and
+v0.3.19 needed that, which is the reason the toolchain is pinned at all. Check
+the run rather than assuming: `gh run list --workflow=release.yml`.
+
 **5. What stays manual.** Uploading the `.aab` to Play (`ANDROID_RELEASE.md`),
 and the AUR: the reference `PKGBUILD` moves with this repo, the copy users
 install lives in the AUR repository and needs the same `pkgver`, `pkgrel=1` and a

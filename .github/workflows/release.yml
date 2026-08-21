@@ -81,8 +81,9 @@ jobs:
           # must be built by the toolchain the tests validated. Left floating on
           # `stable` it silently moved ahead of android/'s Gradle wrapper
           # (8.11.1) and the v0.3.19 build failed with "Gradle version is lower
-          # than Flutter's minimum" -- after the tag was pushed, so the release
-          # published nothing. Raise this and the wrapper together, deliberately.
+          # than Flutter's minimum" -- after the tag was pushed, so the tag had
+          # to be moved onto the fixed commit and the release rebuilt before it
+          # carried its assets. Raise this and the wrapper together.
           flutter-version: '3.44.1'
           channel: stable
           cache: true

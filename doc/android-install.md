@@ -70,12 +70,14 @@ Minimal (no IDE): get "Command line tools only" from
 `$ANDROID_HOME/cmdline-tools/latest`, then:
 
 ```sh
-sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0"
+sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0"
 flutter doctor --android-licenses
 ```
 
 (`apt install android-sdk` exists but is outdated and laid out wrong for Flutter;
-prefer one of the above.) Target API 34/35 (Android 14/15) in 2026.
+prefer one of the above.) The levels themselves are not set here: `compileSdk`,
+`minSdk` and `targetSdk` in `android/app/build.gradle.kts` take whatever the
+pinned Flutter version defaults to, which is API 36 today.
 
 ### A5. Status
 
