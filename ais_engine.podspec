@@ -1,7 +1,12 @@
-# ais_engine.podspec -- the C engine, compiled into the iOS app binary.
+# ais_engine.podspec -- the C engine, built into the iOS app.
 #
-# iOS does not load a .so: lib/ais_ffi.dart resolves the engine with
-# DynamicLibrary.process(), so the symbols have to be part of the app itself.
+# lib/ais_ffi.dart resolves the engine with DynamicLibrary.process(), which
+# searches the images already loaded in the process, so the engine has to arrive
+# with the app rather than as a file opened by path. Under Flutter's
+# use_frameworks! it builds as ais_engine.framework inside the app bundle,
+# linked at launch; CI asserts ais_embed_open is really in there, because a
+# build that dropped it would fail on the first engine call instead of here.
+#
 # This pod is the plain-text equivalent of adding the sources to the Runner
 # target by hand in Xcode, and it keeps the file list in a file rather than in
 # Xcode project state, where a diff cannot see it.

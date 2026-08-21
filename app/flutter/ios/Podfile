@@ -1,6 +1,6 @@
 # The standard Flutter iOS Podfile, plus one local pod: the C engine.
 #
-# ../../../ais_engine.podspec compiles c/*.c into the app, which is what makes
+# ../../../ais_engine.podspec builds c/*.c into the app, which is what makes
 # DynamicLibrary.process() in lib/ais_ffi.dart find anything. Without that line
 # the app builds, launches, and fails on the first engine call.
 platform :ios, '13.0'
