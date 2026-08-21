@@ -24,6 +24,7 @@ GUI is still in progress. The layers also have their own targets (`codeut`, `cli
 | native windows ui | that `win32/ais-gui.c` still compiles against the engine | `tests/gui/windows.sh` | only with MinGW-w64 (CI); else SKIP |
 | flutter app | `dart analyze` of `app/flutter` (FFI binding + widgets); `flutter test` if a `test/` dir exists | `tests/gui/flutter.sh` | analyze if Dart present; else SKIP |
 | flutter sync ui | the real Host/Join UI on the **Linux desktop** build, against a CLI peer | `tests/gui/flutter-sync.sh` | needs clang + ninja + libgtk-3-dev; else SKIP |
+| flutter add/edit/delete | the everyday loop on the **shipped APK**: add a record through the Add sheet, change its tags, delete it, each step asserted against the app's own index | `tests/gui/flutter-crud-android.sh` | needs adb + an attached device; else SKIP |
 | flutter sync (android) | the real Host/Join UI on the **shipped APK**: `ais://` pairing link, then records cross both ways | `tests/gui/flutter-sync-android.sh` | needs adb + an attached device; else SKIP |
 
 ## Running

@@ -529,8 +529,20 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
       }
     } catch (_) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("Couldn't open the link")));
+      // A dead end is the wrong answer: the link is the user's data and they can
+      // always paste it somewhere themselves. Offer that in the failure, where
+      // they are, rather than making them find Copy in a menu.
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: const Text("Couldn't open that link here"),
+        action: SnackBarAction(
+          label: 'COPY',
+          onPressed: () {
+            Clipboard.setData(ClipboardData(text: v));
+            ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('Link copied')));
+          },
+        ),
+      ));
     }
   }
 
@@ -682,16 +694,27 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
               ),
             ),
             _syncGroupLabel(ctx, 'A nearby device (same Wi-Fi)'),
+            // The step people get wrong: this needs BOTH devices, at the same
+            // time, one hosting and one joining. Said here, before either button
+            // is tapped, rather than discovered by tapping the wrong one.
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+              child: Text(
+                  'Open AIS on both devices and keep both awake. Tap Host on one, '
+                  'Join on the other, then scan or type the code it shows. Nothing '
+                  'leaves your Wi-Fi.',
+                  style: Theme.of(ctx).textTheme.bodySmall),
+            ),
             ListTile(
               leading: const Icon(Icons.wifi_tethering),
               title: const Text('Host a sync'),
-              subtitle: const Text('Wait here; show a QR the other device scans'),
+              subtitle: const Text('This device shows a code and waits. Start here.'),
               onTap: () => Navigator.pop(ctx, 'host'),
             ),
             ListTile(
               leading: const Icon(Icons.qr_code_scanner),
               title: const Text('Join / scan a nearby device'),
-              subtitle: const Text('Scan its QR with the camera, or type its address'),
+              subtitle: const Text('For the OTHER device: scan the code, or type it in'),
               onTap: () => Navigator.pop(ctx, 'join'),
             ),
             const Divider(height: 24),
@@ -1068,8 +1091,9 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
             Text(
                 scanned
                     ? 'Scanned from the other device. Tap Sync to connect.'
-                    : "Scan the other device's QR with your phone camera to fill this "
-                        "in, or type its address and token (open Sync, choose Host there).",
+                    : "These come from the OTHER device: open AIS there, tap Sync, "
+                        "choose Host, and it shows both. Scanning its code with your "
+                        "camera fills them in for you.",
                 style: Theme.of(ctx).textTheme.bodySmall),
           ],
         ),
@@ -1194,6 +1218,8 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
               qrData: link,
               commandLabel: 'Or type the address and token on the other device:',
               command: detail,
+              intro: 'On your OTHER device: open AIS, tap Sync, choose Join, and '
+                  'scan this code with its camera. Keep this screen open.',
               waiting: 'Waiting for the other device...',
               note: 'You can hide this; hosting keeps waiting in the background.',
               done: fut),
@@ -2891,6 +2917,7 @@ class _SyncWaitDialog extends StatefulWidget {
   final String? qrData;       // ais:// pairing link; shown as a QR on host, null hides it
   final String? commandLabel; // line shown above the command (host); null hides it
   final String? command;      // shown on host; null on join
+  final String? intro;        // what to do next, and on WHICH device
   final String waiting;
   final String? note;         // honest caption: hiding does NOT stop the sync
   final Future<int> done;
@@ -2899,6 +2926,7 @@ class _SyncWaitDialog extends StatefulWidget {
       this.qrData,
       this.commandLabel,
       this.command,
+      this.intro,
       required this.waiting,
       this.note,
       required this.done});
@@ -2928,6 +2956,10 @@ class _SyncWaitDialogState extends State<_SyncWaitDialog> {
           child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
+            if (widget.intro != null) ...[
+              Text(widget.intro!, style: Theme.of(context).textTheme.bodySmall),
+              const SizedBox(height: 12),
+            ],
             if (widget.qrData != null) ...[
               Container(
                 color: Colors.white,
@@ -2945,12 +2977,9 @@ class _SyncWaitDialogState extends State<_SyncWaitDialog> {
                 ),
               ),
               const SizedBox(height: 8),
-              Text("Scan with the other phone's camera to join.",
-                  style: Theme.of(context).textTheme.bodySmall),
-              const SizedBox(height: 4),
               Text(
-                  "If the camera won't open it, copy the address and token "
-                  "below and type them into Join on the other device.",
+                  "If its camera won't open the code, copy the address and token "
+                  "below and type them into Join there instead.",
                   style: Theme.of(context).textTheme.bodySmall),
               const SizedBox(height: 16),
             ],
