@@ -1,9 +1,12 @@
-# win32/ -- native Win32 GUI (legacy/niche, unmaintained)
+# win32/ -- the native Windows window
 
-> Legacy, niche, unmaintained wrapper. Most users should prefer `ais --serve`
-> (the cross-platform browser GUI). This branch is parked.
+> Niche: most users are better served by `ais --serve`, the same browser GUI
+> every platform gets. This one is parked on the desktop GUI rework, so nothing
+> here is published in a release, though CI keeps it compiling on every change to
+> `c/` or `win32/`. What is planned for Windows, and why the CLI is not built
+> here: [`../doc/dev/WINDOWS.md`](../doc/dev/WINDOWS.md).
 
-See gui/README.md for why front-ends stay thin.
+See `../gui/README.md` for why front ends stay thin.
 
 ## Build (MinGW-w64, cross-compiled from Linux or native)
 

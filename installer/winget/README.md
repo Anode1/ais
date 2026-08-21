@@ -4,7 +4,7 @@
 > directory here is `0.2.3`, twelve releases behind, and its `InstallerUrl`
 > points at `v0.2.3/...-windows-x86_64-installer.exe`, which no longer exists --
 > no Windows artifact has been published since, because `release.yml` has no
-> Windows job (see `doc/dev/SIGNING.md`). Submitting these would give winget a
+> Windows job (see `doc/dev/WINDOWS.md`). Submitting these would give winget a
 > 404. They are kept as the TEMPLATE for a future submission: when a Windows
 > build returns, copy the directory to the new version and update all three
 > files, per the instructions below.

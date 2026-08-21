@@ -10,7 +10,7 @@
 #
 #   cli       : cross-compiles the CLI ais.exe. This still pulls in sync.c, which
 #               is NOT ported to Winsock (raw sockets, poll(), SIGPIPE) -- see
-#               doc/dev/WINDOWS_FILE_SYNC.md "Out of scope". So it is manual-only
+#               doc/dev/WINDOWS.md "Out of scope". So it is manual-only
 #               (workflow_dispatch) and non-gating until that port lands.
 name: native-windows
 

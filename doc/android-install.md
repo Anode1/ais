@@ -82,8 +82,8 @@ prefer one of the above.) Target API 34/35 (Android 14/15) in 2026.
 Sideloading works today, from the release page or a local build. A local release
 build is signed with your own key when `android/key.properties` is present and
 falls back to the debug key when it is not, so a debug-signed copy cannot be
-upgraded over a real one. Keys are in [`dev/SIGNING.md`](dev/SIGNING.md) and
-publishing is in [`dev/ANDROID_RELEASE.md`](dev/ANDROID_RELEASE.md).
+upgraded over a real one. Keys and publishing are both in
+[`dev/ANDROID_RELEASE.md`](dev/ANDROID_RELEASE.md).
 
 ## Route B: the PWA via Termux
 

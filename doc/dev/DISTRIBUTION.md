@@ -22,21 +22,12 @@ Rule of thumb, matching how normal apps ship: the unix desktops get the universa
 web GUI, Android gets the Flutter app, and the CLI is under every desktop
 download.
 
-## Windows: native build, temporarily not published
+## Windows
 
-The Windows desktop GUI is being reworked, so **no Windows artifact is published
-in releases right now.** `release.yml`'s build matrix is Linux (x86_64, arm64) and
-macOS (arm64) plus the Android job; it has no `windows-latest` runner and builds
-no `ais.exe`, `ais-gui.exe`, or installer.
-
-The native build is still **CI-validated** in `native-windows.yml`: the `win32-gui`
-job cross-compiles `ais-gui.exe` (**native MinGW-w64**, no Cygwin, no `cygwin1.dll`)
-and uploads it as a CI artifact (not attached to a Release); a manual
-(`workflow_dispatch`) `cli` job builds `ais.exe`, kept manual and
-`continue-on-error` because `sync.c` is not yet Winsock-ported. When the GUI rework
-lands, a Windows job returns to `release.yml` to publish one native download again
-(portable zip + optional installer; the registry-free Java/xcopy model, Start-Menu
-shortcut to `ais-gui.exe`, `ais.exe` on PATH).
+No Windows artifact is published at the moment, and the native build is
+CI-validated rather than shipped. The whole picture, including the sync, signing
+and packaging work that is planned rather than done, is in
+[`WINDOWS.md`](WINDOWS.md).
 
 ## The GUI inventory
 

@@ -2,12 +2,36 @@
 
 The runbook for getting a build onto a phone, into Play, and onto F-Droid. The
 version numbers it uses come from the git tag; the release procedure that
-produces the tag is in [`VERSIONING.md`](VERSIONING.md), and the signing keys
-are in [`SIGNING.md`](SIGNING.md).
+produces the tag is in [`VERSIONING.md`](VERSIONING.md).
 
 Order, and the test stage is not optional:
 
     build -> test on a real device -> Play closed test (14 days) -> production
+
+## 0. The keystore, made once and kept forever
+
+Without a keystore the release build falls back to gradle's debug key. That
+installs, but it is **not upgradeable**: a fresh CI runner mints a new debug key
+every run, so Android refuses to install one such release over another. A real
+download needs your own key, and the same key forever.
+
+    keytool -genkey -v -keystore ~/ais-release.jks -keyalg RSA -keysize 2048 \
+            -validity 10000 -alias ais
+
+Lose it and the app can never be updated again. Back it up off the machine, and
+never commit it: `key.properties` and `*.jks` are git-ignored. Local release
+builds read `app/flutter/android/key.properties`, copied from
+`key.properties.example`.
+
+For CI, four secrets under Settings -> Secrets and variables -> Actions, which
+the `android` job turns back into `key.properties` at build time:
+
+- `ANDROID_KEYSTORE_BASE64`, the keystore encoded with `base64 -w0
+  ~/ais-release.jks` (macOS: `base64 -i`). Setting this one is what flips the job
+  from debug to release signing.
+- `ANDROID_STORE_PASSWORD`, `ANDROID_KEY_ALIAS` (e.g. `ais`), `ANDROID_KEY_PASSWORD`.
+
+The keystore never enters git, only the CI secret store.
 
 ## 1. Get a release-signed bundle
 

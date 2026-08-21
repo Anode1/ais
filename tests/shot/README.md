@@ -29,12 +29,12 @@ full-page and click-and-assert cases are covered under "CDP / UI tests" below.
 ## Why it's here: so a fresh agent can SEE the GUI
 
 The web GUI is a C string, `PAGE[]`, in `c/serve.c`; an agent changing it would
-otherwise only read the HTML/JS and guess. The server must already be up (this
-script only takes the picture); use a throwaway `/tmp` index, never the repo's
-own `.ais` or a personal `~/.ais`, and save to `/tmp/*.png`. To force a state
-without a live server, fetch the page once and append a `<script>` before
-shooting (e.g. `openSheet()`, or `render('1|aisc:...','keys',3)`); the page's own
-functions are already defined.
+otherwise only read the HTML/JS and guess. This script only takes the picture, so
+the server must already be up. To force a state without a live server, fetch the
+page once and append a `<script>` before shooting (e.g. `openSheet()`, or
+`render('1|aisc:...','keys',3)`): the page's own functions are already defined.
+
+Where this sits among the ways to drive a front end: `doc/dev/GUI_TESTING.md`.
 
 ## CDP / UI tests
 

@@ -23,7 +23,6 @@ README's "Learn more" table. Start with `../../AGENTS.md`, then `LAYOUT.md` and
 | [SYNC_DESIGN.md](SYNC_DESIGN.md) | the settled decisions: identity, keys as a patch, tombstones, sharing |
 | [SYNC_PROTOCOL.md](SYNC_PROTOCOL.md) | the wire: handshake, sealed payload, blob frames, security model |
 | [MERGE.md](MERGE.md) | how two indexes reconcile, verb by verb |
-| [WINDOWS_FILE_SYNC.md](WINDOWS_FILE_SYNC.md) | the build spec for the one sync path Windows could have (planned) |
 
 ## Front ends
 
@@ -41,7 +40,7 @@ README's "Learn more" table. Start with `../../AGENTS.md`, then `LAYOUT.md` and
 | [PACKAGING.md](PACKAGING.md) | for distro maintainers: build, test, staged install, licences, the `AIS_VERSION` override |
 | [DISTRIBUTION.md](DISTRIBUTION.md) | one download per platform, what each gets, and the PWA/WASM track |
 | [ANDROID_RELEASE.md](ANDROID_RELEASE.md) | getting a build onto a phone, into Play, and onto F-Droid |
-| [SIGNING.md](SIGNING.md) | the Android keystore, and the Windows signing plan |
+| [WINDOWS.md](WINDOWS.md) | the whole Windows situation: what CI builds, and the sync, signing and packaging plans |
 
 ## Writing
 
