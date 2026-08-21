@@ -1,1 +1,5 @@
+// The Pods include comes FIRST and is optional (`#include?`): CocoaPods
+// defines PODS_ROOT here, which the Pods build phases need, and a checkout
+// that has not run `pod install` still builds without it.
+#include? "Pods/Target Support Files/Pods-Runner/Pods-Runner.release.xcconfig"
 #include "Generated.xcconfig"
