@@ -77,5 +77,14 @@
         <intent>
             <action android:name="android.speech.RecognitionService"/>
         </intent>
+        <!-- so canLaunchUrl can see a browser (Android 11+ package visibility) -->
+        <intent>
+            <action android:name="android.intent.action.VIEW"/>
+            <data android:scheme="https"/>
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW"/>
+            <data android:scheme="http"/>
+        </intent>
     </queries>
 </manifest>
