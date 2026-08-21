@@ -130,3 +130,34 @@ jobs:
             echo "About would report the 0.0.0-dev fallback on iOS."
             exit 1
           fi
+
+      # Everything above proves the engine COMPILED and shipped. Only running
+      # the app proves DynamicLibrary.process() resolves it: the symbols are
+      # looked up by name at launch, so a build that shipped them somewhere the
+      # loader cannot see fails on the first engine call and nowhere earlier.
+      # The app opens its index on startup and the engine writes `version` into
+      # it, so that file appearing is the engine having actually run.
+      - name: the engine runs on a simulator
+        run: |
+          set -eo pipefail
+          flutter build ios --simulator --debug
+          udid=$(xcrun simctl list devices available --json | python3 -c "import json,sys; ds=json.load(sys.stdin)['devices']; print(next(d['udid'] for r,v in ds.items() if 'iOS' in r for d in v if d.get('isAvailable') and 'iPhone' in d['name']))") \
+            || { echo "no iPhone simulator available on this runner"; exit 1; }
+          echo "simulator: $udid"
+          xcrun simctl boot "$udid"
+          xcrun simctl bootstatus "$udid"
+          xcrun simctl install "$udid" build/ios/iphonesimulator/Runner.app
+          xcrun simctl launch "$udid" com.aisindex.ais
+          data=$(xcrun simctl get_app_container "$udid" com.aisindex.ais data)
+          for i in $(seq 1 40); do
+            if [ -f "$data/Documents/ais/version" ]; then
+              echo "the engine opened its index: format v$(cat "$data/Documents/ais/version")"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "the app launched but never opened an index:"
+          echo "DynamicLibrary.process() did not resolve the engine."
+          xcrun simctl spawn "$udid" log show --last 2m --predicate 'process == "Runner"' \
+            --style compact 2>/dev/null | tail -40 || true
+          exit 1
