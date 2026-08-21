@@ -53,7 +53,7 @@
     <button id="storeok" class="link">open</button><button id="storecancel" class="link">cancel</button></div>
 </header>
 
-<main id="out"><p class="empty">Type tags, then Search. Tap Add to save.</p></main>
+<main id="out"><p class="empty">Loading...</p></main>
 
 <button id="addbtn" class="fab">+ Add</button>
 
@@ -575,6 +575,11 @@ function setView(v) {
 // The empty views offer the Add the fab would otherwise be the only route to;
 // app.css hides the fab while this is on screen, so only one Add ever shows.
 var addCTA = '<button class="primary addcta" style="margin-top:1rem" onclick="openSheet()">+ Add</button>';
+// That CSS rule is a :has(), which WebKit before 15.4 does not have; there both
+// Adds would show. Same rule, said in JS, for those.
+new MutationObserver(function () {
+  $('addbtn').style.display = $('out').querySelector('.addcta') ? 'none' : '';
+}).observe($('out'), { childList: true, subtree: true });
 
 function openSheet(){
   $('vk').value = $('q').value.trim();

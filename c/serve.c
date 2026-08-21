@@ -232,6 +232,10 @@ static const char PAGE[] =
 "var view='recall',viewGen=0;"
 /* empty-state call-to-action, reused by every empty view */
 "var addCTA='<button class=\"primary addcta\" style=\"margin-top:1rem\" onclick=openSheet()>+ Add</button>';"
+/* The CSS rule above hides the fab through :has(), which WebKit before 15.4 does
+ * not have; there both Adds would show. Same rule, said in JS, for those. */
+"new MutationObserver(function(){$('addbtn').style.display=$('out').querySelector('.addcta')?'none':''})"
+".observe($('out'),{childList:true,subtree:true});"
 /* accept a comma as an optional tag separator; collapse extra whitespace, so
  * \"home, wifi\" and \"home   wifi\" both mean the tags home + wifi (Flutter parity) */
 "function normkeys(s){return s.replace(/,/g,' ').trim().replace(/\\s+/g,' ')}"
