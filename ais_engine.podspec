@@ -27,11 +27,16 @@ Pod::Spec.new do |s|
   s.requires_arc = false        # C, not Objective-C
 
   s.source_files  = 'c/*.{c,h}', 'c/crypto/*.{c,h}'
-  # main.c is the CLI's entry point and tests.c is the test suite's: each
-  # carries a main(), which would collide with the app's own. CMakeLists drops
-  # main.c for the same reason (a library has no main); tests.c matters here in
-  # a way it does not there, since this links into an executable.
-  s.exclude_files = 'c/main.c', 'c/tests.c'
+  # Three files stay out, and the list differs from CMakeLists by the third:
+  #   main.c   the CLI's entry point, and tests.c the test suite's. Each carries
+  #            a main(), which collides with the app's own.
+  #   serve.c  the web GUI's HTTP server, whose only caller is the CLI
+  #            (ais_serve, from main.c). It cannot compile for iOS anyway:
+  #            system() is unavailable there, and it uses it to open a desktop
+  #            browser at the served page. Nothing in the app reaches it, so
+  #            this drops a file the app never had a use for rather than
+  #            teaching the engine about iOS.
+  s.exclude_files = 'c/main.c', 'c/tests.c', 'c/serve.c'
 
   s.pod_target_xcconfig = {
     # The engine includes its own headers relatively ("common.h",
