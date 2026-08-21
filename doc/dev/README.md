@@ -42,6 +42,11 @@ README's "Learn more" table. Start with `../../AGENTS.md`, then `LAYOUT.md` and
 | [ANDROID_RELEASE.md](ANDROID_RELEASE.md) | getting a build onto a phone, into Play, and onto F-Droid |
 | [WINDOWS.md](WINDOWS.md) | the whole Windows situation: what CI builds, and the sync, signing and packaging plans |
 
+iOS has no file here on purpose: the engine is wired in and CI runs the app on a
+simulator, and everything left is the Apple account side, which lives in
+[issue #1](https://github.com/Anode1/ais/issues/1) so it does not go stale in two
+places at once.
+
 ## Writing
 
 [PROSE.md](PROSE.md) binds these documents the way `STYLE.md` binds the C: what
