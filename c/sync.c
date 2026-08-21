@@ -933,6 +933,8 @@ int sync_folder_once_force(ais *a, const char *folder, int force) {
     DIR *d;
     struct dirent *de;
     int rc = -1;
+    int seen = 0, took = 0, newer = 0, bad = 0;   /* what the import pass met */
+    int rc_import = 0;                            /* held until our own bundle is written */
 
     if (!a || !folder) return -1;
     {
@@ -999,11 +1001,29 @@ int sync_folder_once_force(ais *a, const char *folder, int force) {
         if (lstat(path, &st) != 0 || !S_ISREG(st.st_mode))
             continue;                              /* skip symlinks / non-regular */
         if (read_file(path, &buf, &n) == 0) {
-            sync_import_framed(a, buf, n, NULL, NULL);  /* rc<0 (partial/corrupt): skip, retry */
+            int irc = sync_import_framed(a, buf, n, NULL, NULL);
             free(buf);
+            seen++;
+            if (irc == 0)       took++;
+            else if (irc == -2) newer++;    /* a peer on a build this one does not know */
+            else                bad++;      /* partial or corrupt: it may be mid-write */
         }
     }
     closedir(d);
+
+    /* Say what was NOT read. Discarding this was the failure doc/SYNC.md names as
+     * the one you cannot notice until you need the data: a folder holding only
+     * bundles from a newer build, or only corrupt ones, reported "synced" and
+     * imported nothing. A staggered rollout to a group of testers is exactly how
+     * the newer-build case arrives. */
+    if (newer > 0)
+        fprintf(stderr, "sync: %d bundle%s here came from a NEWER ais; update this device "
+                        "or its records will not arrive\n", newer, newer == 1 ? "" : "s");
+    if (bad > 0)
+        fprintf(stderr, "sync: %d bundle%s could not be read (partial or damaged); "
+                        "the next pass retries\n", bad, bad == 1 ? "" : "s");
+    if (seen > 0 && took == 0)
+        rc_import = (newer > 0) ? AIS_FOLDER_PEERNEW : AIS_FOLDER_UNREADABLE;
 
     /* Export pass: bump our seq, write atomically, persist the advanced seq. */
     s.seq += 1;
@@ -1012,6 +1032,11 @@ int sync_folder_once_force(ais *a, const char *folder, int force) {
     free(bundle);
     if (rc != 0)
         return AIS_FOLDER_NOWRITE;   /* read-only remount, full disk: imports already applied */
+    if (rc_import != 0) {            /* our bundle is out; nothing of theirs came in */
+        ident_save(a, &s);
+        fold_remember(a, canon);
+        return rc_import;
+    }
     ident_save(a, &s);
     fold_remember(a, canon);
     return 0;

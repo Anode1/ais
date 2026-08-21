@@ -579,6 +579,21 @@ int main(int argc, char **argv)
                         "       read-only or full, so the other devices will not see this one.",
                         argv[optind]);
                     break;
+                case AIS_FOLDER_PEERNEW:
+                    die("nothing could be read from: %s\n"
+                        "       this device's own records were written there, but every\n"
+                        "       bundle in that folder comes from a NEWER ais. Update this\n"
+                        "       device: until you do, the other devices' records cannot\n"
+                        "       arrive here.",
+                        argv[optind]);
+                    break;
+                case AIS_FOLDER_UNREADABLE:
+                    die("nothing could be read from: %s\n"
+                        "       this device's own records were written there, but the other\n"
+                        "       bundles are damaged or half-written. If another device is\n"
+                        "       writing right now, run it again in a moment.",
+                        argv[optind]);
+                    break;
                 case 0: break;
                 default: die("folder sync failed"); break;
                 }

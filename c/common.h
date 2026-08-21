@@ -37,6 +37,12 @@
  * rather than corrupt-on-read, exactly as v3 did to v2. Upgrade every device. */
 #define AIS_FORMAT_VERSION 4
 
+/* The widest wire frame that can carry a VALUE: "M|<ts:20>|<hash:16>|" plus the
+ * newline. A value must fit inside AIS_LINE_MAX with this on top of it, or it
+ * cannot travel to a peer even though it fits the store line (whose overhead is
+ * the id and the keys instead). store_append refuses one that cannot. */
+#define AIS_WIRE_FRAME_MAX 41
+
 /* Keep a big, rarely-taken frame out of its caller's. A static function called
  * once is inlined, reserving its buffers on every call to the caller, including
  * the ones that never reach the branch it sits on; on the record path that is

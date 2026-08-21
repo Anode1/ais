@@ -380,6 +380,17 @@ int store_append(const ais *a, long id, const char *ts,
                 need, AIS_LINE_MAX - 1);
         return -1;
     }
+    /* And it must fit the WIRE, which is not the same bound. An extra value on a
+     * multi-value record travels as "M|<ts>|<hash>|<value>", 41 bytes of frame
+     * against the store line's id and keys: a value with short keys can fit the
+     * store and not the frame, and the importer then refuses the whole line and
+     * the record reaches the peer missing that value. Saving it is the last point
+     * at which the user can be told, so tell them here. */
+    if ((size_t)strlen(value) + AIS_WIRE_FRAME_MAX >= AIS_LINE_MAX) {
+        fprintf(stderr, "ais: value too long to sync (%d bytes; max %d) -- use --doc\n",
+                (int)strlen(value), (int)(AIS_LINE_MAX - AIS_WIRE_FRAME_MAX - 1));
+        return -1;
+    }
 
     if (store_path(a, "store", path, sizeof(path)) != 0)
         return -1;

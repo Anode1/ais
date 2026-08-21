@@ -3134,7 +3134,10 @@ static void test_edit_clock_survives_a_ragged_file(void)
 
 /* The document cap has to bite BEFORE the bytes are written: a bundle assembles
  * in memory, so a check at the end allocates a huge blobs/ in full before
- * refusing it. Capped small here, the export must fail AND stop writing.
+ * refusing it. What it must NOT do is abandon the bundle: one oversized document
+ * used to stop every record on the device from syncing at all, which, since sync
+ * is what stands in for a backup here, left everything saved afterwards on one
+ * device. The document is skipped and named; the records still travel.
  * feed_export (uncapped) must still emit everything: the CLI's --export goes to
  * a pipe or a file the user chose, with no memory ceiling to respect. */
 static void test_the_document_cap_stops_before_writing(void)
@@ -3161,13 +3164,22 @@ static void test_the_document_cap_stops_before_writing(void)
 
     tmp = tmpfile();
     CHECK(tmp != NULL, "blobcap: tmpfile opened");
-    CHECK(feed_export_capped(&a, tmp, 1024) == -1,
-          "blobcap: a document over the cap is refused");
+    CHECK(feed_export_capped(&a, tmp, 1024) == 0,
+          "blobcap: the bundle still exports without the oversized document");
     fseek(tmp, 0, SEEK_END);
     capped_len = ftell(tmp);
+    rewind(tmp);
+    {   /* the records are in it; the 4 KB body is not */
+        char buf[256];
+        int saw_record = 0;
+        while (fgets(buf, sizeof buf, tmp) != NULL)
+            if (strstr(buf, "blobs/big.txt") != NULL && buf[0] == 'A')
+                saw_record = 1;
+        CHECK(saw_record, "blobcap: and the record that points at it still travels");
+    }
     fclose(tmp);
     CHECK(capped_len < 4096,
-          "blobcap: and its body was never written (refused before, not after)");
+          "blobcap: its body was never written (skipped before, not after)");
 
     tmp = tmpfile();
     CHECK(tmp != NULL, "blobcap: second tmpfile opened");
@@ -4015,6 +4027,33 @@ static void test_sync_delete_survives_compact(void)
 
     ais_close(&A); ais_close(&B);
     scratch_rm(da); scratch_rm(db);
+}
+
+/* A value that fits the store line can still be too long for the frame that
+ * carries it to a peer ("M|<ts>|<hash>|<value>"), and the importer then refuses
+ * the whole line: the record arrives missing that value, with the warning going
+ * to a stderr nobody reads. Refuse it at the save instead, where the user is. */
+static void test_value_too_long_for_the_wire(void)
+{
+    ais a;
+    const char *dir = "/tmp/ais_ut_wire";
+    char *v = malloc(AIS_LINE_MAX);
+
+    CHECK(v != NULL, "wire: buffer");
+    if (v == NULL) return;
+    scratch_rm(dir);
+    ais_open(&a, dir);
+
+    memset(v, 'x', AIS_LINE_MAX - 100); v[AIS_LINE_MAX - 100] = '\0';
+    CHECK(ais_put(&a, "k", v) > 0, "wire: a value that fits both store and frame is saved");
+
+    memset(v, 'y', AIS_LINE_MAX - 30); v[AIS_LINE_MAX - 30] = '\0';
+    CHECK(ais_put(&a, "k", v) < 0,
+          "wire: one that fits the store but not the frame is refused, not half-synced");
+
+    free(v);
+    ais_close(&a);
+    scratch_rm(dir);
 }
 
 /* Blob names must be unique AT BIRTH: two devices saving a document in the same
@@ -5130,6 +5169,8 @@ int main(void)
     test_sync_frame_reject();
     printf("folder sync B3 (delete survives compaction):\n");
     test_sync_delete_survives_compact();
+    printf("a value must fit the wire, not only the store:\n");
+    test_value_too_long_for_the_wire();
     printf("document blobs (unique at birth, keep both, one import policy):\n");
     test_blob_names_unique_per_index();
     test_blob_place_policy();

@@ -666,6 +666,7 @@ static int exp_kborn(long id, const char *ts, const char *hash, const char *key,
  * never be sent). */
 static int export_blobs_stream(FILE *out, const char *dir, size_t cap)
 {
+    long skipped = 0;
     char blobsdir[AIS_PATH_MAX], path[AIS_PATH_MAX], buf[8192];
     DIR *d;
     struct dirent *de;
@@ -691,11 +692,18 @@ static int export_blobs_stream(FILE *out, const char *dir, size_t cap)
         if (fseek(bf, 0, SEEK_END) != 0 || (sz = ftell(bf)) < 0 ||
             fseek(bf, 0, SEEK_SET) != 0) { fclose(bf); continue; }
         if (cap > 0 && (total > cap || (size_t)sz > cap - total)) {
+            /* Skip THIS document and keep going. Abandoning the bundle meant one
+             * oversized document stopped every record on the device from ever
+             * syncing, and sync is what stands in for a backup here, so the cost
+             * of the old behaviour was every note saved afterwards living on one
+             * device only. The record still travels; its body arrives when the
+             * peer is reachable by other means. */
             fclose(bf);
-            fprintf(stderr, "sync: documents exceed the %lu-byte transfer cap\n",
-                    (unsigned long)cap);
-            rc = -1;
-            break;
+            fprintf(stderr, "sync: %s is %ld bytes, past the %lu-byte transfer cap: "
+                            "its text stays on this device\n",
+                    de->d_name, sz, (unsigned long)cap);
+            skipped++;
+            continue;
         }
         total += (size_t)sz;
         fprintf(out, "B|blobs/%s|%ld\n", de->d_name, sz);
@@ -704,6 +712,9 @@ static int export_blobs_stream(FILE *out, const char *dir, size_t cap)
         fclose(bf);
     }
     closedir(d);
+    if (skipped > 0)
+        fprintf(stderr, "sync: %ld document%s did not travel; everything else did\n",
+                skipped, skipped == 1 ? "" : "s");
     return rc;
 }
 

@@ -118,6 +118,8 @@ int sync_import_framed(ais *a, const uint8_t *data, size_t len,
  *   AIS_FOLDER_STRANGER     we synced here before and it now holds no device
  *                           bundle at all: an unmounted drive, or an emptied share
  *   AIS_FOLDER_NOWRITE      imports may have applied, but our bundle could not be written
+ *   AIS_FOLDER_PEERNEW      bundles are here, all from a NEWER ais: nothing could be read
+ *   AIS_FOLDER_UNREADABLE   bundles are here, none readable (partial or damaged)
  *   -1                      any other failure
  *
  * FORCE (the -y path) accepts an empty remembered folder and re-establishes it; it
@@ -131,6 +133,8 @@ int sync_import_framed(ais *a, const uint8_t *data, size_t len,
 #define AIS_FOLDER_STAT      (-4)
 #define AIS_FOLDER_STRANGER  (-5)
 #define AIS_FOLDER_NOWRITE   (-6)
+#define AIS_FOLDER_PEERNEW   (-7)
+#define AIS_FOLDER_UNREADABLE (-8)
 
 int sync_folder_once(ais *a, const char *folder);
 int sync_folder_once_force(ais *a, const char *folder, int force);
