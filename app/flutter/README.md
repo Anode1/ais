@@ -37,8 +37,8 @@ This scaffold holds only the Dart + the native CMake. Generate the
   and ensure `libais.so` is bundled next to the runner.
 
 - **iOS** (on a Mac): the engine is statically linked into the Runner target.
-  Full instructions, prerequisites, signing and the acceptance checklist are in
-  `doc/dev/IOS.md`, which is the one file to hand an iOS developer.
+  What to do, the signing steps and the acceptance checklist are in
+  <https://github.com/Anode1/ais/issues/1>.
 
 ## Build / run
 

@@ -41,10 +41,10 @@ The **Android** app has shipped (above); **iOS** is the next focus. The same
 `ais://` scheme are already written. What is left is compiling the engine into
 the Runner target and the Apple side: signing, a device, TestFlight. No interface
 work, since the screens are shared with Android, and no core changes.
-[`dev/IOS.md`](dev/IOS.md) is the whole brief, and the one file to hand an iOS
-developer. A native Swift client over the same `embed.h` seam is possible and
-nothing needs it; the spec that described one was removed from that file to keep
-it single-subject, and is in git at `313fb42:doc/dev/IOS_NATIVE.md`. A browser **PWA** (`app/`) is a parallel, lower-friction track (see
+Issue [#1](https://github.com/Anode1/ais/issues/1) carries the whole brief: what
+is missing, the signing steps and how to tell it works. A native Swift client
+over the same `embed.h` seam is possible and nothing needs it; the spec that
+described one is in git at `313fb42:doc/dev/IOS_NATIVE.md`. A browser **PWA** (`app/`) is a parallel, lower-friction track (see
 [`dev/DISTRIBUTION.md`](dev/DISTRIBUTION.md) for the WASM/standalone plan).
 
 ### F-Droid (Android)
