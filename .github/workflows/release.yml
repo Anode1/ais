@@ -62,7 +62,7 @@ jobs:
 
   # Android: the Flutter app (FFI to the C engine). The .apk is the installable
   # build a phone user sideloads from the release; the .aab is the Google Play
-  # upload bundle (Play requires .aab; see doc/HOWTO_playstore.md). Release-signed
+  # upload bundle (Play requires .aab; see doc/dev/ANDROID_RELEASE.md). Release-signed
   # when the keystore secrets are set; otherwise debug-signed (gradle fallback).
   android:
     name: build android apk (flutter)

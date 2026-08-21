@@ -77,12 +77,13 @@ flutter doctor --android-licenses
 (`apt install android-sdk` exists but is outdated and laid out wrong for Flutter;
 prefer one of the above.) Target API 34/35 (Android 14/15) in 2026.
 
-### A5. Status: not store-published yet
+### A5. Status
 
-The release build is still signed with the debug key
-(`signingConfig = signingConfigs.getByName("debug")`). Sideloading to your own
-device works now; publishing to Play Store needs a real release keystore and
-signing config first.
+Sideloading works today, from the release page or a local build. A local release
+build is signed with your own key when `android/key.properties` is present and
+falls back to the debug key when it is not, so a debug-signed copy cannot be
+upgraded over a real one. Keys are in [`dev/SIGNING.md`](dev/SIGNING.md) and
+publishing is in [`dev/ANDROID_RELEASE.md`](dev/ANDROID_RELEASE.md).
 
 ## Route B: the PWA via Termux
 
@@ -131,5 +132,5 @@ disables voice, install, and the service worker.
 
 ## See also
 
-- `app/flutter/README.md`: the native app internals (FFI seam, CMake wiring).
-- `app/README.md`: the PWA internals and the secure-context rule.
+- [`app/flutter/README.md`](../app/flutter/README.md): the native app internals (FFI seam, CMake wiring).
+- [`app/README.md`](../app/README.md): the PWA internals and the secure-context rule.

@@ -81,7 +81,7 @@ forever.
 Lose this keystore and you can never update the app. Back it up off the machine.
 Never commit it (`key.properties` and `*.jks` are git-ignored). Local release
 builds read `app/flutter/android/key.properties` (copy from
-`key.properties.example`); the full release runbook is `doc/android-release.txt`.
+`key.properties.example`); the release runbook is `ANDROID_RELEASE.md`.
 
 ## CI release signing (GitHub -> Settings -> Secrets and variables -> Actions)
 
