@@ -4029,6 +4029,40 @@ static void test_sync_delete_survives_compact(void)
     scratch_rm(da); scratch_rm(db);
 }
 
+/* A next_id cache that is positive but BELOW an id the store holds must not be
+ * trusted: the next put would reissue a live id, so one value would name two
+ * records and one tombstone would take both. A truncated write leaves exactly
+ * that ("10" where "1000" was written). */
+static void test_next_id_cache_below_the_store(void)
+{
+    ais a;
+    struct idvec v;
+    const char *dir = "/tmp/ais_ut_nidlow";
+    char p[AIS_PATH_MAX];
+    FILE *f;
+    long id;
+
+    scratch_rm(dir);
+    ais_open(&a, dir);
+    ais_put(&a, "k1", "val1");
+    ais_put(&a, "k2", "val2");
+    ais_put(&a, "k3", "val3");
+    ais_close(&a);
+
+    snprintf(p, sizeof p, "%s/next_id", dir);      /* the truncated-write shape */
+    f = fopen(p, "w");
+    CHECK(f != NULL, "nidlow: rewrote next_id");
+    if (f) { fputs("2\n", f); fclose(f); }
+
+    ais_open(&a, dir);
+    id = ais_put(&a, "kx", "COLLIDER");
+    CHECK(id > 3, "nidlow: the next put does not reissue a live id");
+    query(&a, AIS_AND, &v, 1, "k2");
+    CHECK(v.n == 1, "nidlow: and the record that held that id is still alone on it");
+    ais_close(&a);
+    scratch_rm(dir);
+}
+
 /* A value that fits the store line can still be too long for the frame that
  * carries it to a peer ("M|<ts>|<hash>|<value>"), and the importer then refuses
  * the whole line: the record arrives missing that value, with the warning going
@@ -5169,6 +5203,8 @@ int main(void)
     test_sync_frame_reject();
     printf("folder sync B3 (delete survives compaction):\n");
     test_sync_delete_survives_compact();
+    printf("next_id: a cache below the store is not trusted:\n");
+    test_next_id_cache_below_the_store();
     printf("a value must fit the wire, not only the store:\n");
     test_value_too_long_for_the_wire();
     printf("document blobs (unique at birth, keep both, one import policy):\n");

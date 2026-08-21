@@ -211,6 +211,38 @@ int store_write_version(const ais *a)
     return 0;
 }
 
+/* The id on the LAST line of the store, or 0 when the store is absent or empty.
+ * Reads the tail only, so it costs a seek rather than a scan. Ids are assigned
+ * monotonically and lines are appended, so this is a lower bound on the highest
+ * id present -- enough to catch a next_id cache that would reissue a live one. */
+static long store_last_line_id(const ais *a)
+{
+    char path[AIS_PATH_MAX], buf[4096];
+    FILE *fp;
+    long size, want, id = 0;
+    size_t n, i, start = 0;
+
+    if (store_path(a, "store", path, sizeof(path)) != 0)
+        return 0;
+    fp = fopen(path, "rb");
+    if (fp == NULL)
+        return 0;
+    if (fseek(fp, 0, SEEK_END) != 0 || (size = ftell(fp)) <= 0) { fclose(fp); return 0; }
+    want = (size < (long)sizeof buf) ? size : (long)sizeof buf;
+    if (fseek(fp, size - want, SEEK_SET) != 0) { fclose(fp); return 0; }
+    n = fread(buf, 1, (size_t)want, fp);
+    fclose(fp);
+    if (n == 0)
+        return 0;
+    if (buf[n - 1] == '\n')                  /* ignore the terminator of the last line */
+        n--;
+    for (i = n; i > 0; i--) {                /* back up to the start of that line */
+        if (buf[i - 1] == '\n') { start = i; break; }
+    }
+    id = atol(buf + start);
+    return (id > 0) ? id : 0;
+}
+
 /* (Re)load next_id from disk, recovering it from the store (max id + 1) if the
  * cache file is absent. Called at open, and by every writer under the exclusive
  * lock, so two processes never hand out the same id. Returns 0/-1. */
@@ -230,12 +262,20 @@ int store_load_next_id(ais *a)
             cached = atol(buf);
         fclose(fp);
     }
-    if (cached > 0) {                       /* good cache: the O(1) fast path */
-        a->next_id = cached;
+    /* A cache that is positive can still be WRONG, and wrong in the one direction
+     * that costs data: below an id the store already holds. A write interrupted
+     * part-way leaves a truncated but parseable number ("10" for "1000"), and a
+     * whole-folder file sync can pair a winning `store` with another device's
+     * `next_id`. The next put then reissues a LIVE id, so one value silently
+     * names two records, recall returns the wrong one, and a single tombstone
+     * takes both. The last line's id is a cheap lower bound on the highest id in
+     * the store (a merge can append a value line for an older id, so it is a
+     * bound and not the maximum): a cache at or below it is provably unusable. */
+    if (cached > 0 && cached > store_last_line_id(a)) {
+        a->next_id = cached;                /* good cache: the O(1) fast path */
         return 0;
     }
-    /* Cache absent, or present but unusable (0-length / unparseable, as a write
-     * interrupted by a crash or ENOSPC leaves it). Trusting it would reset ids to
+    /* Cache absent, unparseable, or below an id the store holds (see above). Trusting it would reset ids to
      * 1 and reissue live ones, colliding records silently. The store is the source
      * of truth: max(id)+1 is never below any durably assigned id, store_append
      * preceding the cache write. */
