@@ -60,7 +60,7 @@ class RecallPage extends StatefulWidget {
   State<RecallPage> createState() => _RecallPageState();
 }
 
-class _RecallPageState extends State<RecallPage> {
+class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
   final _q = TextEditingController();
   final _speech = SpeechToText();
   // Live search: each keystroke reschedules this, _recall() fires on the pause.
@@ -97,6 +97,9 @@ class _RecallPageState extends State<RecallPage> {
   // Ids optimistically removed from the lists but not yet committed to the
   // engine: they sit in their Undo window. A commit clears the id and calls del().
   final Set<int> _pendingDelete = {};
+  // One per pending delete: the Undo window measured in TIME. The snackbar's
+  // closed future was the only trigger before, and it does not fire reliably.
+  final Map<int, Timer> _delTimers = {};
   // The live "Deleted / UNDO" snackbar per pending id: once del() has run, UNDO
   // would fake-restore a row the engine no longer holds, so a commit dismisses it.
   final Map<int, ScaffoldFeatureController<SnackBar, SnackBarClosedReason>>
@@ -151,7 +154,22 @@ class _RecallPageState extends State<RecallPage> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);   // to commit a pending delete on the way out
     _init();
+  }
+
+  // A delete armed inside its Undo window has not reached the engine yet. If the
+  // app goes away first, the row comes back on the next launch and reads as "I
+  // deleted it and it came back". Leaving the foreground is the user finishing
+  // with the screen, so it settles the delete: Undo's window is the seconds they
+  // are LOOKING at the snackbar, not the rest of the process's life.
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.hidden ||
+        state == AppLifecycleState.detached) {
+      _flushPendingDeletes();
+    }
   }
 
   // Desktop shares the index the CLI resolves (nearest .ais/, ~/.ais/config, else
@@ -224,16 +242,32 @@ class _RecallPageState extends State<RecallPage> {
   // anywhere and a sync shares this device's records.
   Future<void> _handleLink(String link) async {
     if (_ais == null || !mounted) return;
+    // Say so when a link is unusable. The app is already in the foreground by the
+    // time this runs (the OS routed the link here), so returning in silence looks
+    // exactly like the app opening and doing nothing. A camera app that mangles
+    // the query, or a half-copied link, lands here.
+    void bad() {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text('That pairing link is incomplete. Ask the other device '
+                'to show it again, or type the address and code in Join.')));
+      }
+    }
+
     final Uri uri;
     try {
       uri = Uri.parse(link);
     } catch (_) {
+      bad();
       return;
     }
-    if (uri.scheme != 'ais' || uri.host != 'sync') return;
+    if (uri.scheme != 'ais' || uri.host != 'sync') return;   // not ours: not our business
     final host = uri.queryParameters['host'] ?? '';
     final token = uri.queryParameters['token'] ?? '';
-    if (host.isEmpty || token.isEmpty) return;
+    if (host.isEmpty || token.isEmpty) {
+      bad();
+      return;
+    }
     if (_syncBusy) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
           content: Text('A sync is already running. Finish it first.')));
@@ -1769,6 +1803,7 @@ class _RecallPageState extends State<RecallPage> {
   // still pending (not undone, not already committed). Input-driven, so it never
   // depends on the snackbar's animated close alone.
   void _commitDelete(int id) {
+    _delTimers.remove(id)?.cancel();
     if (_pendingDelete.remove(id) && _ais != null) {
       // del() returns false when the engine kept the record (unknown id, or a
       // write error). The row was already hidden, so say it failed and re-sync.
@@ -1816,6 +1851,9 @@ class _RecallPageState extends State<RecallPage> {
       return;
     }
     _pendingDelete.add(id);
+    // Slightly longer than the snackbar, so UNDO keeps its full window and the
+    // commit still happens if the snackbar is dismissed early or never closes.
+    _delTimers[id] = Timer(const Duration(milliseconds: 4500), () => _commitDelete(id));
     setState(() {
       // remove EVERY row of that id: a record can appear more than once across pages
       if (recallHit != null) _results = _results.where((h) => h.id != id).toList();
@@ -1832,6 +1870,7 @@ class _RecallPageState extends State<RecallPage> {
           // change flushed it): UNDO must never fake-restore a gone record.
           if (!_pendingDelete.contains(id)) return;
           undone = true;
+          _delTimers.remove(id)?.cancel();
           _pendingDelete.remove(id);
           setState(() {
             if (recallHit != null) {
@@ -2803,6 +2842,8 @@ class _RecallPageState extends State<RecallPage> {
 
   @override
   void dispose() {
+    _flushPendingDeletes();          // an armed delete must not die with the page
+    WidgetsBinding.instance.removeObserver(this);
     _debounce?.cancel();
     _speech.cancel(); // stop any active recognizer session
     // A background LAN sync may still hold this handle by address; close()ing
