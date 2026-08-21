@@ -1,175 +1,168 @@
 # AIS on iOS
 
-Everything an iOS developer needs, in one file. There are two possible jobs here
-and they are very different sizes, so start by reading which one you have.
+This file covers two separate pieces of work over the same engine.
 
-**Job one: ship the Flutter app on iPhone.** The app already exists and ships on
-Android from the same code. The screens, the sync, the encryption and the deep
-links are written and already iOS-aware. What is missing is compiling the C
-engine into the iOS binary, plus signing and the store. About a day of Xcode
-work, then Apple's own timescale. Part 1.
+**Part 1: the existing Flutter app on iOS.** The app ships on Android from
+`app/flutter/`. The Dart side, the iOS scaffold, the platform channels and the
+`ais://` URL scheme are written. What is missing is the C engine compiled into
+the iOS binary, plus signing and distribution.
 
-**Job two: a native Swift client.** A separate, much larger project: the whole
-interface written again in SwiftUI over the same C engine. Nobody needs it to
-ship on iPhone, and doing job one first is how you learn the engine and the
-Apple pipeline before taking it on. Part 2.
+**Part 2: a native Swift client.** A separate interface written in SwiftUI over
+the same C ABI. Not required for the app to ship on iPhone.
 
-## Orientation
+## The stack
 
-AIS is a small C99 engine (`c/`) with thin front ends over one FFI seam
-(`c/embed.h`). The phone app is **Flutter** (Dart, in `app/flutter/lib/`), one
-codebase for Android and iOS. The CLI, the web GUI and the Win32 app are the
-other front ends. They share one on-disk format and one wire format, so anything
-built on the engine syncs with everything else for free.
+AIS is a C99 engine (`c/`) with thin front ends over one FFI seam
+(`c/embed.h`). The phone app is Flutter (Dart, `app/flutter/lib/`), one codebase
+for Android and iOS. The CLI, the web GUI and the Win32 app are the other front
+ends. All of them share one on-disk format and one wire format, so any front end
+built on the engine syncs with the others.
 
-For job one you write no Objective-C (there is none in the tree), no SwiftUI or
-UIKit, and no Dart. Flutter draws its own interface onto a single surface, so
-the iPhone screens are the Android screens. What the job actually needs is Xcode
-target and build-setting work, code signing, provisioning, archiving and App
-Store Connect, which is the half a Flutter developer usually finds hardest.
+Flutter renders its own widgets to a single surface, so in Part 1 the iOS screens
+are the Android screens; UIKit and SwiftUI are not involved. Part 1 changes no
+Dart, Swift or Objective-C source. The tree contains no Objective-C; the two
+native files under `app/flutter/ios/Runner/` are Swift and are already written.
+The work is Xcode target configuration, code signing, and the App Store Connect
+pipeline.
 
-The index lives in the app's Documents directory as plain text, the same format
-as every other platform. There is no server, no account, no third-party SDK.
+The index is plain text in the app's Documents directory, the same format as
+every other platform. There is no server, no account and no third-party SDK.
 
-# Part 1: ship the Flutter app on iPhone
+# Part 1: the Flutter app on iOS
 
-## What you need
+## Requirements
 
 | What | Notes |
 | --- | --- |
-| A Mac with Xcode 15+ and CocoaPods | The whole job happens here. |
-| Flutter SDK, version `3.44.1` | Pinned: it is what CI builds and tests with (`.github/workflows/`). Run `flutter doctor` until the iOS row is green. |
-| An iPhone | The Simulator covers everything except the camera QR scan, real speech, and true LAN sync. |
-| Apple Developer Program, $99/yr | For TestFlight and the App Store. A free Apple ID is enough to run on your own device while developing. |
-| A second device on the same Wi-Fi | To test sync: an Android phone with AIS, or a Mac running the CLI (`make` at the repo root builds it). |
+| macOS with Xcode 15+ and CocoaPods | Required for every step below. |
+| Flutter SDK `3.44.1` | Pinned to the version CI builds and tests with (`.github/workflows/`). `flutter doctor` reports the iOS row clean before anything else works. |
+| An iPhone | The Simulator covers everything except the camera QR scan, speech recognition, and LAN sync against a real network. |
+| Apple Developer Program membership | Required for TestFlight and the App Store. A free Apple ID covers development builds on a personal device. |
+| A second device on the same Wi-Fi | For sync testing: an Android phone running AIS, or a machine running the CLI (`make` at the repo root builds it). |
 
-## What already exists
+## What the repository already contains
 
-`app/flutter/ios/` is the Flutter scaffold (generated with `flutter create --org
-com.aisindex --project-name ais --platforms=ios .`, bundle id `com.aisindex.ais`
-to match Android), and the native glue in it is written and working:
+`app/flutter/ios/` is the Flutter scaffold, generated with `flutter create --org
+com.aisindex --project-name ais --platforms=ios .`, bundle id
+`com.aisindex.ais`, matching Android. Its native glue is implemented:
 
-- `Runner/SceneDelegate.swift`: the `ais/deeplink` channel, delivering an
-  `ais://sync?…` pairing link live and at cold start.
-- `Runner/AppDelegate.swift`: the `ais/backup` channel, which sets
-  `NSURLIsExcludedFromBackupKey` on the index directory (iOS backs Documents up
-  to iCloud by default), and `ais/screen`, which keeps the screen awake while a
+- `Runner/SceneDelegate.swift` holds the `ais/deeplink` channel, which delivers
+  an `ais://sync?…` pairing link both live and at cold start.
+- `Runner/AppDelegate.swift` holds the `ais/backup` channel, which sets
+  `NSURLIsExcludedFromBackupKey` on the index directory (iOS backs up Documents
+  to iCloud by default), and `ais/screen`, which holds the screen awake while a
   pairing QR is displayed.
-- `Runner/Info.plist`: the `ais` URL scheme, plus the microphone and speech
-  usage strings. Voice search uses Apple Speech through the same Flutter plugin
-  Android uses.
+- `Runner/Info.plist` registers the `ais` URL scheme and carries the microphone
+  and speech-recognition usage strings. Voice search runs on Apple Speech through
+  the `speech_to_text` plugin, the same one Android uses.
 
-The Dart side branches on `Platform.isIOS` where it has to. So the app, not just
-the engine, is already iOS-aware.
+`lib/main.dart` branches on `Platform.isIOS` where behavior differs.
 
-## The one real task: the engine into the Runner target
+## The engine inside the Runner target
 
-**On iOS the engine is statically linked.** `lib/ais_ffi.dart` loads it with
-`DynamicLibrary.process()`, not from a `.so` or `.dylib`, so the C symbols must
-end up inside the app binary. There is no library to ship alongside.
+**The engine is statically linked on iOS.** `lib/ais_ffi.dart` loads it with
+`DynamicLibrary.process()` rather than from a `.so` or `.dylib`, so the C symbols
+have to be inside the app binary. Nothing ships alongside it.
 
-In Xcode (`open ios/Runner.xcworkspace`):
+The Runner target (`open ios/Runner.xcworkspace`) therefore needs:
 
-- add every `c/*.c` **and** `c/crypto/*.c` except `main.c` to the Runner target's
-  *Compile Sources* (a library has no `main`),
-- set *Header Search Paths* to include `$(SRCROOT)/../../../c`,
-- set the C language dialect to `c99`,
-- leave symbol visibility at the default, so `DynamicLibrary.process()` resolves
-  them.
+- every `c/*.c` and `c/crypto/*.c` except `main.c` in *Compile Sources*, since a
+  library has no `main`,
+- `$(SRCROOT)/../../../c` on *Header Search Paths*,
+- the C language dialect set to `c99`,
+- default symbol visibility, which is what lets `DynamicLibrary.process()`
+  resolve the symbols.
 
-A small podspec listing the same sources and header path, referenced from
-`ios/Podfile`, is equivalent. Either way the file list has one source of truth:
-`app/flutter/src/CMakeLists.txt`, the build Android and Linux already use. Mirror
-it exactly and never fork the engine for iOS.
+A podspec listing the same sources and header path, referenced from
+`ios/Podfile`, is equivalent.
 
-`c/crypto/` (`ais_crypto.c` and the vendored `monocypher.c`) is not optional. Left
-out, the app builds and launches, then dies with an undefined `aisc_*` symbol the
-first time a secret is encrypted or revealed.
+The file list has one source of truth: `app/flutter/src/CMakeLists.txt`, the
+build Android and Linux use. A second list maintained by hand drifts from it.
+
+`c/crypto/` (`ais_crypto.c` and the vendored `monocypher.c`) is not optional.
+Omitted, the app builds and launches, then fails with an undefined `aisc_*`
+symbol the first time a secret is encrypted or revealed.
 
 ## Running it
 
     cd app/flutter && flutter pub get
-    flutter run -d <simulator-id>     # no Apple account needed
-    flutter run -d <device-id>        # after signing, below
+    flutter run -d <simulator-id>     # no Apple account required
+    flutter run -d <device-id>        # requires signing, below
 
-Exercise saving, recall, and especially Encrypt then Reveal on the Simulator: that
-is the path that proves the crypto sources linked.
+Encrypt followed by Reveal is the path that proves the crypto sources linked, so
+it is the useful first check on the Simulator, alongside save and recall.
 
-## Getting it onto an iPhone
+## Signing and distribution
 
-Three levels, in the order you will want them.
+**Personal device, free Apple ID.** An Apple ID added under Xcode → Settings →
+Accounts provides a personal team. With *Automatically manage signing* enabled in
+the Runner target's *Signing & Capabilities*, Xcode registers the device and
+issues a development profile. Builds expire after 7 days and the number of app
+IDs is limited, so this covers development rather than distribution.
 
-**Your own device, free.** Add a plain Apple ID under Xcode → Settings →
-Accounts. Select the Runner target → *Signing & Capabilities*, tick *Automatically
-manage signing*, choose that personal team. Xcode registers the device and issues
-a development profile. The build expires after **7 days** and the number of app
-IDs is limited: fine for development, no use for handing to anyone.
+**TestFlight.** Requires the paid Developer Program. The app record is created in
+App Store Connect under the same bundle id, and the build reaches it through
+Product → Archive in Xcode or an uploaded `.ipa`. Testers are invited by email
+and register no devices. Builds expire after 90 days.
 
-**Testers, through TestFlight.** Needs the paid Developer Program. Create the app
-record in App Store Connect under the same bundle id, then Product → Archive in
-Xcode (or upload the `.ipa`) and invite testers by email. Builds last 90 days and
-testers need no device registration.
-
-**The App Store.** The same upload plus the review submission: screenshots,
+**App Store.** The same upload, plus the review submission: screenshots,
 description, privacy questionnaire.
 
-**Export compliance has a real answer.** The app carries non-Apple cryptography
-(vendored Monocypher, XChaCha20-Poly1305) used to encrypt the user's own secrets
-on the device and to encrypt LAN sync. Answer the App Store Connect questionnaire
-rather than skipping it; this use ordinarily qualifies for an exemption, but an
-unanswered question stalls the build.
+**Export compliance.** The app contains non-Apple cryptography (vendored
+Monocypher, XChaCha20-Poly1305), used to encrypt secrets on the device and to
+encrypt LAN sync. The App Store Connect questionnaire covers this, and an
+unanswered question blocks the build from distribution.
 
-## Shipping a release
+## Release builds
 
     flutter build ipa --release $(sh tool/version.sh)
 
-The flags derive the version from the git tag. A flagless build stamps the stale
-fallback in `pubspec.yaml`, which `doc/dev/VERSIONING.md` treats as unusable
-rather than something to reconcile. Keep the bundle id `com.aisindex.ais`.
+The flags derive the version from the git tag. A flagless build stamps the
+fallback version in `pubspec.yaml`, which `doc/dev/VERSIONING.md` treats as
+unusable. The bundle id is `com.aisindex.ais`.
 
-## Acceptance: how to know it works
+## Verification
 
-On a real iPhone, all of these:
+The build is working when, on a physical iPhone:
 
-- Save a record with tags, find it by tag, see it under Recent, edit its tags,
-  delete it and undo.
-- Encrypt a secret with a passphrase, then Reveal it (the crypto-linking test).
-- Save a multi-line note, which becomes a document file, and read it back whole.
-- **Sync both ways.** On the Mac run `./ais --sync --serve`; on the phone open
-  Sync & backup → Join and type the address and token it prints. Records must
-  cross in both directions. Then Host on the phone and join from the Mac with
-  `./ais --sync http://… --token …`.
-- Open an `ais://sync?host=…&token=…` link from Safari or the camera: the app
-  opens with Join prefilled and asks before syncing.
-- Voice search asks permission once, then transcribes.
-- Force-quit and relaunch: everything is still there, and the console shows no
-  iCloud-exclusion warning.
+- a record saved with tags recalls by tag, appears under Recent, survives a tag
+  edit, and a delete of it can be undone;
+- a secret encrypted with a passphrase reveals with that passphrase;
+- a multi-line note is stored as a document file and reads back in full;
+- **sync converges in both directions.** With `./ais --sync --serve` running on
+  the other machine, the phone's Sync & backup → Join, given the printed address
+  and token, crosses records both ways; hosting from the phone and joining from
+  the other machine with `./ais --sync http://… --token …` does the same;
+- an `ais://sync?host=…&token=…` link opened from Safari or the camera brings up
+  the app with Join prefilled, and asks for confirmation before syncing;
+- voice search prompts for permission once, then transcribes;
+- records persist across a force-quit, and the console logs no iCloud-exclusion
+  warning.
 
-## Gotchas
+## Failure modes
 
-- Undefined `aisc_*` at runtime on the first encrypt or reveal means a
-  `c/crypto/*.c` file is missing from the target (the no-undefined-crypto
-  assertion in `app/flutter/src/CMakeLists.txt` names them).
-- If you build the engine as a separate framework instead of compiling into
-  Runner, make sure it is genuinely linked into the final binary. `process()`
-  finds nothing in an unlinked framework.
+- An undefined `aisc_*` symbol at runtime, on the first encrypt or reveal, means
+  a `c/crypto/*.c` file is missing from the target. The no-undefined-crypto
+  assertion in `app/flutter/src/CMakeLists.txt` names the required files.
+- An engine built as a separate framework rather than compiled into Runner has to
+  be linked into the final binary. `DynamicLibrary.process()` resolves nothing
+  from an unlinked framework.
 - Same engine sources, same `embed.h` seam, index in the documents directory. An
-  iOS-only special case breaks sync with the user's other devices.
+  iOS-only variation breaks sync with the user's other devices.
 
-Later, if wanted: Siri Shortcuts, so "Hey Siri, ask AIS to recall …" reaches
-`recall()` (the seam a future glasses client would ride too).
+Optional afterwards: Siri Shortcuts, so "Hey Siri, ask AIS to recall …" reaches
+`recall()` through the same seam.
 
 # Part 2: a native Swift client
 
-Only if a hand-written iOS interface is wanted. You still do not reimplement the
-index, the crypto, the sync protocol or the merge: all of that is portable C
-behind `c/embed.h`. You write the SwiftUI interface plus a thin layer of glue
-over about twenty C functions.
+The index, the crypto, the sync protocol and the merge stay in the C engine
+behind `c/embed.h`. This part is a SwiftUI interface plus glue over roughly
+twenty C functions.
 
-## The ABI you call (`c/embed.h`)
+## The ABI (`c/embed.h`)
 
 Handles are opaque `void *`, one per open index. Returned strings are
-heap-allocated C strings you release with `ais_embed_free`.
+heap-allocated C strings, released with `ais_embed_free`.
 
     lifecycle   ais_embed_open(dir) -> void*        open/create, takes the single-writer lock
                 ais_embed_close(h)                  release lock, flush, free
@@ -188,81 +181,85 @@ heap-allocated C strings you release with `ais_embed_free`.
 
     sync        ais_embed_sync_pull(h,url,token)     join: connect, exchange, both converge
                 ais_embed_sync_serve(h,port,token)   host: wait for one peer, both converge
-                (ais_embed_pull / ais_embed_serve are the one-way variants; prefer the
-                 sync_* pair for a unified "Sync" button)
+                (ais_embed_pull / ais_embed_serve are the one-way variants; the
+                 sync_* pair backs a single "Sync" control)
 
-Return codes (sync): `0` merged, `-1` bad args or malformed URL, `-2` no peer
+Sync return codes: `0` merged, `-1` bad arguments or malformed URL, `-2` no peer
 completed (timeout, wrong token, connect failure), `-3` port busy (bind failed,
-returned at once rather than after the timeout). None of these functions print.
+returned immediately rather than after the timeout). None of these functions
+print.
 
-Register a disposer with `ais_on_discard` after opening if you call the engine
-directly rather than through `ais_embed_open`, which already does it: without it
-a document deleted on another device leaves its file behind here forever. See
-`doc/dev/LAYOUT.md` on what a delete disposes of.
+`ais_embed_open` registers the payload disposer itself. Code calling `ais_open`
+directly needs `ais_on_discard` after it, or a document deleted on another device
+leaves its file behind permanently. `doc/dev/LAYOUT.md` states what a delete
+disposes of.
 
-## The rules that are not in the signatures
+## Constraints not visible in the signatures
 
-- **Never call on the main thread.** `sync_serve` blocks up to ~120 s waiting for
-  a peer; `sync_pull` blocks for the transfer. Run every sync call on a background
-  `Task` or `DispatchQueue`. The Flutter app uses a background isolate for exactly
-  this reason.
-- **One caller per handle at a time.** The handle is single-writer; a `recall`
-  during a `sync` on the same handle is a data race. Serialize engine calls onto
-  one queue.
+- **Nothing engine-side belongs on the main thread.** `sync_serve` blocks up to
+  ~120 s waiting for a peer, and `sync_pull` blocks for the transfer, so both
+  belong on a background `Task` or `DispatchQueue`. The Flutter app uses a
+  background isolate.
+- **One caller per handle.** The handle is single-writer, and a `recall` during a
+  `sync` on the same handle is a data race, so engine calls serialize onto one
+  queue.
 - **One sync at a time.** A scanned deep link can arrive while a sync is running.
-  The Flutter app keeps a `_syncBusy` flag and refuses the second; do the same.
-- `ais_embed_open` holds the single-writer lock for the handle's lifetime. Keep
-  one long-lived handle per index and do not open the same directory twice.
-- SIGPIPE from a dropped socket is already ignored inside the embed layer, so a
-  peer hanging up mid-sync will not kill the process. There is no `fork()` on the
-  embed path (that lives only in the CLI and the web host), so it is iOS-safe.
+  The Flutter app keeps a `_syncBusy` flag and refuses the second call.
+- `ais_embed_open` holds the single-writer lock for the handle's lifetime, so one
+  long-lived handle per index is the pattern, and the same directory is never
+  opened twice.
+- SIGPIPE from a dropped socket is ignored inside the embed layer, so a peer
+  hanging up mid-sync does not terminate the process. There is no `fork()` on the
+  embed path (that is only in the CLI and the web host), so it is iOS-safe.
 
 ## Sync and pairing
 
-Use the bidirectional pair: `sync_pull` to join, `sync_serve` to host. Both sides
-converge in one round because the merge is a CRDT (`doc/dev/MERGE.md`), so there
-is no fixed sender or receiver. Wire protocol and security model:
-`doc/dev/SYNC_PROTOCOL.md`.
+`sync_pull` joins, `sync_serve` hosts. Both sides converge in one round because
+the merge is a CRDT (`doc/dev/MERGE.md`), so there is no fixed sender or
+receiver. Wire protocol and security model: `doc/dev/SYNC_PROTOCOL.md`.
 
-- **Token.** Generate a 128-bit random hex token with `SecRandomCopyBytes`, show
-  it, and pass it to `sync_serve`; the joiner passes the same. It never crosses
-  the wire (the engine does challenge-response), and a wrong token is rejected
-  before anything merges. A wrong token does not end the host's session, so a
-  typo can simply be retyped.
+- **Token.** The host generates a 128-bit random hex token
+  (`SecRandomCopyBytes`), displays it, and passes it to `sync_serve`; the joiner
+  passes the same value. The token does not cross the wire, since the engine
+  performs challenge-response, and a wrong token is rejected before anything
+  merges. A wrong token does not end the host's session, so a mistyped one can be
+  re-entered.
 - **Pairing link**, the contract shared with the Android app and the web GUI:
 
       ais://sync?host=<percent-encoded ip:port>&token=<hex>
 
-  `host` is `ip:port` percent-encoded (`:` becomes `%3A`). To join from a scanned
-  link: decode `host`, build `url = "http://" + host`, call `sync_pull(url,
-  token)`. To host: find this device's LAN IPv4 (prefer a private range), pick a
-  port (the app uses 8766), render that link as the QR.
-- **Confirm before joining a scanned link.** A link can come from anywhere and a
-  sync shares this device's records, so name the peer and ask first.
+  `host` is `ip:port` percent-encoded (`:` becomes `%3A`). Joining from a scanned
+  link means decoding `host`, building `url = "http://" + host`, and calling
+  `sync_pull(url, token)`. Hosting means resolving this device's LAN IPv4
+  (preferring a private range), picking a port (the app uses 8766), and rendering
+  the link as a QR code.
+- **A scanned link needs confirmation before it is joined.** It can originate
+  anywhere, and a sync shares this device's records, so the peer is named and the
+  user confirms first.
 
-## iOS platform glue
+## iOS platform integration
 
-- **Info.plist** already carries the reusable pieces (see
+- **Info.plist** carries the reusable entries (see
   `app/flutter/ios/Runner/Info.plist`): `NSLocalNetworkUsageDescription`, since
   the Local Network prompt fires on the first bind, and `CFBundleURLTypes`
   registering the `ais` scheme.
 - **Deep links.** The `ais://` scheme routes to the scene under the UIScene
-  lifecycle; handle it in `SceneDelegate.scene(_:openURLContexts:)`.
+  lifecycle, through `SceneDelegate.scene(_:openURLContexts:)`.
   `app/flutter/ios/Runner/SceneDelegate.swift` is a working reference for the
-  routing (it forwards the URL; a native app parses and joins directly).
-- **QR.** Display with any renderer. Scan natively with Vision
+  routing; it forwards the URL, where a native client parses and joins directly.
+- **QR.** Rendering takes any drawing code. Scanning runs on Vision
   (`VNDetectBarcodesRequest`) or AVFoundation metadata output, with no
-  third-party dependency, unlike Android's ML Kit. In-app scanning is cheap
-  enough on iOS to offer alongside the camera-app deep-link path.
+  third-party dependency, so in-app scanning can sit alongside the camera-app
+  deep-link path.
 - **Index location.** The app's Documents directory, or an App Group container to
-  share the index with an extension, then `ais_embed_open(dir)`.
+  share the index with an extension, passed to `ais_embed_open(dir)`.
 
 ## Building libais for iOS
 
-The static-library target exists: `make lib` produces `libais.a`, the engine
-minus `main`, with sync and the vendored Monocypher compiled in and no external
-dependency. For iOS, build one slice per SDK and arch, then assemble an
-xcframework. Run on macOS with Xcode; verify on first use.
+`make lib` produces `libais.a`: the engine without `main`, with sync and the
+vendored Monocypher compiled in and no external dependency. For iOS that means
+one slice per SDK and architecture, assembled into an xcframework. The script
+below runs on macOS with Xcode and is worth verifying on first use.
 
     # build one static slice for a given SDK + arch into a slice dir
     # (usage: slice <sdk> <arch> <min-flag> <outdir>)
@@ -286,12 +283,12 @@ xcframework. Run on macOS with Xcode; verify on first use.
       -library build/sim/libais.a       -headers c/embed.h \
       -output build/libais.xcframework
 
-Then drag `libais.xcframework` into the app target, add `embed.h` to the bridging
-header, and call the C functions from Swift.
+The resulting `libais.xcframework` goes into the app target and `embed.h` into
+the bridging header, after which the C functions are callable from Swift.
 
 ## The Flutter app as a behavioral reference
 
-Not a dependency, just where the non-obvious behavior is already worked out:
+Not a dependency. Where the non-obvious behavior is already resolved:
 
     app/flutter/lib/main.dart          _genToken (128-bit hex), _lanIp (prefer private range),
                                        _handleLink (parse + confirm), _syncBusy (one at a time),
@@ -299,15 +296,15 @@ Not a dependency, just where the non-obvious behavior is already worked out:
     app/flutter/lib/ais_ffi.dart       how the FFI seam marshals the same embed.h calls
     app/flutter/ios/Runner/            Info.plist (scheme + local network), SceneDelegate (deep link)
 
-Read those for the exact success and failure messaging and the concurrency
+These carry the exact success and failure messaging and the concurrency
 discipline.
 
-## Where else to look
+## Related documents
 
 | Read | For |
 | --- | --- |
-| `app/flutter/README.md` | how the Flutter app is put together |
-| `doc/dev/VERSIONING.md` | why the release build flags are not optional |
+| `app/flutter/README.md` | how the Flutter app is assembled |
+| `doc/dev/VERSIONING.md` | where release version numbers come from |
 | `doc/dev/LAYOUT.md` | the on-disk format, and what a delete disposes of |
 | `doc/dev/SYNC_PROTOCOL.md`, `doc/dev/MERGE.md` | the wire protocol and the merge rules |
-| `README.md`, `doc/about.txt` | what the product is, which testing judgment needs |
+| `README.md`, `doc/about.txt` | what the product does |
