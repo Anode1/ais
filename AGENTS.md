@@ -36,63 +36,42 @@ already.
     make hooks  # enable the pre-push hook (runs codeut-asan + codeut-ubsan before a push)
     make clean
 
-`make ut` runs two groups: CORE (codeut + cliut + the FFI stack budget -- keep
-green, the commit gate) and GUI (uiut + the wrapper build-checks + the native
-Flutter sync UI; a layer whose toolchain is absent SKIPs).
-A green CORE with a red or skipped GUI is fine to commit. Full layout in `tests/README.md`.
+`make ut` runs two groups: CORE (codeut + cliut + the FFI stack budget, the
+commit gate) and GUI (uiut + the wrapper build-checks + the native Flutter sync
+UI; a layer whose toolchain is absent SKIPs). A green CORE with a red or skipped
+GUI is fine to commit. Every layer, what it covers and how to run it alone:
+`tests/README.md`.
 
-Two layers exist because something broke without anything noticing:
+Two of those layers exist because something broke without anything noticing, and
+both lessons generalise:
 
 - **`tests/stack/`** measures how much STACK the engine needs at the FFI seam,
   which is a Dart isolate thread of about 512 KB, not a process's 8 MB. A change
   once doubled the primary save path's frame and every test stayed green; on a
   phone that is the app dying when the user saves a note. Do not measure this
-  with `ulimit -s` on the CLI -- `main()`'s own frame is ~141 KB the app never
+  with `ulimit -s` on the CLI: `main()`'s own frame is ~141 KB the app never
   pays, so it overstates the need by a third.
-- **`tests/gui/flutter-sync.sh`** drives the real Host/Join UI against a CLI
-  peer. The harness existed but was wired into nothing, so when the Sync control
-  moved into the overflow menu it silently stopped testing sync at all, for
-  weeks, while the merge code underneath was being rewritten. It opens the sheet
-  by keyboard (Ctrl+Shift+S) precisely so a layout change cannot quietly
-  disconnect it again. It needs the Linux desktop toolchain (clang, ninja,
-  libgtk-3-dev), which cannot be installed on Pop!_OS without downgrading the
-  running desktop's Wayland libraries -- so there it SKIPs, and the Android
-  layer below is the one that actually runs.
-- **`tests/gui/flutter-sync-android.sh`** does the same job against the SHIPPED
-  artifact: it builds the debug APK for the device's ABI, hands the app an
-  `ais://` pairing link (the scan-to-pair path), taps through the prefilled Join
-  dialog, and asserts records cross in BOTH directions against a CLI peer on the
-  host (the emulator reaches it at 10.0.2.2). Assertions read the app's private
-  index back with `run-as`. It SKIPs unless a device is attached; set
-  `AIS_ANDROID_BOOT=1` to have it boot an AVD headlessly, and
-  `AIS_ANDROID_CLEAR=1` for a clean-room run (that DELETES the emulator's index,
-  hence opt-in). Match the APK's `--target-platform` to the device ABI or the app
-  dies on launch with a missing `libflutter.so`, which reads like a product bug.
+- **`tests/gui/flutter-sync.sh`** drives the real Host/Join UI. The harness
+  existed but was wired into nothing, so when the Sync control moved into the
+  overflow menu it silently stopped testing sync at all, for weeks, while the
+  merge code underneath was being rewritten. Wire a new layer into
+  `tests/run.sh` the day you write it.
 
 Before tagging a release, run `make codeut-asan` and `make codeut-ubsan`: they
-rebuild the engine tests with the compiler's sanitizers so memory errors (overflow,
-use-after-free) and undefined behavior abort with a file:line report instead of
-passing silently under `-O2`. You do not have to remember: `.github/workflows/
-sanitizers.yml` runs both on Linux and macOS on every push, and `make hooks`
-installs a pre-push hook that runs them locally first (bypass once with
-`git push --no-verify`). Keep them out of the default build -- they are ~2-3x
-slower and not universally available, so `make` / `make ut` stay portable.
+rebuild the engine tests under the compiler's sanitizers, so memory errors and
+undefined behavior abort with a file:line report instead of passing silently
+under `-O2`. `sanitizers.yml` runs both on every push and `make hooks` installs a
+pre-push hook that runs them first (bypass once with `git push --no-verify`).
+They stay out of the default build: 2-3x slower and not universally available, so
+`make` and `make ut` stay portable. The rest of the release procedure is in
+`doc/dev/VERSIONING.md`.
 
-To SEE the web GUI (a C string `PAGE[]` in `c/serve.c`), screenshot it rather
-than guess at layout (`AIS_NO_OPEN=1` keeps `--serve` from opening a browser):
-
-    c/ais -f /tmp/x --init && AIS_NO_OPEN=1 c/ais -f /tmp/x --serve 8080 &
-    tests/shot/shot.sh http://127.0.0.1:8080/ /tmp/gui.png   # then open the PNG
-
-Always run ais against a `/tmp` or personal `~/.ais` index, never the repo's own.
-See `tests/shot/README.md`.
-
-**Never open a window on the real display.** Anything that can show a window --
-the Flutter desktop build, the win32 GUI under wine, a browser -- runs on a
-virtual X server. A shell here inherits `DISPLAY=:0` and `WAYLAND_DISPLAY`, each
-command is a fresh shell so exports do not persist, and GTK prefers Wayland, so
-overriding `DISPLAY` alone still lands on the developer's screen. Neutralise both,
-inline, every time:
+**Never open a window on the real display.** Anything that can show one -- the
+Flutter desktop build, the win32 GUI under wine, a browser -- runs on a virtual X
+server. A shell here inherits `DISPLAY=:0` and `WAYLAND_DISPLAY`, each command is
+a fresh shell so exports do not persist, and GTK prefers Wayland, so overriding
+`DISPLAY` alone still lands on the developer's screen. Neutralise both, inline,
+every time:
 
     env -u WAYLAND_DISPLAY -u XDG_SESSION_TYPE GDK_BACKEND=x11 DISPLAY=:99 \
         xvfb-run -a flutter run -d linux
@@ -100,7 +79,13 @@ inline, every time:
 Browsers take `--headless=new --ozone-platform=headless` instead, and the Android
 emulator takes `-no-window` (no X server at all); `make uiut` already does this.
 If a check cannot run headless, say so rather than falling back to a real
-display. Recipes for all three are in `doc/dev/GUI_TESTING.md`.
+display.
+
+The web GUI is a C string (`PAGE[]` in `c/serve.c`), so an agent that has not
+looked at it is guessing: render it to a PNG with `tests/shot/shot.sh` and open
+the file. That recipe and every other way to drive a front-end are in
+`doc/dev/GUI_TESTING.md`. Always run ais against a `/tmp` or personal `~/.ais`
+index, never the repo's own.
 
 The text store is the source of truth; the index (`idx/`, `tomb`, `next_id`) is
 rebuildable from it and disposable. That is not a slogan: `tests/cli.sh` deletes
@@ -171,18 +156,16 @@ building agent infrastructure that itself needs maintaining.
 
 ## Layout
 
-    c/         the engine (C99): key store post merge compact ais embed secret
-               doc find stats locate serve + main.c/feed.c (CLI) + tests.c;
-               off/multi/tomb/version are store files, not modules
+    c/         the engine (C99), one concept per file; the module map and the
+               on-disk format are in doc/dev/LAYOUT.md
     c/crypto/  the secret-store encryption module (ais_crypto + WHY/README)
     c/attic/   the pre-rewrite v0 prototype -- reference only, not built
-    doc/       about.txt, OVERVIEW.md, foundation.md, ROADMAP.md, migration.txt,
-               performance.txt, limitations.txt, USING.txt                       (public)
-    doc/dev/   STYLE, LAYOUT, BNF, LOCKING, WHY-PLAIN-TEXT, WHY-C, DISTRIBUTION, SIGNING,
-               GUI, README, and the sync docs (SYNC, SYNC_PROTOCOL, MERGE) (developers)
-    tests/     the committed fixture (tests/INDEX/store)
-    tests/shot/ screenshot the --serve GUI to a PNG so an agent can see its frontend change
-    gui/       desktop launchers (ais-web.{desktop,command,bat}) that start --serve
+    doc/       the public docs; README.md's "Learn more" table is their index
+    doc/dev/   the developer notes; doc/dev/README.md lists them and says which
+               to read first
+    tests/     the suite and the committed fixture (tests/INDEX/store); layers
+               and conventions in tests/README.md
+    gui/       the double-click launchers that start the web GUI
     win32/     the native Windows GUI (ais-gui.c)
     app/       the Flutter mobile app and the PWA front-end (over the embed FFI seam)
     legacy/    the 2005 shell + 2009 Java originals

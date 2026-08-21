@@ -5,9 +5,11 @@ description: Run or extend the headless UI test for the Flutter desktop app's sy
 
 # Flutter native UI test (Xvfb)
 
-The harness lives at `app/flutter/uitest/run.sh` with a `README.md` beside it.
-It runs the Flutter **linux** build (same widgets as Android), so no emulator is
-needed. Pixels in, X events out, so it works where DOM/tree drivers are blind.
+The harness lives at `app/flutter/uitest/run.sh`, wrapped as a suite layer by
+`tests/gui/flutter-sync.sh`. It runs the Flutter **linux** build (same widgets as
+Android), so no emulator is needed. Pixels in, X events out, so it works where
+DOM/tree drivers are blind. Why it has this shape, what it needs installed and
+how to re-tune it: `doc/dev/GUI_TESTING.md`.
 
 ## When to use
 - Verify the app's Host/Join LAN sync UI actually works, end to end, against a
@@ -27,16 +29,14 @@ Exit `0` + `PASS` means records converged both ways. Non-zero + `FAIL` prints th
 host log and leaves screenshots for triage.
 
 ## Requirements
-- `Xvfb`, `xdotool`, ImageMagick `import`, and a working `flutter build linux`.
-- Install the X tools: `sudo apt install -y xvfb xdotool imagemagick`.
+`Xvfb`, `xdotool`, ImageMagick `import`, Mesa software GL and a working
+`flutter build linux`. Debian/Ubuntu: `sudo apt install -y xvfb xdotool
+imagemagick libgl1-mesa-dri`.
 
 ## Extending it
-- Click targets are constants near the top of `run.sh`, for the pinned 1280x720
-  window. Tune once from `shots/NN-*.png`, then they are stable run to run.
-- For churn-proof CI, move the drive step to Flutter `integration_test` (taps by
-  `Key`, no coordinate drift) and keep this as the outer renderer-agnostic loop.
-- Store isolation is by CWD: the app finds the nearest `.ais/`, so launch it from
-  a temp dir. Never point a UI test at `~/.ais`.
+Click targets are constants near the top of `run.sh`; tune them once from
+`shots/NN-*.png`. Store isolation is by CWD (the app finds the nearest `.ais/`),
+so launch it from a temp dir and never point a UI test at `~/.ais`.
 
 ## Notes
 - The two truly native paths, the `ais://` deep-link intent and the camera QR

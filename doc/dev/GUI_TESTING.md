@@ -13,31 +13,17 @@ suite unrunnable on a machine that lacks a browser, a Dart SDK or a device.
 
 ## The rule that comes before everything
 
-**Never open a window on the real display.** Anything that can show one -- a
-browser, the Flutter desktop build, the Win32 GUI under wine -- runs on a virtual
-X server. Every shell starts fresh and inherits `DISPLAY=:0` and
-`WAYLAND_DISPLAY`, and GTK prefers Wayland, so setting `DISPLAY` alone still
-lands on the developer's screen. Neutralise both, inline, every time:
-
-    env -u WAYLAND_DISPLAY -u XDG_SESSION_TYPE GDK_BACKEND=x11 DISPLAY=:99 \
-        xvfb-run -a <command>
-
-Browsers take `--headless=new --ozone-platform=headless` instead. The Android
-emulator takes `-no-window`, which needs no X server at all. A `PreToolUse` hook
-blocks the unsafe forms; treat a block as correct and fix the command.
+**Never open a window on the real display.** The rule, and the exact invocation
+every recipe below uses, is in `../../AGENTS.md`. A `PreToolUse` hook blocks the
+unsafe forms; treat a block as correct and fix the command.
 
 ---
 
 ## Web: `ais --serve` and the PWA
 
 Two pages over one `/api` (see `GUI.md`), driven by ONE driver because their
-element ids are deliberately identical.
-
-| Layer | What it proves | File |
-|---|---|---|
-| web api | the endpoints, incl. the encrypt-save + reveal round trip | `tests/gui/serve.sh` |
-| web render | the page loads and its controls exist **after** JS runs | `tests/gui/ui.sh` |
-| web interact | type, press, click -- and the right thing renders | `tests/gui/inter.sh` + `cdptest.c` |
+element ids are deliberately identical. Which layer covers what, and how to run
+each: `../../tests/README.md`.
 
 `tests/gui/cdp.c` is a Chrome DevTools Protocol client in C99 -- no chromedriver,
 no Puppeteer, no dependency beyond libc and POSIX sockets. It speaks the same
@@ -70,13 +56,8 @@ rerun -- it was reporting a real race.
 ## Flutter: three different jobs, three different layers
 
 Do not conflate them. Analysis is not a widget test, and a widget test is not
-proof that the app works on a device.
-
-| Layer | What it proves | File |
-|---|---|---|
-| flutter app | `flutter analyze lib` + `flutter test` -- the FFI bindings and pure-Dart logic | `tests/gui/flutter.sh` |
-| flutter sync ui | the real Host/Join UI on the **Linux desktop** build | `tests/gui/flutter-sync.sh` |
-| flutter sync (android) | the real Host/Join UI on the **shipped APK** | `tests/gui/flutter-sync-android.sh` |
+proof that the app works on a device; the three layers are listed in
+`../../tests/README.md`.
 
 Keep logic that can be tested without a device OUT of widget code -- the
 `test/` directory covers `saveOutcomeMessage`, `tagsUpdateMessage` and the like
@@ -98,15 +79,31 @@ Two ways out, in order of preference:
 2. **Derive coordinates from the display**, never hardcode them, and put them on
    *dialogs* (which are centred) rather than page furniture (which reflows).
 
-### Linux desktop (`flutter-sync.sh`)
+### Linux desktop (`flutter-sync.sh` -> `app/flutter/uitest/run.sh`)
 
 Builds the desktop app, drives it under Xvfb with `xdotool`, asserts a record
-crosses to a CLI peer. It opens the Sync sheet with **Ctrl+Shift+S** rather than
-clicking, precisely so a layout change cannot silently disconnect it.
+crosses BOTH ways against a CLI peer. It opens the Sync sheet with
+**Ctrl+Shift+S** rather than clicking, precisely so a layout change cannot
+silently disconnect it, and it asserts on the two stores, never on the pixels.
 
-Needs `clang`, `ninja` and `libgtk-3-dev`. On Pop!_OS those cannot be installed
-without downgrading the running desktop's Wayland libraries, so **there it
-SKIPs** and the Android layer is the one that runs.
+The app has no `-f` flag, so its index is isolated by launching it with a CWD
+that holds a `.ais/`: the engine resolves the nearest one, git-style, and never
+touches `~/.ais`.
+
+Needs `clang`, `ninja` and `libgtk-3-dev` for the build, plus `Xvfb`, `xdotool`,
+ImageMagick `import` (per-step screenshots into `shots/`) and Mesa software GL
+(`libgl1-mesa-dri`: Flutter draws through EGL/OpenGL, Xvfb has no GPU, and
+without llvmpipe the surface renders solid black). On Pop!_OS the desktop
+toolchain cannot be installed without downgrading the running session's Wayland
+libraries, so **there it SKIPs** and the Android layer is the one that runs.
+
+`run.sh` takes `HEADED=1` to watch it on a real display (deliberate, and not
+during automated work) and `KEEP=1` to leave the throwaway stores and the
+screenshots behind. Its five click coordinates are pre-tuned for a pinned
+1280x720 window and a fixed store path; re-tune by reading `shots/NN-*.png` after
+a failing run. If the layout starts churning, graduate the drive step to
+`integration_test`, which taps widgets by `Key` and does not drift, and keep this
+harness as the renderer-agnostic outer loop.
 
 ### Android, against the real APK (`flutter-sync-android.sh`)
 

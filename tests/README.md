@@ -78,19 +78,9 @@ contract; a GUI can be merged once its own layer goes green.
 
 ## Click-and-assert: the C CDP client
 
-`tests/gui/cdp.c` is a minimal Chrome DevTools Protocol client in C99 with no
-dependencies: it speaks CDP straight to headless Chrome over a WebSocket (the
-same wire protocol Puppeteer/Playwright use), with no chromedriver and no library
-beyond libc + POSIX sockets. `cdptest.c` uses it to drive the live `--serve` page
-(navigate, focus, type, press Enter) and assert the seeded record renders -- the
-real input+fetch path, which `ui.sh` (static `--dump-dom`) cannot reach.
-`inter.sh` compiles both with `cc`, starts the server and a headless Chrome with
-`--remote-debugging-port`, and runs the driver; it SKIPs (77) if `cc` or Chrome
-is absent. Set `AIS_CDP_DEBUG=1` to trace the CDP frames.
+`tests/gui/cdp.c` + `cdptest.c` drive the live `--serve` page over the Chrome
+DevTools Protocol, with no chromedriver and no library beyond libc and POSIX
+sockets. What it is and how to extend it: `doc/dev/GUI_TESTING.md`.
 
-Not covered: visual/screenshot diffing and cross-browser (Firefox/Safari). For a
-still image of the GUI, `tests/shot/shot.sh` (shell only) lets an agent SEE it.
-
-`inter.sh` once failed about half the time on a cold run, and it was right to:
-the page painted async results into `#out` without re-checking that the view was
-still the one that asked for them. Read a flaky GUI test before rerunning it.
+Not covered anywhere yet: visual/screenshot diffing, and any browser other than
+Chrome. For a still image of the GUI, `tests/shot/shot.sh` lets an agent see it.
