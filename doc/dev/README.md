@@ -1,33 +1,49 @@
 # doc/dev: for developers and contributors
 
-Short technical notes for anyone building on or contributing to AIS. The
-public-facing docs live one level up in `doc/` (about, overview, migration,
-provenance); this directory is implementation detail.
+Implementation notes. The public docs are one level up in `doc/`, indexed by the
+README's "Learn more" table. Start with `../../AGENTS.md`, then `LAYOUT.md` and
+`STYLE.md`.
 
-Core format and code:
+## The engine
 
-- **LAYOUT.md**: on-disk format and the module map (how the store is organized).
-- **BNF.txt**: the formal storage grammar a writer must produce and a verifier checks.
-- **STYLE.md**: coding ideology: C99, stack/streaming discipline, error idioms.
-- **LOCKING.md**: the reader/writer lock model and `next_id` correctness.
-- **WHY-PLAIN-TEXT.md**: why the text format is fast (1M-record measurements) and the case against "use a binary DB".
-- **WHY-C.md**: why the engine is C and not a memory-safe language, and how the memory-safety class is caught (sanitizers, style) without a rewrite.
+| File | What |
+| --- | --- |
+| [LAYOUT.md](LAYOUT.md) | the on-disk format and the module map: where every file and every concept lives |
+| [BNF.txt](BNF.txt) | the storage grammar a writer must produce and a verifier checks |
+| [STYLE.md](STYLE.md) | coding ideology: C99, stack and streaming, the sanctioned heap, error idioms |
+| [LOCKING.md](LOCKING.md) | reads take no lock, writers take one per op, and why `next_id` is disk-authoritative |
+| [FORMAT_V2.md](FORMAT_V2.md) | the `--dump`/`--import` grammar, and why ids leave that surface and stay everywhere else |
+| [WHY-PLAIN-TEXT.md](WHY-PLAIN-TEXT.md) | the answer to "use a binary DB", with the 1M-record measurements |
+| [WHY-C.md](WHY-C.md) | the answer to "rewrite it in a memory-safe language", and how that bug class is caught instead |
 
-- **VERSIONING.md**: the four things that version independently (release, library
-  ABI, on-disk format, sync wire) and which one to move.
+## Sync
 
-Sync (multi-device):
+| File | What |
+| --- | --- |
+| [SYNC_DESIGN.md](SYNC_DESIGN.md) | the settled decisions: identity, keys as a patch, tombstones, sharing |
+| [SYNC_PROTOCOL.md](SYNC_PROTOCOL.md) | the wire: handshake, sealed payload, blob frames, security model |
+| [MERGE.md](MERGE.md) | how two indexes reconcile, verb by verb |
+| [WINDOWS_FILE_SYNC.md](WINDOWS_FILE_SYNC.md) | the build spec for the one sync path Windows could have (planned) |
 
-- **SYNC.md**: the sync model overview.
-- **SYNC_PROTOCOL.md**: the wire/file protocol.
-- **MERGE.md**: how two indexes reconcile.
+## Front ends
 
-Distribution and front-ends:
+| File | What |
+| --- | --- |
+| [GUI.md](GUI.md) | what every surface must look like: vocabulary, layout, the two web pages |
+| [GUI_TESTING.md](GUI_TESTING.md) | how to drive one without a human clicking, and without a window on a real display |
+| [HTTP_API.md](HTTP_API.md) | the `--serve` endpoints both web front ends call |
 
-- **DISTRIBUTION.md**: one download per platform, packaging, the GUI inventory, and the planned phone PWA.
-- **PACKAGING.md**: for distro maintainers -- build, test, staged install, licences, and the `AIS_VERSION` override a tarball needs. Reference PKGBUILD in `packaging/aur/`.
-- **SIGNING.md**: Windows (SignPath) and Android (keystore) release signing.
-- **GUI.md**: shared label/layout conventions across the web, Flutter, and Win32 front-ends.
-- **HTTP_API.md**: the `--serve` endpoints both web front-ends drive.
+## Shipping
 
-Start with `../../AGENTS.md`, then `LAYOUT.md` and `STYLE.md`.
+| File | What |
+| --- | --- |
+| [VERSIONING.md](VERSIONING.md) | the four things that version independently, and the procedure for cutting a release |
+| [PACKAGING.md](PACKAGING.md) | for distro maintainers: build, test, staged install, licences, the `AIS_VERSION` override |
+| [DISTRIBUTION.md](DISTRIBUTION.md) | one download per platform, what each gets, and the PWA/WASM track |
+| [ANDROID_RELEASE.md](ANDROID_RELEASE.md) | getting a build onto a phone, into Play, and onto F-Droid |
+| [SIGNING.md](SIGNING.md) | the Android keystore, and the Windows signing plan |
+
+## Writing
+
+[PROSE.md](PROSE.md) binds these documents the way `STYLE.md` binds the C: what
+bold means, what a title may claim, and one home per fact.

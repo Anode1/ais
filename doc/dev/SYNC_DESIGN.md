@@ -1,4 +1,4 @@
-# AIS sync and identity -- decisions
+# Sync and identity: the settled decisions
 
 Settled design for multi-device sync (home <-> phone, no server), so it is not
 re-litigated. Some is implemented today, most is planned; implement to this

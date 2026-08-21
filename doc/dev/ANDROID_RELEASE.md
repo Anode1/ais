@@ -57,7 +57,7 @@ has no such guard: check the apk if you built one by hand.
 
 - Create app: name `AIS`, package `com.aisindex.ais`, free.
 - Store listing text, the icon, the feature graphic and which screenshots to use
-  are in [`../store-listing.txt`](../store-listing.txt), ready to paste.
+  are in [`../public-text.txt`](../public-text.txt), ready to paste.
 - Content rating, Data safety, target-API statement, and the privacy-policy URL
   (`PRIVACY.md` in this repo).
 

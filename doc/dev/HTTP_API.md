@@ -90,7 +90,7 @@ push those records back. Both pages ask it as a **separate** question from
 ## Sync
 
 `/api/sync/host`, `/api/sync/status`, `/api/sync/join`, `/api/sync-folder`,
-`/api/export-bundle`, `/api/import-bundle`, `/api/store`. See `SYNC.md`.
+`/api/export-bundle`, `/api/import-bundle`, `/api/store`. See `SYNC_DESIGN.md`.
 
 `POST /api/sync-folder` takes the folder path as the body and answers `synced`, or
 **400 with the reason as the body**: `no such folder`, `not a folder`, `cannot read

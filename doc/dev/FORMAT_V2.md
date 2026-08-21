@@ -66,7 +66,7 @@ one key too many. Warn, do not guess silently.
 ## Ids: what the audits found
 
 They are device-local surrogates and always were. `MERGE.md:18` is headed
-"The core problem: ids are device-local"; `SYNC.md:8` says the id is "never
+"The core problem: ids are device-local"; `SYNC_DESIGN.md:8` says the id is "never
 shared". The `--export` stream has no id field: `A|ts|keys|value`,
 `D|ts|hash`, `M|ts|hash|value`. Cross-device identity is `content_hash` over the
 value. A peer re-imports under fresh ids and reassembles multi-value records
@@ -192,7 +192,7 @@ and the typo heuristic all go away together.
 ## Related: content-addressed blob storage
 
 CORRECTION to an earlier reading of this file. `--doc` not deduping is not a gap:
-`SYNC.md:12` settles it deliberately -- "Blob (`--doc`): identified by OCCURRENCE,
+`SYNC_DESIGN.md:12` settles it deliberately -- "Blob (`--doc`): identified by OCCURRENCE,
 not content. Each doc is its own record." Filing the same file twice is meant to
 give you two records. That is the identity rule and it stays.
 
