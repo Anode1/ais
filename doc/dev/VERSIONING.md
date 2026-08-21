@@ -113,3 +113,43 @@ reached every device.
 - `/api/version` and the About line in both web front ends
 - Flutter's About: `AIS 0.3.10 (249) · engine: … · index format: v3`, copyable,
   because the first thing a bug report needs is which of the four numbers moved.
+
+## Cutting a release
+
+The tag is the release. Everything below exists because the tag is also what
+four other files quote, and a tag pushed before they agree ships a build that
+names the previous version.
+
+**1. Gate.** `make ut` green, then `make codeut-asan` and `make codeut-ubsan`
+(the pre-push hook and `sanitizers.yml` run the last two, `make hooks` installs
+the hook). Build from a clean tree: `AIS_VERSION` is stamped at compile time, so
+an object file left from before the tag keeps the old string and `make` has no
+reason to relink. `make clean` first, then check `./ais --version`.
+
+**2. The bump commit,** `release: vX.Y.Z`, moving the four places that carry the
+number in text:
+
+| File | What |
+| --- | --- |
+| `app/flutter/lib/version.dart` | the `APP_VERSION` / `APP_BUILD` defaults |
+| `app/flutter/pubspec.yaml` | `version: X.Y.Z+BUILD` |
+| `doc/dev/PACKAGING.md` | the `make AIS_VERSION=` line and the tarball URL |
+| `packaging/aur/PKGBUILD` | `pkgver` |
+
+`flutter.yml` fails the build if the first two disagree with each other. Nothing
+checks the other two.
+
+**3. The tag,** annotated, its body in three sections: FIX (what was broken),
+PARITY (what one front end gained that another already had), DESIGN (what
+changed on screen). `git push --follow-tags`.
+
+**4. What the tag does.** `release.yml` builds and publishes: Linux x86_64 and
+arm64, macOS arm64, each a zip plus `.sha256`, and the Android `.apk` and `.aab`.
+Both workflows pin Flutter deliberately (currently 3.44.1); raise that pin and
+`android/`'s Gradle wrapper together, never one alone. iOS is not in the release
+matrix and cannot be until the app is signed (issue #1).
+
+**5. What stays manual.** Uploading the `.aab` to Play (`ANDROID_RELEASE.md`),
+and the AUR: the reference `PKGBUILD` moves with this repo, the copy users
+install lives in the AUR repository and needs the same `pkgver`, `pkgrel=1` and a
+regenerated `.SRCINFO`.
