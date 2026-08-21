@@ -35,6 +35,22 @@ Change a label in one, change it in all three.
 - **Desktop (Win32):** search box + a **Search** button on top; the three views as a row of
   tabs/buttons; Add as a normal button (NOT a phone-style bottom bar).
 
+## Reference shots
+
+Both web pages, one index, one viewport (1024x820), `#timeline`:
+
+| `c/serve.c` (embedded) | `app/` (PWA) |
+|---|---|
+| ![embedded page](../../screenshots/gui-web-embedded.png) | ![PWA](../../screenshots/gui-web-pwa.png) |
+
+Regenerate against a throwaway index, never `~/.ais`:
+
+    c/ais -f /tmp/ais-demo --init
+    AIS_NO_OPEN=1 c/ais -f /tmp/ais-demo --serve 8801 &
+    AIS_NO_OPEN=1 AIS_WEB=app c/ais -f /tmp/ais-demo --serve 8802 &
+    tests/shot/shot.sh http://127.0.0.1:8801/#timeline screenshots/gui-web-embedded.png 1024x820
+    tests/shot/shot.sh http://127.0.0.1:8802/#timeline screenshots/gui-web-pwa.png 1024x820
+
 ## History
 The label drifted across surfaces (web/Flutter nav said "Search", the action button said
 "Get", Win32 said "Recall"). Unified on **Search** for general-public clarity (avoids the
