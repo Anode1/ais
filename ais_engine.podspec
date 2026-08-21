@@ -43,6 +43,18 @@ Pod::Spec.new do |s|
   #            teaching the engine about iOS.
   s.exclude_files = 'c/main.c', 'c/tests.c', 'c/serve.c'
 
+  # Stamp the engine's version from the git tag, as c/Makefile does for the CLI
+  # and CMakeLists.txt for Android and Linux. Without it ais_version() reports
+  # ais.h's "0.0.0-dev" fallback, and the About screen -- which exists so a bug
+  # report names the engine it was filed against -- cannot do its job. A source
+  # copy with no git keeps the fallback, which is visibly wrong rather than
+  # silently wrong. A release is built at a tag, so ask for the tag first;
+  # off a tag, the descriptive form, dirty marker included.
+  git_dir = File.expand_path(__dir__)
+  ais_version = `git -C "#{git_dir}" describe --exact-match --tags HEAD 2>/dev/null`.strip
+  ais_version = `git -C "#{git_dir}" describe --tags --always --dirty 2>/dev/null`.strip if ais_version.empty?
+  ais_version = ais_version.sub(/\Av/, '')
+
   s.pod_target_xcconfig = {
     # The engine includes its own headers relatively ("common.h",
     # "crypto/monocypher.h"), so c/ itself has to be on the search path.
@@ -51,5 +63,8 @@ Pod::Spec.new do |s|
     # DynamicLibrary.process() looks every symbol up by NAME at runtime, so
     # nothing may be hidden at link time.
     'GCC_SYMBOLS_PRIVATE_EXTERN' => 'NO',
-  }
+  }.merge(
+    ais_version.empty? ? {} :
+      { 'GCC_PREPROCESSOR_DEFINITIONS' => "$(inherited) AIS_VERSION=\\\"#{ais_version}\\\"" }
+  )
 end

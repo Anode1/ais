@@ -111,3 +111,22 @@ jobs:
             echo "the app would launch and then fail on its first engine call."
             exit 1
           fi
+
+      # AIS_VERSION is stamped from the git tag by ais_engine.podspec. Unstamped,
+      # About reports ais.h's 0.0.0-dev fallback, which is the whole reason the
+      # About screen exists: a bug report has to name the engine it was filed
+      # against. The stamp is a preprocessor define reaching the compiler through
+      # an xcconfig, which is quiet when it goes wrong, so assert the string is
+      # actually in the binary.
+      - name: the engine knows its own version
+        run: |
+          want=$(git describe --tags --always --dirty | sed 's/^v//')
+          app=build/ios/iphoneos/Runner.app
+          bin=$(ls "$app/Frameworks"/ais_engine.framework/ais_engine 2>/dev/null || echo "$app/Runner")
+          if strings "$bin" | grep -qx "$want"; then
+            echo "engine version in the binary: $want"
+          else
+            echo "expected the engine to carry version '$want'; it does not."
+            echo "About would report the 0.0.0-dev fallback on iOS."
+            exit 1
+          fi
