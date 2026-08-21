@@ -44,11 +44,17 @@ PORT=${AIS_SYNC_PORT:-8791}
 
 # host_token PORT INDEX -- start a host in the background, echo its token (or nothing)
 host_token() {
+    # Truncate in the PARENT: the child sets up its redirect only after the fork,
+    # so a poll that starts first can scrape the PREVIOUS host's token out of the
+    # stale log. The host then answers "wrong token" and, staying armed, sits out
+    # its full 120s timeout while the assertion that needed the sync passes
+    # vacuously. Match a whole 32-hex token for the same reason.
+    : > "$W/host.log"
     "$AIS" -f "$2" --sync --serve "$1" >"$W/host.log" 2>&1 &
     host_pid=$!
     i=0
     while [ $i -lt 40 ]; do
-        tok=$(grep -o 'token [0-9a-f]*' "$W/host.log" 2>/dev/null | awk '{print $2}')
+        tok=$(grep -oE 'token [0-9a-f]{32}' "$W/host.log" 2>/dev/null | awk '{print $2}')
         [ -n "$tok" ] && { printf '%s' "$tok"; return 0; }
         kill -0 "$host_pid" 2>/dev/null || return 1
         i=$((i + 1)); sleep 0.25
