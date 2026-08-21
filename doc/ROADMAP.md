@@ -46,7 +46,9 @@ with Android, and no core changes.
 Issue [#1](https://github.com/Anode1/ais/issues/1) carries the whole brief: what
 is missing, the signing steps and how to tell it works. A native Swift client
 over the same `embed.h` seam is possible and nothing needs it; the spec that
-described one is in git at `313fb42:doc/dev/IOS_NATIVE.md`. A browser **PWA** (`app/`) is a parallel, lower-friction track (see
+described one is in git at `313fb42:doc/dev/IOS_NATIVE.md`.
+
+A browser **PWA** (`app/`) is a parallel, lower-friction track (see
 [`dev/DISTRIBUTION.md`](dev/DISTRIBUTION.md) for the WASM/standalone plan).
 
 ### F-Droid (Android)
