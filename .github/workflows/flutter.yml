@@ -17,9 +17,9 @@ name: flutter
 on:
   push:
     branches: [main]
-    paths: ['app/flutter/**', '.github/workflows/flutter.yml']
+    paths: ['app/flutter/**', 'c/**', 'ais_engine.podspec', '.github/workflows/flutter.yml']
   pull_request:
-    paths: ['app/flutter/**', '.github/workflows/flutter.yml']
+    paths: ['app/flutter/**', 'c/**', 'ais_engine.podspec', '.github/workflows/flutter.yml']
   workflow_dispatch:
 
 jobs:
@@ -61,5 +61,53 @@ jobs:
           echo "pubspec: $pname+$pcode   version.dart: $dname+$dcode"
           if [ "$pname" != "$dname" ] || [ "$pcode" != "$dcode" ]; then
             echo "::error::lib/version.dart defaults ($dname+$dcode) do not match pubspec.yaml ($pname+$pcode)"
+            exit 1
+          fi
+
+  # Does the app still COMPILE for iPhone? No Apple account is involved: a
+  # macOS runner carries the iOS SDKs, and --no-codesign skips the signing that
+  # a certificate would be needed for. What this catches is the wiring in
+  # ais_engine.podspec going stale -- a c/*.c added and not linked, or the
+  # crypto sources dropped, which is a link error here rather than a crash on
+  # someone's phone. Signing, a real device and TestFlight stay manual
+  # (issue #1).
+  ios-build:
+    name: ios build (unsigned)
+    runs-on: macos-latest
+    defaults:
+      run:
+        working-directory: app/flutter
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0          # git describe stamps AIS_VERSION
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.44.1'
+          channel: stable
+          cache: true
+
+      - name: pub get
+        run: flutter pub get
+
+      - name: build (unsigned, device arm64)
+        run: flutter build ios --release --no-codesign
+
+      # The engine is only useful if its symbols survived into the binary:
+      # DynamicLibrary.process() resolves them by name at runtime, so a build
+      # that dropped them fails on the first engine call rather than here.
+      - name: the engine is in the app binary
+        run: |
+          app=build/ios/iphoneos/Runner.app
+          bin="$app/Runner"
+          if nm -gU "$bin" 2>/dev/null | grep -q ais_embed_open; then
+            echo "ais_embed_open: in the app binary"
+          elif ls "$app/Frameworks"/ais_engine.framework/ais_engine >/dev/null 2>&1 &&
+               nm -gU "$app/Frameworks"/ais_engine.framework/ais_engine | grep -q ais_embed_open; then
+            echo "ais_embed_open: in the bundled ais_engine framework"
+          else
+            echo "ais_embed_open is in neither the app binary nor a bundled framework:"
+            echo "the app would launch and then fail on its first engine call."
             exit 1
           fi
