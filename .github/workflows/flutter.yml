@@ -64,6 +64,50 @@ jobs:
             exit 1
           fi
 
+  # The desktop UI layer, which SKIPS on the developer's machine: Pop!_OS cannot
+  # install the GTK/ninja toolchain without downgrading the running session's
+  # Wayland libraries, so the harness that drives the REAL Host/Join sync UI has
+  # never gated anything. A CI runner has no such conflict, so it runs here.
+  # Xvfb, xdotool and software GL are what let it drive a real window with no
+  # display attached; without libgl1-mesa-dri the surface renders solid black.
+  desktop-ui:
+    name: flutter sync UI (linux desktop, headless)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.44.1'
+          channel: stable
+          cache: true
+
+      - name: the toolchain the desktop build and the driver need
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build clang cmake pkg-config \
+                                  libgtk-3-dev xvfb xdotool imagemagick libgl1-mesa-dri
+
+      - name: build the engine the app binds to
+        run: make
+
+      - name: the linux desktop target, in case the SDK ships it off
+        run: flutter config --enable-linux-desktop
+
+      - name: drive the real Host/Join UI against a CLI peer
+        run: sh tests/gui/flutter-sync.sh
+        env:
+          # the harness starts its own Xvfb; this only keeps GTK off Wayland
+          GDK_BACKEND: x11
+
+      - name: keep the screenshots when it fails
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-ui-shots
+          path: app/flutter/uitest/shots/
+          if-no-files-found: ignore
+
   # Does the app still COMPILE for iPhone? No Apple account is involved: a
   # macOS runner carries the iOS SDKs, and --no-codesign skips the signing that
   # a certificate would be needed for. What this catches is the wiring in
