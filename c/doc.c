@@ -10,6 +10,7 @@
 #define _POSIX_C_SOURCE 200809L     /* mkdir, access */
 #include <errno.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <time.h>
 #include <sys/stat.h>
@@ -20,11 +21,47 @@
 #include "secret.h"       /* secret_shred_blob: the encrypted half of ais_doc_discard */
 #include "win.h"          /* mkdir shim on native Windows; empty on POSIX */
 
+#if defined(__has_include) && __has_include("crypto/monocypher.h")
+#  define DOC_HAVE_CRYPTO 1
+#  include "crypto/ais_crypto.h"   /* aisc_random: rand_s on Windows, urandom elsewhere */
+#endif
+
+/* Eight hex digits of randomness that make a blob name unique AT BIRTH.
+ *
+ * Two devices saving a document in the same second used to mint the same name
+ * for different bodies, and the importer's rename then changed the arriving
+ * record's VALUE -- which is its identity across devices, so it became a new
+ * record on every peer, which minted another name, forever. Documents are like
+ * notes in a notes app: one save is one note, kept apart from every other save,
+ * so the fix belongs at the mint and not in a merge rule.
+ *
+ * Per BLOB, not per device: the device id is a stub in builds without the crypto
+ * module while blobs are minted in all of them, a per-blob tag needs nothing
+ * persisted (a cloned index heals with no help), and no device identity leaks
+ * into an index handed to someone else. */
+static void blob_tag(char out[9])
+{
+    unsigned char b[4];
+    int got = 0;
+#ifdef DOC_HAVE_CRYPTO
+    got = (aisc_random(b, sizeof b) == AISC_OK);
+#endif
+    if (!got) {
+        /* No RNG in this build: still unique in practice, and a repeat only
+         * falls back on the free-name loop below. */
+        static unsigned long counter;
+        unsigned long m = (unsigned long)getpid() ^ (unsigned long)time(NULL) ^ (counter += 0x9e3779b9UL);
+        b[0] = (unsigned char)(m); b[1] = (unsigned char)(m >> 8);
+        b[2] = (unsigned char)(m >> 16); b[3] = (unsigned char)(m >> 24);
+    }
+    snprintf(out, 9, "%02x%02x%02x%02x", b[0], b[1], b[2], b[3]);
+}
+
 int ais_doc_blobname_ext(const ais *a, const char *ext, char *relval, size_t rvsz,
                          char *blobpath, size_t bpsz)
 {
     char dirpath[AIS_PATH_MAX];
-    char ts[32];
+    char ts[32], tag[9];
     time_t now;
     struct tm *lt;
     int seq;
@@ -36,24 +73,205 @@ int ais_doc_blobname_ext(const ais *a, const char *ext, char *relval, size_t rvs
     if (mkdir(dirpath, 0777) != 0 && errno != EEXIST)
         return -1;
 
-    /* Local timestamp, so blobs/ sorts chronologically. A second document
-     * within the same second gets a -N suffix; names stay unique with no
-     * hashing. The extension marks the kind (.txt plain, .aisc encrypted). */
+    /* Local timestamp, so blobs/ sorts chronologically, then "~" and a random
+     * tag so no two devices ever mint one name for two documents. The -N suffix
+     * stays as the local free-name loop. The extension marks the kind (.txt
+     * plain, .aisc encrypted). Older, untagged names keep working everywhere and
+     * are never rewritten: nothing about this migrates. */
     now = time(NULL);
     lt = localtime(&now);
     if (lt == NULL || strftime(ts, sizeof(ts), "%Y-%m-%d-%H%M%S", lt) == 0)
         return -1;
+    blob_tag(tag);
     for (seq = 1; seq < 10000; seq++) {
         if (seq == 1)
-            snprintf(relval, rvsz, "blobs/%s.%s", ts, ext);
+            snprintf(relval, rvsz, "blobs/%s~%s.%s", ts, tag, ext);
         else
-            snprintf(relval, rvsz, "blobs/%s-%d.%s", ts, seq, ext);
+            snprintf(relval, rvsz, "blobs/%s~%s-%d.%s", ts, tag, seq, ext);
         if (snprintf(blobpath, bpsz, "%s/%s", a->dir, relval) >= (int)bpsz)
             return -1;
         if (access(blobpath, F_OK) != 0)
             return 0;                      /* a free name */
     }
     return -1;                             /* 10000 blobs in one second: give up */
+}
+
+/* Do the two files hold exactly the same bytes? Blobs are immutable, so this is
+ * the whole question when a name arrives that is already taken. */
+static int files_equal(const char *pa, const char *pb)
+{
+    FILE *fa, *fb;
+    struct stat sa, sb;
+    char ba[8192], bb[8192];
+    int eq = 1;
+
+    if (stat(pa, &sa) != 0 || stat(pb, &sb) != 0 || sa.st_size != sb.st_size)
+        return 0;
+    fa = fopen(pa, "rb");
+    if (fa == NULL) return 0;
+    fb = fopen(pb, "rb");
+    if (fb == NULL) { fclose(fa); return 0; }
+    for (;;) {
+        size_t na = fread(ba, 1, sizeof ba, fa);
+        size_t nb = fread(bb, 1, sizeof bb, fb);
+        if (na != nb || (na > 0 && memcmp(ba, bb, na) != 0)) { eq = 0; break; }
+        if (na == 0) break;
+    }
+    if (ferror(fa) || ferror(fb)) eq = 0;
+    fclose(fa); fclose(fb);
+    return eq;
+}
+
+/* FNV-1a over the body, as 16 hex digits. Used to name a body whose preferred
+ * name is taken by DIFFERENT content: derived from the bytes alone, so two
+ * devices resolving the same clash land on the same name with nothing shared
+ * between them, and the mesh settles instead of minting a new pair every round. */
+static int blob_body_hash(const char *path, char out[17])
+{
+    unsigned long long h = 1469598103934665603ULL;   /* FNV-1a 64 offset basis */
+    unsigned char buf[8192];
+    size_t n;
+    FILE *f = fopen(path, "rb");
+
+    if (f == NULL)
+        return -1;
+    while ((n = fread(buf, 1, sizeof buf, f)) > 0) {
+        size_t i;
+        for (i = 0; i < n; i++) {
+            h ^= (unsigned long long)buf[i];
+            h *= 1099511628211ULL;
+        }
+    }
+    if (ferror(f)) { fclose(f); return -1; }
+    fclose(f);
+    snprintf(out, 17, "%016llx", h);
+    return 0;
+}
+
+/* Place an arriving document body (already written to TMPPATH) under <dir>/blobs/,
+ * and report the relative value the record should carry in OUTREL.
+ *
+ * Blobs are immutable and identified by OCCURRENCE, like notes in a notes app:
+ * two people writing the same words wrote two notes, and one save is never
+ * merged into another. So an existing file is never overwritten, and both bodies
+ * are kept:
+ *
+ *     name free                    -> take it, the record's value is unchanged
+ *     name taken, same bytes       -> one document that arrived twice: drop the copy
+ *     name taken, different bytes  -> blobs/<stem>~<body hash><ext>, both kept
+ *
+ * Only a name minted before blob names carried a random tag can reach the third
+ * case. TMPPATH is consumed either way (renamed into place, or unlinked).
+ * Returns 0, or -1 leaving TMPPATH for the caller to clean up. */
+int ais_doc_blob_place(const char *dir, const char *rel, const char *tmppath,
+                       char *outrel, size_t osz)
+{
+    char blobsdir[AIS_PATH_MAX], target[AIS_PATH_MAX], cand[AIS_PATH_MAX];
+    char hash[17];
+    const char *base, *dot;
+    int stemlen, seq;
+
+    if (dir == NULL || rel == NULL || tmppath == NULL || outrel == NULL)
+        return -1;
+    if (strncmp(rel, "blobs/", 6) != 0)
+        return -1;
+    base = rel + 6;
+    if (base[0] == '\0' || strstr(base, "..") != NULL ||
+        strchr(base, '/') != NULL || strchr(base, '\\') != NULL)
+        return -1;                                  /* keep the write inside blobs/ */
+    if (snprintf(blobsdir, sizeof blobsdir, "%s/blobs", dir) >= (int)sizeof blobsdir)
+        return -1;
+    if (mkdir(blobsdir, 0777) != 0 && errno != EEXIST)
+        return -1;
+    if (snprintf(target, sizeof target, "%s/%s", blobsdir, base) >= (int)sizeof target)
+        return -1;
+
+    if (access(target, F_OK) != 0) {                /* free: the ordinary case */
+        if (rename(tmppath, target) != 0)
+            return -1;
+        return (snprintf(outrel, osz, "blobs/%s", base) < (int)osz) ? 0 : -1;
+    }
+    if (files_equal(target, tmppath)) {             /* the same document, again */
+        unlink(tmppath);
+        return (snprintf(outrel, osz, "blobs/%s", base) < (int)osz) ? 0 : -1;
+    }
+
+    if (blob_body_hash(tmppath, hash) != 0)
+        return -1;
+    dot = strrchr(base, '.');
+    stemlen = (dot != NULL) ? (int)(dot - base) : (int)strlen(base);
+    for (seq = 0; seq < 10000; seq++) {
+        int k;
+        if (seq == 0)
+            k = snprintf(cand, sizeof cand, "blobs/%.*s~%s%s", stemlen, base, hash,
+                         dot ? dot : "");
+        else                                        /* a hash collision: local, rare */
+            k = snprintf(cand, sizeof cand, "blobs/%.*s~%s-%d%s", stemlen, base, hash,
+                         seq, dot ? dot : "");
+        if (k >= (int)sizeof cand)
+            return -1;
+        if (snprintf(target, sizeof target, "%s/%s", dir, cand) >= (int)sizeof target)
+            return -1;
+        if (access(target, F_OK) != 0) {
+            if (rename(tmppath, target) != 0)
+                return -1;
+            return (snprintf(outrel, osz, "%s", cand) < (int)osz) ? 0 : -1;
+        }
+        if (files_equal(target, tmppath)) {         /* already here under that name */
+            unlink(tmppath);
+            return (snprintf(outrel, osz, "%s", cand) < (int)osz) ? 0 : -1;
+        }
+    }
+    return -1;
+}
+
+/* The arriving-name -> local-name map an import builds while placing bodies, and
+ * applies ONCE to each record value. Applying it per map entry over the whole
+ * text instead was how a value could be rewritten twice (X -> X-1 -> X-1-1),
+ * leaving records pointing at the wrong body. */
+int ais_blobmap_add(ais_blobmap *m, const char *from, const char *to)
+{
+    if (m == NULL || from == NULL || to == NULL)
+        return -1;
+    if (m->n == m->cap) {
+        int cap = (m->cap == 0) ? 8 : m->cap * 2;
+        char **f = realloc(m->from, (size_t)cap * sizeof *f);
+        char **t = realloc(m->to, (size_t)cap * sizeof *t);
+        if (f != NULL) m->from = f;
+        if (t != NULL) m->to = t;
+        if (f == NULL || t == NULL)
+            return -1;
+        m->cap = cap;
+    }
+    m->from[m->n] = strdup(from);
+    m->to[m->n] = strdup(to);
+    if (m->from[m->n] == NULL || m->to[m->n] == NULL) {
+        free(m->from[m->n]); free(m->to[m->n]);
+        return -1;
+    }
+    m->n++;
+    return 0;
+}
+
+const char *ais_blobmap_get(const ais_blobmap *m, const char *from)
+{
+    int i;
+    if (m == NULL || from == NULL)
+        return NULL;
+    for (i = 0; i < m->n; i++)
+        if (strcmp(m->from[i], from) == 0)
+            return m->to[i];
+    return NULL;
+}
+
+void ais_blobmap_free(ais_blobmap *m)
+{
+    int i;
+    if (m == NULL)
+        return;
+    for (i = 0; i < m->n; i++) { free(m->from[i]); free(m->to[i]); }
+    free(m->from); free(m->to);
+    m->from = NULL; m->to = NULL; m->n = m->cap = 0;
 }
 
 int ais_doc_blobname(const ais *a, char *relval, size_t rvsz,

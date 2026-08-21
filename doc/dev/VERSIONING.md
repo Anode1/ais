@@ -77,8 +77,12 @@ refuses an index newer than it understands, loudly, rather than misreading it,
 and stamps an older one forward.
 
 Data outlives code, so this number moves only when the canonical store line
-changes shape — not when the library or the release moves. It is currently 3
-(v1 had no `ts`, v2 added a local `ts`, v3 made it UTC with a trailing `Z`).
+changes shape — not when the library or the release moves. It is currently 4
+(v1 had no `ts`, v2 added a local `ts`, v3 made it UTC with a trailing `Z`, v4
+added the per-record clocks `mts`/`sts`/`katt` that decide what a delete means).
+Blob names carrying a random tag did NOT move it: the store line keeps its shape,
+a longer string in the value field reads correctly on any binary, and bumping
+would lock un-upgraded devices out of a shared index directory for no gain.
 
 Two things follow that are easy to get wrong:
 

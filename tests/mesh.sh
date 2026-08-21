@@ -45,6 +45,10 @@ no() {
         pass=$((pass + 1)); echo "  ok   $1"
     fi
 }
+okne() {
+    if [ "$2" != "$3" ]; then pass=$((pass + 1)); echo "  ok   $1"
+    else fail=$((fail + 1)); echo "  FAIL $1 -- both were '$2'"; fi
+}
 okeq() {
     if [ "$2" = "$3" ]; then pass=$((pass + 1)); echo "  ok   $1"
     else fail=$((fail + 1)); echo "  FAIL $1 -- expected '$2', got '$3'"; fi
@@ -370,31 +374,58 @@ nowhere "lap5: and neither deleted record ever comes back" "$DEAD" "$PA" "$P1" "
 nowhere "lap5: nor the second one"                         "$GONE3" "$PA" "$P1" "$PB" "$P2"
 
 # ----------------------------------------- two documents born the same second ---
-#     Blob names are a timestamp, so two devices writing a doc in the same
-#     second mint the SAME name for different bodies. Both bodies must survive,
-#     and repeated syncing must not keep minting more of them.
+#     A document is a note: one save is one note, and two devices saving in the
+#     same second must end up with two, each reachable and each keeping its own
+#     body. Names carry a random tag so they cannot collide at birth; the legacy
+#     case below forces the collision an older build could mint, because indexes
+#     in the field still hold those names.
 
 DA="$W/docA"; DB="$W/docB"; DF="$W/docfolder"
 mkdir -p "$DA" "$DB" "$DF"
 printf 'body from A\n' | "$AIS" -f "$DA" --doc same >/dev/null
 printf 'body from B\n' | "$AIS" -f "$DB" --doc same >/dev/null
-if [ "$(ls "$DA/blobs")" = "$(ls "$DB/blobs")" ]; then
+okne "doc-mint: two devices in the same second mint different names" \
+     "$(ls "$DA/blobs")" "$(ls "$DB/blobs")"
+
+for r in 1 2 3; do
     "$AIS" -f "$DA" --sync-folder "$DF" >/dev/null 2>&1
     "$AIS" -f "$DB" --sync-folder "$DF" >/dev/null 2>&1
+done
+okeq "doc-mint: A holds both notes"  "2" "$("$AIS" -f "$DA" --dump 2>/dev/null | grep -c .)"
+okeq "doc-mint: B holds both notes"  "2" "$("$AIS" -f "$DB" --dump 2>/dev/null | grep -c .)"
+ok   "doc-mint: A can read B's note" "body from B" "$("$AIS" -f "$DA" same 2>/dev/null)"
+ok   "doc-mint: B can read A's note" "body from A" "$("$AIS" -f "$DB" same 2>/dev/null)"
+n1=$("$AIS" -f "$DA" --dump 2>/dev/null | grep -c .)
+for r in 1 2 3; do
+    "$AIS" -f "$DB" --sync-folder "$DF" >/dev/null 2>&1
     "$AIS" -f "$DA" --sync-folder "$DF" >/dev/null 2>&1
-    ok    "doc-clash: both bodies survive on A" "body from B" "$(cat "$DA"/blobs/* 2>/dev/null)"
-    ok    "doc-clash: both bodies survive on B" "body from A" "$(cat "$DB"/blobs/* 2>/dev/null)"
-    n1=$("$AIS" -f "$DA" --dump 2>/dev/null | grep -c .)
-    for r in 1 2 3; do
-        "$AIS" -f "$DB" --sync-folder "$DF" >/dev/null 2>&1
-        "$AIS" -f "$DA" --sync-folder "$DF" >/dev/null 2>&1
-    done
-    n2=$("$AIS" -f "$DA" --dump 2>/dev/null | grep -c .)
-    okeq  "doc-clash: further syncs do not mint more copies" "$n1" "$n2"
-    same  "doc-clash: the two devices agree on the document set" "$DA" "$DB"
-else
-    echo "  note: the two documents landed in different seconds -- clash not exercised"
-fi
+done
+okeq "doc-mint: further syncs mint nothing" "$n1" "$("$AIS" -f "$DA" --dump 2>/dev/null | grep -c .)"
+
+# --- the legacy shape: one name, two bodies, as an older build would have left it
+LA="$W/lgA"; LB="$W/lgB"; LF="$W/lgfolder"
+mkdir -p "$LA" "$LB" "$LF"
+printf 'legacy A\n' | "$AIS" -f "$LA" --doc old >/dev/null
+printf 'legacy B\n' | "$AIS" -f "$LB" --doc old >/dev/null
+for d in "$LA" "$LB"; do
+    was=$(ls "$d/blobs")
+    mv "$d/blobs/$was" "$d/blobs/2020-01-01-000000.txt"
+    sed -i "s|blobs/$was|blobs/2020-01-01-000000.txt|" "$d/store"
+    "$AIS" -f "$d" -y --compact >/dev/null 2>&1
+done
+for r in 1 2 3; do
+    "$AIS" -f "$LA" --sync-folder "$LF" >/dev/null 2>&1
+    "$AIS" -f "$LB" --sync-folder "$LF" >/dev/null 2>&1
+done
+n1=$("$AIS" -f "$LA" --dump 2>/dev/null | grep -c .)
+ok   "doc-legacy: A can read B's body" "legacy B" "$("$AIS" -f "$LA" old 2>/dev/null)"
+ok   "doc-legacy: B can read A's body" "legacy A" "$("$AIS" -f "$LB" old 2>/dev/null)"
+for r in 1 2 3 4; do
+    "$AIS" -f "$LB" --sync-folder "$LF" >/dev/null 2>&1
+    "$AIS" -f "$LA" --sync-folder "$LF" >/dev/null 2>&1
+done
+okeq "doc-legacy: a clash already on disk settles instead of growing" \
+     "$n1" "$("$AIS" -f "$LA" --dump 2>/dev/null | grep -c .)"
 
 [ "$legs_retried" -eq 0 ] || echo "  note: $legs_retried LAN join(s) had to be retried"
 okeq "transport: every LAN leg completed" "0" "$legs_lost"

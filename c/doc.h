@@ -21,6 +21,22 @@ int  ais_doc_blobname_ext(const ais *a, const char *ext, char *relval, size_t rv
 int  ais_doc_blobname(const ais *a, char *relval, size_t rvsz,
                       char *blobpath, size_t bpsz);
 
+/* Place an arriving document body, already written to TMPPATH, under
+ * <dir>/blobs/ and report in OUTREL the relative value its record should carry.
+ * An existing file is never overwritten: an identical body is dropped, and a
+ * DIFFERENT body whose name is taken lands under a name derived from its own
+ * bytes, so two devices resolving one clash agree without talking. TMPPATH is
+ * consumed. Returns 0, or -1 (TMPPATH is then the caller's to remove). */
+int  ais_doc_blob_place(const char *dir, const char *rel, const char *tmppath,
+                        char *outrel, size_t osz);
+
+/* The arriving-name -> local-name map an import builds while placing bodies. It
+ * is applied ONCE per record value, so a value can never be rewritten twice. */
+typedef struct { char **from; char **to; int n, cap; } ais_blobmap;
+int         ais_blobmap_add(ais_blobmap *m, const char *from, const char *to);
+const char *ais_blobmap_get(const ais_blobmap *m, const char *from);
+void        ais_blobmap_free(ais_blobmap *m);
+
 /* Write CONTENT (LEN bytes) to a new blob and put its path under KEYS.
  * Returns the new record id, or -1 on any failure. */
 long ais_doc_put(ais *a, const char *keys, const char *content, size_t len);

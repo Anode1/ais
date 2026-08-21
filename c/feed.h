@@ -4,6 +4,7 @@
 #define AIS_FEED_H
 
 #include "ais.h"
+#include "doc.h"   /* ais_blobmap */
 
 /* File each non-empty stdin line, verbatim, as a value under KEYS. */
 void feed_stdin(ais *a, const char *keys);
@@ -20,6 +21,12 @@ void feed_import(ais *a);
 /* Like feed_import, but read from IN (any FILE* -- a socket stream or an in-memory
  * buffer for the sync transport), not just stdin. */
 void feed_import_from(ais *a, FILE *in);
+
+/* feed_import_from with a blob map: any document body whose name was already
+ * taken here by a DIFFERENT body lands under another name, and MAP carries that
+ * so the arriving records repoint at the body they were exported with. Pass NULL
+ * when there are no blobs in the stream. */
+void feed_import_from_map(ais *a, FILE *in, ais_blobmap *map);
 
 /* Write the merge/export stream to OUT: A|ts|keys|value for live records, then
  * D|ts|hash for tombstones. The inverse of merge-aware import; what --export serves. */

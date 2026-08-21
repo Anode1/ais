@@ -4017,6 +4017,96 @@ static void test_sync_delete_survives_compact(void)
     scratch_rm(da); scratch_rm(db);
 }
 
+/* Blob names must be unique AT BIRTH: two devices saving a document in the same
+ * second used to mint one name for two bodies, and every sync round after that
+ * minted more. A notes app keeps two notes two notes. */
+static void test_blob_names_unique_per_index(void)
+{
+    ais A, B;
+    const char *da = "/tmp/ais_ut_bnA", *db = "/tmp/ais_ut_bnB";
+    char ra[AIS_PATH_MAX], rb[AIS_PATH_MAX], pa[AIS_PATH_MAX], pb[AIS_PATH_MAX];
+
+    scratch_rm(da); scratch_rm(db);
+    ais_open(&A, da); ais_open(&B, db);
+    CHECK(ais_doc_blobname(&A, ra, sizeof ra, pa, sizeof pa) == 0, "mint: A names a blob");
+    CHECK(ais_doc_blobname(&B, rb, sizeof rb, pb, sizeof pb) == 0, "mint: B names a blob");
+    CHECK(strcmp(ra, rb) != 0, "mint: two indexes in the same second do not collide");
+    CHECK(strncmp(ra, "blobs/", 6) == 0 && strchr(ra, '~') != NULL,
+          "mint: the name carries a tag");
+    ais_close(&A); ais_close(&B);
+    scratch_rm(da); scratch_rm(db);
+}
+
+/* The keep-both policy, in one place now for both import paths. The third row is
+ * the one that has to be DERIVED from the body: two devices resolving the same
+ * clash must land on the same name, or each mints its own and the mesh never
+ * settles. */
+static void test_blob_place_policy(void)
+{
+    const char *d1 = "/tmp/ais_ut_bp1", *d2 = "/tmp/ais_ut_bp2";
+    char rel[AIS_PATH_MAX], rel2[AIS_PATH_MAX], p[AIS_PATH_MAX];
+    FILE *f;
+
+    scratch_rm(d1); scratch_rm(d2);
+    mkdir(d1, 0777); mkdir(d2, 0777);
+
+    /* a free name: taken as offered */
+    snprintf(p, sizeof p, "%s/tmp1", d1);
+    f = fopen(p, "w"); if (f) { fputs("body one\n", f); fclose(f); }
+    CHECK(ais_doc_blob_place(d1, "blobs/x.txt", p, rel, sizeof rel) == 0 &&
+          strcmp(rel, "blobs/x.txt") == 0, "place: a free name is taken as offered");
+
+    /* the same bytes again: one document that arrived twice */
+    snprintf(p, sizeof p, "%s/tmp2", d1);
+    f = fopen(p, "w"); if (f) { fputs("body one\n", f); fclose(f); }
+    CHECK(ais_doc_blob_place(d1, "blobs/x.txt", p, rel, sizeof rel) == 0 &&
+          strcmp(rel, "blobs/x.txt") == 0, "place: identical bytes dedup to one file");
+
+    /* different bytes under a taken name: kept, under a name from its own body */
+    snprintf(p, sizeof p, "%s/tmp3", d1);
+    f = fopen(p, "w"); if (f) { fputs("body two\n", f); fclose(f); }
+    CHECK(ais_doc_blob_place(d1, "blobs/x.txt", p, rel, sizeof rel) == 0 &&
+          strcmp(rel, "blobs/x.txt") != 0, "place: a different body is kept, renamed");
+
+    /* and a SECOND index resolving the same clash derives the SAME name */
+    snprintf(p, sizeof p, "%s/tmp4", d2);
+    f = fopen(p, "w"); if (f) { fputs("other\n", f); fclose(f); }
+    CHECK(ais_doc_blob_place(d2, "blobs/x.txt", p, rel2, sizeof rel2) == 0,
+          "place: the other index seeds the same name");
+    snprintf(p, sizeof p, "%s/tmp5", d2);
+    f = fopen(p, "w"); if (f) { fputs("body two\n", f); fclose(f); }
+    CHECK(ais_doc_blob_place(d2, "blobs/x.txt", p, rel2, sizeof rel2) == 0 &&
+          strcmp(rel, rel2) == 0,
+          "place: two indexes derive the SAME name for the same body");
+
+    scratch_rm(d1); scratch_rm(d2);
+}
+
+/* The silent one: `ais --import` used to drain an arriving body into nothing when
+ * the name was taken, report success, and leave the peer's record pointing at the
+ * LOCAL document. Both bodies must survive and each record must resolve to the
+ * one it was exported with. */
+static void test_import_keeps_both_documents(void)
+{
+    ais A, B;
+    FILE *t;
+    struct idvec v;
+    const char *da = "/tmp/ais_ut_ibA", *db = "/tmp/ais_ut_ibB";
+
+    scratch_rm(da); scratch_rm(db);
+    ais_open(&A, da); ais_open(&B, db);
+    ais_doc_put(&A, "mydoc", "ALPHA body\nsecond line\n", 24);
+    ais_doc_put(&B, "mydoc", "BRAVO body\nsecond line\n", 24);
+
+    t = tmpfile();
+    feed_export(&B, t); rewind(t); feed_import_from(&A, t); fclose(t);
+
+    query(&A, AIS_AND, &v, 1, "mydoc");
+    CHECK(v.n == 2, "keepboth: two documents stay two records after an import");
+    ais_close(&A); ais_close(&B);
+    scratch_rm(da); scratch_rm(db);
+}
+
 /* B3 again, and the case the test above cannot see: it exports from B only AFTER
  * B has imported the delete, so B's stream carries no A| for that value. Capture
  * the peer's view BEFORE the delete and the real question appears -- compaction
@@ -5040,6 +5130,10 @@ int main(void)
     test_sync_frame_reject();
     printf("folder sync B3 (delete survives compaction):\n");
     test_sync_delete_survives_compact();
+    printf("document blobs (unique at birth, keep both, one import policy):\n");
+    test_blob_names_unique_per_index();
+    test_blob_place_policy();
+    test_import_keeps_both_documents();
     printf("folder sync B3 (a stale peer cannot resurrect a compacted delete):\n");
     test_sync_stale_peer_cannot_resurrect();
     printf("re-save after a compacted delete:\n");

@@ -26,7 +26,9 @@ SDK="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-$HOME/Android/Sdk}}"
 ADB="$SDK/platform-tools/adb"
 EMU="$SDK/emulator/emulator"
 PKG=com.aisindex.ais
-PORT="${AIS_ANDROID_PORT:-8899}"
+# A per-run port. Two of these layers against one device used to fight over a
+# fixed 8899, and the loser reported a product failure that was not one.
+PORT="${AIS_ANDROID_PORT:-$(( 8800 + $$ % 400 ))}"
 PROOF_CLI="PROOF-from-cli-$$"
 
 command -v flutter >/dev/null 2>&1 || { echo "  SKIP no flutter SDK"; exit 77; }
@@ -116,10 +118,18 @@ rc=0
     echo "  FAIL the peer's record never reached the app"; rc=1; }
 "$root/c/ais" -f "$work/peer" --dump 2>/dev/null | grep -q "$PROOF_CLI" || {
     echo "  FAIL the peer lost its own record"; rc=1; }
-# the phone had records of its own only if its index was not just cleared
+# The other direction needs the phone to own a record. Whether it does was
+# AMBIENT state before -- an index someone had emptied made this layer report a
+# product failure -- so ask, and say plainly when the answer is no.
 if [ -z "${AIS_ANDROID_CLEAR:-}" ]; then
-    n=$("$root/c/ais" -f "$work/peer" --stats 2>/dev/null | awk '/^records:/{print $2}')
-    [ "${n:-0}" -gt 1 ] || { echo "  FAIL nothing came back from the app"; rc=1; }
+    app_records=$("$ADB" shell run-as "$PKG" cat app_flutter/ais/store 2>/dev/null | grep -c .)
+    peer_n=$("$root/c/ais" -f "$work/peer" --stats 2>/dev/null | awk '/^records:/{print $2}')
+    if [ "${app_records:-0}" -le 1 ]; then
+        echo "  note: the phone's index holds nothing of its own; only the"
+        echo "        peer -> phone direction was asserted this run"
+    elif [ "${peer_n:-0}" -le 1 ]; then
+        echo "  FAIL nothing came back from the app"; rc=1
+    fi
 fi
 
 if [ "$rc" = 0 ]; then

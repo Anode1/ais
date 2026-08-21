@@ -22,7 +22,7 @@ is hashed: every file is plain text, readable, greppable, repairable by hand.
       foldsync        DEVICE-LOCAL: shared folders this device has synced with, one
                       absolute path per line (never synced, never exported)
       syncfolder      DEVICE-LOCAL: the folder the GUI syncs with (written by the app)
-      blobs/<timestamp>.txt  documents saved by `doc` (real data; not rebuildable)
+      blobs/<ts>~<tag>.txt   documents saved by `doc` (real data; not rebuildable)
       lock            writers' advisory flock (per op; reads lock-free)
 
 ### store -- the source of truth (append-only)
@@ -334,7 +334,7 @@ why the salt is per-record data both sides already hold rather than a shared key
 
 **A delete takes the file the INDEX made, and never the file it merely points
 at.** That line is the whole rule, and it is about ownership, not about how a
-value looks: `blobs/<ts>.txt` and `blobs/<ts>.aisc` are documents this index
+value looks: `blobs/<ts>~<tag>.txt` and `blobs/<ts>~<tag>.aisc` are documents this index
 wrote, so they go when their record goes (`ais_doc_discard`, doc.h); a path
 anywhere else on disk, a URL, or inline text names something that was the
 user's before ais saw it, and nothing happens to it, ever. The product is an
@@ -406,9 +406,10 @@ bulk `--dump | --import` instead.
 
 ### doc, blobs/ -- large or multi-line values
 A value is one line, so multi-line/large text can't be inline. `ais --doc KEYS`
-reads a document from stdin, writes it to `blobs/<timestamp>.txt` (named by local
-time, so `ls blobs/` reads chronologically; a same-second doc gets a `-N`
-suffix), and `put`s that relative path as the value. The engine stays
+reads a document from stdin, writes it to `blobs/<timestamp>~<8 hex>.txt` (local
+time, so `ls blobs/` reads chronologically; the random tag is what stops two
+DEVICES minting one name for two documents, and a same-second doc on the same
+device still gets a `-N` suffix), and `put`s that relative path as the value. The engine stays
 oblivious -- it stores a path like any other; the front-end (feed.c) owns blob
 placement. `blobs/` is REAL DATA, not rebuildable -- as are `tomb`, `ktomb`, `katt`,
 `mts` and `sts` (lose `sts` and a record that survived a peer's delete is simply

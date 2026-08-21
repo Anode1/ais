@@ -10,9 +10,18 @@ spec. See LAYOUT.md (format), BNF.txt (grammar).
   = different resource. NO normalization (a query param can mean a different
   page). [implemented]
 - Blob (`--doc`): identified by OCCURRENCE, not content. Each doc is its own
-  resource, like a post -- duplicates are intentional and kept, NEVER
-  content-deduped. Name = timestamp + a device/random tag, so two devices never
-  alias two different posts and a replicated post keeps one name. [name tag: planned]
+  resource, like a note in a notes app -- duplicates are intentional and kept,
+  NEVER content-deduped into one record. Name = `<local timestamp>~<8 hex random>`
+  plus the extension, so two devices never alias two different documents and a
+  replicated one keeps its name. [implemented]
+- A name minted BEFORE that tag existed can still be aliased, and those names are
+  on disk in the field. An arriving body whose name is taken lands under
+  `<stem>~<16 hex FNV-1a of the body><ext>`: derived from the bytes alone, so both
+  devices resolve the clash to the SAME name and the mesh settles. Identical bytes
+  under the same name are one document that arrived twice and dedup; that is the
+  single exception to "never content-deduped", and the two cases are
+  indistinguishable anyway. The residue of a pre-existing clash is one duplicate
+  record per device, which no wire verb can retract. [implemented]
 - Known seam (accepted): identity follows STORAGE, not intent -- inline values
   dedup (URL-like), blobs do not (post-like). So "intentional duplicate" is a
   blob-only concept. Fine for current usage.

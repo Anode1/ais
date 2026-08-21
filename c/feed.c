@@ -11,6 +11,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>   /* getpid, unlink: the incoming-blob temp */
 
 #include "compact.h"
 #include "sync.h"      /* AIS_SYNC_PROTO -- an app bundle is these lines behind one byte */
@@ -196,28 +197,32 @@ void feed_interactive(ais *a, const char *base)
 /* Consume WANT raw bytes from IN into <index>/blobs/<basename of REL>. Refuses a
  * relative path with a separator so a crafted stream cannot write outside blobs/.
  * The bytes are consumed either way, so the parser stays in sync. 0/-1. */
-static int feed_take_blob(ais *a, const char *rel, long want, FILE *in)
+static int feed_take_blob(ais *a, const char *rel, long want, FILE *in,
+                          ais_blobmap *map)
 {
-    char path[AIS_PATH_MAX], dirp[AIS_PATH_MAX], buf[8192];
-    const char *base = rel;
+    char tmp[AIS_PATH_MAX], dirp[AIS_PATH_MAX], outrel[AIS_PATH_MAX], buf[8192];
     FILE *out = NULL;
     long left = want;
+    int rc;
 
-    if (strncmp(rel, "blobs/", 6) == 0)
-        base = rel + 6;
-    if (strchr(base, '/') != NULL || strchr(base, '\\') != NULL || base[0] == '\0' ||
-        strcmp(base, "..") == 0)
-        base = NULL;                            /* refuse, but still drain */
-
-    if (base != NULL &&
-        snprintf(dirp, sizeof dirp, "%s/blobs", a->dir) < (int)sizeof dirp &&
-        snprintf(path, sizeof path, "%s/blobs/%s", a->dir, base) < (int)sizeof path) {
-        mkdir(dirp, 0777);      /* win.h maps this to _mkdir */
-        out = fopen(path, "rb");                /* already here: keep ours, drain theirs */
-        if (out != NULL) { fclose(out); out = NULL; }
-        else out = fopen(path, "wb");
-    }
-    while (left > 0) {
+    /* Stream the body to a temp file FIRST, then let doc.c decide where it goes.
+     * The old code looked only at whether the NAME was free and, when it was not,
+     * drained the arriving bytes into nothing and reported success -- so an
+     * `ais --import` of a peer's document silently kept the local one of the same
+     * name and pointed the peer's record at it. The bytes have to exist before
+     * that question can be answered honestly.
+     *
+     * A dotfile: export_blobs_stream skips names starting with '.', so a temp
+     * left by a crash never travels, and compaction sweeps it. */
+    if (snprintf(dirp, sizeof dirp, "%s/blobs", a->dir) >= (int)sizeof dirp)
+        return -1;
+    mkdir(dirp, 0777);      /* win.h maps this to _mkdir */
+    if (snprintf(tmp, sizeof tmp, "%s/blobs/.incoming-%ld.tmp", a->dir,
+                 (long)getpid()) >= (int)sizeof tmp)
+        return -1;
+    out = fopen(tmp, "wb");
+    while (left > 0) {                          /* consume the bytes either way, so
+                                                 * the parser stays in sync */
         size_t chunk = (left > (long)sizeof buf) ? sizeof buf : (size_t)left;
         size_t n = fread(buf, 1, chunk, in);
         if (n == 0)
@@ -225,14 +230,51 @@ static int feed_take_blob(ais *a, const char *rel, long want, FILE *in)
         if (out != NULL && fwrite(buf, 1, n, out) != n) { fclose(out); out = NULL; }
         left -= (long)n;
     }
-    if (out != NULL && fclose(out) != 0)
+    if (out == NULL || fclose(out) != 0) { unlink(tmp); return -1; }
+    if (left != 0)          { unlink(tmp); return -1; }
+
+    rc = ais_doc_blob_place(a->dir, rel, tmp, outrel, sizeof outrel);
+    if (rc != 0) { unlink(tmp); return -1; }
+    if (strcmp(outrel, rel) != 0 && map != NULL &&
+        ais_blobmap_add(map, rel, outrel) != 0)
         return -1;
-    return (base == NULL || left != 0) ? -1 : 0;
+    return 0;
+}
+
+/* Apply the blob map to ONE record value, once: "blobs/X" and the encrypted
+ * "aisc:@blobs/X" form both repoint. Returns V unchanged when nothing matched. */
+static const char *feed_remap_value(const ais_blobmap *map, const char *v,
+                                    char *buf, size_t bsz)
+{
+    const char *to;
+
+    if (map == NULL || map->n == 0)
+        return v;
+    if (strncmp(v, "aisc:@", 6) == 0) {
+        to = ais_blobmap_get(map, v + 6);
+        if (to != NULL && snprintf(buf, bsz, "aisc:@%s", to) < (int)bsz)
+            return buf;
+        return v;
+    }
+    to = ais_blobmap_get(map, v);
+    return (to != NULL) ? to : v;
 }
 
 void feed_import_from(ais *a, FILE *in)
 {
+    /* The map is per-STREAM, so this path owns one too: a document arriving on
+     * stdin whose name is taken here lands under another name, and its record has
+     * to be told, exactly as it is on the sync path. Passing NULL was how
+     * `ais --import` left the arriving record pointing at the local body. */
+    ais_blobmap map = { NULL, NULL, 0, 0 };
+    feed_import_from_map(a, in, &map);
+    ais_blobmap_free(&map);
+}
+
+void feed_import_from_map(ais *a, FILE *in, ais_blobmap *map)
+{
     char line[AIS_LINE_MAX];
+    char vbuf[AIS_LINE_MAX];              /* a remapped value, when one is remapped */
     ais_del_fact pend[AIS_MERGE_BATCH];   /* D| facts awaiting one shared store pass */
     int  npend = 0;
     ais_att_fact patt[AIS_ATT_BATCH];     /* T| facts likewise (ais_merge_attach_many) */
@@ -363,6 +405,7 @@ void feed_import_from(ais *a, FILE *in)
                 *k++ = '\0';
                 *v++ = '\0';
                 ats = ts[0] ? ts : NULL;
+                v = (char *)feed_remap_value(map, v, vbuf, sizeof vbuf);
                 if (cts[0] != '\0') {          /* a C| named this record's true time */
                     char h[17];
                     content_hash(v, h);
@@ -398,7 +441,7 @@ void feed_import_from(ais *a, FILE *in)
             if (szp != NULL) {
                 *szp++ = '\0';
                 want = atol(szp);
-                if (want >= 0 && feed_take_blob(a, rel, want, in) != 0)
+                if (want >= 0 && feed_take_blob(a, rel, want, in, map) != 0)
                     fprintf(stderr, "import: could not store %s\n", rel);
                 continue;
             }
@@ -411,6 +454,7 @@ void feed_import_from(ais *a, FILE *in)
             if (h != NULL && v != NULL) {
                 *h++ = '\0';
                 *v++ = '\0';
+                v = (char *)feed_remap_value(map, v, vbuf, sizeof vbuf);
                 ais_merge_addval(a, h, v);
                 continue;
             }

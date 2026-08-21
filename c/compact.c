@@ -1180,6 +1180,24 @@ static int compact_locked(ais *a)
         return -1;
     compact_rmtree(idxgone);                 /* best-effort: a tree a previous run was
                                               * deleting when it died (see the commit) */
+    {   /* and any half-written arriving document a killed import left behind. The
+         * name is a dotfile so it never travels (feed.c's export skips those); it
+         * would otherwise sit in blobs/ forever, costing space and nothing else. */
+        char blobsdir[AIS_PATH_MAX], victim[AIS_PATH_MAX];
+        DIR *bd;
+        struct dirent *be;
+        if (snprintf(blobsdir, sizeof blobsdir, "%s/blobs", a->dir) < (int)sizeof blobsdir &&
+            (bd = opendir(blobsdir)) != NULL) {
+            while ((be = readdir(bd)) != NULL) {
+                if (strncmp(be->d_name, ".incoming-", 10) != 0)
+                    continue;
+                if (snprintf(victim, sizeof victim, "%s/%s", blobsdir, be->d_name)
+                        < (int)sizeof victim)
+                    unlink(victim);
+            }
+            closedir(bd);
+        }
+    }
     if (lstat(idxpath, &st) == 0) {
         if (rename(idxpath, idxbak) != 0)
             return -1;

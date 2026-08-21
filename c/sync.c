@@ -139,147 +139,38 @@ int sync_export_sealed(ais *a, const char *token, uint8_t **out, size_t *out_len
 /* Rename map: incoming "blobs/X" that collided with a different local file was
  * written as "blobs/X-N"; every such (old -> new) is recorded so record values
  * can be repointed. Almost always empty (the fast path skips the whole rewrite). */
-struct renmap { char (*old)[AIS_PATH_MAX]; char (*neu)[AIS_PATH_MAX]; int n, cap; };
-
-static int ren_add(struct renmap *m, const char *old, const char *neu)
-{
-    if (m->n == m->cap) {
-        int cap = m->cap ? m->cap * 2 : 8;
-        char (*o)[AIS_PATH_MAX] = realloc(m->old, (size_t)cap * AIS_PATH_MAX);
-        char (*e)[AIS_PATH_MAX] = realloc(m->neu, (size_t)cap * AIS_PATH_MAX);
-        if (o) m->old = o;
-        if (e) m->neu = e;
-        if (!o || !e) return -1;
-        m->cap = cap;
-    }
-    snprintf(m->old[m->n], AIS_PATH_MAX, "%s", old);
-    snprintf(m->neu[m->n], AIS_PATH_MAX, "%s", neu);
-    m->n++;
-    return 0;
-}
-
-static void ren_free(struct renmap *m)
-{
-    free(m->old); free(m->neu);
-    m->old = NULL; m->neu = NULL; m->n = m->cap = 0;
-}
-
-/* Whether the file at PATH already holds exactly WANT[0..wlen). */
-static int same_content(const char *path, const uint8_t *want, size_t wlen)
-{
-    FILE *f;
-    struct stat st;
-    char buf[8192];
-    size_t off = 0, n;
-    int eq = 1;
-
-    if (stat(path, &st) != 0 || (size_t)st.st_size != wlen)
-        return 0;
-    f = fopen(path, "rb");
-    if (f == NULL)
-        return 0;
-    while (eq && off < wlen && (n = fread(buf, 1, sizeof buf, f)) > 0) {
-        if (off + n > wlen || memcmp(buf, want + off, n) != 0) eq = 0;
-        else off += n;
-    }
-    if (ferror(f) || off != wlen) eq = 0;
-    fclose(f);
-    return eq;
-}
-
-/* Write DATA[0..dlen) to <dir>/RELPATH ("blobs/X") under the keep-both policy:
- * missing -> write; same content -> skip (dedup); different content -> write to
- * the first free "blobs/X-N" (N inserted before any extension) and record a
- * rename in M. Immutable blobs: an existing file is never overwritten. */
+/* Write DATA[0..dlen) to a temp under blobs/ and hand it to doc.c, which owns
+ * the keep-both policy for every arriving document (see ais_doc_blob_place). The
+ * private copy that used to live here disagreed with feed.c's, and its renames
+ * chained: a value rewritten X -> X-1 could be rewritten again by a later pair
+ * into X-1-1, leaving a record pointing at a body it was never exported with. */
 static int import_one_blob(const char *dir, const char *relpath,
-                           const uint8_t *data, size_t dlen, struct renmap *m)
+                           const uint8_t *data, size_t dlen, ais_blobmap *m)
 {
-    char blobsdir[AIS_PATH_MAX], target[AIS_PATH_MAX], rel[AIS_PATH_MAX];
-    const char *base, *dot;
+    char blobsdir[AIS_PATH_MAX], tmp[AIS_PATH_MAX], outrel[AIS_PATH_MAX];
     FILE *f;
-    int seq;
 
-    if (strncmp(relpath, "blobs/", 6) != 0)
-        return -1;
-    base = relpath + 6;
-    if (base[0] == '\0' || strstr(base, "..") != NULL || strchr(base, '/') != NULL)
-        return -1;                             /* keep the write inside blobs/ */
     if (snprintf(blobsdir, sizeof blobsdir, "%s/blobs", dir) >= (int)sizeof blobsdir)
         return -1;
     if (mkdir(blobsdir, 0777) != 0 && errno != EEXIST)
         return -1;
-
-    if (snprintf(target, sizeof target, "%s/%s", blobsdir, base) >= (int)sizeof target)
+    if (snprintf(tmp, sizeof tmp, "%s/.incoming-%ld.tmp", blobsdir, (long)getpid())
+            >= (int)sizeof tmp)
         return -1;
-    if (access(target, F_OK) == 0) {
-        if (same_content(target, data, dlen))
-            return 0;                          /* identical: dedup, nothing to do */
-        /* collision: pick blobs/<stem>-<seq><ext>, insert -seq before the ext */
-        dot = strrchr(base, '.');
-        for (seq = 1; seq < 100000; seq++) {
-            int k;
-            if (dot != NULL)
-                k = snprintf(rel, sizeof rel, "blobs/%.*s-%d%s",
-                             (int)(dot - base), base, seq, dot);
-            else
-                k = snprintf(rel, sizeof rel, "blobs/%s-%d", base, seq);
-            if (k >= (int)sizeof rel)
-                return -1;
-            if (snprintf(target, sizeof target, "%s/%s", dir, rel) >= (int)sizeof target)
-                return -1;
-            if (access(target, F_OK) != 0)
-                break;                         /* a free name */
-        }
-        if (seq >= 100000)
-            return -1;
-        if (ren_add(m, relpath, rel) != 0)
-            return -1;
-    }
-    f = fopen(target, "wb");
+    f = fopen(tmp, "wb");
     if (f == NULL)
         return -1;
-    if (dlen > 0 && fwrite(data, 1, dlen, f) != dlen) { fclose(f); return -1; }
-    if (fclose(f) != 0)
+    if ((dlen > 0 && fwrite(data, 1, dlen, f) != dlen) || fclose(f) != 0) {
+        unlink(tmp);
         return -1;
-    return 0;
-}
-
-/* Repoint any record value that is exactly OLD or "aisc:@OLD" to NEU, matching at
- * end-of-line: "|OLD\n" -> "|NEU\n" and "|aisc:@OLD\n" -> "|aisc:@NEU\n". Rewrites
- * the NUL-terminated record text TEXT in place into a fresh malloc'd buffer. */
-static char *ren_rewrite(char *text, const struct renmap *m)
-{
-    int i;
-    for (i = 0; i < m->n; i++) {
-        char pat[AIS_PATH_MAX + 16], apat[AIS_PATH_MAX + 24];
-        char rep[AIS_PATH_MAX + 16], arep[AIS_PATH_MAX + 24];
-        int f;
-        const char *pats[2], *reps[2];
-
-        snprintf(pat, sizeof pat, "|%s\n", m->old[i]);
-        snprintf(rep, sizeof rep, "|%s\n", m->neu[i]);
-        snprintf(apat, sizeof apat, "|aisc:@%s\n", m->old[i]);
-        snprintf(arep, sizeof arep, "|aisc:@%s\n", m->neu[i]);
-        pats[0] = pat;  reps[0] = rep;          /* plain document value           */
-        pats[1] = apat; reps[1] = arep;         /* encrypted-document value       */
-
-        for (f = 0; f < 2; f++) {
-            size_t plen = strlen(pats[f]), rlen = strlen(reps[f]);
-            char *hit;
-            while ((hit = strstr(text, pats[f])) != NULL) {
-                size_t before = (size_t)(hit - text);
-                size_t tail = strlen(hit + plen);
-                char *nt = malloc(before + rlen + tail + 1);
-                if (nt == NULL) return text;
-                memcpy(nt, text, before);
-                memcpy(nt + before, reps[f], rlen);
-                memcpy(nt + before + rlen, hit + plen, tail + 1);
-                free(text);
-                text = nt;
-            }
-        }
     }
-    return text;
+    if (ais_doc_blob_place(dir, relpath, tmp, outrel, sizeof outrel) != 0) {
+        unlink(tmp);
+        return -1;
+    }
+    if (strcmp(outrel, relpath) != 0)
+        return ais_blobmap_add(m, relpath, outrel);
+    return 0;
 }
 
 /* Parse + merge a raw (UNSEALED) bundle DATA[0..len): version gate, blob-import loop,
@@ -291,7 +182,7 @@ int sync_import_plain(ais *a, const uint8_t *data, size_t len)
 {
     int ret = -1;
     FILE *mf;
-    struct renmap map = { NULL, NULL, 0, 0 };
+    ais_blobmap map = { NULL, NULL, 0, 0 };
     size_t off;
     char *rectext = NULL;
 
@@ -351,22 +242,21 @@ int sync_import_plain(ais *a, const uint8_t *data, size_t len)
         off += (size_t)size;                    /* past the raw content */
     }
 
-    /* Record text = the rest of the payload, NUL-terminated so we can rewrite it. */
+    /* Record text = the rest of the payload, NUL-terminated for fmemopen. */
     rectext = malloc(len - off + 1);
     if (rectext == NULL) goto done;
     memcpy(rectext, data + off, len - off);
     rectext[len - off] = '\0';
-    if (map.n > 0)
-        rectext = ren_rewrite(rectext, &map);   /* repoint collided blob values */
 
     mf = fmemopen(rectext, strlen(rectext), "r");
     if (mf == NULL) goto done;
-    feed_import_from(a, mf);                     /* record stream -> merge */
+    feed_import_from_map(a, mf, &map);           /* record stream -> merge, values
+                                                  * repointed once each */
     fclose(mf);
     ret = 0;
 
 done:
-    ren_free(&map);
+    ais_blobmap_free(&map);
     if (rectext) free(rectext);
     return ret;
 }
