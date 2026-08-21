@@ -54,6 +54,8 @@ int tomb_lookup(const ais *a, long id, char *ts, size_t tsz);
 
 /* Remove every tomb entry for ID (rewrite) -- resurrect the record. 0/-1. */
 int tomb_remove(const ais *a, long id);
+int tomb_lookup_hash(const ais *a, const char *hash, char *ts, size_t tsz, long *idp);
+int tomb_remove_hash(const ais *a, const char *hash);
 
 /* Key-level tombstones (INDEX/ktomb): "record ID does not carry KEY", the
  * append-only counterpart of the record tomb. Detach records the pair here (with a

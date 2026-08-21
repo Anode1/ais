@@ -3981,6 +3981,63 @@ static void test_sync_delete_survives_compact(void)
     scratch_rm(da); scratch_rm(db);
 }
 
+/* B3 again, and the case the test above cannot see: it exports from B only AFTER
+ * B has imported the delete, so B's stream carries no A| for that value. Capture
+ * the peer's view BEFORE the delete and the real question appears -- compaction
+ * drops the record's store line, so the arriving value no longer resolves to an
+ * id, and a tombstone consulted only by id is not consulted at all. */
+static void test_sync_stale_peer_cannot_resurrect(void)
+{
+    ais A, B;
+    FILE *stale;
+    const char *da = "/tmp/ais_ut_srA", *db = "/tmp/ais_ut_srB";
+
+    scratch_rm(da); scratch_rm(db);
+    ais_open(&A, da); ais_open(&B, db);
+    ais_put(&A, "shared", "gone soon");
+    ais_put(&B, "shared", "gone soon");         /* B holds the same value */
+
+    stale = tmpfile();                          /* B's view BEFORE it hears anything */
+    feed_export(&B, stale);
+
+    ais_del(&A, 1);
+    CHECK(ais_compact(&A) == 0, "stale: A compacts after the delete");
+    CHECK(value_present(&A, "gone soon") == 0, "stale: the record is gone in A");
+
+    rewind(stale); feed_import_from(&A, stale); fclose(stale);
+    CHECK(value_present(&A, "gone soon") == 0,
+          "stale: a peer that never saw the delete cannot resurrect it");
+
+    ais_close(&A); ais_close(&B);
+    scratch_rm(da); scratch_rm(db);
+}
+
+/* The mirror of that rule, so the fix refuses a stale peer and not the user: a
+ * value saved AGAIN after it was deleted and compacted away is a new record, and
+ * the tombstone it overrides must not follow it out and kill it on a peer. */
+static void test_resave_after_compacted_delete(void)
+{
+    ais A, B;
+    FILE *t;
+    const char *da = "/tmp/ais_ut_rsA", *db = "/tmp/ais_ut_rsB";
+
+    scratch_rm(da); scratch_rm(db);
+    ais_open(&A, da); ais_open(&B, db);
+    ais_put(&A, "shared", "back again");
+    ais_del(&A, 1);
+    CHECK(ais_compact(&A) == 0, "resave: A compacts the delete away");
+    ais_put(&A, "shared", "back again");        /* the user saves it again, now */
+    CHECK(value_present(&A, "back again") == 1, "resave: a local re-save is not refused");
+
+    t = tmpfile();
+    feed_export(&A, t); rewind(t); feed_import_from(&B, t); fclose(t);
+    CHECK(value_present(&B, "back again") == 1,
+          "resave: and it reaches the peer instead of being killed by the old D|");
+
+    ais_close(&A); ais_close(&B);
+    scratch_rm(da); scratch_rm(db);
+}
+
 /* B1: a device-id clone (the same syncid copied to a second device) is detected
  * and healed -- one device regenerates a fresh id, so the two never clobber a
  * shared file and both still converge. */
@@ -4946,6 +5003,10 @@ int main(void)
     test_sync_frame_reject();
     printf("folder sync B3 (delete survives compaction):\n");
     test_sync_delete_survives_compact();
+    printf("folder sync B3 (a stale peer cannot resurrect a compacted delete):\n");
+    test_sync_stale_peer_cannot_resurrect();
+    printf("re-save after a compacted delete:\n");
+    test_resave_after_compacted_delete();
     printf("folder sync B1 (device-id clone healed):\n");
     test_sync_clone_heal();
     printf("folder sync I1 (tag removal propagates + survives compaction):\n");

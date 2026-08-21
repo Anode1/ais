@@ -426,6 +426,34 @@ long ais_put_at_k(ais *a, const char *keys, const char *value, const char *ts,
         goto out;
     }
 
+    /* Not in the store -- but that is not the same as never having been here.
+     * Compaction drops a deleted record's line while KEEPING its tombstone
+     * (compact.c: "so an offline peer can't resurrect a deleted record"), so the
+     * value stops resolving to an id and an id-keyed check stops seeing it. The
+     * hash is what survives, and it is the same last-write-wins rule as above:
+     * strictly newer resurrects, a tie keeps the delete. Without this a peer that
+     * was switched off when the user deleted something pushes it back on the next
+     * sync, and a deleted secret comes back after its ciphertext was shredded. */
+    {
+        char h[17], del_ts[AIS_TS_MAX];
+        long dead_id = 0;
+        int deleted;
+
+        content_hash(value, h);
+        deleted = tomb_lookup_hash(a, h, del_ts, sizeof del_ts, &dead_id);
+        if (deleted < 0) { rc = -1; goto out; }
+        if (deleted == 1) {
+            int win = 1;                     /* NULL ts = the user saving it now */
+            if (ts != NULL)
+                win = (strcmp(ts, del_ts) > 0);
+            if (!win) { rc = dead_id; goto out; }   /* the delete is newer: stay deleted */
+            /* It wins, so the delete fact must go with it: retained, it would
+             * export as a D| carrying this very hash and kill the new record on
+             * every peer that applies it. */
+            if (tomb_remove_hash(a, h) != 0) { rc = -1; goto out; }
+        }
+    }
+
     id = a->next_id;
     {
         char now[AIS_TS_MAX];

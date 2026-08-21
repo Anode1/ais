@@ -145,6 +145,92 @@ int tomb_lookup(const ais *a, long id, char *ts, size_t tsz)
     return found;
 }
 
+/* Copy the delete-ts of the LAST entry carrying HASH into TS, and its id into IDP.
+ * The hash is what makes a deletion portable: after a compaction the record's
+ * store line is gone, so its id resolves to nothing and only the hash can still
+ * answer "was this value deleted here?". Empty/legacy (v1) entries carry no hash
+ * and never match. Returns 1 found, 0 not, -1 on error. Mirrors tomb_lookup. */
+int tomb_lookup_hash(const ais *a, const char *hash, char *ts, size_t tsz, long *idp)
+{
+    char path[AIS_PATH_MAX], line[AIS_LINE_MAX];
+    FILE *fp;
+    int found = 0;
+
+    if (ts != NULL && tsz > 0)
+        ts[0] = '\0';
+    if (hash == NULL || hash[0] == '\0')
+        return 0;
+    if (compact_path(a, "tomb", path, sizeof(path)) != 0)
+        return -1;
+    fp = fopen(path, "r");
+    if (fp == NULL)
+        return (errno == ENOENT) ? 0 : -1;
+    while (fgets(line, sizeof(line), fp) != NULL) {
+        char *t, *h, *nl;
+        long id = atol(line);
+        nl = strchr(line, '\n');
+        if (nl != NULL) *nl = '\0';
+        t = strchr(line, '|');
+        if (t == NULL) continue;             /* legacy "id" only: no hash to match */
+        *t++ = '\0';
+        h = strchr(t, '|');
+        if (h == NULL) continue;
+        *h++ = '\0';
+        if (strcmp(h, hash) != 0) continue;
+        found = 1;                            /* keep going: the LAST match is the latest */
+        if (idp != NULL) *idp = id;
+        if (ts != NULL && tsz > 0) { strncpy(ts, t, tsz - 1); ts[tsz - 1] = '\0'; }
+    }
+    fclose(fp);
+    return found;
+}
+
+/* Remove every tomb entry carrying HASH -- the value is being saved again, and a
+ * retained delete fact for it would export as a D| that kills the new record on
+ * every peer. Returns 0 (including when nothing matched), or -1 on error. */
+int tomb_remove_hash(const ais *a, const char *hash)
+{
+    char path[AIS_PATH_MAX], tmp[AIS_PATH_MAX], orig[AIS_LINE_MAX], work[AIS_LINE_MAX];
+    FILE *in, *out;
+    long kept = 0;
+    int removed = 0;
+
+    if (hash == NULL || hash[0] == '\0')
+        return 0;
+    if (compact_path(a, "tomb", path, sizeof(path)) != 0)
+        return -1;
+    in = fopen(path, "r");
+    if (in == NULL)
+        return (errno == ENOENT) ? 0 : -1;
+    if (snprintf(tmp, sizeof(tmp), "%s.tmp", path) >= (int)sizeof(tmp)) {
+        fclose(in);
+        return -1;
+    }
+    out = fopen(tmp, "w");
+    if (out == NULL) {
+        fclose(in);
+        return -1;
+    }
+    while (fgets(orig, sizeof(orig), in) != NULL) {
+        char *t, *h, *nl;
+        strncpy(work, orig, sizeof(work) - 1);
+        work[sizeof(work) - 1] = '\0';
+        nl = strchr(work, '\n');
+        if (nl != NULL) *nl = '\0';
+        t = strchr(work, '|');
+        h = (t != NULL) ? strchr(t + 1, '|') : NULL;
+        if (h != NULL && strcmp(h + 1, hash) == 0) { removed = 1; continue; }
+        fputs(orig, out);
+        kept++;
+    }
+    fclose(in);
+    if (fclose(out) != 0) { unlink(tmp); return -1; }
+    if (!removed)   { unlink(tmp); return 0; }
+    if (kept == 0)  { unlink(tmp); unlink(path); return 0; }
+    if (rename(tmp, path) != 0) { unlink(tmp); return -1; }
+    return 0;
+}
+
 /* Remove every tomb entry for ID (rewrite the file) -- resurrect the record. Returns 0
  * (including when ID was not present), or -1 on error. Mirrors ktomb_remove. */
 int tomb_remove(const ais *a, long id)
