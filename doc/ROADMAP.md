@@ -38,9 +38,11 @@ secrets — have shipped (see above).
 The **Android** app has shipped (above); **iOS** is the next focus. The same
 **Flutter** app (`app/flutter/`) runs over the C engine through the FFI seam
 (`embed.h` is the contract), and the iOS scaffold, its platform channels and the
-`ais://` scheme are already written. What is left is compiling the engine into
-the Runner target and the Apple side: signing, a device, TestFlight. No interface
-work, since the screens are shared with Android, and no core changes.
+`ais://` scheme are already written. The engine is wired in
+(`ais_engine.podspec`), and CI builds the app unsigned on macOS and launches it
+on a simulator, where the engine opens an index. What is left is the Apple side:
+signing, a device, TestFlight. No interface work, since the screens are shared
+with Android, and no core changes.
 Issue [#1](https://github.com/Anode1/ais/issues/1) carries the whole brief: what
 is missing, the signing steps and how to tell it works. A native Swift client
 over the same `embed.h` seam is possible and nothing needs it; the spec that

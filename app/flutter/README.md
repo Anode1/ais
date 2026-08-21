@@ -37,8 +37,9 @@ This scaffold holds only the Dart + the native CMake. Generate the
   and ensure `libais.so` is bundled next to the runner.
 
 - **iOS**: the engine is wired in by `../../ais_engine.podspec` and arrives as
-  `ais_engine.framework` in the app bundle. CI builds it unsigned on macOS on
-  every change to `c/**` or the app. Signing, a device and TestFlight are in
+  `ais_engine.framework` in the app bundle. CI builds it unsigned on macOS and
+  launches it on a simulator on every change to `c/**` or the app, asserting the
+  engine opens an index. Signing, a device and TestFlight are in
   <https://github.com/Anode1/ais/issues/1>.
 
 ## Build / run
