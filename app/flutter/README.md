@@ -10,57 +10,37 @@ PWA.
     lib/main.dart      the UI: search + mic + results + put (recall-first)
     src/CMakeLists.txt builds the engine as libais.so for Android & Linux
 
-## One-time: generate the platform folders
+## How the engine gets in
 
-This scaffold holds only the Dart + the native CMake. Generate the
-`android/ ios/ linux/` runners over it (keeps `lib/` and `pubspec.yaml`):
+The platform runners (`android/ ios/ linux/`) are committed; nothing needs
+generating. Each one reaches the same C sources a different way, and all three
+lists must stay in step:
 
-    cd app/flutter
-    flutter create --org com.aisindex --project-name ais --platforms=android,ios,linux .
-    flutter pub get
-
-## Wire the native build to the C engine
-
-- **Android**: in `android/app/build.gradle`, point the NDK build at our CMake:
-
-      android {
-        defaultConfig { externalNativeBuild { cmake { } } }
-        externalNativeBuild { cmake { path "../../src/CMakeLists.txt" } }
-      }
-
-  Needs the Android SDK + NDK (doc/android-install.md). Produces `libais.so` per ABI.
-
-- **Linux desktop** (for testing here): in `linux/CMakeLists.txt` add:
-
-      add_subdirectory(../src ais_build)
-
-  and ensure `libais.so` is bundled next to the runner.
-
-- **iOS**: the engine is wired in by `../../ais_engine.podspec` and arrives as
-  `ais_engine.framework` in the app bundle. CI builds it unsigned on macOS and
-  launches it on a simulator on every change to `c/**` or the app, asserting the
-  engine opens an index. Signing, a device and TestFlight are in
+- **Android** builds `libais.so` per ABI through the NDK, pointed at
+  `src/CMakeLists.txt` from `android/app/build.gradle.kts`. Needs the Android SDK
+  and NDK (`../../doc/android-install.md`).
+- **Linux desktop** adds the same CMake as a subdirectory from
+  `linux/CMakeLists.txt`, so `flutter run -d linux` is a real sanity check of the
+  FFI without a phone.
+- **iOS** takes the sources through `../../ais_engine.podspec`, which delivers
+  them as `ais_engine.framework` in the app bundle. CI builds it unsigned on
+  macOS and launches it on a simulator on every change to `c/**` or the app,
+  asserting the engine opens an index. Signing, a device and TestFlight are in
   <https://github.com/Anode1/ais/issues/1>.
 
 ## Build / run
 
     flutter run -d linux      # desktop sanity check (uses libais.so)
     flutter run -d <android>  # your Android device
-    # iOS: open ios/Runner.xcworkspace on Zoya's Mac, sign, run / TestFlight
 
-Release builds take their version from the git tag, not from `pubspec.yaml`:
+Release builds take their version from the git tag, never from `pubspec.yaml`:
 
     flutter build appbundle --release $(sh tool/version.sh)
     flutter build ipa --release $(sh tool/version.sh)
 
-`tool/version.sh` prints `--build-name`/`--build-number` (store metadata) and the
-matching `--dart-define`s (what the About screen shows), all from the nearest
-`vX.Y.Z` tag plus the commit count. `pubspec.yaml`'s `version:` is only the
-fallback for a plain `flutter run`.
-
-## Android SDK (Linux)
-
-Android SDK setup: see doc/android-install.md.
+Why those flags are not optional, and what `tool/version.sh` derives, is in
+[`../../doc/dev/VERSIONING.md`](../../doc/dev/VERSIONING.md). Publishing is
+[`../../doc/dev/ANDROID_RELEASE.md`](../../doc/dev/ANDROID_RELEASE.md).
 
 ## Notes
 

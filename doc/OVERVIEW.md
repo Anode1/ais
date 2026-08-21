@@ -1,4 +1,4 @@
-# AIS Overview: design, status, provenance
+# AIS: design rationale and provenance
 
 What AIS is and isn't, in brief: [`about.txt`](about.txt).
 The on-disk format and module map: [`LAYOUT.md`](dev/LAYOUT.md).
@@ -8,16 +8,7 @@ What it is, in one phrase: an extension of your **associative memory**, a workin
 
 Design in one line: an **immutable content store** plus a small, **rebuildable key index**.
 
-One engine (the CLI is the contract) with thin front-ends over a small FFI seam: the web GUI (`ais --serve`), the **Flutter mobile app**, and a **native Win32 desktop** wrapper (niche/legacy); a browser **PWA/WASM** build is a planned future track, not shipped.
-
-## Repository layout
-
-| Path | What |
-|------|------|
-| `c/` | The **ANSI C / C99 reference implementation**: the current tool. |
-| `legacy/` | The preserved original project: the **2005 shell scripts** (`ais-scripts`, the earliest implementation) and the **2009 Java/Lucene** release, plus screenshots and SourceForge metadata. || `doc/dev/STYLE.md` | Coding style and ideology: C99, stack/streaming discipline, append-only sharded storage. |
-| `tests/INDEX/store` | A small sample index: the test fixture and a worked example of the store format. |
-| `example/` | A ready-to-use **sample index**: `ais -f example docs`, or read `example/store` by hand. Models correct usage: links (paths, URLs) and short notes, **not** stored documents. |
+Where the code lives: [`dev/LAYOUT.md`](dev/LAYOUT.md) for the module map, [`../AGENTS.md`](../AGENTS.md) for the directories. What has shipped and what is next: [`ROADMAP.md`](ROADMAP.md). Which front end each platform gets: [`dev/DISTRIBUTION.md`](dev/DISTRIBUTION.md).
 
 ## Design philosophy
 
@@ -30,22 +21,6 @@ Performance is traded for **universality, robustness, and longevity**: the store
 - **A personal prior, shareable but forkable.** One person's index is their own ordering of the world (their bias). It can be handed to another as a map into an unfamiliar tree, *read these first, in this order*, but the recipient adapts it rather than inheriting an imposed ontology: the tool preserves a plurality of priors, it does not replace many with one. The "a model trained on everyone gives you the average; only you hold your prior" argument lives in [`foundation.md`](foundation.md).
 - **Human-curated, not model-rewritten.** A machine asked to recompress the store optimizes its own objective and drops what the keeper marked essential: it cannot tell, from its own context, which items are load-bearing rather than restatable. So the ledger is curated by human decision, never silently rewritten by the model. (This failure, observed while recompressing an early ledger, motivates the author's open call for reserved keys, "strong words", that a recompressor must preserve verbatim.)
 - **Versioned evolution.** Kept under version control, the index lives its own life: branches and merges are cheap variation and recombination, and the history records its compression over time. Version control supplies the cheap half (variation); what survives is still chosen by people and use.
-
-## Status
-
-v0.3: the C core is working and tested (`make ut`: the C unit tests plus the
-end-to-end CLI/streaming suite, all green). Implemented: key algebra (AND/OR over
-sorted-unique posting sets), `save`/`add`/`del`/`dump`/`find`/`import`/`doc`/`init`,
-inline-encrypted secrets (`-e`, stored as opaque `aisc:` values), multi-line
-documents saved as blob files (`--doc`, recalled as their content), `timeline`
-(recent records by save time, dateless first) and `tags` (every key by record
-count) over a per-record timestamp column, multiple named indexes
-(`--switch`/`--indexes`) with a default project (`--project`), one-way LAN transfer
-and two-way device sync (`--export`/`--import`, `--sync`), an id→offset fast path
-for large stores, an append-only immutable store with confirmation-guarded deletes,
-multi-link records, UTF-8 keys, and a local web GUI (`ais --serve`). The store is
-plain text and the whole index rebuilds from it (`compact`); the CLI is the
-contract, and the GUIs are thin wrappers over it.
 
 ## Provenance
 

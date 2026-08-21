@@ -1,57 +1,40 @@
-# gui/ -- GUI wrappers (thin front ends over the `ais` CLI)
+# gui/ -- the double-click launchers
 
-AIS is a command-line tool; the CLI is the portable, stable core. A GUI is a
-thin front end that drives `ais` and renders its plain-text output -- it never
-reimplements the engine, so it stays optional and replaceable.
+Three one-line launchers that start `ais --serve` and let the browser be the GUI,
+one per desktop:
 
-One engine (CLI = contract) with thin front-ends over the embed FFI seam: web
-(`ais --serve`), Flutter mobile, native Win32 (niche/legacy, see win32/README.md);
-browser PWA/WASM is a planned future track.
+    ais-web.bat        Windows
+    ais-web.command    macOS
+    ais-web.desktop    Linux
 
-## The web GUI, recall-first
+They ship inside the platform zips, so a user who never opens a terminal still
+gets the web GUI. Which front ends exist and which one each platform gets is in
+[`../doc/dev/DISTRIBUTION.md`](../doc/dev/DISTRIBUTION.md); what they must look
+like is [`../doc/dev/GUI.md`](../doc/dev/GUI.md).
 
-Layout follows the v1 search look: a keys box on top, **Get** (or Enter) lists
-the results one value per line with a `N results for Q - T ms` header; an
-expandable **+ add** panel below holds put/doc (adding is the rarer action).
+## Which index a launcher opens
 
-- **Web:** `ais --serve`  -- then open <http://127.0.0.1:8765/>
-  Built INTO the binary (`c/serve.c`): no Python, no framework, no extra files.
-  A tiny localhost HTTP loop serving an embedded page that calls the engine
-  directly. The most portable surface (any browser); on macOS it needs only the
-  built binary plus a browser. Binds 127.0.0.1 only (single user; do not expose).
+A GUI is the same engine behind a window, so it resolves the index exactly like
+the CLI, and reads no environment variable to do it:
 
-## Which index a GUI uses
+    -f DIR  >  the nearest .ais/ at or above the working directory (git-style)
+            >  the saved default in ~/.ais/config  >  ~/.ais
 
-A GUI is the same `ais` engine behind a window, so it resolves the index exactly
-like the CLI (no env vars): `-f DIR` > nearest `.ais/` at or above the working
-directory (git-style) > the saved default in `~/.ais/config` > `~/.ais`.
+Each launcher `cd`s to **its own folder** first. So a `.ais/` sitting next to the
+launcher is what the git-style walk finds, with no `-f` and no configuration:
+copy an index in beside it and that is the one that opens. Otherwise it opens the
+saved default, or `~/.ais`.
 
-The double-click launchers `cd` to their **own folder** before running
-`ais --serve`, so a `.ais/` shipped **next to the launcher** is found by the
-git-style walk, with no `-f`. To **seed** it, drop a `.ais/` beside the launcher
-(for example, copy one from another project) and the GUI opens that one;
-otherwise it opens your saved default, or `~/.ais`. To switch indexes for good,
-use the GUI's "Store…" chooser (it writes the legacy `index = PATH` default) or
-run `ais --switch -c NAME DIR` once, which takes precedence over that line.
+`ais --serve` typed by hand follows the same order, so it opens the saved default
+unless you `cd` into a tree that has a `.ais/` or pass `-f`.
 
-`ais --serve` run by hand follows the same resolution: your saved default
-(or `~/.ais`), unless you cd into a `.ais/` tree or pass `-f`.
+To change the default for good, use the **change** control next to the store path
+in any of the front ends, or run `ais --switch -c NAME DIR` once.
 
-## Why so thin
+## Why they are this thin
 
-The CLI is the contract (`ais KEY...` -> `id|value` lines; `ais -v -`,
-`ais --doc`, `ais --dump`, ...). No GUI toolkit lasts forever, so the engine never
-depends on one -- betting the app on a toolkit is the mistake; a thin, swappable
-wrapper is the hedge. A GTK / Qt / Cocoa front end is equally possible: port the
-~150 lines, keep the command line.
-
-(Python wrappers -- a Tkinter twin and a stdlib web bridge -- were dropped once
-`ais --serve` gave a dependency-free web GUI, to avoid double maintenance.)
-
-## Planned: show and switch the store from the GUI
-
-- **Show the current store** (the resolved index path) in each GUI's header, so
-  you always know which index you are looking at.
-- A **Store** button to switch the active index from inside the GUI (the web
-  page, the native Windows app, and the Flutter app), so users never need `-f`
-  or the command line to point at a different index.
+The CLI is the contract, and no GUI toolkit lasts forever, so the engine never
+depends on one: a front end drives `ais` and renders its plain-text output.
+Porting to GTK, Qt or Cocoa is a rewrite of the wrapper, not of the product. (Two
+Python wrappers were dropped once `ais --serve` gave a dependency-free web GUI
+rather than maintain both.)
