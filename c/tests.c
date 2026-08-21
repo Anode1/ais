@@ -595,6 +595,42 @@ static void test_compact_recover_debris(void)
     scratch_rm(dir);
 }
 
+/* The other half of that window, and the dangerous one. Past the store commit the
+ * FRESH idx/ is authoritative and the old tree is being deleted; a kill in there
+ * used to leave a half-deleted idx.bak that recovery then restored OVER the good
+ * tree, and every keyed lookup afterwards returned a subset with exit 0 and no
+ * warning. The tree being deleted is renamed out of recovery's vocabulary first,
+ * so debris under that name must be ignored, not restored. */
+static void test_compact_post_commit_debris_ignored(void)
+{
+    ais a;
+    struct idvec v;
+    struct stat st;
+    char gone[AIS_PATH_MAX], junk[AIS_PATH_MAX];
+    FILE *fp;
+    const char *dir = "/tmp/ais_ut_compact_gone";
+
+    build_fixture(&a, dir);
+    CHECK(ais_compact(&a) == 0, "gone: a clean compaction first");
+    ais_close(&a);
+
+    /* the shape a kill inside the delete window leaves behind */
+    snprintf(gone, sizeof(gone), "%s/idx.gone", dir);
+    snprintf(junk, sizeof(junk), "%s/idx.gone/zz", dir);
+    CHECK(mkdir(gone, 0777) == 0, "gone: planted a half-deleted old tree");
+    fp = fopen(junk, "w");
+    if (fp != NULL) { fputs("999\n", fp); fclose(fp); }
+
+    ais_open(&a, dir);                       /* runs compact_recover */
+    query(&a, AIS_AND, &v, 2, "c", "ansi");
+    { long w[2] = {3, 4}; CHECK(ids_eq(&v, w, 2), "gone: idx/ survives, reads are whole"); }
+    CHECK(ais_compact(&a) == 0, "gone: the next compaction succeeds");
+    CHECK(stat(gone, &st) != 0, "gone: and sweeps the leftover");
+
+    ais_close(&a);
+    scratch_rm(dir);
+}
+
 /* ---- a key-detach survives an unaware peer's stale re-attach (LWW) ---------
  * On the merge path (A|ts| lines), a re-attach wins only if its ts is NEWER
  * than the detach, whatever order the lines arrive in. */
@@ -4910,6 +4946,7 @@ int main(void)
     test_compact_next_id_no_reuse();
     test_compact_rollback();
     test_compact_recover_debris();
+    test_compact_post_commit_debris_ignored();
     test_detach_lww();
     printf("recovery:\n");
     test_next_id_recovery();

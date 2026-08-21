@@ -1143,7 +1143,7 @@ static int compact_locked(ais *a)
     char offp[AIS_PATH_MAX], offnew[AIS_PATH_MAX];
     char multip[AIS_PATH_MAX], multinew[AIS_PATH_MAX];
     char idxpath[AIS_PATH_MAX];
-    char idxbak[AIS_PATH_MAX];
+    char idxbak[AIS_PATH_MAX], idxgone[AIS_PATH_MAX];
     struct compact_ctx c;
     struct stat st;
     int staged = 0;                          /* 1 while the old idx sits in idx.bak */
@@ -1163,7 +1163,8 @@ static int compact_locked(ais *a)
     if (compact_path(a, "store", storepath, sizeof(storepath)) != 0 ||
         compact_path(a, "store.new", newpath, sizeof(newpath)) != 0 ||
         compact_path(a, "idx", idxpath, sizeof(idxpath)) != 0 ||
-        compact_path(a, "idx.bak", idxbak, sizeof(idxbak)) != 0)
+        compact_path(a, "idx.bak", idxbak, sizeof(idxbak)) != 0 ||
+        compact_path(a, "idx.gone", idxgone, sizeof(idxgone)) != 0)
         return -1;
 
     /* Stage the old posting tree aside instead of destroying it up front. get()
@@ -1177,6 +1178,8 @@ static int compact_locked(ais *a)
                                               * pass rebuilds idx/ from the store, so a
                                               * stale backup only blocks the rename below */
         return -1;
+    compact_rmtree(idxgone);                 /* best-effort: a tree a previous run was
+                                              * deleting when it died (see the commit) */
     if (lstat(idxpath, &st) == 0) {
         if (rename(idxpath, idxbak) != 0)
             return -1;
@@ -1236,8 +1239,19 @@ static int compact_locked(ais *a)
      * holds only forces the slow path. */
     if (rename(offnew, offp) != 0 || rename(multinew, multip) != 0)
         goto cleanup;
-    compact_rmtree(idxbak);                  /* best-effort: a leftover idx.bak only costs the
-                                              * next compaction one rebuild-from-store pass */
+    /* The old tree must stop being something recovery would RESTORE before it is
+     * deleted, not after. Past the commit, idx/ is the authoritative tree; a kill
+     * inside the rmtree below used to leave a half-deleted idx.bak that
+     * compact_recover then put back OVER the good one, and every keyed lookup
+     * afterwards returned a subset, exit 0, no warning. The rename is atomic and
+     * takes the tree out of recovery's vocabulary; the rmtree that follows is not
+     * atomic and no longer needs to be. A leftover idx.gone costs nothing and the
+     * next compaction sweeps it. */
+    if (rename(idxbak, idxgone) == 0)
+        compact_rmtree(idxgone);
+    else
+        compact_rmtree(idxbak);              /* rename failed (same dir, so barely
+                                              * possible): delete in place as before */
 
     /* B3 + I1: RETAIN hash-bearing delete AND key-detach tombstones (so an offline peer
      * can't resurrect a deleted record or re-attach a removed tag on the next folder
