@@ -20,8 +20,7 @@ present under every desktop download.
 
 Rule of thumb, matching how normal apps ship: the unix desktops get the universal
 web GUI, Android gets the Flutter app, and the CLI is under every desktop
-download. **Windows will again get a native app once the desktop GUI rework lands**
-(see below); until then its download is temporarily withheld.
+download.
 
 ## Windows: native build, temporarily not published
 

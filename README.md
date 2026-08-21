@@ -101,7 +101,8 @@ Yes. A secret is stored encrypted inline (`-e`), so a login lives right next to 
 | [`doc/OVERVIEW.md`](doc/OVERVIEW.md) | Why it is built this way, and where it came from. |
 | [`doc/ROADMAP.md`](doc/ROADMAP.md) | What's planned, and where to help. |
 | [`doc/dev/LAYOUT.md`](doc/dev/LAYOUT.md) | On-disk format and module map. |
-| [`doc/dev/PROSE.md`](doc/dev/PROSE.md) | How these documents are written. |
+| [`AGENTS.md`](AGENTS.md) | How to develop it: the contract, the build, the test loop. |
+| [`doc/dev/README.md`](doc/dev/README.md) | Every other developer note, indexed: sync, front ends, packaging, releases. |
 | `man ais` | Full command reference. |
 
 ## For coding agents: recall instead of searching again

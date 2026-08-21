@@ -8,8 +8,7 @@ Help is welcome: open an issue to claim a piece.
 
 ## Shipped
 
-- **Command line** (`ais`): Linux and macOS. (The Windows CLI is CI-validated but
-  temporarily not published while the desktop GUI is reworked.)
+- **Command line** (`ais`): Linux and macOS.
 - **Local web GUI** (`ais --serve`, 127.0.0.1 only): the default GUI on every desktop OS.
 - **Android app** (Flutter over the C engine via the `embed.h` FFI seam): built and
   published each release as `.apk` (sideload) and `.aab` (Play bundle).
@@ -24,8 +23,10 @@ Help is welcome: open an issue to claim a piece.
   one-time token), LAN-only. See [`doc/SYNC.md`](SYNC.md).
 - **Multiple named indexes** (`--switch` / `--indexes` / `--forget`) with a default
   project (`--project`).
-- **Native Windows app** (`win32/`, pure Win32 over the engine): built and CI-validated,
-  temporarily not published during the GUI rework.
+- **Native Windows app** (`win32/`, pure Win32 over the engine): built and
+  CI-validated. Neither it nor the Windows CLI is published while the desktop GUI
+  is reworked; what ships on each platform is in
+  [`dev/DISTRIBUTION.md`](dev/DISTRIBUTION.md).
 
 ## Planned
 
