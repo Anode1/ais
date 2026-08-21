@@ -74,8 +74,9 @@ static const char PAGE[] =
 "@media(prefers-color-scheme:dark){:root{--accent:#bbc3ff;--fabbg:#414a71;--fabfg:#dee0ff;--line:#33333e;--muted:#9b9ba7;--bg:#15151b;--fg:#e7e7ef;--card:#23232c;--field:#2b2b35;--barbg:rgba(28,28,36,.72);--danger:#ff8172}}"
 "*{box-sizing:border-box}html{color-scheme:light dark}"   /* native date/checkbox/scrollbars follow the theme */
 "body{font:16px/1.45 system-ui,sans-serif;color:var(--fg);background:var(--bg);margin:0}"
-"#bar{position:sticky;top:0;z-index:5;padding:12px 16px;background:var(--barbg);"
+"#bar{position:sticky;top:0;z-index:5;padding:12px 0;background:var(--barbg);"
 "backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border-bottom:1px solid var(--line)}"
+".barin{max-width:720px;margin:0 auto;padding:0 1rem}"   /* same measure as #out: header controls line up with the rows */
 ".titlerow{display:flex;align-items:baseline;gap:.5rem}"
 ".brand{font-size:1.55rem;font-weight:700}.muted{color:var(--muted)}"
 "#count{margin-left:auto;font-size:.8rem}"
@@ -92,6 +93,7 @@ static const char PAGE[] =
 ".link{border:0;background:none;color:var(--accent);cursor:pointer;font:inherit;text-decoration:underline;padding:0}"
 ".fab{position:fixed;right:18px;bottom:78px;border:0;border-radius:18px;padding:.9rem 1.3rem;"
 "cursor:pointer;font:inherit;font-weight:600;color:var(--fabfg);background:var(--fabbg);box-shadow:0 3px 10px rgba(0,0,0,.18)}"
+"#out:has(.addcta)~.fab{display:none}"   /* an empty state that offers its own Add hides the floating one */
 "#bnav{position:fixed;left:0;right:0;bottom:0;z-index:6;display:flex;background:var(--card);border-top:1px solid var(--line);box-shadow:0 -2px 12px rgba(0,0,0,.05)}"
 "#bnav button{flex:1;border:0;background:none;padding:.5rem 0 .62rem;font:inherit;font-size:.75rem;color:var(--muted);cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:.12rem}"
 "#bnav button .ic{font-size:1.3rem;line-height:1;padding:.15rem .85rem;border-radius:14px}"
@@ -151,7 +153,7 @@ static const char PAGE[] =
 "#sheet .card,#editsheet .card,#syncsheet .card{margin:0;max-width:none;border-radius:22px 22px 0 0;padding-bottom:1.4rem}"
 "#sheet .actions .primary{flex:1;border-radius:24px;padding:.8rem 1.1rem}}"
 "</style>"
-"<header id=bar><div class=titlerow><span class=brand>AIS</span><span id=count class=muted></span></div>"
+"<header id=bar><div class=barin><div class=titlerow><span class=brand>AIS</span><span id=count class=muted></span></div>"
 "<div class=searchrow><input id=q type=search placeholder='type tags to filter' autocomplete=off autofocus>"
 "<button id=seg-recall class=getbtn>Search</button></div>"
 "<label class=allk style='display:flex;align-items:center;gap:.4rem;font-size:.85rem;color:var(--muted);margin-top:.5rem'><input id=anyk type=checkbox style='width:auto'> Match any tag</label>"
@@ -161,7 +163,7 @@ static const char PAGE[] =
 "<div id=tlrange style='display:none;gap:.4rem;align-items:center;margin-top:.5rem;font-size:.85rem;color:var(--muted)'>"
 "<span>from</span><input id=tlfrom type=date style='font:inherit'>"
 "<span>to</span><input id=tlto type=date style='font:inherit'>"
-"<button id=tlclear class=link>clear</button></div></header>"
+"<button id=tlclear class=link>clear</button></div></div></header>"
 "<main id=out><p class=empty>Loading...</p></main>"
 "<button id=addbtn class=fab>+ Add</button>"
 "<div id=toast hidden><span>Deleted</span><button id=toastundo>Undo</button></div>"
@@ -229,7 +231,7 @@ static const char PAGE[] =
  * over the new. Each loader captures gen before its fetch and drops a stale result. */
 "var view='recall',viewGen=0;"
 /* empty-state call-to-action, reused by every empty view */
-"var addCTA='<button class=primary style=\"margin-top:1rem\" onclick=openSheet()>+ Add</button>';"
+"var addCTA='<button class=\"primary addcta\" style=\"margin-top:1rem\" onclick=openSheet()>+ Add</button>';"
 /* accept a comma as an optional tag separator; collapse extra whitespace, so
  * \"home, wifi\" and \"home   wifi\" both mean the tags home + wifi (Flutter parity) */
 "function normkeys(s){return s.replace(/,/g,' ').trim().replace(/\\s+/g,' ')}"
