@@ -13,6 +13,24 @@
  *   ais_embed_store(h, "venice italy", "https://example.org/p");
  *   ais_embed_close(h);
  */
+/* The rules a signature cannot state, and every embedder needs:
+ *
+ * - NOTHING HERE BELONGS ON THE UI THREAD. ais_embed_sync_serve blocks for up to
+ *   its timeout (~120 s) waiting for a peer, and ais_embed_sync_pull blocks for
+ *   the transfer. The Flutter app runs them on a background isolate.
+ * - ONE CALLER PER HANDLE. The handle is single-writer, so a recall issued while
+ *   a sync runs on the same handle is a data race. Calls serialize onto one
+ *   queue.
+ * - ONE SYNC AT A TIME. A scanned pairing link can arrive while a sync is
+ *   already running; the Flutter app keeps a _syncBusy flag and refuses the
+ *   second.
+ * - ONE LONG-LIVED HANDLE PER INDEX. ais_embed_open holds the single-writer lock
+ *   for the handle's lifetime, so the same directory is never opened twice.
+ * - SIGPIPE from a dropped socket is ignored inside this layer, so a peer
+ *   hanging up mid-sync does not terminate the host process. There is no fork()
+ *   on this path (that lives only in the CLI and the web host), which is what
+ *   makes it usable on iOS.
+ */
 #ifndef AIS_EMBED_H
 #define AIS_EMBED_H
 

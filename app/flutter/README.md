@@ -38,7 +38,7 @@ This scaffold holds only the Dart + the native CMake. Generate the
 
 - **iOS** (on a Mac): the engine is statically linked into the Runner target.
   Full instructions, prerequisites, signing and the acceptance checklist are in
-  `doc/dev/IOS_NATIVE.md`, which is the one file to hand an iOS developer.
+  `doc/dev/IOS.md`, which is the one file to hand an iOS developer.
 
 ## Build / run
 
