@@ -24,7 +24,7 @@ Pod::Spec.new do |s|
                                 # tag (see doc/dev/VERSIONING.md)
   s.summary  = 'The AIS index engine (C99), linked into the iOS app.'
   s.homepage = 'https://github.com/Anode1/ais'
-  s.license  = { :type => 'GPL-3.0', :file => 'COPYING' }
+  s.license  = { :type => 'GPL-2.0-or-later', :file => 'COPYING' }
   s.author   = { 'AIS' => 'https://github.com/Anode1/ais' }
   s.source   = { :path => '.' }
   s.platform = :ios, '13.0'
