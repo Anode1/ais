@@ -86,7 +86,8 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y ninja-build clang cmake pkg-config \
-                                  libgtk-3-dev xvfb xdotool imagemagick libgl1-mesa-dri
+                                  libgtk-3-dev xvfb xdotool imagemagick \
+                                  libgl1-mesa-dri libegl1 libegl-mesa0 libgles2 libglu1-mesa
 
       - name: build the engine the app binds to
         run: make
@@ -102,7 +103,12 @@ jobs:
           # and it deletes its work dir on the way out unless told otherwise,
           # which took the per-step screenshots with it -- the only evidence of
           # WHY a step missed, on a machine nobody can watch
-          KEEP: '1' 
+          KEEP: '1'
+          # Flutter draws through EGL/GLES, and Xvfb has no GPU. Without a
+          # software rasteriser every frame came out SOLID BLACK, which reads
+          # like a driver that missed its target rather than a missing driver.
+          LIBGL_ALWAYS_SOFTWARE: '1'
+          GALLIUM_DRIVER: llvmpipe
 
       # The harness drives a real window, so its per-step screenshots are the
       # only way to see WHY a step missed; without them a failure here is a
