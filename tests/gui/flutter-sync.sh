@@ -15,6 +15,10 @@ ui="$root/app/flutter/uitest/run.sh"
 
 [ -f "$ui" ] || { echo "  SKIP app/flutter/uitest/run.sh not found"; exit 77; }
 
+# run.sh is a BASH script (set -o pipefail, arrays): running it with `sh` fails
+# instantly on a dash /bin/sh, and this layer had skipped everywhere it was
+# tried, so nothing noticed until it finally ran on a CI runner.
+command -v bash >/dev/null 2>&1 || { echo "  SKIP no bash (uitest/run.sh needs it)"; exit 77; }
 command -v flutter >/dev/null 2>&1 || { echo "  SKIP no flutter SDK"; exit 77; }
 command -v xdotool >/dev/null 2>&1 || { echo "  SKIP no xdotool (X input)"; exit 77; }
 command -v import  >/dev/null 2>&1 || { echo "  SKIP no ImageMagick import (screenshots)"; exit 77; }
@@ -27,7 +31,7 @@ command -v ninja >/dev/null 2>&1 || { echo "  SKIP no ninja (flutter build linux
 pkg-config --exists gtk+-3.0 2>/dev/null \
     || { echo "  SKIP no gtk+-3.0 dev headers (flutter build linux)"; exit 77; }
 
-out=$(sh "$ui" 2>&1)
+out=$(bash "$ui" 2>&1)
 rc=$?
 if [ "$rc" = 0 ]; then
     echo "  ok   flutter sync UI (Host/Join converges with a CLI peer)"
