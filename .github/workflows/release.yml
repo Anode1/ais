@@ -40,7 +40,13 @@ jobs:
 
       - name: build and test
         run: |
-          make ut                    # builds the engine + runs all the tests
+          # The version comes from the TAG, not from `git describe`, which reads
+          # -dirty if anything in the checkout was touched -- and the suite below
+          # resolves Dart packages, which can rewrite a tracked lockfile. v0.3.19
+          # shipped stamped "0.3.19-dirty" for exactly that reason, so its
+          # binaries could not name the commit they came from.
+          echo "AIS_VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
+          make AIS_VERSION="${GITHUB_REF_NAME#v}" ut
           ./ais --version
 
       - name: package bundle + checksum
@@ -48,7 +54,7 @@ jobs:
           # One zip per platform: the ais binary (CLI) + GUI launcher
           # + docs + man/. dist.sh picks static (Linux) / dynamic (macOS)
           # by uname, so the matrix `make` field is no longer needed here.
-          sh scripts/dist.sh bin
+          sh scripts/dist.sh bin        # AIS_VERSION from the tag, exported above
           src=$(ls releases/*/ais-*.zip | head -n1)
           name="ais-${{ github.ref_name }}-${{ matrix.name }}"
           mkdir -p dist

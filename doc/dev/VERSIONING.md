@@ -153,6 +153,15 @@ Both workflows pin Flutter deliberately (currently 3.44.1); raise that pin and
 `android/`'s Gradle wrapper together, never one alone. iOS is not in the release
 matrix and cannot be until the app is signed (issue #1).
 
+**The artifacts are stamped from the tag, not from `git describe`.** Describe adds
+`-dirty` whenever anything in the checkout has been touched, and the suite the
+release job runs resolves Dart packages, which can rewrite a tracked lockfile.
+v0.3.19 shipped as `ais 0.3.19-dirty`, in a directory named after it, so its
+binaries could not name the commit they came from. `release.yml` passes
+`AIS_VERSION` from `GITHUB_REF_NAME`, `scripts/dist.sh` honours it, and the
+Flutter layer now resolves with `--enforce-lockfile` so a moved transitive
+version fails the build instead of quietly editing a tracked file.
+
 **If the tagged build fails,** fix the cause, move the tag onto the fix commit
 (`git tag -f`, `git push -f origin vX.Y.Z`) and let it rebuild. Both v0.3.17 and
 v0.3.19 needed that, which is the reason the toolchain is pinned at all. Check

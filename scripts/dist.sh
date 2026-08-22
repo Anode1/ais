@@ -13,8 +13,14 @@
 # not built here; the native MinGW build is CI-validated only.
 set -e
 cd "$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
-VERSION=$(git describe --tags --always --dirty 2>/dev/null | sed 's/^v//')
-[ -n "$VERSION" ] || VERSION=0.0.0-dev   # single source = the git tag (see c/Makefile)
+# The tag is the source, exactly as it is for c/Makefile: honour an explicit
+# AIS_VERSION when the caller knows it (the release workflow passes the tag), and
+# fall back to describing HEAD. Describe carries "-dirty" whenever anything in
+# the checkout was touched -- which is how v0.3.19's downloads ended up named
+# ais-0.3.19-dirty, unable to name the commit they were built from.
+VERSION=${AIS_VERSION:-}
+[ -n "$VERSION" ] || VERSION=$(git describe --tags --always --dirty 2>/dev/null | sed 's/^v//')
+[ -n "$VERSION" ] || VERSION=0.0.0-dev
 mkdir -p releases
 
 # same-named .md5 next to the package file $1 (verify the download).
