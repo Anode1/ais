@@ -2,3 +2,9 @@
 * text=auto eol=lf
 *.bat text eol=crlf
 *.png binary
+
+# legacy/ is a preserved 2009 release: keep its bytes EXACTLY as they were, line
+# endings included. Under the rules above git wanted to renormalise the two .bat
+# files it stores with CRLF, so every fresh checkout looked modified -- which is
+# what made `git describe --dirty` stamp release binaries "0.3.x-dirty".
+legacy/** -text
