@@ -171,8 +171,10 @@ static const char PAGE[] =
 "<button data-v=timeline class=on><span class=ic>&#128336;</span>Recent</button>"
 "<button data-v=tags><span class=ic>&#127991;</span>Tags</button></nav>"
 "<div id=dsheet hidden role=dialog aria-modal=true aria-labelledby=dstitle>""<div class=card tabindex=-1><h2 id=dstitle>Delete records?</h2>""<p class=lead>This deletes the records, not the tag.</p>""<p id=dsbody class=muted style='font-size:.9rem'></p>""<ul id=dsprev class=prev></ul>""<p><button id=dskeep class=link>Keep the records: remove just the tag</button></p>""<label for=dsname style='font-size:.85rem;color:var(--muted)'>Type the tag name to confirm</label>""<input id=dsname autocomplete=off autocapitalize=off autocorrect=off spellcheck=false>""<div class=row style='display:flex;gap:.5rem;justify-content:flex-end;margin-top:.6rem'>""<button id=dscancel class=ghost>Cancel</button>""<button id=dsgo class=danger-btn disabled>Delete</button></div></div></div>""<div id=sheet hidden><div class=card><h2>Add to your memory</h2>"
-"<input id=vk placeholder='Tags (space or comma separated, optional)'>"
+/* The thing being saved first, its tags under it: the same order as the app's
+ * Add sheet, and the order anyone describes the action in. */
 "<textarea id=v rows=3 placeholder='What to remember: a link, a note, a number...'></textarea>"
+"<input id=vk placeholder='Tags (space or comma separated, optional)'>"
 "<div class=encrow style='display:flex;align-items:center;gap:.5rem;margin:.1rem 0'>"
 "<label style='display:flex;align-items:center;gap:.35rem;font-size:.85rem;color:var(--muted);white-space:nowrap'>"
 "<input id=enc type=checkbox style='width:auto'> Encrypt</label>"

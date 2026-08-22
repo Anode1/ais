@@ -2739,15 +2739,9 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
             Text('Add to your memory',
                 style: Theme.of(ctx).textTheme.titleMedium),
             const SizedBox(height: 14),
-            TextField(
-              controller: keysCtrl,
-              decoration: const InputDecoration(
-                labelText: 'Tags (space-separated, optional)',
-                hintText: 'e.g. venice italy hotel',
-                border: OutlineInputBorder(),
-              ),
-            ),
-            const SizedBox(height: 12),
+            // The thing being saved comes first, then how to find it again. The
+            // other order asked for the label before the thing it labels, which
+            // is not how anyone describes what they are doing.
             TextField(
               controller: valCtrl,
               autofocus: true,
@@ -2756,6 +2750,15 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
               decoration: const InputDecoration(
                 labelText: 'What to remember',
                 hintText: 'a link, a note, a phone number…',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: keysCtrl,
+              decoration: const InputDecoration(
+                labelText: 'Tags (space-separated, optional)',
+                hintText: 'e.g. venice italy hotel',
                 border: OutlineInputBorder(),
               ),
             ),
