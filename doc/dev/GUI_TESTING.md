@@ -97,6 +97,14 @@ without llvmpipe the surface renders solid black). On Pop!_OS the desktop
 toolchain cannot be installed without downgrading the running session's Wayland
 libraries, so **there it SKIPs** and the Android layer is the one that runs.
 
+**It renders black on a headless CI runner, and that is unsolved.** The Linux
+desktop job in `flutter.yml` builds and launches the app, then drives it blind:
+every captured frame is a single colour. The obvious causes are ruled out, since
+`libgl1-mesa-dri`, `libegl1` and `libgles2` are installed, `LIBGL_ALWAYS_SOFTWARE`
+and `GALLIUM_DRIVER=llvmpipe` are set, and the Xvfb screen is 24-bit. So that
+step reports instead of gating, and the Android layers carry the real UI
+coverage until someone gets Flutter's GTK embedder to rasterise in software.
+
 `run.sh` takes `HEADED=1` to watch it on a real display (deliberate, and not
 during automated work) and `KEEP=1` to leave the throwaway stores and the
 screenshots behind. Its five click coordinates are pre-tuned for a pinned
