@@ -100,13 +100,16 @@ jobs:
           # the harness starts its own Xvfb; this only keeps GTK off Wayland
           GDK_BACKEND: x11
 
+      # The harness drives a real window, so its per-step screenshots are the
+      # only way to see WHY a step missed; without them a failure here is a
+      # guess. It writes them to a fixed path (see uitest/run.sh WORK).
       - name: keep the screenshots when it fails
         if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: desktop-ui-shots
-          path: app/flutter/uitest/shots/
-          if-no-files-found: ignore
+          path: /tmp/ais-uitest/shots/
+          if-no-files-found: warn
 
   # Does the app still COMPILE for iPhone? No Apple account is involved: a
   # macOS runner carries the iOS SDKs, and --no-codesign skips the signing that
