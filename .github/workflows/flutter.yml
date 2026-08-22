@@ -99,6 +99,10 @@ jobs:
         env:
           # the harness starts its own Xvfb; this only keeps GTK off Wayland
           GDK_BACKEND: x11
+          # and it deletes its work dir on the way out unless told otherwise,
+          # which took the per-step screenshots with it -- the only evidence of
+          # WHY a step missed, on a machine nobody can watch
+          KEEP: '1' 
 
       # The harness drives a real window, so its per-step screenshots are the
       # only way to see WHY a step missed; without them a failure here is a
