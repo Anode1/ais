@@ -1,0 +1,34 @@
+# TEMPORARY probe: why does a Cyrillic key not recall on macOS?
+# Manual only. Delete this file once the answer is in.
+
+name: utf8probe
+
+on:
+  workflow_dispatch:
+
+jobs:
+  probe:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: make
+      - name: what happens to a Cyrillic key
+        run: |
+          set -x
+          locale
+          sw_vers
+          diskutil info / | grep -iE 'file system|case' || true
+          idx=/tmp/probe
+          rm -rf $idx
+          ./c/ais -f $idx --init
+          ./c/ais -f $idx -v 'значение' 'ключ'
+          echo '--- store bytes ---'
+          od -c "$idx/store" | head -5
+          echo '--- idx tree ---'
+          find "$idx/idx" | while read -r p; do printf '%s ' "$p"; printf '%s' "$p" | od -An -tx1 | tr -d '\n'; echo; done
+          echo '--- recall by the same key ---'
+          ./c/ais -f $idx 'ключ'; echo "recall rc=$?"
+          echo '--- tags ---'
+          ./c/ais -f $idx --tags
+          echo '--- find (value scan, no posting involved) ---'
+          ./c/ais -f $idx --find 'значение' || true
