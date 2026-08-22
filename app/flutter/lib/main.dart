@@ -2085,17 +2085,25 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
   // Fix a record's value in place: the engine keeps its id and timeline slot.
   // Offered only for plain values; encrypted/away/blob rows omit the menu item.
   // Returns the new value when it changed, else null (cancel/no-op/failure).
-  Future<String?> _editValue(int id, String oldValue) async {
+  // Has this index ever synced? A LAN round records a time; a shared folder is
+  // set up once and syncs on its own. Either means peers hold copies of these
+  // records, which is what makes an in-place value edit unsafe.
+  bool get _hasSynced => _lastSync != null || _syncFolder.isNotEmpty;
+
+  // Returns what happened: the new value, and whether the record was REPLACED (a
+  // new id) rather than edited in place. A page showing that record has to leave
+  // when it was replaced, because its id is a tombstone now.
+  Future<({String? value, bool replaced})> _editValue(int id, String oldValue) async {
     final messenger = ScaffoldMessenger.of(context);
     if (_ais == null) {
       messenger.showSnackBar(const SnackBar(
           content: Text('Library is still opening. Try again in a moment.')));
-      return null;
+      return (value: null, replaced: false);
     }
     if (_syncBlocks()) {
       messenger.showSnackBar(const SnackBar(
           content: Text('A sync is running. Try again in a moment.')));
-      return null; // don't write while a sync holds the handle
+      return (value: null, replaced: false); // don't write while a sync holds the handle
     }
     final ctrl = TextEditingController(text: oldValue);
     final ok = await showDialog<bool>(
@@ -2104,13 +2112,27 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
         owned: [ctrl],
         child: AlertDialog(
         title: const Text('Edit value'),
-        content: TextField(
-          controller: ctrl,
-          autofocus: true,
-          keyboardType: TextInputType.multiline,
-          minLines: 1,
-          maxLines: 8,
-          decoration: const InputDecoration(border: OutlineInputBorder()),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            TextField(
+              controller: ctrl,
+              autofocus: true,
+              keyboardType: TextInputType.multiline,
+              minLines: 1,
+              maxLines: 8,
+              decoration: const InputDecoration(border: OutlineInputBorder()),
+            ),
+            if (_hasSynced) ...[
+              const SizedBox(height: 10),
+              Text(
+                  'This device syncs, so the change is saved as a new entry with '
+                  'the same tags. Editing in place would not reach your other '
+                  'devices: they would keep the old text and send it back.',
+                  style: Theme.of(ctx).textTheme.bodySmall),
+            ],
+          ],
         ),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
@@ -2120,26 +2142,48 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
       ),
     );
     final newValue = ctrl.text; // _OwnedFields frees ctrl with the route
-    if (ok != true || _ais == null) return null;
+    if (ok != true || _ais == null) return (value: null, replaced: false);
     // Empty value: say so instead of silently closing the dialog. An unchanged
     // value is a genuine no-op and stays quiet. Don't trim into the stored value.
     if (newValue.trim().isEmpty) {
       messenger.showSnackBar(const SnackBar(content: Text("Value can't be empty")));
-      return null;
+      return (value: null, replaced: false);
     }
-    if (newValue == oldValue) return null;
+    if (newValue == oldValue) return (value: null, replaced: false);
     // A NUL or an over-long value would be silently truncated by the engine.
     final content = contentError(value: newValue, keys: '');
     if (content != null) {
       messenger.showSnackBar(SnackBar(content: Text(content)));
-      return null;
+      return (value: null, replaced: false);
     }
-    final done = _ais!.setValue(id, oldValue, newValue);
-    if (!mounted) return null;
-    messenger.showSnackBar(SnackBar(
-        content: Text(done ? 'Value updated' : "Couldn't update the value")));
-    if (done) _setView(_view); // refresh whichever view is showing
-    return done ? newValue : null;
+    // An in-place edit has NO representation in the merge stream: it emits the new
+    // value and nothing retiring the old, so a peer keeps the old one and feeds it
+    // back, leaving BOTH on both devices. A delete plus a fresh save says the same
+    // thing in verbs the stream already has -- the tombstone retires the old text
+    // everywhere, the new text arrives as a normal record -- at the cost of a new
+    // id and a new save time. So: in place when nothing syncs, replace when
+    // something does, and say which happened.
+    if (!_hasSynced) {
+      final done = _ais!.setValue(id, oldValue, newValue);
+      if (!mounted) return (value: null, replaced: false);
+      messenger.showSnackBar(SnackBar(
+          content: Text(done ? 'Value updated' : "Couldn't update the value")));
+      if (done) _setView(_view);
+      return (value: done ? newValue : null, replaced: false);
+    }
+    final keys = _ais!.keysOf(id).trim();
+    final made = _ais!.store(keys, newValue);
+    if (made <= 0) {
+      if (!mounted) return (value: null, replaced: false);
+      messenger.showSnackBar(const SnackBar(content: Text("Couldn't update the value")));
+      return (value: null, replaced: false);
+    }
+    _ais!.del(id);                     // retires the old text on every device
+    if (!mounted) return (value: null, replaced: false);
+    messenger.showSnackBar(const SnackBar(
+        content: Text('Saved as a new entry, so the change reaches your other devices')));
+    _setView(_view);
+    return (value: newValue, replaced: true);
   }
 
   // Reveal an encrypted ("aisc:") hit. Encrypted DOCUMENTS need the CLI.
@@ -2246,8 +2290,12 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
                     tooltip: 'More',
                     onSelected: (a) async {
                       if (a == 'value') {
-                        final nv = await _editValue(id, curValue);
-                        if (nv != null) setLocal(() => curValue = nv);
+                        final e = await _editValue(id, curValue);
+                        if (e.replaced) {
+                          if (ctx.mounted) Navigator.of(ctx).pop();  // that id is gone
+                        } else if (e.value != null) {
+                          setLocal(() => curValue = e.value!);
+                        }
                       } else if (a == 'tags') {
                         await _editKeys(Hit(id, curValue));
                         setLocal(() => keys = _ais?.keysOf(id).trim() ?? '');
