@@ -51,7 +51,14 @@ answer: readable since the 1960s, on any machine, with no special program.
 Graphics:
 - App icon (512x512):      icons/ais-512.png
 - Feature graphic (1024x500): icons/feature-graphic.png
-- Phone screenshots (2-8): screenshots/android-*.png
+- Phone screenshots (2-8): screenshots/play/android-*.png
+
+  Take the ones under screenshots/play/, not the ones beside them. Play requires
+  "JPEG or 24-bit PNG (no alpha)" and refuses a screenshot whose long side is
+  more than twice its short side. The captures are 1080x2400 with an alpha
+  channel, so they fail both; the play/ copies are 24-bit, 1200x2400, padded to
+  the app's own surface colour. Regenerate them from the captures rather than
+  editing them by hand (scripts are in the commit that added them).
 
 Privacy policy URL:
 https://github.com/Anode1/ais/blob/main/PRIVACY.md
