@@ -1,0 +1,45 @@
+# Does an index made by the PREVIOUS release still work with this build?
+#
+# Every other test builds its index with the binary under test, so backward
+# compatibility was the one thing nothing checked -- while it is the thing every
+# existing user meets first, and the thing a staggered rollout depends on: for as
+# long as it takes people to update, some devices sync old-to-new.
+#
+# The old binary comes from the latest published release, so this always tests
+# the version people actually have, without pinning a number anywhere.
+
+name: upgrade
+
+on:
+  push:
+    branches: [main]
+    paths: ['c/**', 'tests/**', '.github/workflows/upgrade.yml']
+  pull_request:
+    paths: ['c/**', 'tests/**', '.github/workflows/upgrade.yml']
+  workflow_dispatch:
+
+jobs:
+  upgrade:
+    name: an index from the last release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0          # git describe stamps AIS_VERSION
+
+      - name: build this one
+        run: make
+
+      - name: fetch the last released binary
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag=$(gh release list --limit 1 --json tagName --jq '.[0].tagName')
+          echo "last release: $tag"
+          gh release download "$tag" -p 'ais-*-linux-x86_64.zip' -D old
+          unzip -q old/ais-*-linux-x86_64.zip -d old
+          find old -type f -name ais -perm -u+x | head -1 > old/path
+          "$(cat old/path)" --version
+
+      - name: open it with this build, and sync the two together
+        run: AIS_OLD="$(cat old/path)" sh tests/upgrade.sh ./c/ais

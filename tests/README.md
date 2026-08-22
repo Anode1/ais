@@ -12,6 +12,7 @@ GUI is still in progress. The layers also have their own targets (`codeut`, `cli
 |-------|----------------|-------|
 | engine (codeut) | the `ais.h` API directly: key/store/get/add/del, compact, find, timeline, crypto + secret marker | `c/tests.c` (`make codeut`) |
 | ffi stack budget | that the save and import paths still fit the ~512 KB stack a Dart isolate gives the engine | `tests/stack/` |
+| upgrade from a release | an index a PREVIOUS release made, opened, written and compacted by this build, plus the mixed old/new mesh a staggered rollout creates | `tests/upgrade.sh` (set `AIS_OLD`; SKIPs without it) |
 | cli (cliut) | the real binary: streaming stdin (`-v -`), pipelines, argv, index discovery | `tests/cli.sh` (`make cliut`) |
 
 **GUI -- the front-ends over the one engine. May lag; absent toolchain SKIPs.**
