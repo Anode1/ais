@@ -1236,6 +1236,21 @@ static int compact_locked(ais *a)
         goto cleanup;
     }
     c.out = NULL;
+    /* Pad "off" out to one slot per id EVER issued, not per live id. next_id
+     * never regresses (a retained tombstone still names a deleted id), so when
+     * the highest records were deleted the rebuilt file is shorter than
+     * off_consistent's expectation -- and it compares sizes, so it answered "not
+     * consistent" for the life of the index. off_append then never ran again and
+     * every keyed read fell back to a full scan: correct, silent, and slow
+     * (9 ms against 1 s on a large store). The padding is the absent sentinel,
+     * which off_get already treats as "scan for it". */
+    {
+        long issued = (c.maxid + 1 > a->next_id) ? c.maxid : a->next_id - 1;
+        while (c.last_off_id < issued) {
+            off_write(c.off_out, -1);
+            c.last_off_id++;
+        }
+    }
     if (fclose(c.off_out) != 0) {
         c.off_out = NULL;
         goto cleanup;

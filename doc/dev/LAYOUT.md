@@ -327,10 +327,13 @@ because this index can no longer tell it they were deleted.
 Migrating old tombstones is impossible and does not need to be attempted: for any
 that survived a compaction the value is gone from the store, so their digest can
 never be recomputed. That is why the matcher accepts BOTH forms rather than
-converting anything -- old tombstones keep working, `--forget-deleted` retires
-them when the user wants, and every new delete is salted. The one thing that must
-never happen is a peer computing a digest the other cannot reproduce, which is
-why the salt is per-record data both sides already hold rather than a shared key.
+converting anything: old tombstones keep working, and `--forget-deleted` retires
+them when the user wants. Salting the digest with the record's creation time was
+tried and REVERTED, because it broke the one thing that must never break: two
+devices that saved the same value at different moments computed different
+digests, so a delete stopped crossing between them. Identity is the value and
+nothing else (`c/ais.c`, mdel_seek), because it has to come from what both sides
+agree on with nothing shared.
 
 **A delete takes the file the INDEX made, and never the file it merely points
 at.** That line is the whole rule, and it is about ownership, not about how a

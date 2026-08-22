@@ -4029,6 +4029,77 @@ static void test_sync_delete_survives_compact(void)
     scratch_rm(da); scratch_rm(db);
 }
 
+/* An export carries the documents records still point at, and nothing else. The
+ * exporter streamed the whole blobs/ directory, so a file nothing referred to --
+ * an orphan left by an older build's value edit -- travelled to every peer on
+ * every sync, for ever, and each peer then re-exported it. */
+static void test_export_leaves_orphan_blobs_behind(void)
+{
+    ais a;
+    FILE *t;
+    char path[AIS_PATH_MAX], line[AIS_LINE_MAX];
+    const char *dir = "/tmp/ais_ut_orphan";
+    int saw_live = 0, saw_orphan = 0;
+    FILE *bf;
+
+    scratch_rm(dir);
+    ais_open(&a, dir);
+    ais_doc_put(&a, "note", "a real document\nsecond line\n", 29);
+
+    snprintf(path, sizeof path, "%s/blobs/orphan.txt", dir);   /* nothing points here */
+    bf = fopen(path, "w");
+    CHECK(bf != NULL, "orphan: planted an unreferenced blob");
+    if (bf) { fputs("nobody refers to this\n", bf); fclose(bf); }
+
+    t = tmpfile();
+    feed_export(&a, t);
+    rewind(t);
+    while (fgets(line, sizeof line, t) != NULL) {
+        if (strncmp(line, "B|", 2) != 0) continue;
+        if (strstr(line, "orphan.txt") != NULL) saw_orphan = 1;
+        else saw_live = 1;
+    }
+    fclose(t);
+    CHECK(saw_live == 1, "orphan: the real document is in the export");
+    CHECK(saw_orphan == 0, "orphan: the unreferenced file is not");
+
+    ais_close(&a);
+    scratch_rm(dir);
+}
+
+/* Deleting the newest records and compacting must not kill the id->offset
+ * accelerator. next_id never regresses, so the rebuilt "off" was shorter than
+ * the size off_consistent expects, it answered "inconsistent" for ever, and
+ * every keyed read silently fell back to a full store scan. */
+static void test_off_survives_compacting_away_the_top_ids(void)
+{
+    ais a;
+    struct idvec v;
+    const char *dir = "/tmp/ais_ut_offtop";
+    long last;
+
+    scratch_rm(dir);
+    ais_open(&a, dir);
+    ais_put(&a, "keep", "one");
+    ais_put(&a, "keep", "two");
+    last = ais_put(&a, "gone", "three");
+    CHECK(last > 0, "offtop: three records");
+    CHECK(ais_del(&a, last) == 0, "offtop: the newest is deleted");
+    CHECK(ais_compact(&a) == 0, "offtop: and compacted away");
+    CHECK(off_consistent(&a) == 1,
+          "offtop: the offset index is still usable, not disabled for ever");
+
+    /* and a later put keeps it in step, rather than writing a slot for the
+     * wrong id */
+    CHECK(ais_put(&a, "keep", "four") > 0, "offtop: a later put succeeds");
+    CHECK(off_consistent(&a) == 1, "offtop: still consistent after that put");
+    query(&a, AIS_AND, &v, 1, "keep");
+    CHECK(v.n == 3, "offtop: and every live record still recalls");
+
+    ais_close(&a);
+    scratch_rm(dir);
+}
+
 /* A secret's ciphertext must not survive its delete -- and must not be destroyed
  * by a delete that did not happen. The shred used to run first, so a refused
  * delete left the record standing with its payload already gone. */
@@ -5274,6 +5345,10 @@ int main(void)
     test_sync_frame_reject();
     printf("folder sync B3 (delete survives compaction):\n");
     test_sync_delete_survives_compact();
+    printf("an export carries only the documents records point at:\n");
+    test_export_leaves_orphan_blobs_behind();
+    printf("the offset index survives a compaction that drops the top ids:\n");
+    test_off_survives_compacting_away_the_top_ids();
     printf("a delete disposes of its payload, and only when it happens:\n");
     test_delete_shreds_only_after_it_succeeds();
     printf("an edited-away document takes its file with it:\n");

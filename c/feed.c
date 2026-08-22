@@ -664,9 +664,59 @@ static int exp_kborn(long id, const char *ts, const char *hash, const char *key,
  * before rejecting it -- an OOM kill on a phone. Returns 0, or -1 once the cap
  * would be passed (the caller abandons the whole bundle; a partial one must
  * never be sent). */
-static int export_blobs_stream(FILE *out, const char *dir, size_t cap)
+/* The blob names LIVE records point at. Gathering them costs one store pass and
+ * saves shipping files nothing refers to: an orphan (a document whose record was
+ * edited away by an older build, say) used to ride EVERY export to EVERY peer,
+ * for ever, because the exporter streamed the whole directory. */
+struct blobrefs { char (*name)[AIS_PATH_MAX]; int n, cap; };
+
+static int blobrefs_add(struct blobrefs *r, const char *base)
 {
-    long skipped = 0;
+    int i;
+    for (i = 0; i < r->n; i++)
+        if (strcmp(r->name[i], base) == 0)
+            return 0;
+    if (r->n == r->cap) {
+        int cap = (r->cap == 0) ? 16 : r->cap * 2;
+        void *p = realloc(r->name, (size_t)cap * sizeof *r->name);
+        if (p == NULL)
+            return -1;
+        r->name = p;
+        r->cap = cap;
+    }
+    snprintf(r->name[r->n], AIS_PATH_MAX, "%s", base);
+    r->n++;
+    return 0;
+}
+
+static int blobrefs_has(const struct blobrefs *r, const char *base)
+{
+    int i;
+    for (i = 0; i < r->n; i++)
+        if (strcmp(r->name[i], base) == 0)
+            return 1;
+    return 0;
+}
+
+/* One store line: note the blob its value names, plain or encrypted. */
+static int blobrefs_line(long id, const char *ts, const char *keys,
+                         const char *value, void *vp)
+{
+    struct blobrefs *r = vp;
+    const char *v = value;
+
+    (void)id; (void)ts; (void)keys;
+    if (strncmp(v, "aisc:@", 6) == 0)
+        v += 6;
+    if (strncmp(v, "blobs/", 6) != 0)
+        return 0;
+    return (blobrefs_add(r, v + 6) != 0) ? -1 : 0;
+}
+
+static int export_blobs_stream(FILE *out, const char *dir, size_t cap,
+                               const struct blobrefs *refs)
+{
+    long skipped = 0, orphans = 0;
     char blobsdir[AIS_PATH_MAX], path[AIS_PATH_MAX], buf[8192];
     DIR *d;
     struct dirent *de;
@@ -684,6 +734,10 @@ static int export_blobs_stream(FILE *out, const char *dir, size_t cap)
         size_t n;
         if (de->d_name[0] == '.')
             continue;
+        if (refs != NULL && !blobrefs_has(refs, de->d_name)) {
+            orphans++;               /* nothing here points at it: it is not ours to send */
+            continue;
+        }
         if (snprintf(path, sizeof path, "%s/%s", blobsdir, de->d_name) >= (int)sizeof path)
             continue;
         bf = fopen(path, "rb");
@@ -715,6 +769,8 @@ static int export_blobs_stream(FILE *out, const char *dir, size_t cap)
     if (skipped > 0)
         fprintf(stderr, "sync: %ld document%s did not travel; everything else did\n",
                 skipped, skipped == 1 ? "" : "s");
+    if (orphans > 0)
+        debug("export: %ld blob file(s) no record points at, left here", orphans);
     return rc;
 }
 
@@ -732,8 +788,16 @@ int feed_export_capped(ais *a, FILE *out, size_t blob_cap)
     E.out = out;
     E.hasktomb = (ktomb_active(a) > 0);
     E.hassts   = (sts_active(a) > 0);   /* one stat, not a seek per record */
-    if (export_blobs_stream(out, a->dir, blob_cap) != 0)   /* bodies first: a record may point at one */
-        return -1;
+    {   /* which bodies are still spoken for, then those bodies, then the records
+         * (bodies first: a record may point at one) */
+        struct blobrefs refs = { NULL, 0, 0 };
+        int brc;
+        store_each_record(a, blobrefs_line, &refs);
+        brc = export_blobs_stream(out, a->dir, blob_cap, &refs);
+        free(refs.name);
+        if (brc != 0)
+            return -1;
+    }
     store_each_record(a, exp_live, &E);
     tomb_each(a, exp_dead, &E);
     ktomb_each(a, exp_kdead, &E);            /* key-detaches propagate as K| lines (I1) */
