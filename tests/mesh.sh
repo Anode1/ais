@@ -341,7 +341,11 @@ incoherent=
 for d in "$PA" "$P1" "$PB" "$P2"; do
     "$AIS" -f "$d" --keys 2>/dev/null | while IFS= read -r k; do
         [ -n "$k" ] || continue
-        g=$("$AIS" -f "$d" --dump 2>/dev/null | awk -v k="$k" '
+        # LC_ALL=C: awk on macOS is UTF-8 aware and its regex and split() then
+        # work in characters, where this comparison wants BYTES -- the same key
+        # matched on Linux and not there, so the check reported the engine
+        # incoherent when it was the parser that had changed under it.
+        g=$("$AIS" -f "$d" --dump 2>/dev/null | LC_ALL=C awk -v k="$k" '
               { keys = $0; sub(/ -v .*/, "", keys); v = $0; sub(/^.* -v /, "", v)
                 if (index($0, " -v ") == 0) { keys = ""; sub(/^-v /, "", v) }
                 n = split(keys, a, " ")
