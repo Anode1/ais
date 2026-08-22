@@ -410,7 +410,11 @@ printf 'legacy B\n' | "$AIS" -f "$LB" --doc old >/dev/null
 for d in "$LA" "$LB"; do
     was=$(ls "$d/blobs")
     mv "$d/blobs/$was" "$d/blobs/2020-01-01-000000.txt"
-    sed -i "s|blobs/$was|blobs/2020-01-01-000000.txt|" "$d/store"
+    # NOT `sed -i`: BSD sed (macOS, where the release job runs the whole suite)
+    # requires an argument to -i, so in-place editing there silently did nothing
+    # and this section tested a state it had not built.
+    sed "s|blobs/$was|blobs/2020-01-01-000000.txt|" "$d/store" > "$d/store.new"
+    mv "$d/store.new" "$d/store"
     "$AIS" -f "$d" -y --compact >/dev/null 2>&1
 done
 for r in 1 2 3; do
