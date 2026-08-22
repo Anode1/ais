@@ -40,12 +40,39 @@ int key_encode(const char *key, char *out, size_t outsz)
 
 int key_prefix(const char *enc, char *out, size_t outsz)
 {
+    unsigned char c0;
     size_t n;
 
     if (enc == NULL || enc[0] == '\0' || outsz < 2)
         return -1;
-    /* one char if the key is a single char, else the first two */
-    n = (enc[1] == '\0' || outsz < 3) ? 1 : 2;
+    c0 = (unsigned char)enc[0];
+    if (c0 < 0x80) {
+        /* ASCII: one char if the key is a single char, else the first two. */
+        n = (enc[1] == '\0' || outsz < 3) ? 1 : 2;
+    } else {
+        /* Non-ASCII: the whole FIRST CHARACTER, however many bytes it takes.
+         *
+         * Two bytes is the first character only up to U+07FF. For a three-byte
+         * character (CJK, and most of what is not Latin or Cyrillic) two bytes
+         * is a TRUNCATED sequence, so the shard directory's name was not valid
+         * UTF-8 -- which Linux accepts and APFS refuses. On macOS and iOS the
+         * mkdir failed, the posting was never written, and the key recalled
+         * nothing: an index full of Japanese keys was readable on one of the
+         * user's devices and silently empty on another.
+         *
+         * ASCII keeps its two-character prefix, and so does every two-byte
+         * character, so no index that works today changes shape. An index with
+         * three-byte keys made before this needs one --compact, which rebuilds
+         * idx/ from the store. */
+        n = (c0 >= 0xF0) ? 4 : (c0 >= 0xE0) ? 3 : 2;
+        while (n > 1 && (size_t)n >= outsz)
+            n--;                              /* never overrun the caller's buffer */
+        {   /* a malformed sequence: keep only the bytes that are actually there */
+            size_t k;
+            for (k = 1; k < n; k++)
+                if (((unsigned char)enc[k] & 0xC0) != 0x80) { n = k; break; }
+        }
+    }
     memcpy(out, enc, n);
     out[n] = '\0';
     return 0;

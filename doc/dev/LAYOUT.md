@@ -221,7 +221,11 @@ taking max(id)+1 -- bounded memory, one `long`.
 `<key>` is the encoded key (lowercased; space, control, `|`, `/` and `\` -> `_`,
 so it is one store field and one safe path component). The file is that
 one key's list of record ids, one per line, ascending. `<p>` is a short
-NAVIGABLE prefix of the key (first one or two encoded chars): `idx/a/apple`.
+NAVIGABLE prefix of the key (first one or two encoded CHARACTERS, never a
+partial UTF-8 sequence): `idx/a/apple`, `idx/日/日本語`. Two BYTES was the rule
+until a three-byte character showed what that means: the directory name was half
+a character, which Linux stores happily and APFS refuses, so on macOS and iOS the
+posting was never written and the key recalled nothing.
 The prefix keeps the index human-walkable -- `ls idx/a/` shows keys beginning
 with `a`. No hashing: keys are human words, kept as themselves (git shards by a
 hash prefix because its keys are hashes; ours are words). (If a prefix bucket

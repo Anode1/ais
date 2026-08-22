@@ -22,7 +22,12 @@ Value rules
 Keys
   - Encoded = lowercase + whitespace -> '_'. Case-folding is ASCII-only, so a
     non-ASCII key (Cyrillic, etc.) must already be lowercase. UTF-8 is stored
-    byte-transparently; the 2-byte shard prefix is its first letter.
+    byte-transparently. The shard prefix is the first CHARACTER (two characters
+    for an ASCII key), never a partial UTF-8 sequence: a truncated one is not a
+    legal filename on APFS, so on macOS and iOS the posting could not be written
+    at all and the key recalled nothing. An index that predates this and holds
+    keys starting with a three- or four-byte character needs one --compact,
+    which rebuilds idx/ from the store.
 
 Concurrency / scale
   - Reads take NO lock (any number run at once). Writers take an exclusive flock

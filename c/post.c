@@ -27,7 +27,7 @@ static int post_path(const ais *a, const char *key, int make,
                      char *out, size_t outsz)
 {
     char enc[AIS_KEY_MAX];
-    char pre[3];
+    char pre[AIS_PREFIX_MAX];
     char dir[AIS_PATH_MAX];
     int n;
 

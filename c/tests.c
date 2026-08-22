@@ -164,7 +164,7 @@ static int ids_eq(const struct idvec *v, const long *want, int n)
 static int read_posting(const char *dir, const char *enc_key,
                         long *out, int outmax, int *ascending)
 {
-    char pre[3];
+    char pre[AIS_PREFIX_MAX];
     char path[AIS_PATH_MAX];
     char line[64];
     FILE *fp;
@@ -225,7 +225,7 @@ static void test_key_encode(void)
 /* ---- key prefix: first one or two encoded chars (navigable shard) ---- */
 static void test_key_prefix(void)
 {
-    char pre[3];
+    char pre[AIS_PREFIX_MAX];
     CHECK(key_prefix("linux", pre, sizeof(pre)) == 0 && strcmp(pre, "li") == 0,
           "key_prefix multi-char -> first two");
     CHECK(key_prefix("c", pre, sizeof(pre)) == 0 && strcmp(pre, "c") == 0,
@@ -4029,6 +4029,41 @@ static void test_sync_delete_survives_compact(void)
     scratch_rm(da); scratch_rm(db);
 }
 
+/* The shard directory is named after the key's first character, and it must be a
+ * WHOLE character. Two bytes is only the first character up to U+07FF; for a
+ * three-byte one (CJK, and most of what is neither Latin nor Cyrillic) two bytes
+ * is a truncated sequence, and APFS refuses a filename that is not valid UTF-8.
+ * So on macOS and iOS the mkdir failed, the posting was never written, and the
+ * key recalled nothing -- while the same index worked on Linux, which does not
+ * care what bytes a filename holds. */
+static void test_shard_prefix_is_a_whole_character(void)
+{
+    ais a;
+    struct idvec v;
+    char pre[AIS_PREFIX_MAX];
+    const char *dir = "/tmp/ais_ut_shard";
+
+    CHECK(key_prefix("venice", pre, sizeof pre) == 0 && strcmp(pre, "ve") == 0,
+          "shard: ASCII keeps its two-character prefix");
+    CHECK(key_prefix("ключ", pre, sizeof pre) == 0 && strcmp(pre, "к") == 0,
+          "shard: a two-byte character is the whole prefix");
+    CHECK(key_prefix("日本語", pre, sizeof pre) == 0 && strcmp(pre, "日") == 0,
+          "shard: a three-byte character is not cut in half");
+    CHECK(key_prefix("🌍x", pre, sizeof pre) == 0 && strcmp(pre, "🌍") == 0,
+          "shard: nor is a four-byte one");
+    CHECK(key_prefix("\xe6", pre, sizeof pre) == 0 && strcmp(pre, "\xe6") == 0,
+          "shard: a malformed sequence keeps only the bytes that are there");
+
+    /* and end to end, which is what actually failed on a device */
+    scratch_rm(dir);
+    ais_open(&a, dir);
+    CHECK(ais_put(&a, "日本語", "meaning") > 0, "shard: a CJK key saves");
+    query(&a, AIS_AND, &v, 1, "日本語");
+    CHECK(v.n == 1, "shard: and recalls its record");
+    ais_close(&a);
+    scratch_rm(dir);
+}
+
 /* Key encoding must not ask the LOCALE anything. ctype.h answers differently for
  * bytes >= 0x80 depending on libc and locale -- macOS in a UTF-8 locale calls
  * 0x80-0x9F control, glibc in the C locale does not -- and those are exactly the
@@ -5373,6 +5408,8 @@ int main(void)
     test_sync_frame_reject();
     printf("folder sync B3 (delete survives compaction):\n");
     test_sync_delete_survives_compact();
+    printf("a shard name is a whole character:\n");
+    test_shard_prefix_is_a_whole_character();
     printf("key encoding asks the locale nothing:\n");
     test_key_encoding_is_ascii_only();
     printf("an export carries only the documents records point at:\n");
