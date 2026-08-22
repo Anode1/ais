@@ -97,6 +97,76 @@ repo cannot yet show. Paid signing is not planned. The wiring stays in place;
 reapply once the project has visible adoption. Until a build is signed, verify a
 download by its SHA-256 or build from source (see the README).
 
+## Known gaps, as of v0.3.20
+
+Four things are open, and this is the list to work from: the release chores that
+remain, coverage nobody has, a test that cannot see, and defects left on purpose
+with the reason for each.
+
+### 1. Publishing v0.3.20 is not finished
+
+The tag published ten artifacts. What still has to be done by hand:
+
+- Upload `ais-v0.3.20-android.aab` to the Play Console and start the closed
+  test, following [`dev/ANDROID_RELEASE.md`](dev/ANDROID_RELEASE.md). Take the
+  screenshots from `screenshots/play/`, not the ones beside them: Play requires
+  24-bit PNG with no alpha and refuses a side more than twice the other, and the
+  plain captures fail both.
+- Push the same `pkgver` to the AUR repository with `pkgrel=1` and a regenerated
+  `.SRCINFO`. `packaging/aur/PKGBUILD` here is the reference copy, not the one
+  users install.
+
+### 2. Three things have never been verified anywhere
+
+Not "tested and passing", but never run at all. Each needs hardware or time
+rather than code:
+
+- **A real arm64 phone on a real Wi-Fi network.** Every sync test to date went
+  through emulator NAT (`10.0.2.2`) or `adb forward` over loopback. Untested:
+  `.local`/mDNS names, a router with client isolation, and the arm64 and
+  armeabi-v7a ABIs. This is the most likely source of a "sync does not work"
+  report from a tester.
+- **A multi-day soak.** Everything converges in seconds here. Nothing has tested
+  a week of use, clock skew between two machines, or an index that grew.
+- **Backgrounding mid-sync, and doze during the 120-second host wait.** The
+  screen-awake flag is set on the host screen and the rest is unknown.
+
+### 3. The desktop UI test cannot see
+
+`tests/gui/flutter-sync.sh` drives the real Host/Join UI, and it is the only UI
+coverage the Linux desktop build has. It SKIPs on a machine without the GTK
+toolchain and, in CI, it builds and launches the app but every captured frame is
+solid black, so it clicks blind and asserts nothing. `libgl1-mesa-dri`,
+`libegl1`, `libgles2`, `LIBGL_ALWAYS_SOFTWARE=1`, `GALLIUM_DRIVER=llvmpipe` and a
+24-bit Xvfb screen are all in place, so the cause is Flutter's GTK embedder on a
+headless runner and it is unsolved. Until someone fixes it the drive step
+reports instead of gating (see the note in `.github/workflows/flutter.yml`), and
+the Android layers carry the real UI coverage. Fixing it would be worth it: the
+desktop harness needs no device and runs in seconds.
+
+### 4. Three defects are knowingly unfixed
+
+Each is understood, none loses data, and each is left for a stated reason.
+
+- **An in-place value edit does not propagate.** A record's cross-device identity
+  IS its value, and the merge stream has no verb retiring one, so a peer keeps
+  the old value and feeds it back. The app avoids it (an edit there is a delete
+  plus a fresh save, which the stream can express) and the CLI's `--set` warns on
+  an index that has synced. The real fix is a value-retired fact on the wire,
+  and under [`dev/MERGE.md`](dev/MERGE.md)'s rule it may only be WRITTEN a full
+  release after the build that tolerates skipping it has reached every device.
+  So: add the skip now, write the verb one release later.
+- **A blob clash from before v0.3.20 leaves one duplicate record per device.**
+  Names are unique at birth now, so this cannot happen to a new index, and a
+  clash already on disk settles the moment every device updates. What no wire
+  verb can do is retract the duplicates already minted. A user-invoked cleanup
+  is possible; an automatic one is not, because two records pointing at
+  identical bytes are two notes by design, not one duplicated note.
+- **Bulk import is O(n²).** `put` scans the store for an existing value, which is
+  50 ms at a million records interactively and quadratic over a large import.
+  The fix is an O(1) append plus a sort-based dedup pass, described in
+  [`performance.txt`](performance.txt).
+
 ## Not planned (non-goals)
 
 - **A .NET / WinUI wrapper.** The native Win32 app (`win32/`) already covers

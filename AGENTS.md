@@ -3,6 +3,10 @@
 AIS is a plain-text associative index in C99. This is the operating manual for
 working on it. Read it, then `doc/dev/STYLE.md` and `doc/dev/LAYOUT.md`.
 
+**Picking up work?** `doc/ROADMAP.md`'s "Known gaps" is the current list: what is
+unfinished in the last release, what has never been verified on real hardware,
+which test cannot see, and which defects are knowingly unfixed and why.
+
 ## The contract (read first)
 
 - **`doc/dev/STYLE.md`** -- coding ideology: stack/streaming (avoid the heap), one

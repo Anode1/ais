@@ -99,7 +99,7 @@ Yes. A secret is stored encrypted inline (`-e`), so a login lives right next to 
 | [`doc/command_line.txt`](doc/command_line.txt) | Every command and option, the full `ais --help`. |
 | [`doc/SYNC.md`](doc/SYNC.md) | Sync your index between devices: encrypted LAN sync (`--sync`), or through a shared folder a tool like Syncthing keeps in sync (`--sync-folder`). |
 | [`doc/OVERVIEW.md`](doc/OVERVIEW.md) | Why it is built this way, and where it came from. |
-| [`doc/ROADMAP.md`](doc/ROADMAP.md) | What's planned, and where to help. |
+| [`doc/ROADMAP.md`](doc/ROADMAP.md) | What's planned, what is knowingly unfixed, and where to help. |
 | [`doc/dev/LAYOUT.md`](doc/dev/LAYOUT.md) | On-disk format and module map. |
 | [`AGENTS.md`](AGENTS.md) | How to develop it: the contract, the build, the test loop. |
 | [`doc/dev/README.md`](doc/dev/README.md) | Every other developer note, indexed: sync, front ends, packaging, releases. |
