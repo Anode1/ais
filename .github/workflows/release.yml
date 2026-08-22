@@ -49,6 +49,12 @@ jobs:
           make AIS_VERSION="${GITHUB_REF_NAME#v}" ut
           ./ais --version
 
+      # If the checkout is dirty by this point, say WHAT is dirty: the version
+      # stamp is taken from the tag now, but a suite that edits a tracked file is
+      # still worth knowing about.
+      - name: is the tree still clean after the suite
+        run: git status --porcelain || true
+
       - name: package bundle + checksum
         run: |
           # One zip per platform: the ais binary (CLI) + GUI launcher

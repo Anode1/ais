@@ -51,10 +51,15 @@ build_src() {
 build_bin() {
     os=$(uname -s | tr 'A-Z' 'a-z'); arch=$(uname -m)
     # clean build so flags take (a stale c/ais would not relink as static).
+    # AIS_VERSION goes DOWN to the compiler too. Without it this rebuild derives
+    # its own from `git describe`, which says -dirty whenever anything in the
+    # checkout has been touched: v0.3.19 and the first v0.3.20 build shipped
+    # binaries that reported "0.3.x-dirty" and so could not name the commit they
+    # came from, inside a correctly named directory.
     case "$os" in
-        linux)  make -C c clean >/dev/null && make -C c static >/dev/null
+        linux)  make -C c clean >/dev/null && make -C c AIS_VERSION="$VERSION" static >/dev/null
                 pretty=linux; launcher=gui/ais-web.desktop ;;
-        darwin) make -C c clean >/dev/null && make -C c >/dev/null
+        darwin) make -C c clean >/dev/null && make -C c AIS_VERSION="$VERSION" >/dev/null
                 pretty=macos; launcher=gui/ais-web.command ;;
         *) echo "dist: no binary for '$os' (Windows ships the native installer; see release.yml)"; return 0 ;;
     esac
