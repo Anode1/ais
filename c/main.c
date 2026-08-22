@@ -634,12 +634,6 @@ int main(int argc, char **argv)
              * likely cause, not a certain one. */
             if (ais_set_value(&a, id, values[0], values[1]) != 0)
                 die("--set: record %ld unchanged (no such id, or no value '%s')", id, values[0]);
-            /* The replaced value may be the ONLY reference to a blob this index
-             * made; discard it once the store no longer points at it, as
-             * --del/--del-key do. A no-op for a value that points at one of the
-             * user's own files. AFTER the edit, so a refused --set never
-             * destroys a payload still held. */
-            ais_doc_discard(a.dir, values[0]);
             /* An in-place value edit has NO representation in the merge stream:
              * it emits A| for the new value and nothing retiring the old, so a
              * synced peer keeps the old one and feeds it back, leaving BOTH on
@@ -714,7 +708,8 @@ int main(int argc, char **argv)
                 snprintf(p, sizeof(p), "Permanently delete record %ld?", id);
                 if (!confirm(p)) { fprintf(stderr, "aborted\n"); ais_close(&a); return 1; }
             }
-            ais_record(&a, id, shred_value_cb, a.dir);   /* shred encrypted blobs first */
+            /* ais_del disposes of the payload itself, through the disposer
+             * registered above -- and only once the delete has happened. */
             if (ais_del(&a, id) != 0) die("del failed");
             break;
         }

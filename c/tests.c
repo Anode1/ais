@@ -4029,6 +4029,77 @@ static void test_sync_delete_survives_compact(void)
     scratch_rm(da); scratch_rm(db);
 }
 
+/* A secret's ciphertext must not survive its delete -- and must not be destroyed
+ * by a delete that did not happen. The shred used to run first, so a refused
+ * delete left the record standing with its payload already gone. */
+static void test_delete_shreds_only_after_it_succeeds(void)
+{
+    ais a;
+    struct valvec vv;
+    struct stat st;
+    const char *dir = "/tmp/ais_ut_shred";
+    char path[AIS_PATH_MAX];
+    long id;
+
+    scratch_rm(dir);
+    ais_open(&a, dir);
+    ais_on_discard(&a, ais_doc_discard_cb, a.dir);
+    id = ais_doc_put(&a, "note", "body of the note\nsecond line\n", 30);
+    CHECK(id > 0, "shred: a document record was made");
+    vv.n = 0;
+    ais_record(&a, id, collect_val, &vv);
+    CHECK(vv.n == 1, "shred: it has one value");
+    snprintf(path, sizeof path, "%s/%.*s", dir,
+             (int)(sizeof path - strlen(dir) - 2), vv.vals[0]);
+
+    /* a delete of an id that is not here is a no-op, and must destroy nothing */
+    CHECK(ais_del(&a, id + 999) == 0, "shred: deleting an absent id is a no-op");
+    CHECK(stat(path, &st) == 0, "shred: and it takes no file with it");
+
+    CHECK(ais_del(&a, id) == 0, "shred: the real delete succeeds");
+    CHECK(stat(path, &st) != 0, "shred: and then the file is gone");
+
+    ais_close(&a);
+    scratch_rm(dir);
+}
+
+/* Replacing a document's value retires the file behind it. The CLI disposed of
+ * it by hand and the FFI and the web server did not, so an edit made in the app
+ * left the file on disk -- and the export streams every file in blobs/, so the
+ * orphan then travelled to every peer on every sync, forever. The disposal now
+ * happens in the engine, through the same seam a merged delete uses. */
+static void test_set_value_retires_the_document(void)
+{
+    ais a;
+    struct valvec vv;
+    struct stat st;
+    const char *dir = "/tmp/ais_ut_setblob";
+    char path[AIS_PATH_MAX];
+    long id;
+
+    scratch_rm(dir);
+    ais_open(&a, dir);
+    ais_on_discard(&a, ais_doc_discard_cb, a.dir);   /* what every front end registers */
+    id = ais_doc_put(&a, "note", "line one\nline two\n", 18);
+    CHECK(id > 0, "setblob: a document record was made");
+
+    vv.n = 0;
+    ais_record(&a, id, collect_val, &vv);
+    CHECK(vv.n == 1 && strncmp(vv.vals[0], "blobs/", 6) == 0,
+          "setblob: its value is a blob path");
+    snprintf(path, sizeof path, "%s/%.*s", dir,
+             (int)(sizeof path - strlen(dir) - 2), vv.vals[0]);
+    CHECK(stat(path, &st) == 0, "setblob: and the file is there");
+
+    CHECK(ais_set_value(&a, id, vv.vals[0], "https://example.org/instead") == 0,
+          "setblob: the value is replaced");
+    CHECK(stat(path, &st) != 0,
+          "setblob: the file it pointed at is gone, not left to ride every export");
+
+    ais_close(&a);
+    scratch_rm(dir);
+}
+
 /* A next_id cache that is positive but BELOW an id the store holds must not be
  * trusted: the next put would reissue a live id, so one value would name two
  * records and one tombstone would take both. A truncated write leaves exactly
@@ -5203,6 +5274,10 @@ int main(void)
     test_sync_frame_reject();
     printf("folder sync B3 (delete survives compaction):\n");
     test_sync_delete_survives_compact();
+    printf("a delete disposes of its payload, and only when it happens:\n");
+    test_delete_shreds_only_after_it_succeeds();
+    printf("an edited-away document takes its file with it:\n");
+    test_set_value_retires_the_document();
     printf("next_id: a cache below the store is not trusted:\n");
     test_next_id_cache_below_the_store();
     printf("a value must fit the wire, not only the store:\n");

@@ -1419,11 +1419,10 @@ static void handle(ais *a, int fd)
             secret_wipe(out, sizeof out);
         }
     } else if (strcmp(method, "POST") == 0 && strcmp(path, "/api/del") == 0) {
-        /* delete record ?id=N (the handle from the id|value lines). Shred any
-         * encrypted blob FIRST, as the CLI does: deleting a secret must not leave
-         * its ciphertext on disk, and exportable, afterwards. */
-        if (reqid > 0)
-            ais_record(a, reqid, serve_shred_value, (void *)a->dir);
+        /* delete record ?id=N (the handle from the id|value lines). Deleting a
+         * secret must not leave its ciphertext on disk, and exportable,
+         * afterwards -- but the delete goes first (see ais_embed_del), so a
+         * refused one cannot destroy the payload of a record that stays. */
         if (reqid > 0 && ais_del(a, reqid) == 0) {
             send_head(fd, "text/plain");
             write_all(fd, "deleted\n", 8);

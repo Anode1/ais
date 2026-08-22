@@ -95,26 +95,15 @@ char *ais_embed_reveal(const char *marked_value, const char *passphrase)
     return out;
 }
 
-/* Discard a payload this index made (encrypted or document blob) before its
- * record is tombstoned. VP is the index dir; a value pointing at one of the
- * user's own files is untouched. */
-static int embed_shred_value(long id, const char *value, void *vp)
-{
-    (void)id;
-    ais_doc_discard((const char *)vp, value);
-    return 0;
-}
-
 int ais_embed_del(void *handle, long id)
 {
-    ais *a = handle;
-
     if (handle == NULL)
         return -1;
-    /* Shred first, as the CLI does: deleting a secret from the app must not
-     * leave its ciphertext on disk afterwards. */
-    ais_record(a, id, embed_shred_value, (void *)a->dir);
-    return ais_del(a, id);
+    /* The payload goes with the record: ais_del hands every value to the
+     * disposer this seam registered in ais_embed_open, once the delete has
+     * actually happened. Doing it here first meant a refused delete had already
+     * destroyed the file of a record that stayed. */
+    return ais_del((ais *)handle, id);
 }
 
 int ais_embed_update(void *handle, long id, const char *keys)

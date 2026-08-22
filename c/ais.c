@@ -950,6 +950,16 @@ int ais_set_value(ais *a, long id, const char *old_value, const char *new_value)
     if (snprintf(offp, sizeof offp, "%s/off", a->dir) < (int)sizeof offp)
         remove(offp);
     mts_stamp(a, id);
+    /* The replaced value may have been the only reference to a file THIS INDEX
+     * made. Retiring it is a delete of a payload, so it goes through the SAME
+     * seam a merged delete uses (ais_on_discard) rather than teaching the engine
+     * about blobs: the CLI disposed of it by hand and the FFI and the web server
+     * did not, so replacing a document's value from the app or the browser
+     * orphaned its file -- and feed.c streams the whole of blobs/, so that
+     * orphan then rode every export to every peer, forever. AFTER the rename: a
+     * refused edit must never destroy a payload the store still points at. */
+    if (a->discard != NULL)
+        a->discard(old_value, a->discard_ctx);
     rc = 0;
 
 out:
@@ -1010,6 +1020,16 @@ static void del_stamp(ais *a, long id, char *ts, size_t tsz, char hash[17])
         hash[0] = '\0';
 }
 
+/* Every value of a record a delete just retired -- local or arriving from a peer
+ * -- offered to the front end's disposer. */
+static int mdel_discard_value(long id, const char *value, void *vp)
+{
+    ais *a = vp;
+    (void)id;
+    a->discard(value, a->discard_ctx);
+    return 0;
+}
+
 int ais_del(ais *a, long id)
 {
     char ts[AIS_TS_MAX], hash[17];
@@ -1036,6 +1056,14 @@ int ais_del(ais *a, long id)
         mts_clear(a, id);          /* delete is delete: keep no note of when it was touched */
         sts_clear(a, id);
         katt_forget(a, id, NULL);  /* nor of when its tags went on */
+        /* And the payload goes with the record, through the same seam a peer's
+         * delete uses (ais_merge_del_many). Each front end used to do this by
+         * hand before calling in, which is three copies of one rule and one
+         * ordering bug: shredding first meant a REFUSED delete had already
+         * destroyed the payload of a record that stayed. The store line stands
+         * until compaction, so the values still read back here. */
+        if (a->discard != NULL)
+            ais_record(a, id, mdel_discard_value, a);
     }
     store_wunlock(a);
     if (rc == 0)
@@ -1339,16 +1367,6 @@ static int mbatch_seek(long id, const char *ts, const char *keys, const char *va
     return (B->left == 0) ? -1 : 0;      /* nothing left to look for: stop reading */
 }
 
-/* Every value of a record a peer's delete just retired, offered to the front
- * end's disposer. */
-static int mdel_discard_value(long id, const char *value, void *vp)
-{
-    ais *a = vp;
-    (void)id;
-    a->discard(value, a->discard_ctx);
-    return 0;
-}
-
 int ais_merge_del_many(ais *a, const ais_del_fact *facts, int n)
 {
     struct mbatch_ctx B;
@@ -1417,8 +1435,15 @@ static int att_apply(ais *a, long id, const char *hash, const char *key, const c
     /* The lookup above already answered whether there is an entry to replace: a
      * fact this index has never seen appends instead of rewriting the whole file. */
     if ((noted == 1 ? katt_set(a, id, ts, hash, key)
-                    : katt_add(a, id, ts, hash, key)) == 0)
-        ais_post_keys(a, key, id, ts, 0);    /* the one attach path: keys field + posting */
+                    : katt_add(a, id, ts, hash, key)) != 0)
+        return -1;
+    if (ais_post_keys(a, key, id, ts, 0) != 0) {
+        /* The attach was NOTED but never reached the authoritative keys field.
+         * Left there, katt exports it as a T| and tells every peer this device
+         * carries a tag it does not. Retract the note rather than advertise it. */
+        katt_forget(a, id, key);
+        return -1;
+    }
     return 0;
 }
 
@@ -1447,7 +1472,7 @@ static int abatch_seek(long id, const char *ts, const char *keys, const char *va
 int ais_merge_attach_many(ais *a, const ais_att_fact *facts, int n)
 {
     struct abatch_ctx B;
-    int i;
+    int i, rc = 0;
 
     if (a == NULL || facts == NULL || n < 0 || n > AIS_ATT_BATCH)
         return -1;
@@ -1462,10 +1487,11 @@ int ais_merge_attach_many(ais *a, const ais_att_fact *facts, int n)
         return -1;
     store_each_record(a, abatch_seek, &B);
     for (i = 0; i < n; i++)
-        if (B.id[i] != 0)
-            att_apply(a, B.id[i], facts[i].hash, facts[i].key, facts[i].ts);
+        if (B.id[i] != 0 &&
+            att_apply(a, B.id[i], facts[i].hash, facts[i].key, facts[i].ts) != 0)
+            rc = -1;
     store_wunlock(a);
-    return 0;
+    return rc;
 }
 
 int ais_merge_attach(ais *a, const char *hash, const char *key, const char *ts)
@@ -1503,9 +1529,13 @@ int ais_merge_detach(ais *a, const char *hash, const char *key, const char *ts)
         snprintf(M.ts, sizeof M.ts, "%s", att);    /* the key's own time, when later */
     if (M.found && tomb_contains(a, M.id) == 0 &&
         strcmp(ts, M.ts) >= 0 && ktomb_contains(a, M.id, key) == 0) {
-        if (post_remove(a, key, M.id) == 0) {
-            ktomb_append(a, M.id, ts, hash, key);   /* keep + re-propagate the detach */
-            katt_forget(a, M.id, key);              /* it is no longer attached */
+        /* The tombstone FIRST, the posting after. The other order lost the key
+         * from the posting while the keys field still held it whenever the
+         * append failed, and the next compaction read the field and put the tag
+         * back -- a removal that undid itself, quietly. */
+        if (ktomb_append(a, M.id, ts, hash, key) == 0) {   /* keep + re-propagate */
+            post_remove(a, key, M.id);
+            katt_forget(a, M.id, key);                     /* no longer attached */
         }
     }
     store_wunlock(a);
