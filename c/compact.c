@@ -508,6 +508,51 @@ static int kfile_remove(const ais *a, const char *file, long id, const char *key
     return 0;
 }
 
+/* Re-key every hash-bearing entry for ID to HASH -- the record's first value
+ * changed under --set, and the hash is the name a K|/T| travels under. Left
+ * alone, the entries kept naming a value no peer holds any more, so a detach
+ * or re-attach made before the edit never reached the record the peers now
+ * have. Legacy "id|key" lines carry no hash and stay as they are. One rewrite,
+ * temp+rename, as kfile_replace. Returns 0 (including when nothing named ID),
+ * or -1 on error. */
+static int kfile_rehash(const ais *a, const char *file, long id, const char *hash)
+{
+    char path[AIS_PATH_MAX], tmp[AIS_PATH_MAX];
+    char orig[AIS_LINE_MAX], work[AIS_LINE_MAX];
+    FILE *in, *out;
+    int changed = 0;
+
+    if (compact_path(a, file, path, sizeof(path)) != 0)
+        return -1;
+    in = fopen(path, "r");
+    if (in == NULL)
+        return (errno == ENOENT) ? 0 : -1;
+    if (snprintf(tmp, sizeof(tmp), "%s.tmp", path) >= (int)sizeof(tmp)) {
+        fclose(in);
+        return -1;
+    }
+    out = fopen(tmp, "w");
+    if (out == NULL) {
+        fclose(in);
+        return -1;
+    }
+    while (fgets(orig, sizeof(orig), in) != NULL) {
+        const char *ts, *h, *k;
+        snprintf(work, sizeof work, "%s", orig);
+        if (kfile_parse(work, &ts, &h, &k) == id && h[0] != '\0' && strcmp(h, hash) != 0) {
+            fprintf(out, "%ld|%s|%s|%s\n", id, ts, hash, k);
+            changed = 1;
+            continue;
+        }
+        fputs(orig, out);
+    }
+    fclose(in);
+    if (fclose(out) != 0) { unlink(tmp); return -1; }
+    if (!changed)         { unlink(tmp); return 0; }
+    if (rename(tmp, path) != 0) { unlink(tmp); return -1; }
+    return 0;
+}
+
 /* Replace the entry for (ID, KEY) in ONE rewrite: a temp file holding every OTHER
  * line plus the new one, renamed over the original, so the file only ever holds
  * the old entry or the new one. kfile_remove then kfile_append would lose the pair
@@ -586,6 +631,8 @@ int ktomb_lookup(const ais *a, long id, const char *key, char *ts, size_t tsz)
 int ktomb_remove(const ais *a, long id, const char *key)
 { return kfile_remove(a, "ktomb", id, key); }
 int ktomb_active(const ais *a)                        { return kfile_active(a, "ktomb"); }
+int ktomb_rehash(const ais *a, long id, const char *hash)
+{ return kfile_rehash(a, "ktomb", id, hash); }
 
 int katt_set(const ais *a, long id, const char *ts, const char *hash, const char *key)
 {
@@ -601,6 +648,8 @@ int katt_each(const ais *a, ktomb_cb cb, void *ctx)   { return kfile_each(a, "ka
 int katt_forget(const ais *a, long id, const char *key)
 { return kfile_remove(a, "katt", id, key); }
 int katt_active(const ais *a)                         { return kfile_active(a, "katt"); }
+int katt_rehash(const ais *a, long id, const char *hash)
+{ return kfile_rehash(a, "katt", id, hash); }
 
 /* tomb_active: 1 if anything is deleted at all, 0 if the tomb is empty/absent, -1
  * on error. A cheap stat, so read paths can skip per-id liveness checks entirely

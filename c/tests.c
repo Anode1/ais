@@ -3720,6 +3720,65 @@ static void test_true_ts_verb_shields_key_tombstones(void)
 /* A peer that predates C| and T| skips both lines (the unknown-verb rule) and must
  * land exactly where it lands today: the raised A| re-attaching the tag, and the
  * re-attach never reaching it. Same two streams, the new verbs filtered out. */
+/* An in-place value edit must reach the peers. The store line keeps its id, ts
+ * and keys; what travels is a D| retiring the old value, under id 0 so it names
+ * no record here, and the new value as an ordinary A|. Both directions of the
+ * edit, because the second one saves a value this index already retired. */
+struct hash_seen { char want[17]; int other; };
+
+static int hash_seen_cb(long id, const char *ts, const char *hash, const char *key, void *ctx)
+{
+    struct hash_seen *H = ctx;
+    (void)id; (void)ts; (void)key;
+    if (strcmp(hash, H->want) != 0)
+        H->other = 1;
+    return 0;
+}
+
+static void test_set_reaches_the_peer(void)
+{
+    ais A, B;
+    const char *da = "/tmp/ais_ut_setA", *db = "/tmp/ais_ut_setB", *f = "/tmp/ais_ut_set_f";
+    const char *v1 = "http://x/set-v1", *v2 = "http://x/set-v2";
+    struct hash_seen H;
+    long na = 0, nb = 0, idb = 0;
+    int round;
+
+    scratch_rm(da); scratch_rm(db); scratch_rm(f);
+    mkdir(f, 0777);
+    ais_open(&A, da); ais_open(&B, db);
+    ais_put_at(&A, "work reading", v1, "2020-01-01T00:00:00Z");
+    ais_update(&A, 1, "-reading");                       /* a detach the edit must carry */
+    sync_folder_once(&A, f); sync_folder_once(&B, f);
+    CHECK(value_present(&B, v1) == 1, "set: the peer holds the value before the edit");
+
+    CHECK(ais_set_value(&A, 1, v1, v2) == 0, "set: the edit itself");
+    for (round = 0; round < 2; round++) { sync_folder_once(&A, f); sync_folder_once(&B, f); }
+    ais_count_live(&A, &na); ais_count_live(&B, &nb);
+    CHECK(value_present(&A, v2) == 1 && value_present(&A, v1) == 0 && na == 1,
+          "set: the editing device holds the new value only");
+    CHECK(value_present(&B, v2) == 1 && value_present(&B, v1) == 0 && nb == 1,
+          "set: the peer holds the new value only, not both");
+    store_find_value(&B, v2, &idb);
+    CHECK(key_has_id(&B, "work", idb) == 1 && key_has_id(&B, "reading", idb) == 0,
+          "set: the keys, detach included, came across");
+    content_hash(v2, H.want); H.other = 0;
+    ktomb_each(&A, hash_seen_cb, &H);
+    CHECK(H.other == 0, "set: the key tombstones now name the record by its new value");
+
+    sleep(1);                                            /* the re-save must outrank B's tombstone */
+    CHECK(ais_set_value(&A, 1, v2, v1) == 0, "set: editing back to a value this index retired");
+    for (round = 0; round < 2; round++) { sync_folder_once(&A, f); sync_folder_once(&B, f); }
+    ais_count_live(&A, &na); ais_count_live(&B, &nb);
+    CHECK(value_present(&A, v1) == 1 && value_present(&A, v2) == 0 && na == 1,
+          "set back: the editing device holds the old value only");
+    CHECK(value_present(&B, v1) == 1 && value_present(&B, v2) == 0 && nb == 1,
+          "set back: the peer followed it, so a retired value is not retired for ever");
+
+    ais_close(&A); ais_close(&B);
+    scratch_rm(da); scratch_rm(db); scratch_rm(f);
+}
+
 static void test_old_peer_ignores_the_new_verbs(void)
 {
     ais N, O;
@@ -5395,6 +5454,7 @@ int main(void)
     test_readd_adopts_the_new_keys();
     test_true_ts_verb_shields_key_tombstones();
     test_old_peer_ignores_the_new_verbs();
+    test_set_reaches_the_peer();
     test_known_limit_restamp_outranks_an_unseen_detach();
     test_later_detach_holds_in_every_sync_order();
     test_reattach_after_a_detach_propagates();

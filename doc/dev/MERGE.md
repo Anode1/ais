@@ -130,9 +130,9 @@ Two consequences, both binding:
 
 - A new verb may only be WRITTEN a full release after the refusing build has
   reached every device. Older peers predate the refusal. The skip shipped in
-  **v0.3.11** and the current release is **v0.3.14**, so `C|` and `T|`, written
-  from **0.3.15**, are sanctioned. The residual: a device last updated at 0.3.10
-  or earlier reads them as records under a fabricated `C`/`T` key.
+  **v0.3.11**; `C|` and `T|` are written from **0.3.15**. The residual: a device
+  last updated at 0.3.10 or earlier reads them as records under a fabricated
+  `C`/`T` key.
 - The verb must be a SHORT UPPERCASE TOKEN followed by a timestamp. The
   timestamp is what keeps a legitimate tag safe -- a hand-written `TODO|buy milk`
   has no date in field 2 and still imports as a record.
@@ -191,6 +191,29 @@ Document bodies travel the same stream as `B|<path>|<size>` plus raw bytes. They
 always did for sync bundles, which is why a folder sync carried documents while
 `--export` -- the documented backup route -- dropped them, restoring a record whose
 body simply did not exist.
+
+## An edited value travels as a retirement
+
+`ais_set_value` replaces one value in place, keeping the id, ts and keys, and the
+stream needs no verb for it: the old value is retired as a `D|<now>|<hash>`, the
+fact every delete already travels as, and the new value goes out as the record's
+ordinary `A|`. A peer drops its copy of the old value and creates the new one, so
+one round leaves the new text alone on both sides. Three details make it hold:
+
+- **The tombstone is written under id 0.** `tomb` suppresses by id, and the
+  record's own id would suppress the edited line. Id 0 names no record, so the
+  line stays live here while the fact travels; `exp_dead` ignores the id.
+- **Editing back to a value this index once retired** removes that tombstone,
+  as a re-save does, and raises the export (`sts`) to the edit time, because the
+  peer holds its own tombstone for that value and the `A|` has to outrank it.
+- **`ktomb`/`katt` name the record by its first value's hash.** When that is the
+  value replaced, the entries are re-keyed (`ktomb_rehash`, `katt_rehash`), or a
+  detach made before the edit would travel under a name no peer holds.
+
+What a peer cannot tell is that the two values were one record. A delete it
+makes of the OLD value after the edit names a hash this index no longer holds
+and is skipped, so the edit survives it, exactly as a fresh save of the new text
+would. Pinned by `test_set_reaches_the_peer`.
 
 ## A raised export carries its true time as C|
 
@@ -363,14 +386,14 @@ rewrite v1 tombstones to `0|hash` on open was not taken.
 - **Content collision.** Two different notes with identical `(keys,value)` are one logical
   record by design, same as today's idempotent put. Acceptable.
 - **Edit = del + add** at the content level; nothing special.
-- **Hash width.** blake2b-128 (truncated) is ample at personal scale; not a security
-  boundary (content is already content-addressed). Confirm width in review.
+- **Hash width.** FNV-1a 64-bit, as built; not a security boundary (content is
+  already content-addressed).
 
 ## Open questions
 1. RESOLVED: `ktomb` (key-level) merge is SHIPPED -- key-detaches travel as `K|` lines
    (`ais_merge_detach`), alongside record-level `tomb`, and key-attaches as `T|`
    (`katt`, `ais_merge_attach`), so a removal is reversible.
-2. Tomb hash width: 128-bit truncated vs full 256-bit.
+2. RESOLVED: the tomb hash is FNV-1a 64-bit (see "The tombstone digest").
 3. RESOLVED: plain `--dump` stays unchanged (readable); the prefixed `A|`/`D|` lines are the
    export-wire format only (see "Export-wire format" above).
 4. Any existing consumer that parses `tomb` or `--dump` output? (grep before changing format.)

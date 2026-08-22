@@ -846,13 +846,15 @@ out:
 /* Streams the store to a temp file, rewriting the ONE line whose id == ID and whose
  * value exactly equals OLD_VALUE (its ts and keys carried through verbatim); every
  * other line is copied byte-for-byte, legacy "id|keys|value" lines kept legacy. The
- * value is not in the key index, so only the store is touched -- next_id, tomb,
- * ktomb and multi are left alone. */
+ * value is not in the key index, so the postings, next_id and multi are left
+ * alone; tomb, ktomb and katt are touched only to let the edit travel (below). */
 struct setval_ctx {
     FILE       *out;
     long        id;
     const char *old_value, *new_value;
     int         matched, error;
+    int         seen;      /* a line of ID has gone by */
+    int         first;     /* the replaced line was the record's FIRST: its hash changes */
 };
 
 static int setval_line(long id, const char *ts, const char *keys,
@@ -865,6 +867,7 @@ static int setval_line(long id, const char *ts, const char *keys,
         int need = (ts[0] != '\0')
                  ? snprintf(NULL, 0, "%ld|%s|%s|%s\n", id, ts, keys, c->new_value)
                  : snprintf(NULL, 0, "%ld|%s|%s\n", id, keys, c->new_value);
+        c->first = !c->seen;
         if (need < 0 || need >= AIS_LINE_MAX) {   /* the edited line would not round-trip */
             c->error = 1;
             return -1;
@@ -872,6 +875,8 @@ static int setval_line(long id, const char *ts, const char *keys,
         wval = c->new_value;
         c->matched = 1;
     }
+    if (id == c->id)
+        c->seen = 1;
     if (ts[0] != '\0')
         fprintf(c->out, "%ld|%s|%s|%s\n", id, ts, keys, wval);   /* v2 */
     else
@@ -931,6 +936,8 @@ int ais_set_value(ais *a, long id, const char *old_value, const char *new_value)
     c.new_value = new_value;
     c.matched = 0;
     c.error = 0;
+    c.seen = 0;
+    c.first = 0;
 
     if (store_each_record(a, setval_line, &c) != 0 || !c.matched) {
         fclose(out);                       /* io error, or no matching line: no rename */
@@ -950,6 +957,36 @@ int ais_set_value(ais *a, long id, const char *old_value, const char *new_value)
     if (snprintf(offp, sizeof offp, "%s/off", a->dir) < (int)sizeof offp)
         remove(offp);
     mts_stamp(a, id);
+    /* The edit has to reach the peers, and the stream already has the verbs: the
+     * old value is retired as a D|ts|hash, the fact every delete travels as,
+     * under id 0, which names no record, so the edited line stays live here
+     * while every peer drops its copy. The new value then arrives there as an
+     * ordinary record. What a peer cannot tell from that is that the two were
+     * one record: a delete it makes of the OLD value after this edit names a
+     * hash this index no longer holds and is skipped, so the edit survives it,
+     * as a fresh save of the new text would. If this index once deleted the
+     * NEW value, that tombstone would export as a D| carrying the edit's own
+     * hash and kill it on every peer: it goes, and the record exports raised to
+     * now (sts), which is what lets it outrank the copy of that tombstone a
+     * peer still holds. ktomb/katt name the record by its first value's hash;
+     * when that is the value replaced they are re-keyed, or a detach made before
+     * the edit would travel under a name no peer has. */
+    if (strcmp(old_value, new_value) != 0) {
+        char h[17], now[AIS_TS_MAX];
+        store_now(now, sizeof now);
+        content_hash(old_value, h);
+        if (now[0] != '\0' && tomb_append(a, 0, now, h) != 0)
+            fprintf(stderr, "ais: warning: record %ld was edited, but the old value could\n"
+                            "     not be retired; a device that syncs may send it back\n", id);
+        content_hash(new_value, h);
+        if (tomb_lookup_hash(a, h, NULL, 0, NULL) == 1 && tomb_remove_hash(a, h) == 0 &&
+            now[0] != '\0')
+            sts_set(a, id, now);
+        if (c.first) {
+            ktomb_rehash(a, id, h);
+            katt_rehash(a, id, h);
+        }
+    }
     /* The replaced value may have been the only reference to a file THIS INDEX
      * made. Retiring it is a delete of a payload, so it goes through the SAME
      * seam a merged delete uses (ais_on_discard) rather than teaching the engine

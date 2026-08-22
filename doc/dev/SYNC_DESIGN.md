@@ -83,20 +83,11 @@ spec. See LAYOUT.md (format), BNF.txt (grammar).
 
 ## GUI / UX
 - A resource = value (identity, shown read-only) + an editable keyset.
-  - `--set` edits the identity field in place, and the stream has no verb
-    retiring the old value, so a peer keeps it and feeds it back: both values end
-    up on both devices. The CLI warns on an index that has synced and leaves the
-    choice to the user, because a CLI caller may want the id and the save time
-    kept.
-  - **The app does not use it on a device that syncs.** An edit there is a delete
-    plus a fresh save with the same tags, which says the same thing in verbs the
-    stream already has: the tombstone retires the old text on every device and
-    the new text arrives as an ordinary record. The cost is a new id and a new
-    save time, and the dialog says so before the user commits. That is the whole
-    fix available without a wire change; a value-retired fact on the wire (not
-    the id-keyed tomb, which would suppress the record locally) remains the way
-    to keep the id, and under MERGE.md's rule it could not be WRITTEN until a
-    release after the one that learns to skip it.
+  - `--set` edits the identity field in place and keeps the id, ts and keys.
+    What reaches the peers is a `D|` retiring the old value and the new value as
+    an ordinary record (MERGE.md, "An edited value travels as a retirement"), so
+    every front end edits in place through `ais_set_value` and none needs a
+    delete-plus-save of its own.
 - Save emits the DIFF against the loaded state (only the +'s and -'s you changed),
   NOT the absolute keyset, so a concurrent add on another device is not wiped.
 - `-key` is internal: the GUI toggles tag chips and emits it; users never type

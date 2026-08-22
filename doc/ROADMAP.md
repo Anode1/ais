@@ -144,18 +144,10 @@ reports instead of gating (see the note in `.github/workflows/flutter.yml`), and
 the Android layers carry the real UI coverage. Fixing it would be worth it: the
 desktop harness needs no device and runs in seconds.
 
-### 4. Three defects are knowingly unfixed
+### 4. Two defects are knowingly unfixed
 
 Each is understood, none loses data, and each is left for a stated reason.
 
-- **An in-place value edit does not propagate.** A record's cross-device identity
-  IS its value, and the merge stream has no verb retiring one, so a peer keeps
-  the old value and feeds it back. The app avoids it (an edit there is a delete
-  plus a fresh save, which the stream can express) and the CLI's `--set` warns on
-  an index that has synced. The real fix is a value-retired fact on the wire,
-  and under [`dev/MERGE.md`](dev/MERGE.md)'s rule it may only be WRITTEN a full
-  release after the build that tolerates skipping it has reached every device.
-  So: add the skip now, write the verb one release later.
 - **A blob clash from before v0.3.20 leaves one duplicate record per device.**
   Names are unique at birth now, so this cannot happen to a new index, and a
   clash already on disk settles the moment every device updates. What no wire
@@ -163,9 +155,10 @@ Each is understood, none loses data, and each is left for a stated reason.
   is possible; an automatic one is not, because two records pointing at
   identical bytes are two notes by design, not one duplicated note.
 - **Bulk import is O(n²).** `put` scans the store for an existing value, which is
-  50 ms at a million records interactively and quadratic over a large import.
-  The fix is an O(1) append plus a sort-based dedup pass, described in
-  [`performance.txt`](performance.txt).
+  50 ms at a million records interactively and quadratic over a large import:
+  5k lines 1.1 s, 10k 3.8 s, 20k 13.4 s on a desktop, so a phone's first sync
+  with a 20k-record index stalls for a minute. The measurement and the batch
+  design that fixes it are in [`performance.txt`](performance.txt).
 
 ## Not planned (non-goals)
 

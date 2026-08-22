@@ -40,7 +40,16 @@ Fix direction (keeps plain text, no hashing, all streaming)
      above for the speedups). Cost: 12 MB off for 1M ids; compact +2 s. (Remaining
      time on huge gets is fopen-per-result; cache the off/store handles if a
      270k-row get must beat ~2 s.)
-  2. TODO: put O(1) append + batch dedup (sort-based), not a per-put O(n) scan.
+  2. TODO: batch the import's value lookups. Measured 2026-08-22 (--import of
+     A| lines into an empty index, desktop): 5k 1.06 s, 10k 3.79 s, 20k 13.4 s.
+     Design, same shape as ais_merge_del_many: feed_import buffers a RUN of A|
+     lines (spooled to a tmpfile, a fixed stack array of their value hashes,
+     AIS_MERGE_BATCH deep), resolves every hash -> (found, id) in ONE store
+     pass, then replays the spool through a put that takes the lookup as an
+     argument instead of calling store_find_value. A hash that repeats inside
+     one batch is left unresolved and takes the scanning path, which keeps the
+     outcome identical to one put per line. Any other verb, and a pending C|,
+     flushes the batch first, as D| does. Expected: n^2/256.
   Net: every op becomes a seek or one streaming pass = find/rsync class.
 
 Watch

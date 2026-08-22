@@ -297,7 +297,9 @@ takes the same view.
 
 ### tomb -- tombstones
 `del(id)` appends the id to `tomb`. `get`/`dump` merge it out (suppress ids
-present in `tomb`). Compaction drops the deleted record's BODY from the store but
+present in `tomb`). `ais_set_value` appends a line under id 0, which names no
+record: it retires the replaced value on the wire while the edited line stays
+live (MERGE.md). Compaction drops the deleted record's BODY from the store but
 KEEPS the tombstone (`tomb_keep_hashed`): the tombstone is the portable delete
 fact a peer needs, so collecting it would let any device that still holds the
 record push it back on the next sync. Tombstones are retained for the life of the

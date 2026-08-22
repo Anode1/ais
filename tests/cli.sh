@@ -667,7 +667,7 @@ okeq    "del: no second tombstone was appended"       "1" "$(grep -c '^1|' "$DD"
 rm -rf "$DD"
 
 # 17j-nonies. The small refusals: a missing KEY is not a no-op success, declining
-#      --compact does not report success, --set warns on an index that syncs.
+#      --compact does not report success, --set retires the value it replaced.
 MS=$(mktemp -d "${TMPDIR:-/tmp}/ais_misc.XXXXXX") || exit 2
 "$AIS" -f "$MS" -v m1 mk >/dev/null
 "$AIS" -f "$MS" --untag >/dev/null 2>&1
@@ -678,10 +678,13 @@ printf 'n\n' > "$MS/ans"
 AIS_TTY="$MS/ans" "$AIS" -f "$MS" --compact >/dev/null 2>&1
 okeq    "compact: declining exits non-zero"             "1" "$?"
 ok      "compact: and the record is still there"        "m1" "$("$AIS" -f "$MS" mk)"
-# --set is LOCAL ONLY: it has no merge verb, so a synced index must be told
-printf 'peer-state\n' > "$MS/syncid"
-ok      "set: warns when the index syncs"  "does not propagate" \
-        "$("$AIS" -f "$MS" --set 1 -v m1 -v m2 2>&1)"
+# --set retires the old value on the wire: a hash-only tombstone under id 0, which
+# exports as a D| and names no record here, so the edited line stays live.
+"$AIS" -f "$MS" --set 1 -v m1 -v m2 >/dev/null 2>&1
+ok      "set: the record reads back edited"             "m2" "$("$AIS" -f "$MS" mk)"
+okeq    "set: and is still one live record"             "1"  "$("$AIS" -f "$MS" mk | grep -c .)"
+ok      "set: the old value is retired under id 0"      "^0|" "$(cat "$MS/tomb" 2>/dev/null)"
+ok      "set: and the export carries the retirement"    "^D|" "$("$AIS" -f "$MS" --export 2>/dev/null)"
 rm -rf "$MS"
 
 # 17m. A value the index once deleted must be saveable again, and the re-save must

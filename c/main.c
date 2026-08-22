@@ -634,28 +634,6 @@ int main(int argc, char **argv)
              * likely cause, not a certain one. */
             if (ais_set_value(&a, id, values[0], values[1]) != 0)
                 die("--set: record %ld unchanged (no such id, or no value '%s')", id, values[0]);
-            /* An in-place value edit has NO representation in the merge stream:
-             * it emits A| for the new value and nothing retiring the old, so a
-             * synced peer keeps the old one and feeds it back, leaving BOTH on
-             * both devices. Warn only on an index that actually syncs. */
-            {
-                char sp[AIS_PATH_MAX];
-                FILE *sf;
-                int peered = 0;
-                if (snprintf(sp, sizeof sp, "%s/syncid", a.dir) < (int)sizeof sp &&
-                    (sf = fopen(sp, "r")) != NULL) { fclose(sf); peered = 1; }
-                /* syncid is the FOLDER protocol's identity; a LAN round never
-                 * writes it, so `synced` has to be checked as well. */
-                if (!peered &&
-                    snprintf(sp, sizeof sp, "%s/synced", a.dir) < (int)sizeof sp &&
-                    (sf = fopen(sp, "r")) != NULL) { fclose(sf); peered = 1; }
-                if (peered) {
-                    fprintf(stderr,
-                        "ais: note -- this index syncs, and --set does not propagate. "
-                        "The peer still holds the old value and will feed it back; "
-                        "run --set on each device, or --del the record and re-add it.\n");
-                }
-            }
             break;
         }
         case CMD_UPDATE: {

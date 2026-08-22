@@ -68,6 +68,7 @@ int ktomb_remove(const ais *a, long id, const char *key);   /* drop (id,key); 0/
 int ktomb_contains(const ais *a, long id, const char *key); /* 1 yes / 0 no / -1 */
 int ktomb_lookup(const ais *a, long id, const char *key, char *ts, size_t tsz); /* +ts */
 int ktomb_active(const ais *a);   /* 1 if ktomb has entries, 0 if empty/absent, -1 */
+int ktomb_rehash(const ais *a, long id, const char *hash); /* the record's hash changed (--set) */
 
 /* Stream each ktomb entry (id, ts, hash, key) through CB (ts/hash "" for a legacy
  * entry). For the merge export of key-detaches. 0, the stop code, or -1. */
@@ -98,6 +99,7 @@ int katt_lookup(const ais *a, long id, const char *key, char *ts, size_t tsz); /
 int katt_each(const ais *a, ktomb_cb cb, void *ctx);
 int katt_forget(const ais *a, long id, const char *key);  /* KEY, or all of ID if NULL */
 int katt_active(const ais *a);            /* 1 if katt has entries, 0 if not, -1 */
+int katt_rehash(const ais *a, long id, const char *hash);
 
 /* Streaming compaction. Returns 0 on success, -1 on error. */
 int ais_compact(ais *a);
