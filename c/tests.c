@@ -4029,6 +4029,34 @@ static void test_sync_delete_survives_compact(void)
     scratch_rm(da); scratch_rm(db);
 }
 
+/* Key encoding must not ask the LOCALE anything. ctype.h answers differently for
+ * bytes >= 0x80 depending on libc and locale -- macOS in a UTF-8 locale calls
+ * 0x80-0x9F control, glibc in the C locale does not -- and those are exactly the
+ * UTF-8 continuation bytes in Cyrillic. The same key then encoded to two
+ * different names on two devices, so recall missed and a mesh filed one key
+ * twice. */
+static void test_key_encoding_is_ascii_only(void)
+{
+    char enc[AIS_KEY_MAX];
+
+    CHECK(key_encode("ключ", enc, sizeof enc) == 0 && strcmp(enc, "ключ") == 0,
+          "keyenc: a Cyrillic key survives byte for byte");
+    CHECK(key_encode("MiXeD", enc, sizeof enc) == 0 && strcmp(enc, "mixed") == 0,
+          "keyenc: ASCII still folds to lower case");
+    CHECK(key_encode("Ключ", enc, sizeof enc) == 0 && strcmp(enc, "Ключ") == 0,
+          "keyenc: and a non-ASCII capital is left alone, as documented");
+    {   /* every byte from 0x80 to 0x9F passes through unchanged */
+        char in[34], want[34];
+        int i, b;
+        for (i = 0, b = 0x80; b <= 0x9F; b++, i++) { in[i] = (char)b; want[i] = (char)b; }
+        in[i] = '\0'; want[i] = '\0';
+        CHECK(key_encode(in, enc, sizeof enc) == 0 && strcmp(enc, want) == 0,
+              "keyenc: the C1 byte range is not treated as control characters");
+    }
+    CHECK(key_encode("a\tb", enc, sizeof enc) == 0 && strcmp(enc, "a_b") == 0,
+          "keyenc: a real control character still becomes _");
+}
+
 /* An export carries the documents records still point at, and nothing else. The
  * exporter streamed the whole blobs/ directory, so a file nothing referred to --
  * an orphan left by an older build's value edit -- travelled to every peer on
@@ -5345,6 +5373,8 @@ int main(void)
     test_sync_frame_reject();
     printf("folder sync B3 (delete survives compaction):\n");
     test_sync_delete_survives_compact();
+    printf("key encoding asks the locale nothing:\n");
+    test_key_encoding_is_ascii_only();
     printf("an export carries only the documents records point at:\n");
     test_export_leaves_orphan_blobs_behind();
     printf("the offset index survives a compaction that drops the top ids:\n");

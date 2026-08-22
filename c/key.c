@@ -1,5 +1,12 @@
-/* key.c -- key encoding and shard prefix. See key.h. Pure, no allocation. */
-#include <ctype.h>
+/* key.c -- key encoding and shard prefix. See key.h. Pure, no allocation.
+ *
+ * Deliberately locale-INDEPENDENT. ctype.h answers about bytes >= 0x80 according
+ * to the current locale, and the two libcs disagree: glibc in the C locale calls
+ * none of them control characters, while BSD (macOS) in a UTF-8 locale calls
+ * 0x80-0x9F control, which is where UTF-8 continuation bytes live. So "ключ"
+ * encoded to one name on Linux and another on macOS, the same key was filed
+ * under two names across a mesh, and recall on macOS returned nothing. The rule
+ * this file implements is ASCII, and now it says so in ASCII. */
 #include <string.h>
 
 #include "key.h"
@@ -15,7 +22,7 @@ int key_encode(const char *key, char *out, size_t outsz)
         unsigned char c = *p;
         /* Map to '_' anything unsafe: a key must be one store line-field (no
          * '|') AND one path component idx/<p>/<key> (no '/', '\\', space, ctrl). */
-        if (c == ' ' || c == '|' || c == '/' || c == '\\' || iscntrl(c))
+        if (c == ' ' || c == '|' || c == '/' || c == '\\' || c < 0x20 || c == 0x7F)
             out[i++] = '_';
         /* A leading dot only: the prefix is the first two encoded chars, so
          * "../../x" would encode to "..___x", take the prefix "..", and file
@@ -23,8 +30,9 @@ int key_encode(const char *key, char *out, size_t outsz)
          * safe ("result.length"). */
         else if (c == '.' && i == 0)
             out[i++] = '_';
-        else
-            out[i++] = (char)tolower(c);
+        else                          /* ASCII case-folding only: a non-ASCII key
+                                       * must already be lowercase (LAYOUT.md) */
+            out[i++] = (char)((c >= 'A' && c <= 'Z') ? c + ('a' - 'A') : c);
     }
     out[i] = '\0';
     return (i == 0) ? -1 : 0;

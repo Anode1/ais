@@ -1000,9 +1000,16 @@ static int serve_asset(int fd, const char *name)
         webdir = "gui/web";               /* the dev default */
     if (name[0] == '\0')
         return 0;
-    for (p = name; *p != '\0'; p++)
-        if (!isalnum((unsigned char)*p) && *p != '.' && *p != '_' && *p != '-')
+    /* ASCII by hand, not isalnum(): what counts as alphanumeric above 0x7F is a
+     * locale question, and an allowlist guarding a filesystem path must not have
+     * a different answer on another machine. */
+    for (p = name; *p != '\0'; p++) {
+        unsigned char c = (unsigned char)*p;
+        int ok = (c >= '0' && c <= '9') || (c >= 'a' && c <= 'z') ||
+                 (c >= 'A' && c <= 'Z') || c == '.' || c == '_' || c == '-';
+        if (!ok)
             return 0;                     /* reject '/', '..', anything unsafe */
+    }
     if (snprintf(path, sizeof(path), "%s/%s", webdir, name) >= (int)sizeof(path))
         return 0;
     fp = fopen(path, "rb");
