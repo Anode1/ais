@@ -1555,7 +1555,8 @@ static void handle(ais *a, int fd)
             } else {
                 /* The body names the cause, as the CLI does (parity: GUI.md). */
                 const char *why =
-                    (rc == -2) ? "another record already holds that text\n" :
+                    (rc == -2) ? "a record already holds that text: this one as"
+                                 " another link, or another record\n" :
                     (rc == -3) ? "a deleted record still holds that text:"
                                  " use clean up first\n" :
                                  "cannot update value\n";

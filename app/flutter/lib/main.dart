@@ -2141,7 +2141,7 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
         content: Text(done
             ? 'Value updated'
             : rc == -2
-                ? 'Another note already holds that text'
+                ? 'A note already holds that text: this one as another link, or another note'
                 : rc == -3
                     ? 'A deleted note still holds that text: run Clean up first'
                     : "Couldn't update the value")));
