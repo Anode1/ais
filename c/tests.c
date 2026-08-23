@@ -881,8 +881,8 @@ static void test_merge_multilink(void)
     content_hash("https://x/a", h);
     CHECK(ais_put_at(&b, "trio", "https://x/a", "2026-01-01T00:00:00Z") > 0,
           "multilink: the record lands on the peer");
-    CHECK(ais_merge_addval(&b, h, "https://x/b") == 0, "multilink: attach the 2nd");
-    CHECK(ais_merge_addval(&b, h, "https://x/c") == 0, "multilink: attach the 3rd");
+    CHECK(ais_merge_addval(&b, h, "https://x/b", NULL) == 0, "multilink: attach the 2nd");
+    CHECK(ais_merge_addval(&b, h, "https://x/c", NULL) == 0, "multilink: attach the 3rd");
 
     query(&b, AIS_AND, &v, 1, "trio");
     CHECK(v.n == 1, "multilink: ONE record on the peer, not three");
@@ -890,13 +890,13 @@ static void test_merge_multilink(void)
     ais_record(&b, v.ids[0], collect_val, &vv);
     CHECK(vv.n == 3, "multilink: carrying all three links");
 
-    CHECK(ais_merge_addval(&b, h, "https://x/b") == 0, "multilink: replay is accepted");
+    CHECK(ais_merge_addval(&b, h, "https://x/b", NULL) == 0, "multilink: replay is accepted");
     vv.n = 0;
     ais_record(&b, v.ids[0], collect_val, &vv);
     CHECK(vv.n == 3, "multilink: replay added nothing");
 
     content_hash("https://x/nowhere", h);
-    CHECK(ais_merge_addval(&b, h, "https://x/z") == 0, "multilink: unknown hash is a no-op");
+    CHECK(ais_merge_addval(&b, h, "https://x/z", NULL) == 0, "multilink: unknown hash is a no-op");
     query(&b, AIS_AND, &v, 1, "trio");
     CHECK(v.n == 1, "multilink: and created nothing");
 
@@ -2873,7 +2873,7 @@ static void test_incoming_link_is_not_a_local_edit(void)
     content_hash("http://x/base", h);
     mts_clear(&A, id);
 
-    CHECK(ais_merge_addval(&A, h, "http://x/second") == 0, "m-link: the link merges");
+    CHECK(ais_merge_addval(&A, h, "http://x/second", NULL) == 0, "m-link: the link merges");
     CHECK(mts_get(&A, id, m, sizeof m) == 0, "m-link: an arriving link is not a local edit");
 
     CHECK(ais_add(&A, id, "http://x/third") == 0, "m-link: a local --add succeeds");
@@ -3468,6 +3468,270 @@ static void test_edit_does_not_resurrect_a_removed_tag(void)
 /* An edit that beats a delete must beat it on EVERY device, or the record flaps
  * in and out as the tombstone comes back round after round. Three devices, and
  * the middle one never edits anything. */
+/* --forget-deleted and the edit log: a fact of a LIVE record survives the purge
+ * (dropped, an unsynced edit reverted and split on every device), an intermediate
+ * text is forgotten, and a deleted record's facts go with its tombstone. */
+static void test_forget_deleted_keeps_live_edit_facts(void)
+{
+    ais A, B;
+    const char *da = "/tmp/ais_ut_fdA", *db = "/tmp/ais_ut_fdB";
+    FILE *s;
+    char h0[17], h1[17];
+
+    scratch_rm(da); scratch_rm(db);
+    ais_open(&A, da);
+    ais_put_at(&A, "k", "t0", "2020-01-01T00:00:00Z");
+    CHECK(ais_set_value(&A, 1, "t0", "t1") == 0, "fd-edits: first edit");
+    CHECK(ais_set_value(&A, 1, "t1", "t2") == 0, "fd-edits: second edit");
+    ais_put_at(&A, "k", "doomed", "2020-01-01T00:00:00Z");
+    CHECK(ais_set_value(&A, 2, "doomed", "doomed2") == 0, "fd-edits: edit on the doomed record");
+    ais_del(&A, 2);
+    CHECK(ais_compact_purge(&A) == 0, "fd-edits: forget-deleted runs");
+
+    content_hash("t0", h0);
+    content_hash("t1", h1);
+    {   char got[AIS_LINE_MAX];
+        CHECK(edits_lookup(&A, h0, "", got, sizeof got) == 1 && strcmp(got, "t2") == 0,
+              "fd-edits: the t0 fact survives, naming the live text");
+        CHECK(edits_lookup(&A, h1, "", got, sizeof got) == 1 && strcmp(got, "t2") == 0,
+              "fd-edits: the t1 fact too");
+        content_hash("doomed", h0);
+        CHECK(edits_lookup(&A, h0, "", got, sizeof got) == 0,
+              "fd-edits: the deleted record's fact is forgotten");
+    }
+    {   char path[AIS_PATH_MAX];
+        FILE *fp;
+        char line[AIS_LINE_MAX];
+        int saw_t1 = 0;
+        snprintf(path, sizeof path, "%s/edits", da);
+        fp = fopen(path, "r");
+        CHECK(fp != NULL, "fd-edits: the log still exists");
+        if (fp != NULL) {
+            while (fgets(line, sizeof line, fp) != NULL)
+                if (strstr(line, "|t1") != NULL)
+                    saw_t1 = 1;
+            fclose(fp);
+        }
+        CHECK(saw_t1 == 0, "fd-edits: the intermediate text is gone from the log");
+    }
+
+    /* and the point of it all: a stale copy arriving later is still translated */
+    ais_open(&B, db);
+    s = tmpfile();
+    fprintf(s, "A|2020-01-01T00:00:00Z|k|t0\n");
+    rewind(s);
+    feed_import_from(&B, s);
+    fclose(s);
+    s = tmpfile();
+    feed_export(&A, s);
+    rewind(s);
+    feed_import_from(&B, s);
+    fclose(s);
+    CHECK(value_present(&B, "t0") == 0 && value_present(&B, "t2") == 1,
+          "fd-edits: the mesh still converges after the purge");
+
+    ais_close(&A); ais_close(&B);
+    scratch_rm(da); scratch_rm(db);
+}
+
+/* A deleted record's line sits in the store until compaction and still blocks
+ * --set (editing anyway lifted the value's tombstone and resurrected it), but
+ * the refusal carries its own code and compaction clears it. */
+static void test_set_over_a_deleted_records_value(void)
+{
+    ais A;
+    const char *da = "/tmp/ais_ut_sdA";
+
+    scratch_rm(da);
+    ais_open(&A, da);
+    ais_put_at(&A, "ka", "A1", "2020-01-01T00:00:00Z");
+    ais_put_at(&A, "kb", "B1", "2020-01-01T00:00:00Z");
+    ais_del(&A, 2);
+    CHECK(ais_set_value(&A, 1, "A1", "B1") == -3,
+          "set-deleted: a tombstoned line's value refuses with its own code");
+    CHECK(value_present(&A, "B1") == 0, "set-deleted: and the dead record stays dead");
+    CHECK(ais_compact(&A) == 0, "set-deleted: compact clears the line");
+    CHECK(ais_set_value(&A, 1, "A1", "B1") == 0,
+          "set-deleted: the same edit then succeeds");
+    ais_put_at(&A, "kc", "C1", "2020-01-01T00:00:00Z");
+    CHECK(ais_set_value(&A, 1, "B1", "C1") == -2,
+          "set-deleted: a LIVE record's value refuses as a dup");
+    ais_close(&A);
+    scratch_rm(da);
+}
+
+/* An A| line too long to spool takes the direct path; the batch AHEAD of it
+ * must be applied first. Applied after, stream order inverted and the record
+ * kept the later timestamp, the field a peer's tombstone is compared against. */
+static void test_long_line_keeps_stream_order(void)
+{
+    ais D;
+    const char *dd = "/tmp/ais_ut_llD";
+    FILE *s;
+    char big[AIS_LINE_MAX];
+    size_t blen = AIS_LINE_MAX - 60;             /* fits the store, not the spool guard */
+
+    scratch_rm(dd);
+    ais_open(&D, dd);
+    memset(big, 'V', blen);
+    big[blen] = '\0';
+    s = tmpfile();
+    fprintf(s, "A|2020-01-01T00:00:00Z|k|%s\n", big);                 /* spools */
+    fprintf(s, "A|2030-01-01T00:00:00Z|aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa|%s\n", big);
+    rewind(s);                                    /* same value, 50-char keys: over the guard */
+    feed_import_from(&D, s);
+    fclose(s);
+    {   /* the record's stored ts, straight off the line */
+        char path[AIS_PATH_MAX], line[64];
+        FILE *fp;
+        snprintf(path, sizeof path, "%s/store", dd);
+        fp = fopen(path, "r");
+        line[0] = '\0';
+        if (fp != NULL) {
+            if (fgets(line, sizeof line, fp) == NULL)
+                line[0] = '\0';
+            fclose(fp);
+        }
+        CHECK(strncmp(line, "1|2020-01-01T00:00:00Z|", 23) == 0,
+              "long-line: the record keeps the EARLIER add's time");
+    }
+    ais_close(&D);
+    scratch_rm(dd);
+}
+
+/* A restore replays an old backup, then the live stream. The M| link in the
+ * backup predates the edit, and its wire time must say so: stamped with the
+ * import clock instead, the link read as newer than the edit and the edited-away
+ * text settled back on both sides of the next sync. */
+static void test_stale_link_does_not_survive_a_restore(void)
+{
+    ais A, R;
+    const char *da = "/tmp/ais_ut_mlA", *dr = "/tmp/ais_ut_mlR";
+    FILE *bk, *cur, *back;
+
+    scratch_rm(da); scratch_rm(dr);
+    ais_open(&A, da);
+    ais_put_at(&A, "k", "v1", "2020-01-01T00:00:00Z");
+    ais_add(&A, 1, "v2");
+    bk = tmpfile();
+    feed_export(&A, bk);                        /* the backup: v2 before the edit */
+    CHECK(ais_set_value(&A, 1, "v2", "v2new") == 0, "stale-link: edit applies");
+
+    ais_open(&R, dr);
+    rewind(bk);
+    feed_import_from(&R, bk);                   /* restore the backup */
+    fclose(bk);
+    cur = tmpfile();
+    feed_export(&A, cur);
+    rewind(cur);
+    feed_import_from(&R, cur);                  /* then the live index */
+    fclose(cur);
+    CHECK(value_present(&R, "v2") == 0, "stale-link: the restored copy is translated");
+    CHECK(value_present(&R, "v2new") == 1, "stale-link: the edited text is what lands");
+
+    back = tmpfile();
+    feed_export(&R, back);                      /* and the round trip is clean */
+    rewind(back);
+    feed_import_from(&A, back);
+    fclose(back);
+    CHECK(value_present(&A, "v2") == 0, "stale-link: nothing comes back to the origin");
+
+    ais_close(&A); ais_close(&R);
+    scratch_rm(da); scratch_rm(dr);
+}
+
+/* A device that never held the old value still records the fact: dropped
+ * instead, a device that joined after the edit exported without it, and a stale
+ * copy arriving later settled on it as a second record it fed back to the mesh. */
+static void test_late_joiner_learns_the_edit(void)
+{
+    ais B;
+    const char *db = "/tmp/ais_ut_ljB";
+    FILE *s;
+
+    scratch_rm(db);
+    ais_open(&B, db);
+    s = tmpfile();                               /* B joins: the edit, no record */
+    fprintf(s, "E|2025-01-01T00:00:00Z|%s|new text\n", "0000000000000000");
+    rewind(s);
+    {   char h[17];
+        content_hash("old text", h);
+        rewind(s);
+        fprintf(s, "E|2025-01-01T00:00:00Z|%s|new text\n", h);
+        rewind(s);
+    }
+    feed_import_from(&B, s);
+    fclose(s);
+    s = tmpfile();                               /* the stale copy arrives after */
+    fprintf(s, "A|2020-01-01T00:00:00Z|note|old text\n");
+    rewind(s);
+    feed_import_from(&B, s);
+    fclose(s);
+    CHECK(value_present(&B, "old text") == 0, "late-joiner: the stale copy is translated");
+    CHECK(value_present(&B, "new text") == 1, "late-joiner: into what it became");
+    ais_close(&B);
+    scratch_rm(db);
+}
+
+/* Concatenated bundles in ONE stream: a fact learned mid-stream translates the
+ * copies after it. hasedits was sampled once, before the loop. */
+static void test_edit_learned_midstream_translates(void)
+{
+    ais D;
+    const char *dd = "/tmp/ais_ut_msD";
+    FILE *s;
+    char h[17];
+
+    scratch_rm(dd);
+    ais_open(&D, dd);
+    content_hash("old text", h);
+    s = tmpfile();                               /* cat a.ais b.ais | ais --import */
+    fprintf(s, "A|2020-01-01T00:00:00Z|note|old text\n");
+    fprintf(s, "E|2025-01-01T00:00:00Z|%s|new text\n", h);
+    fprintf(s, "A|2020-01-01T00:00:00Z|note|old text\n");
+    rewind(s);
+    feed_import_from(&D, s);
+    fclose(s);
+    CHECK(value_present(&D, "old text") == 0, "midstream: the copy after the fact is translated");
+    CHECK(value_present(&D, "new text") == 1, "midstream: one record remains");
+    ais_close(&D);
+    scratch_rm(dd);
+}
+
+/* A local edit must never LOWER the survival stamp a peer's edit set: lowered,
+ * a delete the record had already beaten won the next merge and took the local
+ * edit with it. */
+static void test_local_edit_keeps_the_survival_stamp(void)
+{
+    ais A;
+    const char *da = "/tmp/ais_ut_stA";
+    FILE *s;
+    char h[17], got[AIS_TS_MAX];
+
+    scratch_rm(da);
+    ais_open(&A, da);
+    ais_put_at(&A, "k", "x", "2020-01-01T00:00:00Z");
+    content_hash("x", h);
+    s = tmpfile();                               /* a fast-clocked peer's edit */
+    fprintf(s, "E|2035-01-01T00:00:00Z|%s|y\n", h);
+    rewind(s);
+    feed_import_from(&A, s);
+    fclose(s);
+    CHECK(ais_set_value(&A, 1, "y", "z") == 0, "sts-floor: the local edit applies");
+    CHECK(sts_get(&A, 1, got, sizeof got) == 1 &&
+          strcmp(got, "2035-01-01T00:00:00Z") == 0,
+          "sts-floor: the stamp stays at the peer's time");
+    content_hash("z", h);
+    s = tmpfile();                               /* the delete the record had beaten */
+    fprintf(s, "D|2030-01-01T00:00:00Z|%s\n", h);
+    rewind(s);
+    feed_import_from(&A, s);
+    fclose(s);
+    CHECK(value_present(&A, "z") == 1, "sts-floor: the beaten delete stays beaten");
+    ais_close(&A);
+    scratch_rm(da);
+}
+
 static void test_surviving_edit_reaches_the_whole_mesh(void)
 {
     ais A, B, C;
@@ -5640,6 +5904,13 @@ int main(void)
     test_known_limit_restamp_outranks_an_unseen_detach();
     test_later_detach_holds_in_every_sync_order();
     test_reattach_after_a_detach_propagates();
+    test_forget_deleted_keeps_live_edit_facts();
+    test_set_over_a_deleted_records_value();
+    test_long_line_keeps_stream_order();
+    test_stale_link_does_not_survive_a_restore();
+    test_late_joiner_learns_the_edit();
+    test_edit_learned_midstream_translates();
+    test_local_edit_keeps_the_survival_stamp();
     test_surviving_edit_reaches_the_whole_mesh();
     test_later_delete_still_wins();
     test_sync_folder_refuses_to_create();

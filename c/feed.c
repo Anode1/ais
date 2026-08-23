@@ -409,6 +409,8 @@ void feed_import_from_map(ais *a, FILE *in, ais_blobmap *map)
     long lost = 0;                        /* spooled lines that could not be replayed */
     FILE *spool = tmpfile();              /* NULL: no batching, a put per line */
     int  hasedits = (edits_active(a) > 0);   /* one stat, not a file open per line */
+    struct edits_mem edmem;                  /* the edit log, loaded on first need */
+    int  edstate = 0;                        /* 0 not loaded, 1 loaded, -1 failed */
     ais_att_fact patt[AIS_ATT_BATCH];     /* T| facts likewise (ais_merge_attach_many) */
     int  natt = 0;
     long n = 0, skipped = 0;
@@ -510,6 +512,9 @@ void feed_import_from_map(ais *a, FILE *in, ais_blobmap *map)
                 *v++ = '\0';
                 v = (char *)feed_remap_value(map, v, vbuf, sizeof vbuf);
                 ais_merge_edit(a, h, v, ts);
+                hasedits = 1;   /* sampled before the loop; this line may be the first fact */
+                if (edstate == 1) { edits_mem_free(&edmem); }
+                edstate = 0;    /* the log grew: reload before the next translation */
                 continue;
             }
         }
@@ -581,7 +586,10 @@ void feed_import_from_map(ais *a, FILE *in, ais_blobmap *map)
                 if (hasedits && v != vbuf) {
                     char h[17];
                     content_hash(v, h);
-                    if (edits_lookup(a, h, ts, vbuf, sizeof vbuf) == 1)
+                    if (edstate == 0)
+                        edstate = (edits_mem_load(a, &edmem) == 0) ? 1 : -1;
+                    if (edstate == 1 &&
+                        edits_mem_lookup(&edmem, h, ts, vbuf, sizeof vbuf) == 1)
                         v = vbuf;
                 }
                 if (cts[0] != '\0') {          /* a C| named this record's true time */
@@ -598,6 +606,9 @@ void feed_import_from_map(ais *a, FILE *in, ais_blobmap *map)
                  * applied, the spool is closed for good, and this line and every
                  * later one take the direct path. glibc keeps accepting writes
                  * on a stream in error, so the check is ferror after a flush. */
+                {
+                int spool_dead = 0;
+                char *keep = NULL;
                 if (spool != NULL &&
                     strlen(ts) + strlen(k) + strlen(v) + AIS_TS_MAX + 4 < AIS_LINE_MAX) {
                     fprintf(spool, "%s|%s|%s|%s\n", ats ? ats : "", ts, k, v);
@@ -610,16 +621,35 @@ void feed_import_from_map(ais *a, FILE *in, ais_blobmap *map)
                         }
                         continue;
                     }
+                    spool_dead = 1;        /* flushed below first: it still reads back */
+                }
+                /* The direct path, in stream order: the batch AHEAD of this line
+                 * is applied first, or a long line's record kept the later
+                 * timestamp, the field a peer's tombstone is compared against.
+                 * The flush borrows vbuf, where v may still point (a remapped or
+                 * edit-translated value): moved to the heap for the flush, and
+                 * the line counted lost when it cannot be. */
+                if (nadd > 0) {
+                    if (v == vbuf) {
+                        keep = strdup(v);
+                        v = keep;          /* NULL on OOM: refused below, not stored clobbered */
+                    }
                     n += abatch_flush(a, spool, padd, nadd, vbuf, sizeof vbuf, &lost);
                     nadd = 0;
+                }
+                if (spool_dead) {
                     fclose(spool);
                     spool = NULL;
                     fprintf(stderr, "import: the temp file failed, the rest goes one record at a time\n");
                 }
-                if (ais_put_at_k(a, k, v, ts[0] ? ts : NULL, ats) >= 0)
+                if (v == NULL)
+                    lost++;
+                else if (ais_put_at_k(a, k, v, ts[0] ? ts : NULL, ats) >= 0)
                     n++;
+                free(keep);
                 cts[0] = '\0';
                 continue;
+                }
             }                                          /* else: legacy keys "A" -> below */
         }
         if (line[0] == 'K' && line[1] == '|') {        /* K|ts|hash|key (detach a tag) */
@@ -666,10 +696,13 @@ void feed_import_from_map(ais *a, FILE *in, ais_blobmap *map)
                 if (hasedits && v != vbuf) {
                     char vh[17];
                     content_hash(v, vh);
-                    if (edits_lookup(a, vh, ts, vbuf, sizeof vbuf) == 1)
+                    if (edstate == 0)
+                        edstate = (edits_mem_load(a, &edmem) == 0) ? 1 : -1;
+                    if (edstate == 1 &&
+                        edits_mem_lookup(&edmem, vh, ts, vbuf, sizeof vbuf) == 1)
                         v = vbuf;
                 }
-                ais_merge_addval(a, h, v);
+                ais_merge_addval(a, h, v, ts);
                 continue;
             }
         }
@@ -707,6 +740,10 @@ void feed_import_from_map(ais *a, FILE *in, ais_blobmap *map)
         if (n == 0 && strncmp(line, "AISB", 4) == 0) {
             fprintf(stderr, "import: this is a sync bundle, not an export stream.\n"
                             "        use: ais --sync-folder DIR\n");
+            if (spool != NULL)
+                fclose(spool);
+            if (edstate == 1)
+                edits_mem_free(&edmem);
             return;
         }
 
@@ -748,6 +785,8 @@ void feed_import_from_map(ais *a, FILE *in, ais_blobmap *map)
         ais_merge_attach_many(a, patt, natt);
     if (spool != NULL)
         fclose(spool);
+    if (edstate == 1)
+        edits_mem_free(&edmem);
     if (lost > 0) {
         fprintf(stderr, "import: %ld records could not be read back from the temp file\n", lost);
         skipped += lost;
@@ -831,7 +870,9 @@ static int exp_live(long id, const char *ts, const char *keys, const char *value
         if (F.got && strcmp(F.v, value) != 0) {
             char h[17];
             content_hash(F.v, h);
-            fprintf(E->out, "M|%s|%s|%s\n", ts, h, value);
+            /* The line's OWN time, never the survival raise: the raise rides the
+             * A| line, and a raised M| reads as newer than an edit it predates. */
+            fprintf(E->out, "M|%s|%s|%s\n", tstrue, h, value);
             return 0;
         }
     }

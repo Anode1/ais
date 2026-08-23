@@ -78,9 +78,12 @@ across devices, and must carry timestamps to resolve add-vs-delete conflicts.
   (`test_known_limit_restamp_outranks_an_unseen_detach` for this case,
   `test_later_detach_holds_in_every_sync_order` for the bound,
   `test_true_ts_verb_shields_key_tombstones` for the verb itself).
-- **A delete newer than the edit still wins.** The edit clock raises a record's time, it
-  does not pin it: delete-after-edit removes the record, as delete-after-add always did.
-  Within one second the delete wins, since ties are sticky.
+- **A delete newer than the edit still wins, when the deleter has seen the edit.** The
+  edit clock raises a record's time, it does not pin it: delete-after-edit removes the
+  record, as delete-after-add always did. Within one second the delete wins, since ties
+  are sticky. A device deleting the PRE-edit text it still holds sends the old value's
+  hash, which names nothing on a device that applied the edit: there the record
+  survives as edited (content addressing, not a clock race).
 
 ## What this needs on disk: timestamped, content-addressed tombstones
 Today `tomb` is `id` per line: local-only and untimestamped, so neither portable nor
@@ -201,9 +204,13 @@ fact travels as an EDIT: the value hashing to `<hash>` became `<new value>` at
 `<ts>`. It is recorded in `edits` (kept like `tomb`) and exported FIRST in the
 stream. A peer still holding the old value replaces it in place
 (`ais_merge_edit`): the record keeps its id, its other values, its tags and its
-key tombstones, and the peer records the fact so it travels on. An older peer
-skips the line and keeps the old text beside the new; lossy, not wrong, and the
-state v0.3.20 documented.
+key tombstones, and the peer records the fact so it travels on. A peer holding
+no copy records the fact too (a device that joined after the edit must still
+translate a stale copy arriving later, and pass the fact on). A merged link
+(`M|`) keeps its wire time: stamped with the import clock instead, a link
+restored from a backup read as newer than the edit and brought the old text
+back. An older peer skips the line and keeps the old text beside the new;
+lossy, not wrong, and the state v0.3.20 documented.
 
 Retiring the old value as a DELETE was tried and reverted. A `D|` names a hash
 and a peer resolves that to the whole record, so on a record with several
@@ -243,8 +250,12 @@ The rules, each pinned in `test_set_reaches_the_peer`:
   records, both texts, on every device: each fact finds no record holding its
   old value on the other side. Defensible, and the same as two separate saves.
 
-`--compact --forget-deleted` drops `edits` with the tombstone digests: an edit
-fact is a trace of the old text too.
+`--compact --forget-deleted` compacts `edits` with the tombstone digests: a fact
+whose chain ends in a live record is rewritten to name the live text directly, a
+fact of a deleted record is dropped, and the intermediate texts (traces of what
+was edited away) are forgotten. Dropping the file whole was tried: an edit the
+compacting device had not yet synced reverted, and the pre-edit text settled on
+every device as a second record.
 
 ## A raised export carries its true time as C|
 

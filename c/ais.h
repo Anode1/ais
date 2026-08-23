@@ -152,10 +152,13 @@ typedef struct { char hash[17]; char key[AIS_KEY_MAX]; char ts[AIS_TS_MAX]; } ai
  * 0, or -1 on bad arguments. */
 int  ais_merge_attach_many(ais *a, const ais_att_fact *facts, int n);
 
-/* Apply an incoming additional link (M|): attach VALUE to the record whose first
- * value hashes to HASH. Idempotent; a hash this index does not hold is a no-op.
- * Without it a restore splits every multi-link record into separate records. */
-int  ais_merge_addval(ais *a, const char *hash, const char *value);
+/* Apply an incoming additional link (M|): attach VALUE, at its own time TS, to
+ * the record whose first value hashes to HASH. Idempotent; a hash this index does
+ * not hold is a no-op. Without it a restore splits every multi-link record into
+ * separate records. TS is the fact's wire time: stamped with the local clock
+ * instead, a stale bundle replayed after an edit read as newer than the edit,
+ * and the edited-away text came back. */
+int  ais_merge_addval(ais *a, const char *hash, const char *value, const char *ts);
 
 /* Attach another value/link to an existing record (the multi-link case).
  * Returns 0, -1 if `id` is unknown or deleted, -2 if ANOTHER record already holds
@@ -177,7 +180,9 @@ int  ais_update(ais *a, long id, const char *keys);
  * match OLD_VALUE (the store is left untouched), or any IO error. Refuses a deleted
  * id, and a NEW_VALUE another record already holds: a value is identity here (put
  * is idempotent by value scan, tombstones are hash-stamped), so two records sharing
- * one value make a peer collapse them and a later delete of either take both.
+ * one value make a peer collapse them and a later delete of either take both. That
+ * refusal is -2, or -3 when the holder is a DELETED record whose line waits for
+ * compaction (--compact clears it; editing anyway resurrected the dead record).
  *
  * The edit reaches the peers as E|ts|hash|value, kept in `edits` and exported
  * before the records: a peer still holding the old value replaces it in place,

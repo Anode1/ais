@@ -47,7 +47,9 @@ Fix direction (keeps plain text, no hashing, all streaming)
      instead of scanning. A hash repeated inside one batch takes the scanning
      path, so the outcome is the one a put per line gives. --import of A| lines
      into an empty index, desktop: 5k 1.06 s -> 0.31 s, 20k 13.4 s -> 1.75 s.
-     A single interactive put still scans: O(n), 50 ms at 1M.
+     A single interactive put still scans: O(n), 50 ms at 1M. The edit log is
+     loaded once per import and looked up by hash (16k lines against 16k edit
+     facts: 1.4 s; walked per line off disk it was 12 s).
   Net: every op becomes a seek or one streaming pass = find/rsync class.
 
 Watch

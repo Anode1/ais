@@ -632,8 +632,16 @@ int main(int argc, char **argv)
             /* ais_set_value fails for several reasons and prints its own message
              * for the ones it can explain (a multi-line value); this names the
              * likely cause, not a certain one. */
-            if (ais_set_value(&a, id, values[0], values[1]) != 0)
-                die("--set: record %ld unchanged (no such id, or no value '%s')", id, values[0]);
+            switch (ais_set_value(&a, id, values[0], values[1])) {
+            case 0:  break;
+            case -2: die("--set: record %ld unchanged: another record already holds '%s'\n"
+                         "     (a value is identity here; edit that record, or --del it first)",
+                         id, values[1]);
+            case -3: die("--set: record %ld unchanged: a DELETED record still holds '%s'\n"
+                         "     until the next compaction; run: ais --compact", id, values[1]);
+            default: die("--set: record %ld unchanged (no such id, or no value '%s')",
+                         id, values[0]);
+            }
             break;
         }
         case CMD_UPDATE: {

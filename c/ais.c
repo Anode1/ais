@@ -765,7 +765,7 @@ static int add_seek_dup(long id, const char *ts, const char *keys,
  * an import makes a record's fate depend on the readdir order of the peer bundles,
  * the non-determinism C|/sts exist to remove. LAYOUT.md: "an import does not: an
  * arriving record carries its own time". */
-static int add_link(ais *a, long id, const char *value, int local)
+static int add_link(ais *a, long id, const char *value, int local, const char *when)
 {
     struct add_lookup L;
     int scan, rc = -1;
@@ -807,7 +807,10 @@ static int add_link(ais *a, long id, const char *value, int local)
         goto out;
     {
         char ts[AIS_TS_MAX];
-        store_now(ts, sizeof(ts));
+        if (when != NULL && when[0] != '\0' && store_looks_like_ts(when))
+            snprintf(ts, sizeof ts, "%s", when);
+        else
+            store_now(ts, sizeof(ts));
         if (store_append(a, id, ts, L.keys, value, NULL) != 0)
             goto out;
     }
@@ -822,7 +825,7 @@ out:
 
 int ais_add(ais *a, long id, const char *value)
 {
-    return add_link(a, id, value, 1);
+    return add_link(a, id, value, 1, NULL);
 }
 
 /* Attaches and detaches through ais_post_keys (see ais.h). */
@@ -1009,8 +1012,14 @@ static int set_value_core(ais *a, long id, const char *old_value, const char *ol
          * a record that was edited INTO the value in the same second must not
          * look like; and a peer's delete older than the edit loses to it on
          * every device, as it already did on this one (mts). */
-        if (ts != NULL && ts[0] != '\0')
-            sts_set(a, id, ts);
+        if (ts != NULL && ts[0] != '\0') {
+            char have[AIS_TS_MAX];
+            /* Raise only: an edit applied from a fast-clocked peer put the stamp
+             * ahead of this device's clock, and a local edit that LOWERED it let
+             * a delete the record had already beaten win the next merge. */
+            if (sts_get(a, id, have, sizeof have) != 1 || strcmp(ts, have) > 0)
+                sts_set(a, id, ts);
+        }
         if (c.first) {
             ktomb_rehash(a, id, h);
             katt_rehash(a, id, h);
@@ -1062,8 +1071,17 @@ int ais_set_value(ais *a, long id, const char *old_value, const char *new_value)
     {
         long other = 0;
         int  dup = store_find_value(a, new_value, &other);
-        if (dup < 0 || (dup && other != id))
+        if (dup < 0)
             goto out;
+        if (dup && other != id) {
+            /* A DELETED record's line still holds the value until compaction.
+             * Applying the edit anyway was tried: set_value_core lifts the
+             * value's tombstone and the dead record came back beside the edited
+             * one. Refused with its own code, so the caller can say that
+             * --compact is what clears the block. */
+            rc = (tomb_contains(a, other) != 0) ? -3 : -2;
+            goto out;
+        }
     }
     store_now(now, sizeof now);
     rc = set_value_core(a, id, old_value, NULL, new_value, now, 1);
@@ -1116,16 +1134,27 @@ int ais_merge_edit(ais *a, const char *hash, const char *value, const char *ts)
     E.ts[0] = '\0';
     if (store_each_record(a, edit_seek_cb, &E) < -1) { rc = -1; goto out; }
     if (E.id == 0)
-        goto out;
+        goto record;
     if (tomb_contains(a, E.id) != 0)
-        goto out;
+        goto record;
     if (strcmp(ts, E.ts) < 0)
-        goto out;
+        goto record;
     dup = store_find_value(a, value, &other);
     if (dup < 0) { rc = -1; goto out; }
     if (dup && other != E.id)
-        goto out;
+        goto record;
     rc = (set_value_core(a, E.id, NULL, hash, value, ts, 0) == 0) ? 1 : -1;
+    goto out;
+record:
+    /* Not applied HERE: no copy of the old value, a deleted record, a record
+     * saved after the fact, or the new value living elsewhere. The fact is still
+     * recorded, or a device that joined after the edit never learns it, exports
+     * without it, and a stale copy of the old text settles on it as a second
+     * record it then feeds back to the mesh (edits_lookup is what translates
+     * that copy, and export reads `edits` to pass the fact on). */
+    if (store_looks_like_ts(ts) && strlen(hash) == 16 &&
+        strspn(hash, "0123456789abcdef") == 16)
+        edits_append(a, ts, hash, value);
 out:
     store_wunlock(a);
     return rc;
@@ -1417,7 +1446,7 @@ static int mdel_seek(long id, const char *ts, const char *keys, const char *valu
 /* The import side of the M| verb. Each value is its own store line, so without M|
  * a plain export emits each as its own A| and every restore SPLITS one record
  * into several. */
-int ais_merge_addval(ais *a, const char *hash, const char *value)
+int ais_merge_addval(ais *a, const char *hash, const char *value, const char *ts)
 {
     struct mdel_ctx M;
 
@@ -1439,7 +1468,7 @@ int ais_merge_addval(ais *a, const char *hash, const char *value)
         if (store_find_value(a, value, &already) == 1)
             return 0;                   /* this index already holds that value */
     }
-    return (add_link(a, M.id, value, 0) == 0) ? 0 : -1;   /* an import does not stamp */
+    return (add_link(a, M.id, value, 0, ts) == 0) ? 0 : -1;   /* an import does not stamp */
 }
 
 /* One delete fact against the local record it named: the last-write-wins decision,

@@ -694,14 +694,58 @@ int edits_each(const ais *a, edits_cb cb, void *ctx)
     return rc;
 }
 
-int edits_drop(const ais *a)
-{
-    char path[AIS_PATH_MAX];
+/* --forget-deleted and the edit log. Dropping the log whole was tried: an edit
+ * the compacting device had not yet synced then reverted, and the pre-edit text
+ * settled on every device as a second record. A fact is a trace of old text too,
+ * so each fact whose chain ends in a live value is rewritten to name that value
+ * directly (the intermediate texts are forgotten), and a fact whose chain ends
+ * in a deleted or absent value is dropped with the tombstones. */
+struct edits_purge_ctx { const ais *a; struct edits_mem *m; FILE *out; int err; };
 
-    if (compact_path(a, "edits", path, sizeof(path)) != 0)
-        return -1;
-    return (remove(path) == 0 || errno == ENOENT) ? 0 : -1;
+static int edits_purge_cb(const char *ts, const char *hash, const char *value, void *vp)
+{
+    struct edits_purge_ctx *P = vp;
+    char fin[AIS_LINE_MAX];
+    long id = 0;
+    const char *keep = value;
+
+    if (edits_mem_lookup(P->m, hash, "", fin, sizeof fin) == 1)
+        keep = fin;                          /* the chain's end, from this fact's hash */
+    if (store_find_value(P->a, keep, &id) != 1 || tomb_contains(P->a, id) != 0)
+        return 0;                            /* ends deleted or absent: forgotten */
+    if (fprintf(P->out, "%s|%s|%s\n", ts, hash, keep) < 0)
+        P->err = 1;
+    return P->err;
 }
+
+int edits_purge(const ais *a)
+{
+    char path[AIS_PATH_MAX], newp[AIS_PATH_MAX];
+    struct edits_mem m;
+    struct edits_purge_ctx P;
+
+    if (edits_active(a) <= 0)
+        return edits_active(a) < 0 ? -1 : 0;
+    if (compact_path(a, "edits", path, sizeof(path)) != 0 ||
+        snprintf(newp, sizeof newp, "%s.new", path) >= (int)sizeof newp)
+        return -1;
+    if (edits_mem_load(a, &m) != 0)
+        return -1;
+    P.a = a;
+    P.m = &m;
+    P.err = 0;
+    P.out = fopen(newp, "w");
+    if (P.out == NULL) { edits_mem_free(&m); return -1; }
+    {
+        int ok = (edits_each(a, edits_purge_cb, &P) >= 0 && !P.err);
+        if (fclose(P.out) != 0)
+            ok = 0;
+        edits_mem_free(&m);
+        if (!ok || rename(newp, path) != 0) { remove(newp); return -1; }
+    }
+    return 0;
+}
+
 
 int edits_active(const ais *a)
 {
@@ -743,49 +787,157 @@ int edits_known(const ais *a, const char *hash, const char *ts)
  * X -> Y -> Z ends at Z, and a same-second cycle X -> Y -> X ends where the file
  * says it ended. A further pass from the top, for a chain recorded out of order,
  * accepts only facts strictly later than the last one taken, which is what
- * keeps a cycle from spinning. */
-int edits_lookup(const ais *a, const char *hash, const char *line_ts, char *out, size_t outsz)
-{
-    char path[AIS_PATH_MAX], line[AIS_LINE_MAX], want[17], last[AIS_TS_MAX];
-    FILE *fp;
-    int pass, found = 0;
+ * keeps a cycle from spinning. One algorithm, over the loaded log; edits_lookup
+ * wraps it for a one-shot caller. */
 
+static unsigned long long hash_hex(const char *h)
+{
+    char *end;
+    unsigned long long v;
+    if (strlen(h) != 16)
+        return 0;
+    v = strtoull(h, &end, 16);
+    return (end == h + 16) ? v : 0;
+}
+
+int edits_mem_load(const ais *a, struct edits_mem *m)
+{
+    char path[AIS_PATH_MAX];
+    FILE *fp;
+    long sz;
+    char *p;
+    int cap = 0, i;
+
+    memset(m, 0, sizeof *m);
     if (compact_path(a, "edits", path, sizeof(path)) != 0)
         return -1;
-    snprintf(want, sizeof want, "%s", hash);
+    fp = fopen(path, "r");
+    if (fp == NULL)
+        return (errno == ENOENT) ? 0 : -1;
+    if (fseek(fp, 0, SEEK_END) != 0 || (sz = ftell(fp)) < 0 ||
+        fseek(fp, 0, SEEK_SET) != 0) { fclose(fp); return -1; }
+    m->buf = malloc((size_t)sz + 1);
+    if (m->buf == NULL) { fclose(fp); return -1; }
+    if (fread(m->buf, 1, (size_t)sz, fp) != (size_t)sz) {
+        fclose(fp); free(m->buf); m->buf = NULL; return -1;
+    }
+    fclose(fp);
+    m->buf[sz] = '\0';
+
+    for (p = m->buf; *p != '\0'; ) {
+        char *line = p, *nl, *h, *v;
+        nl = strchr(p, '\n');
+        if (nl != NULL) { *nl = '\0'; p = nl + 1; } else p = line + strlen(line);
+        h = strchr(line, '|');
+        if (h == NULL) continue;
+        *h++ = '\0';
+        v = strchr(h, '|');
+        if (v == NULL) continue;
+        *v++ = '\0';
+        if (m->n == cap) {
+            void *nts, *nval, *nh;
+            cap = cap ? cap * 2 : 256;
+            nts  = realloc(m->ts,  (size_t)cap * sizeof *m->ts);
+            nval = realloc(m->val, (size_t)cap * sizeof *m->val);
+            nh   = realloc(m->h,   (size_t)cap * sizeof *m->h);
+            if (nts  != NULL) m->ts  = nts;
+            if (nval != NULL) m->val = nval;
+            if (nh   != NULL) m->h   = nh;
+            if (nts == NULL || nval == NULL || nh == NULL) {
+                edits_mem_free(m);
+                return -1;
+            }
+        }
+        m->ts[m->n]  = line;
+        m->val[m->n] = v;
+        m->h[m->n]   = hash_hex(h);
+        m->n++;
+    }
+
+    if (m->n > 0) {
+        unsigned tsize = 16;
+        while (tsize < (unsigned)m->n * 2u)
+            tsize *= 2;
+        m->tab  = malloc(tsize * sizeof *m->tab);
+        m->next = malloc((size_t)m->n * sizeof *m->next);
+        if (m->tab == NULL || m->next == NULL) { edits_mem_free(m); return -1; }
+        m->mask = tsize - 1;
+        for (i = 0; i < (int)tsize; i++)
+            m->tab[i] = -1;
+        for (i = m->n - 1; i >= 0; i--) {       /* push-front backwards: chains ascend */
+            unsigned b = (unsigned)m->h[i] & m->mask;
+            m->next[i] = m->tab[b];
+            m->tab[b] = i;
+        }
+    }
+    return 0;
+}
+
+void edits_mem_free(struct edits_mem *m)
+{
+    free(m->buf); free(m->ts); free(m->val); free(m->h);
+    free(m->next); free(m->tab);
+    memset(m, 0, sizeof *m);
+}
+
+int edits_mem_lookup(const struct edits_mem *m, const char *hash,
+                     const char *line_ts, char *out, size_t outsz)
+{
+    char last[AIS_TS_MAX];
+    unsigned long long want;
+    int pass, found = 0;
+
+    if (m->n == 0)
+        return 0;
+    want = hash_hex(hash);
+    if (want == 0 && strcmp(hash, "0000000000000000") != 0)
+        return 0;
     last[0] = '\0';
     for (pass = 0; pass < 32; pass++) {
-        int progress = 0;
-        fp = fopen(path, "r");
-        if (fp == NULL)
-            return (errno == ENOENT) ? found : -1;
-        while (fgets(line, sizeof line, fp) != NULL) {
-            char *h, *v, *nl;
-            int cmp;
-            nl = strchr(line, '\n');
-            if (nl != NULL) *nl = '\0';
-            h = strchr(line, '|');
-            if (h == NULL) continue;
-            *h++ = '\0';
-            v = strchr(h, '|');
-            if (v == NULL) continue;
-            *v++ = '\0';
-            if (strcmp(h, want) != 0 || strcmp(line, line_ts) <= 0)
-                continue;                    /* another value, or not newer than the copy */
-            cmp = strcmp(line, last);
-            if (pass == 0 ? cmp < 0 : cmp <= 0)
-                continue;                    /* the clock does not go back */
-            snprintf(out, outsz, "%s", v);
-            content_hash(out, want);
-            snprintf(last, sizeof last, "%.*s", (int)(sizeof last - 1), line);
+        int progress = 0, pos = -1;
+        for (;;) {
+            int i, j = -1;
+            for (i = m->tab[(unsigned)want & m->mask]; i != -1; i = m->next[i]) {
+                int cmp;
+                if (i <= pos || m->h[i] != want)
+                    continue;
+                if (strcmp(m->ts[i], line_ts) <= 0)
+                    continue;                /* not newer than the copy */
+                cmp = strcmp(m->ts[i], last);
+                if (pass == 0 ? cmp < 0 : cmp <= 0)
+                    continue;                /* the clock does not go back */
+                j = i;                       /* chains ascend: first hit = file order */
+                break;
+            }
+            if (j < 0)
+                break;
+            snprintf(out, outsz, "%s", m->val[j]);
+            {
+                char hh[17];
+                content_hash(out, hh);
+                want = hash_hex(hh);
+            }
+            snprintf(last, sizeof last, "%s", m->ts[j]);
+            pos = j;
             progress = 1;
             found = 1;
         }
-        fclose(fp);
         if (!progress)
             break;
     }
     return found;
+}
+
+int edits_lookup(const ais *a, const char *hash, const char *line_ts, char *out, size_t outsz)
+{
+    struct edits_mem m;
+    int rc;
+
+    if (edits_mem_load(a, &m) != 0)
+        return -1;
+    rc = edits_mem_lookup(&m, hash, line_ts, out, outsz);
+    edits_mem_free(&m);
+    return rc;
 }
 
 /* tomb_active: 1 if anything is deleted at all, 0 if the tomb is empty/absent, -1
@@ -1479,7 +1631,9 @@ static int compact_locked(ais *a)
         goto cleanup;
     if (ktomb_keep_hashed_x(a, a->purge_deletes) != 0)
         goto cleanup;
-    if (a->purge_deletes && edits_drop(a) != 0)   /* an edit fact is a trace of the old text too */
+    if (a->purge_deletes && edits_purge(a) != 0)  /* see edits_purge: a fact of a live
+                                                   * record is KEPT, or an unsynced edit
+                                                   * reverted and split on every device */
         goto cleanup;
     if (katt_keep_attached(a) != 0)    /* nor an attach time its attachment */
         goto cleanup;
