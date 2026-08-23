@@ -108,6 +108,9 @@ int  off_append(const ais *a, long offset);
 /* Is INDEX/off exactly (next_id-1) entries long, i.e. safe to append to? A
  * fresh index (no records) is consistent; a pre-"off" index is not. 1/0. */
 int  off_consistent(const ais *a);
+/* An in-place rewrite changed one line's length by DELTA bytes at FROM: move
+ * every offset past it. Sentinels stay. 0, or -1 (the caller then drops "off"). */
+int  off_shift(const ais *a, long from, long delta);
 
 /* Look up id's first-line offset in INDEX/off. 1 + sets *offset; 0 if absent
  * (sentinel / short file / no off); -1 on error. */

@@ -868,6 +868,8 @@ struct setval_ctx {
     int         matched, error;
     int         seen;      /* a line of ID has gone by */
     int         first;     /* the replaced line was the record's FIRST: its hash changes */
+    long        at;        /* where the edited line starts, and by how much it grew: */
+    long        delta;     /* "off" is shifted past it instead of being thrown away */
 };
 
 static int setval_line(long id, const char *ts, const char *keys,
@@ -880,11 +882,16 @@ static int setval_line(long id, const char *ts, const char *keys,
         int need = (ts[0] != '\0')
                  ? snprintf(NULL, 0, "%ld|%s|%s|%s\n", id, ts, keys, c->new_value)
                  : snprintf(NULL, 0, "%ld|%s|%s\n", id, keys, c->new_value);
+        int had  = (ts[0] != '\0')
+                 ? snprintf(NULL, 0, "%ld|%s|%s|%s\n", id, ts, keys, value)
+                 : snprintf(NULL, 0, "%ld|%s|%s\n", id, keys, value);
         c->first = !c->seen;
         if (need < 0 || need >= AIS_LINE_MAX) {   /* the edited line would not round-trip */
             c->error = 1;
             return -1;
         }
+        c->at = ftell(c->out);
+        c->delta = (long)need - (long)had;
         wval = c->new_value;
         c->matched = 1;
     }
@@ -951,6 +958,8 @@ int ais_set_value(ais *a, long id, const char *old_value, const char *new_value)
     c.error = 0;
     c.seen = 0;
     c.first = 0;
+    c.at = -1;
+    c.delta = 0;
 
     if (store_each_record(a, setval_line, &c) != 0 || !c.matched) {
         fclose(out);                       /* io error, or no matching line: no rename */
@@ -965,10 +974,15 @@ int ais_set_value(ais *a, long id, const char *old_value, const char *new_value)
     if (fclose(out) != 0) { remove(newp); goto out; }
     if (rename(newp, storep) != 0) { remove(newp); goto out; }
 
-    /* "off" now points at stale byte offsets. It is a pure, rebuildable accelerator
-     * ais_record falls back past, so drop it rather than risk a wrong offset. */
-    if (snprintf(offp, sizeof offp, "%s/off", a->dir) < (int)sizeof offp)
-        remove(offp);
+    /* "off" is indexed by id and holds byte offsets: every line past the edited
+     * one moved by the edit's growth, so shift those entries. Dropping the file
+     * instead made every keyed read a full scan until the next compaction (22x on
+     * 3000 records), on what is now the ordinary edit path of every front end.
+     * If the shift cannot be done, drop it: ais_record scans past an absent off. */
+    if (c.at < 0 || off_shift(a, c.at, c.delta) != 0) {
+        if (snprintf(offp, sizeof offp, "%s/off", a->dir) < (int)sizeof offp)
+            remove(offp);
+    }
     mts_stamp(a, id);
     /* The edit has to reach the peers, and the stream already has the verbs: the
      * old value is retired as a D|ts|hash, the fact every delete travels as,

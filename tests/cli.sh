@@ -678,13 +678,10 @@ printf 'n\n' > "$MS/ans"
 AIS_TTY="$MS/ans" "$AIS" -f "$MS" --compact >/dev/null 2>&1
 okeq    "compact: declining exits non-zero"             "1" "$?"
 ok      "compact: and the record is still there"        "m1" "$("$AIS" -f "$MS" mk)"
-# --set retires the old value on the wire: a hash-only tombstone under id 0, which
-# exports as a D| and names no record here, so the edited line stays live.
+# --set rewrites the line in place and the record stays one live record.
 "$AIS" -f "$MS" --set 1 -v m1 -v m2 >/dev/null 2>&1
 ok      "set: the record reads back edited"             "m2" "$("$AIS" -f "$MS" mk)"
 okeq    "set: and is still one live record"             "1"  "$("$AIS" -f "$MS" mk | grep -c .)"
-ok      "set: the old value is retired under id 0"      "^0|" "$(cat "$MS/tomb" 2>/dev/null)"
-ok      "set: and the export carries the retirement"    "^D|" "$("$AIS" -f "$MS" --export 2>/dev/null)"
 rm -rf "$MS"
 
 # 17m. A value the index once deleted must be saveable again, and the re-save must

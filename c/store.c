@@ -614,6 +614,35 @@ int off_consistent(const ais *a)
     return (st.st_size == want) ? 1 : 0;
 }
 
+int off_shift(const ais *a, long from, long delta)
+{
+    char path[AIS_PATH_MAX];
+    char buf[AIS_OFF_WIDTH + 1];
+    FILE *fp;
+    long slot = 0;
+
+    if (delta == 0)
+        return 0;
+    if (store_path(a, "off", path, sizeof(path)) != 0)
+        return -1;
+    fp = fopen(path, "r+");
+    if (fp == NULL)
+        return (errno == ENOENT) ? 0 : -1;
+    for (;; slot++) {
+        long v;
+        if (fseek(fp, slot * (long)AIS_OFF_WIDTH, SEEK_SET) != 0) break;
+        if (fread(buf, 1, AIS_OFF_WIDTH, fp) != (size_t)AIS_OFF_WIDTH) break;
+        buf[AIS_OFF_WIDTH] = '\0';
+        v = atol(buf);
+        if (v == 0 || v - 1 <= from)
+            continue;                        /* absent, or before the edit */
+        if (fseek(fp, slot * (long)AIS_OFF_WIDTH, SEEK_SET) != 0) { fclose(fp); return -1; }
+        off_write(fp, v - 1 + delta);
+    }
+    if (ferror(fp)) { fclose(fp); return -1; }
+    return (fclose(fp) == 0) ? 0 : -1;
+}
+
 int off_get(const ais *a, long id, long *offset)
 {
     char path[AIS_PATH_MAX];

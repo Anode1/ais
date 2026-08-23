@@ -274,11 +274,17 @@ void feed_import_from(ais *a, FILE *in)
 /* A run of A| lines is SPOOLED and its values resolved in one store pass, where a
  * put per line scanned the store once per record: an import of n records cost
  * O(n^2) and a 20k-line one took 13 s on a desktop, a minute on a phone. Each
- * spooled line keeps only its value hash and attach time on the stack; the line
- * itself waits in a temp file. A hash that repeats inside one batch is left for
- * the put to scan (-1): the first occurrence may append the record the second
- * names. A spool that cannot be opened means no batching, one put per line. */
-struct abatch { char hash[17]; char ats[AIS_TS_MAX]; long id; };
+ * spooled line keeps only its value hash on the stack; the line itself waits in
+ * a temp file as "attach_ts|ts|keys|value". A hash that repeats inside one batch
+ * is left for the put to scan (-1): the first occurrence may append the record
+ * the second names. A hash HIT is trusted only after the resolved id's store
+ * line has been read back and compared whole: FNV-1a is not a security hash,
+ * and a crafted collision would otherwise graft the arriving keys onto an
+ * unrelated record and drop the arriving one. That read goes through "off"; an
+ * index without a consistent "off" scans for its hits instead. A spool that
+ * cannot be written ends the batching and the line is put directly, so a full
+ * temp filesystem costs speed, never records. */
+struct abatch { char hash[17]; long id; };
 
 struct abatch_seek { struct abatch *b; int n, left; };
 
@@ -299,15 +305,42 @@ static int abatch_seek_cb(long id, const char *ts, const char *keys, const char 
     return (S->left == 0) ? -1 : 0;
 }
 
+struct same_value { const char *want; int same; };
+
+static int same_value_cb(long id, const char *ts, const char *keys, const char *value, void *vp)
+{
+    struct same_value *V = vp;
+    (void)id; (void)ts; (void)keys;
+    V->same = (strcmp(value, V->want) == 0);
+    return 0;
+}
+
+/* 1 if ID's first store line holds VALUE, 0 if it does not or cannot be read. */
+static int abatch_verify(const ais *a, long id, const char *value)
+{
+    struct same_value V;
+    long off;
+
+    if (off_get(a, id, &off) != 1)
+        return 0;
+    V.want = value;
+    V.same = 0;
+    if (store_record_at(a, id, off, same_value_cb, &V) != 1)
+        return 0;
+    return V.same;
+}
+
 /* Resolve and apply the spooled run. BUF is a line-sized scratch the caller is not
  * using at this moment (the importer's remap buffer), so this frame adds no
  * AIS_LINE_MAX buffer of its own to the FFI stack budget (tests/stack). Returns
- * the number of records put, and rewinds the spool for the next run. */
-static long abatch_flush(ais *a, FILE *spool, struct abatch *b, int n, char *buf, size_t bufsz)
+ * the number of records put; LOST counts spooled lines that could not be read
+ * back, which the caller reports. Rewinds the spool for the next run. */
+static long abatch_flush(ais *a, FILE *spool, struct abatch *b, int n,
+                         char *buf, size_t bufsz, long *lost)
 {
     struct abatch_seek S;
     long done = 0;
-    int i, j;
+    int i, j, canverify;
 
     if (n == 0)
         return 0;
@@ -317,31 +350,52 @@ static long abatch_flush(ais *a, FILE *spool, struct abatch *b, int n, char *buf
         for (j = 0; j < i; j++)
             if (strcmp(b[j].hash, b[i].hash) == 0) { b[i].id = -1; S.left--; break; }
     }
-    if (fflush(spool) != 0 || fseek(spool, 0, SEEK_SET) != 0)
+    if (fseek(spool, 0, SEEK_SET) != 0) {  /* the run is unreadable: say so, drop it */
+        *lost += n;
         return 0;
-    if (store_wlock(a) != 0)
-        return 0;
-    if (store_load_next_id(a) != 0) { store_wunlock(a); return 0; }
+    }
+    if (store_wlock(a) != 0) { *lost += n; fseek(spool, 0, SEEK_SET); return 0; }
+    if (store_load_next_id(a) != 0) { store_wunlock(a); *lost += n; fseek(spool, 0, SEEK_SET); return 0; }
     if (S.left > 0)
         store_each_record(a, abatch_seek_cb, &S);
+    canverify = (off_consistent(a) > 0);
     for (i = 0; i < n; i++) {
-        char *ts = buf, *k, *v;
-        if (store_read_line(buf, bufsz, spool) <= 0)
+        char *ats = buf, *ts, *k, *v;
+        long found = b[i].id;
+        if (store_read_line(buf, bufsz, spool) <= 0) {
+            *lost += n - i;
             break;
+        }
         chomp(buf);
-        k = strchr(ts, '|');
-        v = (k != NULL) ? strchr(k + 1, '|') : NULL;
-        if (k == NULL || v == NULL)
-            continue;
+        ts = strchr(ats, '|');
+        k  = (ts != NULL) ? strchr(ts + 1, '|') : NULL;
+        v  = (k  != NULL) ? strchr(k + 1, '|')  : NULL;
+        if (ts == NULL || k == NULL || v == NULL) { (*lost)++; continue; }
+        *ts++ = '\0';
         *k++ = '\0';
         *v++ = '\0';
-        if (ais_put_at_k_resolved(a, k, v, ts[0] ? ts : NULL,
-                                  b[i].ats[0] ? b[i].ats : NULL, b[i].id) >= 0)
+        if (found > 0 && !(canverify && abatch_verify(a, found, v)))
+            found = -1;                    /* a hit the store line does not confirm: scan */
+        if (ais_put_at_k_resolved(a, k, v, ts[0] ? ts : NULL, ats[0] ? ats : NULL, found) >= 0)
             done++;
     }
     store_wunlock(a);
     fseek(spool, 0, SEEK_SET);
     return done;
+}
+
+/* The verb tests the flush guard relies on: a line that only STARTS like one is
+ * a legacy "keys|value" record whose single key is A or C, and must flush too. */
+static int is_add_line(const char *l)
+{
+    const char *p;
+    if (l[0] != 'A' || l[1] != '|') return 0;
+    p = strchr(l + 2, '|');
+    return p != NULL && strchr(p + 1, '|') != NULL;
+}
+static int is_ctime_line(const char *l)
+{
+    return l[0] == 'C' && l[1] == '|' && strchr(l + 2, '|') != NULL;
 }
 
 void feed_import_from_map(ais *a, FILE *in, ais_blobmap *map)
@@ -352,6 +406,7 @@ void feed_import_from_map(ais *a, FILE *in, ais_blobmap *map)
     int  npend = 0;
     struct abatch padd[AIS_MERGE_BATCH];  /* A| lines likewise (abatch_flush) */
     int  nadd = 0;
+    long lost = 0;                        /* spooled lines that could not be replayed */
     FILE *spool = tmpfile();              /* NULL: no batching, a put per line */
     ais_att_fact patt[AIS_ATT_BATCH];     /* T| facts likewise (ais_merge_attach_many) */
     int  natt = 0;
@@ -414,7 +469,7 @@ void feed_import_from_map(ais *a, FILE *in, ais_blobmap *map)
                 natt = 0;
             }
             if (nadd > 0) {                            /* a delete may name a spooled add */
-                n += abatch_flush(a, spool, padd, nadd, vbuf, sizeof vbuf);
+                n += abatch_flush(a, spool, padd, nadd, vbuf, sizeof vbuf, &lost);
                 nadd = 0;
             }
             *h++ = '\0';
@@ -437,8 +492,8 @@ void feed_import_from_map(ais *a, FILE *in, ais_blobmap *map)
         /* Every verb but A| and C| reads or writes a record the spooled adds
          * may create, so the run of adds ends here and is applied first. C|
          * names the A| after it and is spent when that line is spooled. */
-        if (nadd > 0 && !((line[0] == 'A' || line[0] == 'C') && line[1] == '|')) {
-            n += abatch_flush(a, spool, padd, nadd, vbuf, sizeof vbuf);
+        if (nadd > 0 && !is_add_line(line) && !is_ctime_line(line)) {
+            n += abatch_flush(a, spool, padd, nadd, vbuf, sizeof vbuf, &lost);
             nadd = 0;
         }
 
@@ -502,17 +557,28 @@ void feed_import_from_map(ais *a, FILE *in, ais_blobmap *map)
                 /* The slot is spent by this A| either way, AFTER its time has been
                  * read: cleared first, the attach ran at an empty timestamp, which
                  * loses to every detach, rather than at the true one. */
+                /* Spool it, unless the line would not read back whole (a remapped
+                 * value can grow) or the spool fails: then the batch so far is
+                 * applied, the spool is closed for good, and this line and every
+                 * later one take the direct path. glibc keeps accepting writes
+                 * on a stream in error, so the check is ferror after a flush. */
                 if (spool != NULL &&
-                    fprintf(spool, "%s|%s|%s\n", ts, k, v) > 0) {
-                    content_hash(v, padd[nadd].hash);
-                    snprintf(padd[nadd].ats, sizeof padd[nadd].ats, "%.*s",
-                             (int)(sizeof padd[nadd].ats - 1), ats ? ats : "");
-                    cts[0] = '\0';
-                    if (++nadd == AIS_MERGE_BATCH) {
-                        n += abatch_flush(a, spool, padd, nadd, vbuf, sizeof vbuf);
-                        nadd = 0;
+                    strlen(ts) + strlen(k) + strlen(v) + AIS_TS_MAX + 4 < AIS_LINE_MAX) {
+                    fprintf(spool, "%s|%s|%s|%s\n", ats ? ats : "", ts, k, v);
+                    if (fflush(spool) == 0 && !ferror(spool)) {
+                        content_hash(v, padd[nadd].hash);
+                        cts[0] = '\0';
+                        if (++nadd == AIS_MERGE_BATCH) {
+                            n += abatch_flush(a, spool, padd, nadd, vbuf, sizeof vbuf, &lost);
+                            nadd = 0;
+                        }
+                        continue;
                     }
-                    continue;
+                    n += abatch_flush(a, spool, padd, nadd, vbuf, sizeof vbuf, &lost);
+                    nadd = 0;
+                    fclose(spool);
+                    spool = NULL;
+                    fprintf(stderr, "import: the temp file failed, the rest goes one record at a time\n");
                 }
                 if (ais_put_at_k(a, k, v, ts[0] ? ts : NULL, ats) >= 0)
                     n++;
@@ -629,13 +695,17 @@ void feed_import_from_map(ais *a, FILE *in, ais_blobmap *map)
         n++;
     }
     if (nadd > 0)                                      /* end of stream: adds first */
-        n += abatch_flush(a, spool, padd, nadd, vbuf, sizeof vbuf);
+        n += abatch_flush(a, spool, padd, nadd, vbuf, sizeof vbuf, &lost);
     if (npend > 0)                                     /* then the last deletes */
         ais_merge_del_many(a, pend, npend);
     if (natt > 0)                                      /* likewise the pending attaches */
         ais_merge_attach_many(a, patt, natt);
     if (spool != NULL)
         fclose(spool);
+    if (lost > 0) {
+        fprintf(stderr, "import: %ld records could not be read back from the temp file\n", lost);
+        skipped += lost;
+    }
     if (skipped > 0)
         fprintf(stderr, "imported %ld, skipped %ld\n", n, skipped);
     else

@@ -3765,6 +3765,30 @@ static void test_import_batches_adds(void)
     rewind(t); feed_import_from(&E, t); fclose(t);
     ais_count_live(&E, &again);
     CHECK(again == n, "batch: the same stream again adds nothing");
+
+    /* A hash hit is confirmed against the store line: these two values share
+     * their FNV-1a digest (found by Pollard rho in minutes), and the second must
+     * arrive as its own record rather than be folded into the first. */
+    ais_put_at(&E, "mine", "ihnipbmohofikkpb", "2020-01-01T00:00:00Z");
+    t = tmpfile();
+    fprintf(t, "A|2020-01-01T00:00:00Z|theirs|kimeojablmmpoklj\n");
+    rewind(t); feed_import_from(&E, t); fclose(t);
+    CHECK(value_present(&E, "kimeojablmmpoklj") == 1 && value_present(&E, "ihnipbmohofikkpb") == 1,
+          "batch: a value whose hash collides with a record's is still its own record");
+    CHECK(key_has_id(&E, "theirs", n + 1) == 0, "batch: and its keys did not land on the other");
+
+    /* A legacy line whose only key is "A" starts like a verb and must still end
+     * the spooled run, or it is put before the adds that precede it and its
+     * keys join a record carrying a fabricated local timestamp. */
+    t = tmpfile();
+    fprintf(t, "A|2020-01-01T00:00:00Z|k1|http://x/b/leg\nA|http://x/b/leg\n");
+    rewind(t); feed_import_from(&E, t); fclose(t);
+    {
+        long lid = 0;
+        store_find_value(&E, "http://x/b/leg", &lid);
+        CHECK(key_has_id(&E, "a", lid) == 1 && key_has_id(&E, "k1", lid) == 1,
+              "batch: a legacy line keyed A attaches to the add before it");
+    }
     ais_close(&E);
     scratch_rm(dir);
 }
