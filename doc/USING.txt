@@ -31,10 +31,13 @@ The everyday actions are recall and add; you can also fix or remove an item.
             few keywords below if you like (optional), then Save. It appears
             right away.
 
-  Edit /    Each result has small  edit keys  and  delete  actions. "Edit keys"
-  remove    adds or removes keywords on that one item -- type a keyword to add
-            it, or  -keyword  to remove it; the item itself stays. "Delete"
-            removes the whole item.
+  Edit /    Each result has small  Edit value ,  Edit tags  and  Delete
+  remove    actions. "Edit value" rewrites the item's text in place; the item
+            keeps its place in the timeline and its keywords, and the change
+            reaches your other devices the same way. "Edit tags" adds or
+            removes keywords on that one item -- type a keyword to add it, or
+            -keyword  to remove it; the item itself stays. "Delete" removes
+            the whole item.
 
 The timeline shows your most recent items; "Load more" reveals older ones.
 

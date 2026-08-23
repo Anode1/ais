@@ -85,7 +85,11 @@ INDEX/tomb      -- deletions. REAL DATA, not derived: a deleted record is not in
                    confirmed from it. The value itself is never stored here.
 <tomb_file>    ::= ( <tomb_line> "\n" )*
 <tomb_line>    ::= <id> "|" <ts> "|" <hash>     ? v1 lines were bare <id> ?
-<hash>         ::= [:xdigit:]{16}               ? FNV-1a 64 of the value ?
+<hash>         ::= [:xdigit:]{16}   ? FNV-1a 64 shape, with basis 1469598103934665603
+                                      (the standard basis missing its last digit,
+                                      fixed since the first tomb shipped): an
+                                      implementation using the textbook constant
+                                      addresses nothing on an ais peer ?
 
 INDEX/ktomb     -- per-key detaches. REAL DATA for the same reason as tomb, and
                    exported as "K|<ts>|<hash>|<key>". Note the KEY travels in the

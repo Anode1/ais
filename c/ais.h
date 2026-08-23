@@ -175,8 +175,9 @@ int  ais_update(ais *a, long id, const char *keys);
  * the in-place value edit (put/del would re-date the record and mint a new id).
  * Rewrites only the store: the ONE line whose id == `id` and whose value exactly
  * equals OLD_VALUE becomes `id|ts|keys|NEW_VALUE`, every other line unchanged
- * (legacy no-ts lines stay legacy), then the stale "off" accelerator is dropped so
- * it rebuilds lazily. Returns 0, or -1 on an unknown id, a value that does not
+ * (legacy no-ts lines stay legacy), then the "off" accelerator is shifted past
+ * the length change rather than dropped, so keyed reads stay fast (a shift that
+ * cannot be done removes it and compaction rebuilds it). Returns 0, or -1 on an unknown id, a value that does not
  * match OLD_VALUE (the store is left untouched), or any IO error. Refuses a deleted
  * id, and a NEW_VALUE another record already holds: a value is identity here (put
  * is idempotent by value scan, tombstones are hash-stamped), so two records sharing

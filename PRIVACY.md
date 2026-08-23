@@ -40,9 +40,17 @@ If you want a deletion to leave no trace at all, run:
 
     ais --compact --forget-deleted
 
-That erases the markers on this device: the entries stay deleted, but nothing is
-left for anyone to test a guess against. Sync your other devices first — a device
-that has not yet seen the deletion can send the entry back.
+That erases the deletion markers on this device: the entries stay deleted, but
+nothing is left for anyone to test a guess against them. Sync your other devices
+first: a device that has not yet seen the deletion can send the entry back.
+
+Editing an entry is not the same as deleting it. The index keeps one record per
+in-place edit, so your other devices can apply the same edit, and that record
+holds a fingerprint of the text you replaced. As with a deletion, the fingerprint
+will not tell anyone what the old text was, but it can confirm a guess.
+`--forget-deleted` forgets the intermediate versions and keeps the fingerprints,
+since they are what makes an edit travel. If text may need to be truly gone,
+delete the entry rather than editing it out, or save it encrypted.
 
 ## Data we collect
 

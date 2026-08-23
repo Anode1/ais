@@ -250,12 +250,21 @@ The rules, each pinned in `test_set_reaches_the_peer`:
   records, both texts, on every device: each fact finds no record holding its
   old value on the other side. Defensible, and the same as two separate saves.
 
+- **A fact recorded while its new value lived in another record stays unapplied**
+  even after that record is deleted and compacted away: `edits_known` screens the
+  fact's return trips, which is what keeps an applied edit from reapplying. The
+  state is defensible (the delete was a user action on that text), and the price
+  of a late joiner recording facts it could not apply.
+
 `--compact --forget-deleted` compacts `edits` with the tombstone digests: a fact
 whose chain ends in a live record is rewritten to name the live text directly, a
 fact of a deleted record is dropped, and the intermediate texts (traces of what
 was edited away) are forgotten. Dropping the file whole was tried: an edit the
 compacting device had not yet synced reverted, and the pre-edit text settled on
-every device as a second record.
+every device as a second record. The purge still costs an UNSYNCED delete its
+history: a record deleted after an edit, purged before the delete reached a peer,
+comes back from that peer at its pre-edit text, since its facts went with its
+tombstone. The "sync first" warning covers when; this is what comes back.
 
 ## A raised export carries its true time as C|
 

@@ -49,4 +49,7 @@ Files (in the index directory)
   Removing tomb resurrects everything ever deleted -- and the next sync pushes
   those records back to every other device; removing edits lets a stale copy of
   an edited value, arriving from a backup, put the old text back. next_id is the
-  id counter; lock is the writer flock.
+  id counter; lock is the writer flock. edits grows by one line per in-place
+  edit, carries the replacement text, and is never pruned (--forget-deleted
+  rewrites it, dropping only deleted records' facts): a record edited many
+  times costs more in the edit log and in every sync bundle than in the store.
