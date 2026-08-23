@@ -157,6 +157,12 @@ jobs:
       - name: pub get
         run: flutter pub get
 
+      # The stamp is taken BEFORE the build, as the podspec takes it: the build
+      # dirties the checkout, and a `git describe --dirty` read afterwards
+      # expects a "-dirty" suffix the binary was never given.
+      - name: the version this checkout carries
+        run: echo "AIS_WANT=$(git describe --tags --always --dirty | sed 's/^v//')" >> "$GITHUB_ENV"
+
       - name: build (unsigned, device arm64)
         run: flutter build ios --release --no-codesign
 
@@ -186,7 +192,7 @@ jobs:
       # actually in the binary.
       - name: the engine knows its own version
         run: |
-          want=$(git describe --tags --always --dirty | sed 's/^v//')
+          want=$AIS_WANT
           app=build/ios/iphoneos/Runner.app
           bin=$(ls "$app/Frameworks"/ais_engine.framework/ais_engine 2>/dev/null || echo "$app/Runner")
           if strings "$bin" | grep -qx "$want"; then
