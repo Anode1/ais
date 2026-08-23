@@ -20,6 +20,7 @@
 #define _POSIX_C_SOURCE 200809L  /* strtok_r */
 #include <getopt.h>
 #include <stdio.h>
+#include <unistd.h>    /* access: name the missing parent when -f cannot open */
 #include <stdlib.h>
 #include <errno.h>
 #include <string.h>
@@ -499,8 +500,21 @@ int main(int argc, char **argv)
         }
     }
 
-    if (ais_open(&a, dir) != 0)
+    if (ais_open(&a, dir) != 0) {
+        /* Name the actual cause when it is the path: -f into a directory that
+         * does not exist fails on mkdir of the index, not on the lock. */
+        char parent[AIS_PATH_MAX];
+        char *slash;
+        snprintf(parent, sizeof parent, "%s", dir);
+        slash = strrchr(parent, '/');
+        if (slash != NULL && slash != parent)
+            *slash = '\0';
+        else
+            snprintf(parent, sizeof parent, ".");
+        if (access(parent, F_OK) != 0)
+            die("cannot open index '%s': no directory '%s'", dir, parent);
         die("cannot open index '%s' (in use, or unwritable)", dir);
+    }
     /* A delete arriving from a peer retires payloads here too; dispose of them
      * the same way a local --del does. */
     ais_on_discard(&a, ais_doc_discard_cb, a.dir);
@@ -637,8 +651,10 @@ int main(int argc, char **argv)
             case -2: die("--set: record %ld unchanged: another record already holds '%s'\n"
                          "     (a value is identity here; edit that record, or --del it first)",
                          id, values[1]);
+                     break;
             case -3: die("--set: record %ld unchanged: a DELETED record still holds '%s'\n"
                          "     until the next compaction; run: ais --compact", id, values[1]);
+                     break;
             default: die("--set: record %ld unchanged (no such id, or no value '%s')",
                          id, values[0]);
             }

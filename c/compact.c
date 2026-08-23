@@ -713,6 +713,13 @@ static int edits_purge_cb(const char *ts, const char *hash, const char *value, v
         keep = fin;                          /* the chain's end, from this fact's hash */
     if (store_find_value(P->a, keep, &id) != 1 || tomb_contains(P->a, id) != 0)
         return 0;                            /* ends deleted or absent: forgotten */
+    {   /* a cycle (v1 -> v2 -> v1) collapses to an identity fact: a copy of the
+         * start text is already current, so there is nothing to translate */
+        char endh[17];
+        content_hash(keep, endh);
+        if (strcmp(endh, hash) == 0)
+            return 0;
+    }
     if (fprintf(P->out, "%s|%s|%s\n", ts, hash, keep) < 0)
         P->err = 1;
     return P->err;

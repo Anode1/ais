@@ -788,7 +788,7 @@ void feed_import_from_map(ais *a, FILE *in, ais_blobmap *map)
     if (edstate == 1)
         edits_mem_free(&edmem);
     if (lost > 0) {
-        fprintf(stderr, "import: %ld records could not be read back from the temp file\n", lost);
+        fprintf(stderr, "import: %ld records lost to a failed temp file or allocation\n", lost);
         skipped += lost;
     }
     if (skipped > 0)

@@ -341,7 +341,9 @@ static const char PAGE[] =
 "var t=(await(await fetch('/api/keys?id='+id)).text()).trim();edTags=t?t.split(/\\s+/):[];edChips();"
 "$('edtag').value='';$('editsheet').hidden=false}"
 "async function edSave(){edAdd();"
-"if(edEdit){var nv=$('edval').value.replace(/\\r?\\n/g,' ').trim();if(nv&&nv!=edOldVal)await fetch('/api/setvalue?id='+edId,{method:'POST',body:edOldVal+'\\n'+nv})}"
+"if(edEdit){var nv=$('edval').value.replace(/\\r?\\n/g,' ').trim();"
+"if(nv&&nv!=edOldVal){var sr=await fetch('/api/setvalue?id='+edId,{method:'POST',body:edOldVal+'\\n'+nv});"
+"if(!sr.ok)alert(await sr.text())}}"
 "var o=(await(await fetch('/api/keys?id='+edId)).text()).trim(),oa=o?o.split(/\\s+/):[],dl=[];"
 "oa.forEach(function(t){if(edTags.indexOf(t)<0)dl.push('-'+t)});edTags.forEach(function(t){if(oa.indexOf(t)<0)dl.push(t)});"
 "if(dl.length)await fetch('/api/update?id='+edId+'&keys='+encodeURIComponent(dl.join(' ')),{method:'POST'});"
@@ -1544,14 +1546,23 @@ static void handle(ais *a, int fd)
          * value lives out-of-line as a blob, which the UI won't offer to edit). */
         char *nv = (body != NULL) ? strchr(body, '\n') : NULL;
         if (reqid > 0 && nv != NULL) {
+            int rc;
             *nv++ = '\0';
-            if (ais_set_value(a, reqid, body, nv) == 0) {
+            rc = ais_set_value(a, reqid, body, nv);
+            if (rc == 0) {
                 send_head(fd, "text/plain");
                 write_all(fd, "updated\n", 8);
             } else {
-                static const char e[] = "HTTP/1.0 400 Bad Request\r\n"
-                    "Connection: close\r\n\r\ncannot update value\n";
-                write_all(fd, e, sizeof(e) - 1);
+                /* The body names the cause, as the CLI does (parity: GUI.md). */
+                const char *why =
+                    (rc == -2) ? "another entry already holds that text\n" :
+                    (rc == -3) ? "a deleted entry still holds that text until the"
+                                 " next clean-up (ais --compact)\n" :
+                                 "cannot update value\n";
+                char e[256];
+                int  n = snprintf(e, sizeof e, "HTTP/1.0 400 Bad Request\r\n"
+                                  "Connection: close\r\n\r\n%s", why);
+                write_all(fd, e, (size_t)n);
             }
         } else {
             static const char e[] = "HTTP/1.0 400 Bad Request\r\n"

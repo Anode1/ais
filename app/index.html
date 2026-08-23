@@ -379,8 +379,10 @@ async function edSave() {
   edAdd();                                     // commit a key still being typed
   if (edEdit) {
     var nv = $('edval').value.replace(/\r?\n/g, ' ').trim();
-    if (nv && nv != edOldVal)
-      await fetch('/api/setvalue?id=' + edId, { method:'POST', body: edOldVal + '\n' + nv });
+    if (nv && nv != edOldVal) {
+      var sr = await fetch('/api/setvalue?id=' + edId, { method:'POST', body: edOldVal + '\n' + nv });
+      if (!sr.ok) alert(await sr.text());   // the body names the cause, as the CLI does
+    }
   }
   // re-read the keys and send only what CHANGED: a blind re-send would re-attach
   // a key another device detached in the meantime

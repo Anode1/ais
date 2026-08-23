@@ -3468,6 +3468,65 @@ static void test_edit_does_not_resurrect_a_removed_tag(void)
 /* An edit that beats a delete must beat it on EVERY device, or the record flaps
  * in and out as the tombstone comes back round after round. Three devices, and
  * the middle one never edits anything. */
+/* An E| whose new value equals the old is a no-op: applied as a re-save, it ran
+ * the discard seam on the value the record still holds and shredded a document's
+ * blob. The purge exports such a line for an edit cycle, so the guard is live. */
+static void test_self_edit_is_a_noop(void)
+{
+    ais A;
+    const char *da = "/tmp/ais_ut_seA";
+    FILE *s;
+    char h[17];
+
+    scratch_rm(da);
+    ais_open(&A, da);
+    ais_put_at(&A, "k", "same text", "2020-01-01T00:00:00Z");
+    content_hash("same text", h);
+    s = tmpfile();
+    fprintf(s, "E|2025-01-01T00:00:00Z|%s|same text\n", h);
+    rewind(s);
+    feed_import_from(&A, s);
+    fclose(s);
+    CHECK(value_present(&A, "same text") == 1, "self-edit: the record is untouched");
+    {   char path[AIS_PATH_MAX];
+        FILE *fp;
+        long sz = 0;
+        snprintf(path, sizeof path, "%s/edits", da);
+        fp = fopen(path, "r");
+        if (fp != NULL) { fseek(fp, 0, SEEK_END); sz = ftell(fp); fclose(fp); }
+        CHECK(sz == 0, "self-edit: no identity fact was recorded");
+    }
+    /* and a purged cycle exports no identity fact */
+    CHECK(ais_set_value(&A, 1, "same text", "other") == 0, "self-edit: edit away");
+    CHECK(ais_set_value(&A, 1, "other", "same text") == 0, "self-edit: and back");
+    CHECK(ais_compact_purge(&A) == 0, "self-edit: purge runs");
+    {   char path[AIS_PATH_MAX];
+        FILE *fp;
+        char line[AIS_LINE_MAX];
+        int identity = 0;
+        snprintf(path, sizeof path, "%s/edits", da);
+        fp = fopen(path, "r");
+        if (fp != NULL) {
+            while (fgets(line, sizeof line, fp) != NULL) {
+                char *hh = strchr(line, '|'), *v;
+                if (hh == NULL) continue;
+                v = strchr(++hh, '|');
+                if (v == NULL) continue;
+                *v++ = '\0';
+                {   char vh[17], *nl = strchr(v, '\n');
+                    if (nl != NULL) *nl = '\0';
+                    content_hash(v, vh);
+                    if (strcmp(vh, hh) == 0) identity = 1;
+                }
+            }
+            fclose(fp);
+        }
+        CHECK(identity == 0, "self-edit: the purged cycle leaves no identity fact");
+    }
+    ais_close(&A);
+    scratch_rm(da);
+}
+
 /* --forget-deleted and the edit log: a fact of a LIVE record survives the purge
  * (dropped, an unsynced edit reverted and split on every device), an intermediate
  * text is forgotten, and a deleted record's facts go with its tombstone. */
@@ -5904,6 +5963,7 @@ int main(void)
     test_known_limit_restamp_outranks_an_unseen_detach();
     test_later_detach_holds_in_every_sync_order();
     test_reattach_after_a_detach_propagates();
+    test_self_edit_is_a_noop();
     test_forget_deleted_keeps_live_edit_facts();
     test_set_over_a_deleted_records_value();
     test_long_line_keeps_stream_order();

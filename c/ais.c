@@ -1122,6 +1122,14 @@ int ais_merge_edit(ais *a, const char *hash, const char *value, const char *ts)
         return -1;
     if (strpbrk(value, "\r\n") != NULL)
         return -1;
+    {   /* old == new (a purged edit cycle exports such a line): nothing to
+         * apply, and never a re-save, which ran the discard seam on the value
+         * the record still holds and shredded a document's blob. */
+        char nh[17];
+        content_hash(value, nh);
+        if (strcmp(nh, hash) == 0)
+            return 0;
+    }
     if (store_wlock(a) != 0)
         return -1;
     /* A fact this device already holds for that value, at that time or later, is

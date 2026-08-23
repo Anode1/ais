@@ -2134,10 +2134,17 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
       messenger.showSnackBar(SnackBar(content: Text(content)));
       return null;
     }
-    final done = _ais!.setValue(id, oldValue, newValue);
+    final rc = _ais!.setValue(id, oldValue, newValue);
     if (!mounted) return null;
+    final done = rc == 0;
     messenger.showSnackBar(SnackBar(
-        content: Text(done ? 'Value updated' : "Couldn't update the value")));
+        content: Text(done
+            ? 'Value updated'
+            : rc == -2
+                ? 'Another note already holds that text'
+                : rc == -3
+                    ? 'A deleted note still holds that text: run Clean up first'
+                    : "Couldn't update the value")));
     if (done) _setView(_view); // refresh whichever view is showing
     return done ? newValue : null;
   }

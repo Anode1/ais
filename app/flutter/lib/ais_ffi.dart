@@ -550,14 +550,16 @@ class AisEngine {
   }
 
   /// Replace record [id]'s value, preserving its id, save time and keys.
-  /// [oldValue] must be the record's exact stored value; a mismatch or an unknown
-  /// id returns false and leaves the store untouched.
-  bool setValue(int id, String oldValue, String newValue) {
+  /// [oldValue] must be the record's exact stored value. 0 on success; -2 when
+  /// another record already holds the new value, -3 when a deleted record still
+  /// holds it until the next compaction, -1 on a mismatch, an unknown id or an
+  /// IO error. The store is left untouched on every failure.
+  int setValue(int id, String oldValue, String newValue) {
     Pointer<Utf8> o = nullptr, n = nullptr;
     try {
       o = oldValue.toNativeUtf8();
       n = newValue.toNativeUtf8();
-      return _setValue(_h, id, o, n) == 0;
+      return _setValue(_h, id, o, n);
     } finally {
       if (o != nullptr) calloc.free(o);
       if (n != nullptr) calloc.free(n);
