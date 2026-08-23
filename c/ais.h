@@ -179,12 +179,12 @@ int  ais_update(ais *a, long id, const char *keys);
  * is idempotent by value scan, tombstones are hash-stamped), so two records sharing
  * one value make a peer collapse them and a later delete of either take both.
  *
- * LOCAL ONLY -- it has no merge verb. The stream carries A| adds, D| deletes and
- * K| key-detaches; nothing retires a replaced value, so a synced peer keeps the old
- * one and feeds it back, leaving BOTH values on BOTH devices. The CLI warns when
- * the index has sync state. A wire representation is a protocol change (a
- * value-retired fact that propagates without suppressing the record locally, so
- * NOT the id-keyed tomb) and is the main open item for --set. */
+ * The edit reaches the peers through verbs the stream already has: the old value
+ * is retired as a D| (a tomb line under id 0, which names no record here, so the
+ * edited line stays live) and the new value travels as the record's A|. A peer
+ * drops its copy of the old value and creates the new one; a peer's delete of
+ * the OLD value made after the edit names a hash this index no longer holds and
+ * is skipped, as it would be for a fresh save (MERGE.md). */
 int  ais_set_value(ais *a, long id, const char *old_value, const char *new_value);
 
 /* Tombstone a record. Idempotent (deleting an absent id is a no-op).

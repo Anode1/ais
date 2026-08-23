@@ -125,7 +125,7 @@ if [ -n "$sid" ]; then
         wait "$host_pid" 2>/dev/null; host_pid=
         got=$("$AIS" -f "$W/a" btag 2>/dev/null)
         ok  "set: the peer received the edited value"   "from-b-edited" "$got"
-        no  "set: and dropped the old one"               "from-b|"       "$got"
+        no  "set: and dropped the old one"               "|http://from-b$" "$got"
         okeq "set: one record on the peer, not two"      "1" "$(printf '%s\n' "$got" | grep -c .)"
     fi
 fi

@@ -36,7 +36,7 @@ Concurrency / scale
     block the CLI. See doc/dev/LOCKING.md.
   - Idempotent put scans the store, O(n) per put: fine interactively (~50 ms at
     1M records). An import resolves a batch of values in one pass (feed.c), so
-    a bulk import is O(n^2 / AIS_MERGE_BATCH): 20k lines in under 2 s.
+    a bulk import is O(n^2 / 256): 20k lines in under 2 s.
   - get is O(matches) via the "off" id->offset index once `compact` has built it
     (a pre-"off" index falls back to a scan until you compact).
 

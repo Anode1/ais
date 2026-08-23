@@ -139,6 +139,7 @@ number in text:
 | `app/flutter/pubspec.yaml` | `version: X.Y.Z+BUILD` |
 | `doc/dev/PACKAGING.md` | the `make AIS_VERSION=` line and the tarball URL |
 | `packaging/aur/PKGBUILD` | `pkgver` |
+| `doc/ROADMAP.md` | the "Known gaps, as of" heading and the release chores under it |
 
 `flutter.yml` fails the build if the first two disagree with each other. Nothing
 checks the other two.

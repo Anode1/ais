@@ -380,8 +380,9 @@ delete is undoable.
 and comparing the value field (the store IS the value->id map). If found, reuse
 that id and add any new keys to its posting lists. If new: id = next_id++,
 append the store line, append id to each key's posting list. Identical re-puts
-change nothing. (O(n) per put; fine at personal scale -- bulk-indexing a very
-large directory is the one case that degrades, acceptably.)
+change nothing. O(n) per put, fine at personal scale. An import does not pay it
+per line: feed.c spools a run of adds and resolves their values in one pass,
+then puts each with the answer (`ais_put_at_k_resolved`).
 
 ### get -- streaming k-way merge
 Open one stream per query key (<= AIS_KEYS_MAX), each at its current head id

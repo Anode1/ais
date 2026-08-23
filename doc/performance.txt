@@ -26,7 +26,7 @@ Timings (wall, one core)
 
 Reading
   - single-pass reads (find/dump/stats/timeline) are I/O-bound = grep/cat class. GOOD.
-  - put is 50 ms interactively (a few/day = invisible). O(n^2) only on BULK import.
+  - put is 50 ms interactively (a few/day = invisible); an import batches it (item 2).
   - GET *was* the bottleneck: ais_record re-scanned the store per matched id
     (O(matches x store)). FIXED by the id->offset index "off": get is now
     O(matches) seeks -- rare 1.02s -> 9 ms, hot (270k) hours -> 2.2 s.

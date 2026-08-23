@@ -65,6 +65,5 @@ plain text does not.
 ## What we gave up
 
 Raw throughput at web scale, and sub-millisecond hot-key recall without warming
-file handles. Neither matters for one person's memory. The hard limits and the
-one known O(n^2) (bulk import) are in `../limitations.txt`; the locking model
-is in `LOCKING.md`.
+file handles. Neither matters for one person's memory. The hard limits are in
+`../limitations.txt`; the locking model is in `LOCKING.md`.
