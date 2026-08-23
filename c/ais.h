@@ -179,13 +179,17 @@ int  ais_update(ais *a, long id, const char *keys);
  * is idempotent by value scan, tombstones are hash-stamped), so two records sharing
  * one value make a peer collapse them and a later delete of either take both.
  *
- * The edit reaches the peers through verbs the stream already has: the old value
- * is retired as a D| (a tomb line under id 0, which names no record here, so the
- * edited line stays live) and the new value travels as the record's A|. A peer
- * drops its copy of the old value and creates the new one; a peer's delete of
- * the OLD value made after the edit names a hash this index no longer holds and
- * is skipped, as it would be for a fresh save (MERGE.md). */
+ * The edit reaches the peers as E|ts|hash|value, kept in `edits` and exported
+ * before the records: a peer still holding the old value replaces it in place,
+ * keeping the record's id, other values, tags and key tombstones (MERGE.md). A
+ * peer that predates the verb skips the line and keeps the old value. */
 int  ais_set_value(ais *a, long id, const char *old_value, const char *new_value);
+
+/* Apply an arriving edit (content HASH of the old value became VALUE at TS) to
+ * the first live record holding it, in place. Nothing if none does, if the
+ * record was created after TS, or if VALUE already lives in another record.
+ * 1 applied, 0 not, -1 error. */
+int  ais_merge_edit(ais *a, const char *hash, const char *value, const char *ts);
 
 /* Tombstone a record. Idempotent (deleting an absent id is a no-op).
  * Space is reclaimed later by ais_compact(). Returns 0. */

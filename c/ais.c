@@ -857,19 +857,25 @@ out:
 }
 
 /* Streams the store to a temp file, rewriting the ONE line whose id == ID and whose
- * value exactly equals OLD_VALUE (its ts and keys carried through verbatim); every
- * other line is copied byte-for-byte, legacy "id|keys|value" lines kept legacy. The
- * value is not in the key index, so the postings, next_id and multi are left
- * alone; tomb, ktomb and katt are touched only to let the edit travel (below). */
+ * value equals OLD_VALUE, or hashes to OLD_HASH when no value is given (an edit
+ * arriving from a peer carries only the hash); its ts and keys are carried
+ * through verbatim, every other line is copied byte-for-byte, legacy
+ * "id|keys|value" lines kept legacy. The value is not in the key index, so the
+ * postings, next_id and multi are left alone; edits, tomb, ktomb and katt are
+ * touched only to let the edit travel (set_value_core). */
 struct setval_ctx {
     FILE       *out;
     long        id;
-    const char *old_value, *new_value;
+    const char *old_value;   /* or NULL: match by old_hash */
+    const char *old_hash;
+    const char *new_value;
     int         matched, error;
     int         seen;      /* a line of ID has gone by */
     int         first;     /* the replaced line was the record's FIRST: its hash changes */
     long        at;        /* where the edited line starts, and by how much it grew: */
     long        delta;     /* "off" is shifted past it instead of being thrown away */
+    char        old[AIS_PATH_MAX];  /* the replaced value, when short enough to name a
+                                     * payload this index made (the discard seam) */
 };
 
 static int setval_line(long id, const char *ts, const char *keys,
@@ -877,8 +883,18 @@ static int setval_line(long id, const char *ts, const char *keys,
 {
     struct setval_ctx *c = vp;
     const char *wval = value;
+    int hit = 0;
 
-    if (!c->matched && id == c->id && strcmp(value, c->old_value) == 0) {
+    if (!c->matched && id == c->id) {
+        if (c->old_value != NULL)
+            hit = (strcmp(value, c->old_value) == 0);
+        else {
+            char h[17];
+            content_hash(value, h);
+            hit = (strcmp(h, c->old_hash) == 0);
+        }
+    }
+    if (hit) {
         int need = (ts[0] != '\0')
                  ? snprintf(NULL, 0, "%ld|%s|%s|%s\n", id, ts, keys, c->new_value)
                  : snprintf(NULL, 0, "%ld|%s|%s\n", id, keys, c->new_value);
@@ -892,6 +908,8 @@ static int setval_line(long id, const char *ts, const char *keys,
         }
         c->at = ftell(c->out);
         c->delta = (long)need - (long)had;
+        if (strlen(value) < sizeof c->old)
+            memcpy(c->old, value, strlen(value) + 1);
         wval = c->new_value;
         c->matched = 1;
     }
@@ -904,55 +922,41 @@ static int setval_line(long id, const char *ts, const char *keys,
     return 0;
 }
 
-/* A value fed verbatim (an "aisc:"/"@blob" marker) is compared and replaced as a
- * plain string: no re-encryption, and no blob file is touched. */
-int ais_set_value(ais *a, long id, const char *old_value, const char *new_value)
+/* The edit itself, under the write lock the caller holds. TS is when it was
+ * made: now for a local edit, the fact's own time for one arriving from a peer.
+ * LOCAL stamps the edit clock (an arriving fact carries its own time, LAYOUT.md).
+ *
+ * The edit reaches the peers as E|ts|hash|value (MERGE.md), recorded in `edits`
+ * and kept like a tombstone: a peer that still holds the old value replaces it
+ * in place, keeping the record's id, its other values, its tags and its key
+ * tombstones, and passes the fact on. Retiring the old value as a DELETE was
+ * tried and reverted: a D| names a hash, a peer resolves that to the whole
+ * record, and on a record with several values the delete took the rest with it
+ * while the recreation could not outrank the tombstone.
+ *
+ * If this index once deleted the NEW value, that tombstone would export as a D|
+ * carrying the edit's own hash and kill it on every peer: it goes, and the
+ * record exports raised to TS (sts), which is what lets it outrank the copy of
+ * that tombstone a peer still holds. ktomb/katt name the record by its first
+ * value's hash; when that is the value replaced they are re-keyed, or a detach
+ * made before the edit would travel under a name no peer has. */
+static int set_value_core(ais *a, long id, const char *old_value, const char *old_hash,
+                          const char *new_value, const char *ts, int local)
 {
     char storep[AIS_PATH_MAX], newp[AIS_PATH_MAX], offp[AIS_PATH_MAX];
     struct setval_ctx c;
     FILE *out;
-    int rc = -1;
 
-    if (old_value == NULL || new_value == NULL)
-        return -1;
-    /* A record is ONE line: an embedded newline ends the fgets on read and drops
-     * everything after it. store_append refuses this on the put path; the in-place
-     * edit has to too, or the tail becomes an orphan (unrecoverable data loss). */
-    if (strpbrk(new_value, "\r\n") != NULL) {
-        fprintf(stderr, "ais: value spans multiple lines -- use --doc for multi-line/large values\n");
-        return -1;
-    }
     if (snprintf(storep, sizeof storep, "%s/store", a->dir) >= (int)sizeof storep ||
         snprintf(newp, sizeof newp, "%s/store.new", a->dir) >= (int)sizeof newp)
         return -1;
-
-    if (store_wlock(a) != 0)
-        return -1;
-
-    /* Refuse a deleted id, as ais_update does. Editing a tombstoned record would
-     * also leave the tomb's content hash pointing at a value that no longer
-     * exists, so the delete could never propagate to a peer. */
-    if (tomb_contains(a, id) != 0) {
-        store_wunlock(a);
-        return -1;
-    }
-    /* Refuse a value another record already holds: a value is identity (ais.h), so
-     * a peer collapses two records sharing one and a delete of either takes both. */
-    {
-        long other = 0;
-        int  dup = store_find_value(a, new_value, &other);
-        if (dup < 0) { store_wunlock(a); return -1; }
-        if (dup && other != id) { store_wunlock(a); return -1; }
-    }
-
     out = fopen(newp, "w");
-    if (out == NULL) {
-        store_wunlock(a);
+    if (out == NULL)
         return -1;
-    }
     c.out = out;
     c.id = id;
     c.old_value = old_value;
+    c.old_hash = old_hash;
     c.new_value = new_value;
     c.matched = 0;
     c.error = 0;
@@ -960,19 +964,20 @@ int ais_set_value(ais *a, long id, const char *old_value, const char *new_value)
     c.first = 0;
     c.at = -1;
     c.delta = 0;
+    c.old[0] = '\0';
 
     if (store_each_record(a, setval_line, &c) != 0 || !c.matched) {
         fclose(out);                       /* io error, or no matching line: no rename */
         remove(newp);
-        goto out;
+        return -1;
     }
     if (fflush(out) != 0) {                /* rename below is atomic; no fsync, matching compact.c */
         fclose(out);
         remove(newp);
-        goto out;
+        return -1;
     }
-    if (fclose(out) != 0) { remove(newp); goto out; }
-    if (rename(newp, storep) != 0) { remove(newp); goto out; }
+    if (fclose(out) != 0) { remove(newp); return -1; }
+    if (rename(newp, storep) != 0) { remove(newp); return -1; }
 
     /* "off" is indexed by id and holds byte offsets: every line past the edited
      * one moved by the edit's growth, so shift those entries. Dropping the file
@@ -983,32 +988,29 @@ int ais_set_value(ais *a, long id, const char *old_value, const char *new_value)
         if (snprintf(offp, sizeof offp, "%s/off", a->dir) < (int)sizeof offp)
             remove(offp);
     }
-    mts_stamp(a, id);
-    /* The edit has to reach the peers, and the stream already has the verbs: the
-     * old value is retired as a D|ts|hash, the fact every delete travels as,
-     * under id 0, which names no record, so the edited line stays live here
-     * while every peer drops its copy. The new value then arrives there as an
-     * ordinary record. What a peer cannot tell from that is that the two were
-     * one record: a delete it makes of the OLD value after this edit names a
-     * hash this index no longer holds and is skipped, so the edit survives it,
-     * as a fresh save of the new text would. If this index once deleted the
-     * NEW value, that tombstone would export as a D| carrying the edit's own
-     * hash and kill it on every peer: it goes, and the record exports raised to
-     * now (sts), which is what lets it outrank the copy of that tombstone a
-     * peer still holds. ktomb/katt name the record by its first value's hash;
-     * when that is the value replaced they are re-keyed, or a detach made before
-     * the edit would travel under a name no peer has. */
-    if (strcmp(old_value, new_value) != 0) {
-        char h[17], now[AIS_TS_MAX];
-        store_now(now, sizeof now);
-        content_hash(old_value, h);
-        if (now[0] != '\0' && tomb_append(a, 0, now, h) != 0)
-            fprintf(stderr, "ais: warning: record %ld was edited, but the old value could\n"
-                            "     not be retired; a device that syncs may send it back\n", id);
+    if (local)
+        mts_stamp(a, id);
+    {
+        char h[17];
+        if (old_hash != NULL)
+            snprintf(h, sizeof h, "%s", old_hash);
+        else
+            content_hash(old_value, h);
+        if (ts != NULL && ts[0] != '\0' && edits_append(a, ts, h, new_value) != 0)
+            fprintf(stderr, "ais: warning: record %ld was edited, but the edit could not\n"
+                            "     be recorded for other devices; they keep the old value\n", id);
         content_hash(new_value, h);
-        if (tomb_lookup_hash(a, h, NULL, 0, NULL) == 1 && tomb_remove_hash(a, h) == 0 &&
-            now[0] != '\0')
-            sts_set(a, id, now);
+        if (tomb_lookup_hash(a, h, NULL, 0, NULL) == 1)
+            tomb_remove_hash(a, h);
+        /* The record now EXPORTS at the edit time, here and on every device that
+         * applies the fact (C| carries its true time beside it for the tag
+         * decisions, as for any raise). Two things need that: a copy of the
+         * value is stale only if stamped before the edit (edits_lookup), which
+         * a record that was edited INTO the value in the same second must not
+         * look like; and a peer's delete older than the edit loses to it on
+         * every device, as it already did on this one (mts). */
+        if (ts != NULL && ts[0] != '\0')
+            sts_set(a, id, ts);
         if (c.first) {
             ktomb_rehash(a, id, h);
             katt_rehash(a, id, h);
@@ -1022,14 +1024,110 @@ int ais_set_value(ais *a, long id, const char *old_value, const char *new_value)
      * orphaned its file -- and feed.c streams the whole of blobs/, so that
      * orphan then rode every export to every peer, forever. AFTER the rename: a
      * refused edit must never destroy a payload the store still points at. */
-    if (a->discard != NULL)
-        a->discard(old_value, a->discard_ctx);
-    rc = 0;
+    if (a->discard != NULL && c.old[0] != '\0')
+        a->discard(c.old, a->discard_ctx);
+    debug("set_value: id=%ld value replaced", id);
+    return 0;
+}
 
+/* A value fed verbatim (an "aisc:"/"@blob" marker) is compared and replaced as a
+ * plain string: no re-encryption, and no blob file is touched. */
+int ais_set_value(ais *a, long id, const char *old_value, const char *new_value)
+{
+    char now[AIS_TS_MAX];
+    int rc = -1;
+
+    if (old_value == NULL || new_value == NULL)
+        return -1;
+    /* A record is ONE line: an embedded newline ends the fgets on read and drops
+     * everything after it. store_append refuses this on the put path; the in-place
+     * edit has to too, or the tail becomes an orphan (unrecoverable data loss). */
+    if (strpbrk(new_value, "\r\n") != NULL) {
+        fprintf(stderr, "ais: value spans multiple lines -- use --doc for multi-line/large values\n");
+        return -1;
+    }
+    if (strcmp(old_value, new_value) == 0)
+        return 0;                          /* nothing to edit, nothing to tell anyone */
+
+    if (store_wlock(a) != 0)
+        return -1;
+
+    /* Refuse a deleted id, as ais_update does. Editing a tombstoned record would
+     * also leave the tomb's content hash pointing at a value that no longer
+     * exists, so the delete could never propagate to a peer. */
+    if (tomb_contains(a, id) != 0)
+        goto out;
+    /* Refuse a value another record already holds: a value is identity (ais.h), so
+     * a peer collapses two records sharing one and a delete of either takes both. */
+    {
+        long other = 0;
+        int  dup = store_find_value(a, new_value, &other);
+        if (dup < 0 || (dup && other != id))
+            goto out;
+    }
+    store_now(now, sizeof now);
+    rc = set_value_core(a, id, old_value, NULL, new_value, now, 1);
 out:
     store_wunlock(a);
-    if (rc == 0)
-        debug("set_value: id=%ld value replaced", id);
+    return rc;
+}
+
+/* An edit arriving from a peer: E|TS|HASH|VALUE. Applies to the first live line
+ * whose value hashes to HASH, in place; nothing if no line does, if the fact is
+ * already recorded here, if the record is deleted, if it was created after the
+ * fact (a fresh save of the old text is a new note, not this one), or if VALUE
+ * already lives in another record here (two notes already; folding them is not
+ * this fact's to decide). Applied, the fact is recorded so it travels on.
+ * 1 applied, 0 not, -1 error. */
+struct edit_seek { const char *hash; long id; char ts[AIS_TS_MAX]; };
+
+static int edit_seek_cb(long id, const char *ts, const char *keys, const char *value, void *vp)
+{
+    struct edit_seek *E = vp;
+    char h[17];
+    (void)keys;
+    content_hash(value, h);
+    if (strcmp(h, E->hash) != 0)
+        return 0;
+    E->id = id;
+    snprintf(E->ts, sizeof E->ts, "%s", ts);
+    return -1;                             /* the first line, as store_find_value stops */
+}
+
+int ais_merge_edit(ais *a, const char *hash, const char *value, const char *ts)
+{
+    struct edit_seek E;
+    long other = 0;
+    int dup, rc = 0;
+
+    if (a == NULL || hash == NULL || value == NULL || ts == NULL || ts[0] == '\0')
+        return -1;
+    if (strpbrk(value, "\r\n") != NULL)
+        return -1;
+    if (store_wlock(a) != 0)
+        return -1;
+    /* A fact this device already holds for that value, at that time or later, is
+     * its own edit coming back round the mesh, or one it applied before: with the
+     * record possibly edited on since, applying it again would undo that. */
+    if (edits_known(a, hash, ts) != 0)
+        goto out;
+    E.hash = hash;
+    E.id = 0;
+    E.ts[0] = '\0';
+    if (store_each_record(a, edit_seek_cb, &E) < -1) { rc = -1; goto out; }
+    if (E.id == 0)
+        goto out;
+    if (tomb_contains(a, E.id) != 0)
+        goto out;
+    if (strcmp(ts, E.ts) < 0)
+        goto out;
+    dup = store_find_value(a, value, &other);
+    if (dup < 0) { rc = -1; goto out; }
+    if (dup && other != E.id)
+        goto out;
+    rc = (set_value_core(a, E.id, NULL, hash, value, ts, 0) == 0) ? 1 : -1;
+out:
+    store_wunlock(a);
     return rc;
 }
 

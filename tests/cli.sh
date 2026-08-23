@@ -682,6 +682,8 @@ ok      "compact: and the record is still there"        "m1" "$("$AIS" -f "$MS" 
 "$AIS" -f "$MS" --set 1 -v m1 -v m2 >/dev/null 2>&1
 ok      "set: the record reads back edited"             "m2" "$("$AIS" -f "$MS" mk)"
 okeq    "set: and is still one live record"             "1"  "$("$AIS" -f "$MS" mk | grep -c .)"
+ok      "set: the edit is recorded for other devices"   "|m2$" "$(cat "$MS/edits" 2>/dev/null)"
+ok      "set: and leads the export, before the records" "^E|" "$("$AIS" -f "$MS" --export 2>/dev/null | head -1)"
 rm -rf "$MS"
 
 # 17m. A value the index once deleted must be saveable again, and the re-save must

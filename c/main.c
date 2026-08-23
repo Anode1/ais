@@ -4,7 +4,7 @@
  *   bare args     KEYS -- the default action is recall (-o = OR, else AND)
  *   -v VALUE      store VALUE under the keys (repeat -v = one multi-link
  *                 record; -v - reads values from stdin, one per line)
- *   -k KEY        an explicit key (for a key that looks like a flag)
+ *   -k KEY        an explicit key (the same as a bare KEY)
  *   -i            interactive: ask keys per piped line
  *   --CMD         a command: find add del del-key dump keys tags timeline
  *                 stats compact init import where serve project doc. Operands

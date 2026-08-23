@@ -101,6 +101,20 @@ int katt_forget(const ais *a, long id, const char *key);  /* KEY, or all of ID i
 int katt_active(const ais *a);            /* 1 if katt has entries, 0 if not, -1 */
 int katt_rehash(const ais *a, long id, const char *hash);
 
+/* edits: one line per in-place value edit, "ts|hash|value" -- real data, kept like
+ * tomb, exported as E| (MERGE.md). edits_drop: --compact --forget-deleted. */
+typedef int (*edits_cb)(const char *ts, const char *hash, const char *value, void *ctx);
+int edits_append(const ais *a, const char *ts, const char *hash, const char *value);
+int edits_each(const ais *a, edits_cb cb, void *ctx);
+int edits_drop(const ais *a);
+int edits_active(const ais *a);            /* 1 if any edit is recorded, 0, -1 */
+/* 1 if a fact editing the value HASH at TS or later is already recorded here. */
+int edits_known(const ais *a, const char *hash, const char *ts);
+/* A copy of a value stamped LINE_TS arrives: if it was edited away here after
+ * that time, write what it became (following later edits) into OUT and
+ * return 1; 0 if it is current; -1 on error. HASH is the arriving value's. */
+int edits_lookup(const ais *a, const char *hash, const char *line_ts, char *out, size_t outsz);
+
 /* Streaming compaction. Returns 0 on success, -1 on error. */
 int ais_compact(ais *a);
 

@@ -19,6 +19,8 @@ is hashed: every file is plain text, readable, greppable, repairable by hand.
       ktomb           key-detaches: id|ts|hash|key, one line per removal
       katt            key-attaches: the same line, for a key put on a record that
                       already existed -- ktomb's mirror image
+      edits           in-place value edits: ts|hash|value, one per edit, kept like
+                      tomb and exported as E| (MERGE.md)
       foldsync        DEVICE-LOCAL: shared folders this device has synced with, one
                       absolute path per line (never synced, never exported)
       syncfolder      DEVICE-LOCAL: the folder the GUI syncs with (written by the app)
@@ -297,9 +299,7 @@ takes the same view.
 
 ### tomb -- tombstones
 `del(id)` appends the id to `tomb`. `get`/`dump` merge it out (suppress ids
-present in `tomb`). `ais_set_value` appends a line under id 0, which names no
-record: it retires the replaced value on the wire while the edited line stays
-live (MERGE.md). Compaction drops the deleted record's BODY from the store but
+present in `tomb`). Compaction drops the deleted record's BODY from the store but
 KEEPS the tombstone (`tomb_keep_hashed`): the tombstone is the portable delete
 fact a peer needs, so collecting it would let any device that still holds the
 record push it back on the next sync. Tombstones are retained for the life of the

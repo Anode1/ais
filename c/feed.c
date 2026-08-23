@@ -408,6 +408,7 @@ void feed_import_from_map(ais *a, FILE *in, ais_blobmap *map)
     int  nadd = 0;
     long lost = 0;                        /* spooled lines that could not be replayed */
     FILE *spool = tmpfile();              /* NULL: no batching, a put per line */
+    int  hasedits = (edits_active(a) > 0);   /* one stat, not a file open per line */
     ais_att_fact patt[AIS_ATT_BATCH];     /* T| facts likewise (ais_merge_attach_many) */
     int  natt = 0;
     long n = 0, skipped = 0;
@@ -497,6 +498,22 @@ void feed_import_from_map(ais *a, FILE *in, ais_blobmap *map)
             nadd = 0;
         }
 
+        /* E|ts|hash|value -- an edit made elsewhere, applied in place to the
+         * record still holding the old value (ais_merge_edit). Every buffer is
+         * flushed above, so the record it names is as the stream left it. */
+        if (line[0] == 'E' && line[1] == '|') {
+            char *ts = line + 2, *h, *v;
+            h = strchr(ts, '|');
+            v = (h != NULL) ? strchr(h + 1, '|') : NULL;
+            if (h != NULL && v != NULL) {
+                *h++ = '\0';
+                *v++ = '\0';
+                v = (char *)feed_remap_value(map, v, vbuf, sizeof vbuf);
+                ais_merge_edit(a, h, v, ts);
+                continue;
+            }
+        }
+
         /* T|ts|hash|key -- BUFFERED for the same reason as D|, and tested here so
          * the pending deletes above are already applied (an attach asks whether
          * the record is still live). An export emits every attach in one run, from
@@ -546,8 +563,27 @@ void feed_import_from_map(ais *a, FILE *in, ais_blobmap *map)
                 const char *ats;
                 *k++ = '\0';
                 *v++ = '\0';
+                /* A timestamp the store reader would not take as one lands in
+                 * the ts column anyway, where every reader then shifts the
+                 * fields: the key index sees one record and --compact rebuilds
+                 * another. Refuse the line, as an over-long one is refused. */
+                if (ts[0] != '\0' && !store_looks_like_ts(ts)) {
+                    fprintf(stderr, "import: not a timestamp, line skipped: %.40s\n", ts);
+                    skipped++;
+                    continue;
+                }
                 ats = ts[0] ? ts : NULL;
                 v = (char *)feed_remap_value(map, v, vbuf, sizeof vbuf);
+                /* A copy stamped before an edit this index knows about is the
+                 * OLD text: read it as what it became, or a peer's stale bundle
+                 * (or an old backup) recreates the text that was edited away as
+                 * a second record. A record saved AFTER the edit is a new note. */
+                if (hasedits && v != vbuf) {
+                    char h[17];
+                    content_hash(v, h);
+                    if (edits_lookup(a, h, ts, vbuf, sizeof vbuf) == 1)
+                        v = vbuf;
+                }
                 if (cts[0] != '\0') {          /* a C| named this record's true time */
                     char h[17];
                     content_hash(v, h);
@@ -623,6 +659,16 @@ void feed_import_from_map(ais *a, FILE *in, ais_blobmap *map)
                 *h++ = '\0';
                 *v++ = '\0';
                 v = (char *)feed_remap_value(map, v, vbuf, sizeof vbuf);
+                /* A stale copy of a link edited away here comes back as what it
+                 * became, as an A| does. A stale HASH (the record's first value
+                 * was the one edited) names nothing and the link waits for the
+                 * peer's next bundle, which carries the current one. */
+                if (hasedits && v != vbuf) {
+                    char vh[17];
+                    content_hash(v, vh);
+                    if (edits_lookup(a, vh, ts, vbuf, sizeof vbuf) == 1)
+                        v = vbuf;
+                }
                 ais_merge_addval(a, h, v);
                 continue;
             }
@@ -804,6 +850,16 @@ static int exp_live(long id, const char *ts, const char *keys, const char *value
     fprintf(E->out, "A|%s|%s|%s\n", ts, k, value);
     return 0;
 }
+/* E|ts|hash|value: an in-place edit, FIRST in the stream. After the A| line for
+ * the new value the importer would have made it a second record, since it
+ * finds no record holding it; before, the peer's record is edited in place and
+ * the A| then finds it. */
+static int exp_edit(const char *ts, const char *hash, const char *value, void *vp)
+{
+    struct exp_ctx *E = vp;
+    fprintf(E->out, "E|%s|%s|%s\n", ts, hash, value);
+    return 0;
+}
 static int exp_dead(long id, const char *ts, const char *hash, void *vp)
 {
     struct exp_ctx *E = vp;
@@ -974,6 +1030,7 @@ int feed_export_capped(ais *a, FILE *out, size_t blob_cap)
         if (brc != 0)
             return -1;
     }
+    edits_each(a, exp_edit, &E);
     store_each_record(a, exp_live, &E);
     tomb_each(a, exp_dead, &E);
     ktomb_each(a, exp_kdead, &E);            /* key-detaches propagate as K| lines (I1) */

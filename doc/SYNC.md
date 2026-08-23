@@ -34,7 +34,8 @@ There are two no-cloud paths, and you can use both:
 
 **Update every device before sharing one index folder between them.** `mts`, `sts`
 and `katt` decide what a delete means, and an AIS older than 0.3.15 does not know
-they exist: it would undo an edit you made on another device after that device's
+they exist (and one older than 0.3.21 does not know an edit made elsewhere: it
+keeps the old text beside the new): it would undo an edit you made on another device after that device's
 delete, silently. So an index this version has opened is marked format v4, and an
 older AIS refuses to open it and says to update instead. Nothing is damaged and
 nothing is lost by that refusal: update the lagging device and it opens normally.

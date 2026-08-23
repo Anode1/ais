@@ -3789,6 +3789,12 @@ static void test_import_batches_adds(void)
         CHECK(key_has_id(&E, "a", lid) == 1 && key_has_id(&E, "k1", lid) == 1,
               "batch: a legacy line keyed A attaches to the add before it");
     }
+    /* A line whose timestamp the store would not read as one is refused whole:
+     * stored, its fields shift on every reader and --compact changes the record. */
+    t = tmpfile();
+    fprintf(t, "A|not-a-timestamp|badts|http://x/b/badts\n");
+    rewind(t); feed_import_from(&E, t); fclose(t);
+    CHECK(value_present(&E, "http://x/b/badts") == 0, "batch: a line with a malformed timestamp is skipped");
     ais_close(&E);
     scratch_rm(dir);
 }
@@ -3796,10 +3802,11 @@ static void test_import_batches_adds(void)
 /* A peer that predates C| and T| skips both lines (the unknown-verb rule) and must
  * land exactly where it lands today: the raised A| re-attaching the tag, and the
  * re-attach never reaching it. Same two streams, the new verbs filtered out. */
-/* An in-place value edit must reach the peers. The store line keeps its id, ts
- * and keys; what travels is a D| retiring the old value, under id 0 so it names
- * no record here, and the new value as an ordinary A|. Both directions of the
- * edit, because the second one saves a value this index already retired. */
+/* An in-place value edit must reach the peers as an edit: E|ts|hash|value,
+ * applied to the peer's record IN PLACE, so its id, its other values, its tags
+ * and its key tombstones all stay. Records are created in 2020 and edited now,
+ * since a copy stamped in the edit's own second reads as current. Every case
+ * below is one a reviewer broke the D|-based retirement with. */
 struct hash_seen { char want[17]; int other; };
 
 static int hash_seen_cb(long id, const char *ts, const char *hash, const char *key, void *ctx)
@@ -3811,45 +3818,135 @@ static int hash_seen_cb(long id, const char *ts, const char *hash, const char *k
     return 0;
 }
 
+static void rounds(ais *A, ais *B, const char *f, int n)
+{
+    int r;
+    for (r = 0; r < n; r++) { sync_folder_once(A, f); sync_folder_once(B, f); }
+}
+
 static void test_set_reaches_the_peer(void)
 {
     ais A, B;
     const char *da = "/tmp/ais_ut_setA", *db = "/tmp/ais_ut_setB", *f = "/tmp/ais_ut_set_f";
     const char *v1 = "http://x/set-v1", *v2 = "http://x/set-v2";
     struct hash_seen H;
-    long na = 0, nb = 0, idb = 0;
-    int round;
+    long na = 0, nb = 0, idb = 0, off = 0;
 
     scratch_rm(da); scratch_rm(db); scratch_rm(f);
     mkdir(f, 0777);
     ais_open(&A, da); ais_open(&B, db);
-    ais_put_at(&A, "work reading", v1, "2020-01-01T00:00:00Z");
-    ais_update(&A, 1, "-reading");                       /* a detach the edit must carry */
-    sync_folder_once(&A, f); sync_folder_once(&B, f);
-    CHECK(value_present(&B, v1) == 1, "set: the peer holds the value before the edit");
 
+    /* 1. a single value, a detach made before the edit, the peer's id kept */
+    ais_put_at(&A, "work reading", v1, "2020-01-01T00:00:00Z");
+    ais_update(&A, 1, "-reading");
+    rounds(&A, &B, f, 1);
+    CHECK(value_present(&B, v1) == 1, "set: the peer holds the value before the edit");
     CHECK(ais_set_value(&A, 1, v1, v2) == 0, "set: the edit itself");
-    for (round = 0; round < 2; round++) { sync_folder_once(&A, f); sync_folder_once(&B, f); }
+    rounds(&A, &B, f, 2);
     ais_count_live(&A, &na); ais_count_live(&B, &nb);
     CHECK(value_present(&A, v2) == 1 && value_present(&A, v1) == 0 && na == 1,
           "set: the editing device holds the new value only");
     CHECK(value_present(&B, v2) == 1 && value_present(&B, v1) == 0 && nb == 1,
           "set: the peer holds the new value only, not both");
     store_find_value(&B, v2, &idb);
-    CHECK(key_has_id(&B, "work", idb) == 1 && key_has_id(&B, "reading", idb) == 0,
+    CHECK(idb == 1, "set: the peer's record kept its id: edited in place, not replaced");
+    CHECK(key_has_id(&B, "work", 1) == 1 && key_has_id(&B, "reading", 1) == 0,
           "set: the keys, detach included, came across");
     content_hash(v2, H.want); H.other = 0;
     ktomb_each(&A, hash_seen_cb, &H);
     CHECK(H.other == 0, "set: the key tombstones now name the record by its new value");
 
-    sleep(1);                                            /* the re-save must outrank B's tombstone */
-    CHECK(ais_set_value(&A, 1, v2, v1) == 0, "set: editing back to a value this index retired");
-    for (round = 0; round < 2; round++) { sync_folder_once(&A, f); sync_folder_once(&B, f); }
+    /* 2. editing back: the chain v1 -> v2 -> v1, on both sides, one record. The
+     * second between edits is the rule's resolution: a copy stamped in an
+     * edit's own second reads as current. */
+    sleep(1);
+    CHECK(ais_set_value(&A, 1, v2, v1) == 0, "set back: the edit itself");
+    rounds(&A, &B, f, 2);
     ais_count_live(&A, &na); ais_count_live(&B, &nb);
     CHECK(value_present(&A, v1) == 1 && value_present(&A, v2) == 0 && na == 1,
           "set back: the editing device holds the old value only");
     CHECK(value_present(&B, v1) == 1 && value_present(&B, v2) == 0 && nb == 1,
-          "set back: the peer followed it, so a retired value is not retired for ever");
+          "set back: the peer followed it, and its own relayed fact did not undo it");
+
+    /* 3. a record with several values: a later value, then the first */
+    ais_put_at(&A, "multi", "http://x/m1", "2020-01-01T00:00:00Z");
+    ais_add(&A, 2, "http://x/m2");
+    ais_add(&A, 2, "http://x/m3");
+    rounds(&A, &B, f, 1);
+    sleep(1);
+    CHECK(ais_set_value(&A, 2, "http://x/m2", "http://x/m2x") == 0, "multi: edit a later value");
+    rounds(&A, &B, f, 3);
+    CHECK(value_present(&B, "http://x/m1") == 1 && value_present(&B, "http://x/m2x") == 1 &&
+          value_present(&B, "http://x/m3") == 1 && value_present(&B, "http://x/m2") == 0,
+          "multi: the peer's record has the edited link and both others");
+    CHECK(value_present(&A, "http://x/m2") == 0, "multi: the old link did not come back");
+    sleep(1);
+    CHECK(ais_set_value(&A, 2, "http://x/m1", "http://x/m1x") == 0, "multi: edit the first value");
+    rounds(&A, &B, f, 3);
+    ais_count_live(&A, &na); ais_count_live(&B, &nb);
+    CHECK(value_present(&B, "http://x/m1x") == 1 && value_present(&B, "http://x/m3") == 1 &&
+          value_present(&B, "http://x/m1") == 0 && na == 2 && nb == 2,
+          "multi: the first value edited, the others kept, still one record each side");
+
+    /* 4. what the PEER did to the record meanwhile survives: a link it added, a
+     * tag it removed (the cases a delete-and-recreate loses) */
+    ais_put_at(&A, "work reading", "http://x/p1", "2020-01-01T00:00:00Z");
+    rounds(&A, &B, f, 1);
+    store_find_value(&B, "http://x/p1", &idb);
+    ais_add(&B, idb, "http://x/p-extra");
+    ais_update(&B, idb, "-reading");
+    sleep(1);
+    CHECK(ais_set_value(&A, 3, "http://x/p1", "http://x/p1x") == 0, "peer-side: the edit");
+    rounds(&A, &B, f, 4);
+    CHECK(value_present(&A, "http://x/p-extra") == 1 && value_present(&B, "http://x/p-extra") == 1,
+          "peer-side: the link the peer added is on both");
+    CHECK(key_has_id(&A, "reading", 3) == 0 && key_has_id(&B, "reading", idb) == 0 &&
+          key_has_id(&A, "work", 3) == 1,
+          "peer-side: the tag the peer removed stays removed on both");
+    CHECK(value_present(&A, "http://x/p1") == 0 && value_present(&B, "http://x/p1") == 0,
+          "peer-side: the old text is gone from both");
+
+    /* 5. a value moved from one record to another, both edits in one second */
+    ais_put_at(&A, "kp", "http://x/P", "2020-01-01T00:00:00Z");
+    ais_put_at(&A, "kq", "http://x/Q", "2020-01-01T00:00:00Z");
+    rounds(&A, &B, f, 1);
+    sleep(1);
+    CHECK(ais_set_value(&A, 4, "http://x/P", "http://x/R") == 0 &&
+          ais_set_value(&A, 5, "http://x/Q", "http://x/P") == 0, "move: P -> R, then Q -> P");
+    rounds(&A, &B, f, 4);
+    {
+        long r = 0, p = 0;
+        store_find_value(&B, "http://x/R", &r);
+        store_find_value(&B, "http://x/P", &p);
+        CHECK(r != 0 && p != 0 && r != p && key_has_id(&B, "kp", r) == 1 &&
+              key_has_id(&B, "kq", r) == 0 && key_has_id(&B, "kq", p) == 1 && key_has_id(&B, "kp", p) == 0,
+              "move: kp stays on R and kq on P; no tag migrated");
+        CHECK(value_present(&A, "http://x/Q") == 0 && value_present(&B, "http://x/Q") == 0,
+              "move: the value edited away did not come back");
+    }
+
+    /* 6. the old text saved again, AFTER the edit, is a new note on both sides */
+    ais_put_at(&B, "fresh", "http://x/Q", "2030-01-01T00:00:00Z");
+    rounds(&A, &B, f, 3);
+    CHECK(value_present(&A, "http://x/Q") == 1 && value_present(&A, "http://x/P") == 1,
+          "fresh: a later save of the old text is its own record on the editing device");
+
+    /* 7. a stale copy of the old text, from a backup made before the edit, is
+     * read as the edit's result: the record, not a second one */
+    {
+        FILE *t = tmpfile();
+        fprintf(t, "A|2020-01-01T00:00:00Z|backup|http://x/m2\n");   /* m2 became m2x */
+        rewind(t); feed_import_from(&A, t); fclose(t);
+        CHECK(value_present(&A, "http://x/m2") == 0 && key_has_id(&A, "backup", 2) == 1,
+              "stale: an old copy of an edited value lands on the edited record");
+    }
+
+    /* 8. off survives an edit: the shifted offsets still find every line */
+    CHECK(ais_compact(&A) == 0, "off: compact builds it");
+    CHECK(ais_set_value(&A, 5, "http://x/P", "http://x/P-much-longer-than-before") == 0, "off: a longer edit");
+    CHECK(off_get(&A, 5, &off) == 1 && off_consistent(&A) == 1, "off: still there after the edit");
+    CHECK(key_has_id(&A, "fresh", 5) == 0 && value_present(&A, "http://x/P-much-longer-than-before") == 1,
+          "off: a keyed read past the edited line is right");
 
     ais_close(&A); ais_close(&B);
     scratch_rm(da); scratch_rm(db); scratch_rm(f);
@@ -3872,20 +3969,24 @@ static void test_old_peer_ignores_the_new_verbs(void)
         ais *D = pass ? &O : &N;
         ais_put_at(D, "work reading", "http://x/mv",  "2020-01-01T00:00:00Z");
         ais_put_at(D, "work reading", "http://x/mv2", "2020-01-01T00:00:00Z");
+        ais_put_at(D, "reading",      "http://x/mv3", "2020-01-01T00:00:00Z");
         ais_merge_detach(D, h,  "work", "2020-06-01T00:00:00Z");
         ais_merge_detach(D, h2, "work", "2020-06-01T00:00:00Z");
     }
 
     t = tmpfile();                    /* a raised export, plus a peer's later re-attach */
+    {   char h3[17]; content_hash("http://x/mv3", h3);                 /* and an edit */
+        fprintf(t, "E|2021-06-01T00:00:00Z|%s|http://x/mv3-edited\n", h3); }
     fprintf(t, "C|2020-01-01T00:00:00Z|%s\n", h);
     fprintf(t, "A|2021-01-01T00:00:00Z|work reading|http://x/mv\n");
+    fprintf(t, "A|2021-06-01T00:00:00Z|reading|http://x/mv3-edited\n");
     fprintf(t, "T|2021-01-01T00:00:00Z|%s|work\n", h2);
     rewind(t); feed_import_from(&N, t);
 
     rewind(t);                        /* the same stream as an older ais reads it */
     f = tmpfile();
     while (fgets(line, sizeof line, t) != NULL)
-        if (strncmp(line, "C|", 2) != 0 && strncmp(line, "T|", 2) != 0)
+        if (strncmp(line, "C|", 2) != 0 && strncmp(line, "T|", 2) != 0 && strncmp(line, "E|", 2) != 0)
             fputs(line, f);
     fclose(t);
     rewind(f); feed_import_from(&O, f); fclose(f);
@@ -3896,8 +3997,12 @@ static void test_old_peer_ignores_the_new_verbs(void)
     CHECK(key_has_id(&N, "work", 2) == 1, "mixed version: the peer that reads T| takes the re-attach");
     CHECK(key_has_id(&O, "work", 2) == 0,
           "mixed version: the peer that skips T| keeps the detach, as it does today");
+    CHECK(value_present(&N, "http://x/mv3-edited") == 1 && value_present(&N, "http://x/mv3") == 0,
+          "mixed version: the peer that reads E| edits its record in place");
+    CHECK(value_present(&O, "http://x/mv3-edited") == 1 && value_present(&O, "http://x/mv3") == 1,
+          "mixed version: the peer that skips E| keeps the old text beside the new: lossy, not wrong");
     query(&O, AIS_AND, &v, 1, "reading");
-    CHECK(v.n == 2 && value_present(&O, "http://x/mv") == 1 && value_present(&N, "http://x/mv") == 1,
+    CHECK(v.n == 4 && value_present(&O, "http://x/mv") == 1 && value_present(&N, "http://x/mv") == 1,
           "mixed version: the records converge on both");
 
     ais_close(&N); ais_close(&O);

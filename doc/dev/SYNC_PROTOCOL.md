@@ -15,7 +15,8 @@ forked-loopback socket test): `ais --export --serve [PORT]` serves one peer (pri
 URL); `ais --import <url> --token T` pulls and merges. Blob transfer is done (below); remaining follow-ups: GUI polish.
 
     device A                                            device B
-      store ──feed_export──► A|ts|keys|value  (live records)
+      store ──feed_export──► E|ts|hash|value   (in-place edits, first)
+                             A|ts|keys|value  (live records)
                              C|ts|hash         (an A|'s TRUE time, when raised)
                              M|ts|hash|value   (an extra link on the record above)
                              B|blobs/x|len     (a document body, then raw bytes)
@@ -154,8 +155,12 @@ document bodies (`B|blobs/<name>|<len>` plus that many raw bytes); record tombst
 which say when a key went onto a record that already existed -- without them a key any
 device had once detached could never be re-attached anywhere in the mesh.
 
+In front of all of them, `E|ts|hash|value` for every in-place edit, so a peer edits its
+record before the `A|` for the new value can create a second one (`MERGE.md`).
+
 `--import` replays them through `feed_import_from`, where `put` is idempotent (dedup by
-content), `ais_merge_del_many` unions the record tombstones a batch at a time,
+content), a run of `A|` lines resolves its values in one pass, `ais_merge_edit` applies
+an edit in place, `ais_merge_del_many` unions the record tombstones a batch at a time,
 `ais_merge_detach` unions the key-detaches (so a removed tag stays removed after sync),
 and `ais_merge_attach_many` applies the attaches, likewise batched. `D|` and `T|` are
 buffered because resolving one means scanning the store for the value it names, and a scan
@@ -163,7 +168,7 @@ per line made an import cost O(lines x records); the buffers preserve stream ord
 
 An older AIS skips a verb it does not know, loudly, and imports the rest intact -- which
 is why a verb may only be WRITTEN one release after the skip that tolerates it shipped
-(`MERGE.md`). `C|` and `T|` are sanctioned from 0.3.15 on that rule.
+(`MERGE.md`). `C|` and `T|` are sanctioned from 0.3.15 on that rule, `E|` from 0.3.21.
 Additions and deletions both converge,
 last-write-wins by the store's `ts` column (delete-after-add wins; re-add-after-delete
 wins), deterministic for one user across their own devices. One-way by nature: after A

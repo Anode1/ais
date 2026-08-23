@@ -97,17 +97,18 @@ repo cannot yet show. Paid signing is not planned. The wiring stays in place;
 reapply once the project has visible adoption. Until a build is signed, verify a
 download by its SHA-256 or build from source (see the README).
 
-## Known gaps, as of v0.3.20
+## Known gaps, as of v0.3.21
 
 Four things are open, and this is the list to work from: the release chores that
 remain, coverage nobody has, a test that cannot see, and defects left on purpose
 with the reason for each.
 
-### 1. Publishing v0.3.20 is not finished
+### 1. Publishing is not finished
 
-The tag published ten artifacts. What still has to be done by hand:
+A tag publishes ten artifacts. Two stores have never received one, and each is
+a manual step:
 
-- Upload `ais-v0.3.20-android.aab` to the Play Console and start the closed
+- Upload `ais-v0.3.21-android.aab` to the Play Console and start the closed
   test, following [`dev/ANDROID_RELEASE.md`](dev/ANDROID_RELEASE.md). Take the
   screenshots from `screenshots/play/`, not the ones beside them: Play requires
   24-bit PNG with no alpha and refuses a side more than twice the other, and the
@@ -144,9 +145,15 @@ reports instead of gating (see the note in `.github/workflows/flutter.yml`), and
 the Android layers carry the real UI coverage. Fixing it would be worth it: the
 desktop harness needs no device and runs in seconds.
 
-### 4. One defect is knowingly unfixed
+### 4. Two limits are knowingly left
 
-It is understood, loses no data, and is left for a stated reason.
+Each is understood, loses no data, and is left for a stated reason.
+
+- **An edit reaches a device that predates v0.3.21 as a second record.** The
+  `E|` verb that carries an in-place edit is skipped by an older build, which
+  keeps the old text beside the new until it is updated. Updating every device
+  is the fix; the stream rule in [`dev/MERGE.md`](dev/MERGE.md) is why the verb
+  could not be written earlier.
 
 - **A blob clash from before v0.3.20 leaves one duplicate record per device.**
   Names are unique at birth now, so this cannot happen to a new index, and a

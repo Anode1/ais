@@ -651,6 +651,143 @@ int katt_active(const ais *a)                         { return kfile_active(a, "
 int katt_rehash(const ais *a, long id, const char *hash)
 { return kfile_rehash(a, "katt", id, hash); }
 
+int edits_append(const ais *a, const char *ts, const char *hash, const char *value)
+{
+    char path[AIS_PATH_MAX];
+    FILE *fp;
+
+    if (compact_path(a, "edits", path, sizeof(path)) != 0)
+        return -1;
+    fp = fopen(path, "a");
+    if (fp == NULL)
+        return -1;
+    fprintf(fp, "%s|%s|%s\n", ts, hash, value);
+    if (fclose(fp) != 0)
+        return -1;
+    return 0;
+}
+
+int edits_each(const ais *a, edits_cb cb, void *ctx)
+{
+    char path[AIS_PATH_MAX], line[AIS_LINE_MAX];
+    FILE *fp;
+    int rc = 0;
+
+    if (compact_path(a, "edits", path, sizeof(path)) != 0)
+        return -1;
+    fp = fopen(path, "r");
+    if (fp == NULL)
+        return (errno == ENOENT) ? 0 : -1;
+    while (fgets(line, sizeof line, fp) != NULL) {
+        char *h, *v, *nl;
+        nl = strchr(line, '\n');
+        if (nl != NULL) *nl = '\0';
+        h = strchr(line, '|');
+        if (h == NULL) continue;
+        *h++ = '\0';
+        v = strchr(h, '|');
+        if (v == NULL) continue;
+        *v++ = '\0';
+        if (cb(line, h, v, ctx) != 0) { rc = 1; break; }
+    }
+    fclose(fp);
+    return rc;
+}
+
+int edits_drop(const ais *a)
+{
+    char path[AIS_PATH_MAX];
+
+    if (compact_path(a, "edits", path, sizeof(path)) != 0)
+        return -1;
+    return (remove(path) == 0 || errno == ENOENT) ? 0 : -1;
+}
+
+int edits_active(const ais *a)
+{
+    char path[AIS_PATH_MAX];
+    struct stat st;
+
+    if (compact_path(a, "edits", path, sizeof(path)) != 0)
+        return -1;
+    if (stat(path, &st) != 0)
+        return (errno == ENOENT) ? 0 : -1;
+    return st.st_size > 0;
+}
+
+struct edits_known_ctx { const char *hash, *ts; int known; };
+
+static int edits_known_cb(const char *ts, const char *hash, const char *value, void *vp)
+{
+    struct edits_known_ctx *K = vp;
+    (void)value;
+    if (strcmp(hash, K->hash) == 0 && strcmp(ts, K->ts) >= 0) {
+        K->known = 1;
+        return 1;
+    }
+    return 0;
+}
+
+int edits_known(const ais *a, const char *hash, const char *ts)
+{
+    struct edits_known_ctx K;
+    K.hash = hash; K.ts = ts; K.known = 0;
+    if (edits_each(a, edits_known_cb, &K) < 0)
+        return -1;
+    return K.known;
+}
+
+/* Facts are followed in the order they were recorded, which on any one device is
+ * the order the edits happened (its own, and the ones it applied as they
+ * arrived), and a fact's clock never goes backwards along that walk: so a chain
+ * X -> Y -> Z ends at Z, and a same-second cycle X -> Y -> X ends where the file
+ * says it ended. A further pass from the top, for a chain recorded out of order,
+ * accepts only facts strictly later than the last one taken, which is what
+ * keeps a cycle from spinning. */
+int edits_lookup(const ais *a, const char *hash, const char *line_ts, char *out, size_t outsz)
+{
+    char path[AIS_PATH_MAX], line[AIS_LINE_MAX], want[17], last[AIS_TS_MAX];
+    FILE *fp;
+    int pass, found = 0;
+
+    if (compact_path(a, "edits", path, sizeof(path)) != 0)
+        return -1;
+    snprintf(want, sizeof want, "%s", hash);
+    last[0] = '\0';
+    for (pass = 0; pass < 32; pass++) {
+        int progress = 0;
+        fp = fopen(path, "r");
+        if (fp == NULL)
+            return (errno == ENOENT) ? found : -1;
+        while (fgets(line, sizeof line, fp) != NULL) {
+            char *h, *v, *nl;
+            int cmp;
+            nl = strchr(line, '\n');
+            if (nl != NULL) *nl = '\0';
+            h = strchr(line, '|');
+            if (h == NULL) continue;
+            *h++ = '\0';
+            v = strchr(h, '|');
+            if (v == NULL) continue;
+            *v++ = '\0';
+            if (strcmp(h, want) != 0 || strcmp(line, line_ts) <= 0)
+                continue;                    /* another value, or not newer than the copy */
+            cmp = strcmp(line, last);
+            if (pass == 0 ? cmp < 0 : cmp <= 0)
+                continue;                    /* the clock does not go back */
+            snprintf(out, outsz, "%s", v);
+            content_hash(out, want);
+            snprintf(last, sizeof last, "%.*s", (int)(sizeof last - 1), line);
+            progress = 1;
+            found = 1;
+        }
+        fclose(fp);
+        if (!progress)
+            break;
+    }
+    return found;
+}
+
 /* tomb_active: 1 if anything is deleted at all, 0 if the tomb is empty/absent, -1
  * on error. A cheap stat, so read paths can skip per-id liveness checks entirely
  * on the common index where nothing has ever been deleted. */
@@ -1341,6 +1478,8 @@ static int compact_locked(ais *a)
     if (tomb_keep_hashed_x(a, a->purge_deletes) != 0)
         goto cleanup;
     if (ktomb_keep_hashed_x(a, a->purge_deletes) != 0)
+        goto cleanup;
+    if (a->purge_deletes && edits_drop(a) != 0)   /* an edit fact is a trace of the old text too */
         goto cleanup;
     if (katt_keep_attached(a) != 0)    /* nor an attach time its attachment */
         goto cleanup;

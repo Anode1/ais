@@ -84,10 +84,9 @@ spec. See LAYOUT.md (format), BNF.txt (grammar).
 ## GUI / UX
 - A resource = value (identity, shown read-only) + an editable keyset.
   - `--set` edits the identity field in place and keeps the id, ts and keys.
-    What reaches the peers is a `D|` retiring the old value and the new value as
-    an ordinary record (MERGE.md, "An edited value travels as a retirement"), so
-    every front end edits in place through `ais_set_value` and none needs a
-    delete-plus-save of its own.
+    What reaches the peers is an `E|` fact, applied to their record in place
+    (MERGE.md, "An edited value travels as E|"), so every front end edits in
+    place through `ais_set_value` and none needs a delete-plus-save of its own.
 - Save emits the DIFF against the loaded state (only the +'s and -'s you changed),
   NOT the absolute keyset, so a concurrent add on another device is not wiped.
 - `-key` is internal: the GUI toggles tag chips and emits it; users never type

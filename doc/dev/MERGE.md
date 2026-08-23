@@ -192,28 +192,59 @@ always did for sync bundles, which is why a folder sync carried documents while
 `--export` -- the documented backup route -- dropped them, restoring a record whose
 body simply did not exist.
 
-## An edited value travels as a retirement
+## An edited value travels as E|
+
+    E|<ts>|<hash of the old value>|<new value>
 
 `ais_set_value` replaces one value in place, keeping the id, ts and keys, and the
-stream needs no verb for it: the old value is retired as a `D|<now>|<hash>`, the
-fact every delete already travels as, and the new value goes out as the record's
-ordinary `A|`. A peer drops its copy of the old value and creates the new one, so
-one round leaves the new text alone on both sides. Three details make it hold:
+fact travels as an EDIT: the value hashing to `<hash>` became `<new value>` at
+`<ts>`. It is recorded in `edits` (kept like `tomb`) and exported FIRST in the
+stream. A peer still holding the old value replaces it in place
+(`ais_merge_edit`): the record keeps its id, its other values, its tags and its
+key tombstones, and the peer records the fact so it travels on. An older peer
+skips the line and keeps the old text beside the new; lossy, not wrong, and the
+state v0.3.20 documented.
 
-- **The tombstone is written under id 0.** `tomb` suppresses by id, and the
-  record's own id would suppress the edited line. Id 0 names no record, so the
-  line stays live here while the fact travels; `exp_dead` ignores the id.
-- **Editing back to a value this index once retired** removes that tombstone,
-  as a re-save does, and raises the export (`sts`) to the edit time, because the
-  peer holds its own tombstone for that value and the `A|` has to outrank it.
+Retiring the old value as a DELETE was tried and reverted. A `D|` names a hash
+and a peer resolves that to the whole record, so on a record with several
+values the delete took the rest with it while the recreation could not outrank
+the tombstone; and a link or a tag change the peer had made on the record
+between syncs died with it.
+
+The rules, each pinned in `test_set_reaches_the_peer`:
+
+- **In the stream, before the records.** After the `A|` for the new value the
+  importer would have made it a second record, having found no record holding
+  it; before, the record is edited and the `A|` then finds it.
+- **The record exports at the edit time** (`sts`, with `C|` carrying the true
+  time for the tag decisions), on the editing device and on every device that
+  applies the fact. That is what makes the next rule decidable, and it makes a
+  peer's delete older than the edit lose to it everywhere, as it already did on
+  the editing device (`mts`).
+- **A stale copy is read as what it became.** A copy of the old value stamped
+  before the fact, arriving as `A|` or `M|` from a device that has not applied
+  it yet, or from a backup, is translated through `edits` (`edits_lookup`,
+  following a chain of edits in recorded order) instead of recreating the text
+  that was edited away. A copy stamped in the edit's own second reads as
+  current: the comparison is against the record's creation time, so it only
+  matters for a record created, synced and edited inside one second.
+- **A fact this device already holds is not news.** Its own edit coming back
+  round the mesh, or one it applied before, is skipped (`edits_known`): the
+  record may have been edited on since.
+- **Not applied** when no live record holds the old value, when the record was
+  created after the fact (a later save of the old text is a new note), or when
+  the new value already lives in another record here (two notes already;
+  folding them is not this fact's to decide, and both stay).
 - **`ktomb`/`katt` name the record by its first value's hash.** When that is the
-  value replaced, the entries are re-keyed (`ktomb_rehash`, `katt_rehash`), or a
-  detach made before the edit would travel under a name no peer holds.
+  value replaced they are re-keyed (`ktomb_rehash`, `katt_rehash`), on every
+  device that applies the edit, or a detach made before it would travel under a
+  name no peer holds.
+- **Two devices editing the same record differently while apart** end with two
+  records, both texts, on every device: each fact finds no record holding its
+  old value on the other side. Defensible, and the same as two separate saves.
 
-What a peer cannot tell is that the two values were one record. A delete it
-makes of the OLD value after the edit names a hash this index no longer holds
-and is skipped, so the edit survives it, exactly as a fresh save of the new text
-would. Pinned by `test_set_reaches_the_peer`.
+`--compact --forget-deleted` drops `edits` with the tombstone digests: an edit
+fact is a trace of the old text too.
 
 ## A raised export carries its true time as C|
 
@@ -332,6 +363,7 @@ and `--import <url>` consumes), NOT `--dump` output:
     D|<ts>|<hash>              # delete (a content-addressed tombstone)
     K|<ts>|<hash>|<key>        # key-detach (a content-addressed per-key removal)
     T|<ts>|<hash>|<key>        # key-attach (when a key went ON, K|'s mirror)
+    E|<ts>|<hash>|<value>      # an in-place edit: the value hashing to <hash> became <value>
 
 The `K|` line carries a per-key detach: `<hash>` is the record's content hash and `<key>` is
 the single (encoded) key to strip, removed at `<ts>`. Like `D|` it is a portable, content-addressed

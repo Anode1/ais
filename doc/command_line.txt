@@ -24,8 +24,8 @@ SAVE (-v marks the value; bare args and -k are keys; keys are optional)
   ais -v VALUE                   keyless (or under the default project); find/tag later
   ais -v - KEY...                save each stdin line (a value) under these keys
   ais -i KEY...                  interactive: stdin lines are values, prompts for keys
-  ais -k KEY ...                 force a key that LOOKS like a flag (-v, -o);
-                                 a key cannot BEGIN with '-': that is the detach
+  ais -k KEY ...                 an explicit key, the same as a bare KEY; a key
+                                 cannot BEGIN with '-': that is the detach
                                  operator (see --update)
   ais KEY... -e                  store ENCRYPTED: prompts for the value (echo off) and a
                                  passphrase; never put the secret on -v (ps/history) --
@@ -50,8 +50,9 @@ COMMANDS (--word; operands are bare args, values via -v; an ID is the number
   ais --del-under KEY            DELETE every record filed under KEY (not just the tag)
   ais --dump | --keys | --stats  print records / list keys / counts
                                  --dump emits 'KEY... -v VALUE', which is this
-                                 same grammar: dump | import round-trips, and a
-                                 dumped line can be pasted back as arguments
+                                 same grammar: a dumped line can be pasted back as
+                                 arguments, or piped to --import as plain records
+                                 (links and documents travel only by --export)
   ais --timeline [N]             the N most recent records, newest first (default 500;
                                  a GUI pages through older ones on demand)
   ais --tags                     every key with how many records use it (busiest first)
@@ -65,7 +66,8 @@ COMMANDS (--word; operands are bare args, values via -v; an ID is the number
                                  Pre-v2 '|' lines still read, with a warning)
   ais --import-interactively     like --import, but confirm each record [y/N]
                                  (default N); review each before it is stored
-  ais --export                   write the merge stream (A|/D|) for another index's --import
+  ais --export                   write the merge stream (records, edits, deletions, links,
+                                 documents) for another index's --import: the full round trip
   ais --export --serve [PORT]    serve that stream to one LAN peer, encrypted (prints a token)
   ais --import <url> --token T   pull + merge a peer's --export --serve over the LAN
   ais --sync --serve [PORT]      two-way sync: host one peer; both devices converge in one round

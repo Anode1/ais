@@ -117,6 +117,7 @@ fi
 # `get` still prints "id|value", which is where a --set/--del handle comes from.
 sid=$("$AIS" -f "$W/b" btag 2>/dev/null | grep 'from-b' | cut -d'|' -f1)
 if [ -n "$sid" ]; then
+    sleep 1      # a copy stamped in the edit's own second reads as current (MERGE.md)
     sw=$("$AIS" -f "$W/b" --set "$sid" -v 'http://from-b' -v 'http://from-b-edited' 2>&1)
     no  "set: no warning, the edit propagates"      "does not propagate" "$sw"
     TOK3=$(host_token "$PORT" "$W/a")
