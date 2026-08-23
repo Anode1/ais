@@ -145,7 +145,7 @@ reports instead of gating (see the note in `.github/workflows/flutter.yml`), and
 the Android layers carry the real UI coverage. Fixing it would be worth it: the
 desktop harness needs no device and runs in seconds.
 
-### 4. Two limits are knowingly left
+### 4. Three limits are knowingly left
 
 Each is understood, loses no data, and is left for a stated reason.
 
@@ -155,14 +155,10 @@ Each is understood, loses no data, and is left for a stated reason.
   is the fix; the stream rule in [`dev/MERGE.md`](dev/MERGE.md) is why the verb
   could not be written earlier.
 
-- **The edit log grows by one line per in-place edit and nothing reclaims it.**
-  Each fact carries the full replacement text and rides every export, so a note
-  edited hundreds of times costs far more wire than store (200 edits of a 900-byte
-  note: 190 KB per bundle), and `--forget-deleted` can enlarge the log when a
-  chain ends in a large text (each fact is rewritten to carry the live text, so
-  the text repeats once per past value). The facts are what let an arbitrarily
-  stale peer or backup jump to the current text in one round; a reclaim path
-  needs a bound on how stale a peer can be, which nothing provides yet.
+- **Nothing reclaims the edit log.** The cost is in `limitations.txt`. The
+  facts are what let an arbitrarily stale peer or backup jump to the current
+  text in one round; a reclaim path needs a bound on how stale a peer can be,
+  which nothing provides yet.
 
 - **A blob clash from before v0.3.20 leaves one duplicate record per device.**
   Names are unique at birth now, so this cannot happen to a new index, and a

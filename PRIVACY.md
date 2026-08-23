@@ -66,7 +66,7 @@ The app offers optional **on-demand LAN sync**: a one-time transfer of your inde
 it. That traffic is **end-to-end encrypted** and travels only between devices you
 control. It does not pass through the developer or any third-party server.
 
-You can also sync through a **shared folder** — an SD card, a USB stick, or a
+You can also sync through a **shared folder**: an SD card, a USB stick, or a
 cloud folder you chose. Those files are plain text, like your index. Nothing is
 sent to the developer either way, but anyone who can read that folder can read
 what is in it, so pick a folder only you can reach.

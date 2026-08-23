@@ -1555,9 +1555,9 @@ static void handle(ais *a, int fd)
             } else {
                 /* The body names the cause, as the CLI does (parity: GUI.md). */
                 const char *why =
-                    (rc == -2) ? "another entry already holds that text\n" :
-                    (rc == -3) ? "a deleted entry still holds that text until the"
-                                 " next clean-up (ais --compact)\n" :
+                    (rc == -2) ? "another record already holds that text\n" :
+                    (rc == -3) ? "a deleted record still holds that text:"
+                                 " use clean up first\n" :
                                  "cannot update value\n";
                 char e[256];
                 int  n = snprintf(e, sizeof e, "HTTP/1.0 400 Bad Request\r\n"

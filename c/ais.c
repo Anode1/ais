@@ -749,12 +749,13 @@ static int add_seek_dup(long id, const char *ts, const char *keys,
         L->found = 1;
         snprintf(L->keys, sizeof(L->keys), "%s", keys);
     }
-    if (id != L->id) {
-        content_hash(value, h);
-        if (strcmp(h, L->whash) == 0 && strcmp(value, L->want) == 0) {
-            L->dup_id = id;
-            return -1;              /* decisive: stop early */
-        }
+    content_hash(value, h);
+    if (strcmp(h, L->whash) == 0 && strcmp(value, L->want) == 0) {
+        /* The record's OWN lines count: a doubled value exports as two A| lines
+         * and the peer collapses them, silently one link short forever. */
+        L->dup_id = id;
+        if (L->found || id != L->id)
+            return -1;              /* decisive, once the keys are captured */
     }
     return 0;
 }
@@ -790,6 +791,12 @@ static int add_link(ais *a, long id, const char *value, int local, const char *w
     scan = store_each_record(a, add_seek_dup, &L);
     if (scan < -1)          /* a real error (callback stops with -1) */
         goto out;
+    if (L.dup_id == id) {
+        rc = 0;             /* this record already holds it: idempotent no-op
+                             * (appended anyway, it exported as two A| lines and
+                             * the peer collapsed them, one link short forever) */
+        goto out;
+    }
     if (L.dup_id != 0) {
         rc = -2;            /* another record owns this value */
         goto out;
@@ -1073,13 +1080,15 @@ int ais_set_value(ais *a, long id, const char *old_value, const char *new_value)
         int  dup = store_find_value(a, new_value, &other);
         if (dup < 0)
             goto out;
-        if (dup && other != id) {
-            /* A DELETED record's line still holds the value until compaction.
-             * Applying the edit anyway was tried: set_value_core lifts the
-             * value's tombstone and the dead record came back beside the edited
-             * one. Refused with its own code, so the caller can say that
-             * --compact is what clears the block. */
-            rc = (tomb_contains(a, other) != 0) ? -3 : -2;
+        if (dup) {
+            /* other == id is a different LINE of the same record (old and new
+             * never match here), which the wire cannot represent: it exports as
+             * two A| lines and every peer collapses them. A DELETED record's
+             * line still holds the value until compaction; applying the edit
+             * anyway was tried: set_value_core lifts the value's tombstone and
+             * the dead record came back beside the edited one. Each refusal
+             * carries its code, so the caller can name the way out. */
+            rc = (other != id && tomb_contains(a, other) != 0) ? -3 : -2;
             goto out;
         }
     }
@@ -1122,9 +1131,9 @@ int ais_merge_edit(ais *a, const char *hash, const char *value, const char *ts)
         return -1;
     if (strpbrk(value, "\r\n") != NULL)
         return -1;
-    {   /* old == new (a purged edit cycle exports such a line): nothing to
-         * apply, and never a re-save, which ran the discard seam on the value
-         * the record still holds and shredded a document's blob. */
+    {   /* old == new (a hand-written or older stream can carry one): nothing
+         * to apply, and never a re-save, which ran the discard seam on the
+         * value the record still holds and shredded a document's blob. */
         char nh[17];
         content_hash(value, nh);
         if (strcmp(nh, hash) == 0)
@@ -1149,8 +1158,9 @@ int ais_merge_edit(ais *a, const char *hash, const char *value, const char *ts)
         goto record;
     dup = store_find_value(a, value, &other);
     if (dup < 0) { rc = -1; goto out; }
-    if (dup && other != E.id)
-        goto record;
+    if (dup)
+        goto record;               /* held elsewhere, or a second line of the
+                                    * record itself: applying would double it */
     rc = (set_value_core(a, E.id, NULL, hash, value, ts, 0) == 0) ? 1 : -1;
     goto out;
 record:

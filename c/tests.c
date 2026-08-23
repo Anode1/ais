@@ -3468,6 +3468,59 @@ static void test_edit_does_not_resurrect_a_removed_tag(void)
 /* An edit that beats a delete must beat it on EVERY device, or the record flaps
  * in and out as the tombstone comes back round after round. Three devices, and
  * the middle one never edits anything. */
+/* A record must never hold one value on two lines: the export emits the pair as
+ * two A| lines (exp_live keys M| off the FIRST value) and the peer collapses
+ * them, one link short forever. Every writer refuses or no-ops the double. */
+static void test_no_doubled_value_inside_one_record(void)
+{
+    ais A, B;
+    const char *da = "/tmp/ais_ut_dvA", *db = "/tmp/ais_ut_dvB";
+    FILE *s;
+    char h[17];
+
+    scratch_rm(da); scratch_rm(db);
+    ais_open(&A, da);
+    ais_put_at(&A, "k", "v1", "2020-01-01T00:00:00Z");
+    ais_add(&A, 1, "v2");
+    ais_add(&A, 1, "v3");
+    CHECK(ais_set_value(&A, 1, "v1", "v2") == -2,
+          "doubled: --set onto another line of the SAME record is refused");
+    CHECK(ais_add(&A, 1, "v2") == 0, "doubled: --add of an own value is a no-op");
+    {   /* and it really did not append: the record still has three lines */
+        char path[AIS_PATH_MAX], line[AIS_LINE_MAX];
+        FILE *fp;
+        int lines = 0;
+        snprintf(path, sizeof path, "%s/store", da);
+        fp = fopen(path, "r");
+        if (fp != NULL) {
+            while (fgets(line, sizeof line, fp) != NULL)
+                lines++;
+            fclose(fp);
+        }
+        CHECK(lines == 3, "doubled: the no-op appended nothing");
+    }
+    /* the record round-trips whole */
+    ais_open(&B, db);
+    s = tmpfile();
+    feed_export(&A, s);
+    rewind(s);
+    feed_import_from(&B, s);
+    fclose(s);
+    CHECK(value_present(&B, "v1") == 1 && value_present(&B, "v2") == 1 &&
+          value_present(&B, "v3") == 1, "doubled: all three links reach the peer");
+
+    content_hash("v1", h);
+    s = tmpfile();                     /* the E| that would double v2 */
+    fprintf(s, "E|2025-01-01T00:00:00Z|%s|v2\n", h);
+    rewind(s);
+    feed_import_from(&A, s);
+    fclose(s);
+    CHECK(value_present(&A, "v1") == 1, "doubled: the E| was not applied");
+
+    ais_close(&A); ais_close(&B);
+    scratch_rm(da); scratch_rm(db);
+}
+
 /* An E| whose new value equals the old is a no-op: applied as a re-save, it ran
  * the discard seam on the value the record still holds and shredded a document's
  * blob. The purge exports such a line for an edit cycle, so the guard is live. */
@@ -5963,6 +6016,7 @@ int main(void)
     test_known_limit_restamp_outranks_an_unseen_detach();
     test_later_detach_holds_in_every_sync_order();
     test_reattach_after_a_detach_propagates();
+    test_no_doubled_value_inside_one_record();
     test_self_edit_is_a_noop();
     test_forget_deleted_keeps_live_edit_facts();
     test_set_over_a_deleted_records_value();

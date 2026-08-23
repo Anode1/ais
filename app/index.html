@@ -694,7 +694,7 @@ async function cleanUp() {
   var f = confirm('Also FORGET what was deleted?\n\n'
     + 'They stay deleted here, but this device can no longer tell your other '
     + 'devices about them, and nothing is left for anyone to test a guess against.\n\n'
-    + 'Sync your other devices FIRST \u2014 one that has not seen these deletions '
+    + 'Sync your other devices FIRST -- one that has not seen these deletions '
     + 'can send them back.\n\nOK = forget.  Cancel = just reclaim the space.');
   var r = await (await fetch('/api/compact' + (f ? '?forget=1' : ''), { method:'POST' })).text();
   note(r.trim() == 'cleaned and forgotten' ? 'Cleaned up, deletions forgotten' : 'Cleaned up');
