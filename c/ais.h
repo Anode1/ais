@@ -163,7 +163,10 @@ int  ais_merge_addval(ais *a, const char *hash, const char *value, const char *t
 /* Attach another value/link to an existing record (the multi-link case).
  * Returns 0, -1 if `id` is unknown or deleted, -2 if ANOTHER record already holds
  * VALUE -- refused to keep "a value is identity" true, which put, the merge stream
- * and ais_set_value all rely on. The two errors are distinct: the advice differs. */
+ * and ais_set_value all rely on. A value THIS record already holds is a no-op,
+ * also 0: appended twice it exports as two A| lines and every peer collapses
+ * them, leaving the record one link short. The two errors are distinct: the
+ * advice differs. */
 int  ais_add(ais *a, long id, const char *value);
 
 /* Edit the keys of an existing record (id is the handle, from any "id|value"
@@ -176,12 +179,14 @@ int  ais_update(ais *a, long id, const char *keys);
  * Rewrites only the store: the ONE line whose id == `id` and whose value exactly
  * equals OLD_VALUE becomes `id|ts|keys|NEW_VALUE`, every other line unchanged
  * (legacy no-ts lines stay legacy), then the "off" accelerator is shifted past
- * the length change rather than dropped, so keyed reads stay fast (a shift
- * that cannot be done removes it and compaction rebuilds it). Returns 0, or -1 on an unknown id, a value that does not
- * match OLD_VALUE (the store is left untouched), or any IO error. Refuses a deleted
- * id, and a NEW_VALUE another record already holds: a value is identity here (put
- * is idempotent by value scan, tombstones are hash-stamped), so two records sharing
- * one value make a peer collapse them and a later delete of either take both. That
+ * the length change rather than dropped, so keyed reads stay fast (a shift that
+ * cannot be done removes it and compaction rebuilds it). Returns 0, or -1 on an
+ * unknown id, a value that does not match OLD_VALUE (the store is left
+ * untouched), or any IO error. Refuses a deleted id, and a NEW_VALUE any record
+ * already holds, this one included: a value is identity here (put is idempotent
+ * by value scan, tombstones are hash-stamped), so two records sharing one value
+ * make a peer collapse them and a later delete of either take both, and one
+ * record holding a value twice exports as two A| lines the peer collapses. That
  * refusal is -2, or -3 when the holder is a DELETED record whose line waits for
  * compaction (--compact clears it; editing anyway resurrected the dead record).
  *

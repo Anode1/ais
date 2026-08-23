@@ -626,7 +626,7 @@ int main(int argc, char **argv)
             for (j = 0; j < nval; j++) {
                 int arc = ais_add(&a, id, values[j]);
                 if (arc == -2)
-                    die("--add: a record already holds '%s' (this one, or another)\n"
+                    die("--add: another record already holds '%s'\n"
                         "       a value names one record here, so it cannot appear twice",
                         values[j]);
                 if (arc != 0)
