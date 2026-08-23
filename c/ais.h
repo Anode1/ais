@@ -83,6 +83,14 @@ long ais_put_at(ais *a, const char *keys, const char *value, const char *ts);
 long ais_put_at_k(ais *a, const char *keys, const char *value, const char *ts,
                   const char *attach_ts);
 
+/* ais_put_at_k with the value lookup already done. The caller HOLDS the write
+ * lock and has loaded next_id (store.h); FOUND_ID is what store_find_value
+ * would answer -- the id of the first store line holding VALUE, 0 if none does
+ * -- or -1 to scan here. The import's batch path (feed.c) resolves a run of
+ * records' values in one store pass instead of one pass per record. */
+long ais_put_at_k_resolved(ais *a, const char *keys, const char *value, const char *ts,
+                           const char *attach_ts, long found_id);
+
 /* Apply an incoming deletion (content HASH, delete-time TS) under last-write-wins:
  * tombstone the local record whose value hashes to HASH iff the delete is at least as
  * new as that record's add-ts and it is not already deleted. No-op if absent. 0/-1. */

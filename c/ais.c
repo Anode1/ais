@@ -351,6 +351,22 @@ long ais_put_at(ais *a, const char *keys, const char *value, const char *ts)
 long ais_put_at_k(ais *a, const char *keys, const char *value, const char *ts,
                   const char *attach_ts)
 {
+    long rc;
+
+    if (store_wlock(a) != 0)                 /* one writer at a time */
+        return -1;
+    if (store_load_next_id(a) != 0) {        /* fresh id under the lock */
+        store_wunlock(a);
+        return -1;
+    }
+    rc = ais_put_at_k_resolved(a, keys, value, ts, attach_ts, -1);
+    store_wunlock(a);
+    return rc;
+}
+
+long ais_put_at_k_resolved(ais *a, const char *keys, const char *value, const char *ts,
+                           const char *attach_ts, long found_id)
+{
     long id = 0, rc;
     int found;
     char clean[AIS_LINE_MAX];
@@ -359,15 +375,13 @@ long ais_put_at_k(ais *a, const char *keys, const char *value, const char *ts,
     if (keys_attach_only(keys, clean, sizeof clean) != 0)
         return -1;
 
-    if (store_wlock(a) != 0)                 /* one writer at a time */
-        return -1;
-    if (store_load_next_id(a) != 0) {        /* fresh id under the lock */
-        store_wunlock(a);
-        return -1;
+    if (found_id < 0) {
+        found = store_find_value(a, value, &id);
+        if (found < 0) { rc = -1; goto out; }
+    } else {
+        found = found_id > 0;
+        id = found_id;
     }
-
-    found = store_find_value(a, value, &id);
-    if (found < 0) { rc = -1; goto out; }
 
     if (found) {
         if (tomb_contains(a, id) == 1) {     /* exists but deleted: last-write-wins */
@@ -480,7 +494,6 @@ long ais_put_at_k(ais *a, const char *keys, const char *value, const char *ts,
     rc = id;
 
 out:
-    store_wunlock(a);
     return rc;
 }
 

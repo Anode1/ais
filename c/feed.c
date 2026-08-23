@@ -271,12 +271,88 @@ void feed_import_from(ais *a, FILE *in)
     ais_blobmap_free(&map);
 }
 
+/* A run of A| lines is SPOOLED and its values resolved in one store pass, where a
+ * put per line scanned the store once per record: an import of n records cost
+ * O(n^2) and a 20k-line one took 13 s on a desktop, a minute on a phone. Each
+ * spooled line keeps only its value hash and attach time on the stack; the line
+ * itself waits in a temp file. A hash that repeats inside one batch is left for
+ * the put to scan (-1): the first occurrence may append the record the second
+ * names. A spool that cannot be opened means no batching, one put per line. */
+struct abatch { char hash[17]; char ats[AIS_TS_MAX]; long id; };
+
+struct abatch_seek { struct abatch *b; int n, left; };
+
+static int abatch_seek_cb(long id, const char *ts, const char *keys, const char *value, void *vp)
+{
+    struct abatch_seek *S = vp;
+    char h[17];
+    int i;
+
+    (void)ts; (void)keys;
+    content_hash(value, h);
+    for (i = 0; i < S->n; i++) {
+        if (S->b[i].id != 0 || strcmp(h, S->b[i].hash) != 0)
+            continue;
+        S->b[i].id = id;                   /* the FIRST line, where store_find_value stops */
+        S->left--;
+    }
+    return (S->left == 0) ? -1 : 0;
+}
+
+/* Resolve and apply the spooled run. BUF is a line-sized scratch the caller is not
+ * using at this moment (the importer's remap buffer), so this frame adds no
+ * AIS_LINE_MAX buffer of its own to the FFI stack budget (tests/stack). Returns
+ * the number of records put, and rewinds the spool for the next run. */
+static long abatch_flush(ais *a, FILE *spool, struct abatch *b, int n, char *buf, size_t bufsz)
+{
+    struct abatch_seek S;
+    long done = 0;
+    int i, j;
+
+    if (n == 0)
+        return 0;
+    S.b = b; S.n = n; S.left = n;
+    for (i = 0; i < n; i++) {
+        b[i].id = 0;
+        for (j = 0; j < i; j++)
+            if (strcmp(b[j].hash, b[i].hash) == 0) { b[i].id = -1; S.left--; break; }
+    }
+    if (fflush(spool) != 0 || fseek(spool, 0, SEEK_SET) != 0)
+        return 0;
+    if (store_wlock(a) != 0)
+        return 0;
+    if (store_load_next_id(a) != 0) { store_wunlock(a); return 0; }
+    if (S.left > 0)
+        store_each_record(a, abatch_seek_cb, &S);
+    for (i = 0; i < n; i++) {
+        char *ts = buf, *k, *v;
+        if (store_read_line(buf, bufsz, spool) <= 0)
+            break;
+        chomp(buf);
+        k = strchr(ts, '|');
+        v = (k != NULL) ? strchr(k + 1, '|') : NULL;
+        if (k == NULL || v == NULL)
+            continue;
+        *k++ = '\0';
+        *v++ = '\0';
+        if (ais_put_at_k_resolved(a, k, v, ts[0] ? ts : NULL,
+                                  b[i].ats[0] ? b[i].ats : NULL, b[i].id) >= 0)
+            done++;
+    }
+    store_wunlock(a);
+    fseek(spool, 0, SEEK_SET);
+    return done;
+}
+
 void feed_import_from_map(ais *a, FILE *in, ais_blobmap *map)
 {
     char line[AIS_LINE_MAX];
     char vbuf[AIS_LINE_MAX];              /* a remapped value, when one is remapped */
     ais_del_fact pend[AIS_MERGE_BATCH];   /* D| facts awaiting one shared store pass */
     int  npend = 0;
+    struct abatch padd[AIS_MERGE_BATCH];  /* A| lines likewise (abatch_flush) */
+    int  nadd = 0;
+    FILE *spool = tmpfile();              /* NULL: no batching, a put per line */
     ais_att_fact patt[AIS_ATT_BATCH];     /* T| facts likewise (ais_merge_attach_many) */
     int  natt = 0;
     long n = 0, skipped = 0;
@@ -337,6 +413,10 @@ void feed_import_from_map(ais *a, FILE *in, ais_blobmap *map)
                 ais_merge_attach_many(a, patt, natt);
                 natt = 0;
             }
+            if (nadd > 0) {                            /* a delete may name a spooled add */
+                n += abatch_flush(a, spool, padd, nadd, vbuf, sizeof vbuf);
+                nadd = 0;
+            }
             *h++ = '\0';
             /* Bounded precision, not just a bounded buffer: a malformed line can
              * carry a field of any length, and it is truncated here. */
@@ -353,6 +433,13 @@ void feed_import_from_map(ais *a, FILE *in, ais_blobmap *map)
         if (npend > 0) {                               /* the run ended here */
             ais_merge_del_many(a, pend, npend);
             npend = 0;
+        }
+        /* Every verb but A| and C| reads or writes a record the spooled adds
+         * may create, so the run of adds ends here and is applied first. C|
+         * names the A| after it and is spent when that line is spooled. */
+        if (nadd > 0 && !((line[0] == 'A' || line[0] == 'C') && line[1] == '|')) {
+            n += abatch_flush(a, spool, padd, nadd, vbuf, sizeof vbuf);
+            nadd = 0;
         }
 
         /* T|ts|hash|key -- BUFFERED for the same reason as D|, and tested here so
@@ -411,10 +498,25 @@ void feed_import_from_map(ais *a, FILE *in, ais_blobmap *map)
                     content_hash(v, h);
                     if (strcmp(h, chash) == 0)
                         ats = cts;
-                    cts[0] = '\0';             /* one A| spends the slot either way */
+                }
+                /* The slot is spent by this A| either way, AFTER its time has been
+                 * read: cleared first, the attach ran at an empty timestamp, which
+                 * loses to every detach, rather than at the true one. */
+                if (spool != NULL &&
+                    fprintf(spool, "%s|%s|%s\n", ts, k, v) > 0) {
+                    content_hash(v, padd[nadd].hash);
+                    snprintf(padd[nadd].ats, sizeof padd[nadd].ats, "%.*s",
+                             (int)(sizeof padd[nadd].ats - 1), ats ? ats : "");
+                    cts[0] = '\0';
+                    if (++nadd == AIS_MERGE_BATCH) {
+                        n += abatch_flush(a, spool, padd, nadd, vbuf, sizeof vbuf);
+                        nadd = 0;
+                    }
+                    continue;
                 }
                 if (ais_put_at_k(a, k, v, ts[0] ? ts : NULL, ats) >= 0)
                     n++;
+                cts[0] = '\0';
                 continue;
             }                                          /* else: legacy keys "A" -> below */
         }
@@ -526,10 +628,14 @@ void feed_import_from_map(ais *a, FILE *in, ais_blobmap *map)
         }
         n++;
     }
-    if (npend > 0)                                     /* end of stream: the last batch */
+    if (nadd > 0)                                      /* end of stream: adds first */
+        n += abatch_flush(a, spool, padd, nadd, vbuf, sizeof vbuf);
+    if (npend > 0)                                     /* then the last deletes */
         ais_merge_del_many(a, pend, npend);
     if (natt > 0)                                      /* likewise the pending attaches */
         ais_merge_attach_many(a, patt, natt);
+    if (spool != NULL)
+        fclose(spool);
     if (skipped > 0)
         fprintf(stderr, "imported %ld, skipped %ld\n", n, skipped);
     else

@@ -3713,7 +3713,59 @@ static void test_true_ts_verb_shields_key_tombstones(void)
     { long w[2] = {1, 2}; CHECK(ids_eq(&v, w, 2),
           "C|: a hash that does not match is ignored, and the slot is spent"); }
 
+    /* the true time is what the attach is judged at: newer than the detach, it
+     * wins. The slot used to be cleared before the put read it, so every attach
+     * under a C| ran at an empty timestamp and lost to any detach at all. */
+    ais_put_at(&D, "work reading", "http://x/ct3", "2020-01-01T00:00:00Z");
+    content_hash("http://x/ct3", h2);
+    ais_merge_detach(&D, h2, "work", "2020-06-01T00:00:00Z");
+    t = tmpfile();
+    fprintf(t, "C|2021-01-01T00:00:00Z|%s\n", h2);
+    fprintf(t, "A|2024-01-01T00:00:00Z|work reading|http://x/ct3\n");
+    rewind(t); feed_import_from(&D, t); fclose(t);
+    CHECK(key_has_id(&D, "work", 3) == 1, "C|: a true time newer than the detach re-attaches");
+
     ais_close(&D);
+    scratch_rm(dir);
+}
+
+/* The import spools a run of A| lines and resolves their values in one store
+ * pass. The outcome must be the one a put per line gives: a value the index
+ * holds is reused, a value repeated inside one batch or across two is one
+ * record, a D| in the middle of the run names an add spooled before it, and
+ * feeding the same stream twice adds nothing. More lines than one batch. */
+static void test_import_batches_adds(void)
+{
+    ais E;
+    FILE *t;
+    const char *dir = "/tmp/ais_ut_abatch";
+    char h[17];
+    long n = 0, again = 0;
+    int i;
+
+    scratch_rm(dir);
+    ais_open(&E, dir);
+    ais_put_at(&E, "seed", "http://x/b/7", "2020-01-01T00:00:00Z");
+    content_hash("http://x/b/5", h);
+    t = tmpfile();
+    for (i = 0; i < 600; i++) {
+        fprintf(t, "A|2020-01-01T00:00:00Z|bk|http://x/b/%d\n", i);
+        if (i == 3)   fprintf(t, "A|2020-01-01T00:00:00Z|bk again|http://x/b/3\n");
+        if (i == 10)  fprintf(t, "D|2020-02-01T00:00:00Z|%s\n", h);
+        if (i == 300) fprintf(t, "A|2020-01-01T00:00:00Z|bk again|http://x/b/0\n");
+    }
+    rewind(t); feed_import_from(&E, t);
+    ais_count_live(&E, &n);
+    CHECK(n == 599, "batch: 600 values, one deleted mid-stream, repeats folded: 599 live");
+    CHECK(value_present(&E, "http://x/b/5") == 0, "batch: the delete found the add spooled before it");
+    CHECK(key_has_id(&E, "again", 5) == 1 && key_has_id(&E, "again", 2) == 1,
+          "batch: a repeat attaches its keys to the one record, in and across batches");
+    CHECK(key_has_id(&E, "seed", 1) == 1 && key_has_id(&E, "bk", 1) == 1,
+          "batch: a value the index held keeps its record and gains the keys");
+    rewind(t); feed_import_from(&E, t); fclose(t);
+    ais_count_live(&E, &again);
+    CHECK(again == n, "batch: the same stream again adds nothing");
+    ais_close(&E);
     scratch_rm(dir);
 }
 
@@ -5455,6 +5507,7 @@ int main(void)
     test_true_ts_verb_shields_key_tombstones();
     test_old_peer_ignores_the_new_verbs();
     test_set_reaches_the_peer();
+    test_import_batches_adds();
     test_known_limit_restamp_outranks_an_unseen_detach();
     test_later_detach_holds_in_every_sync_order();
     test_reattach_after_a_detach_propagates();

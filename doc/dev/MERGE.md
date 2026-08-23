@@ -367,6 +367,14 @@ Two rules keep the outcome identical to resolving each line on its own:
   which value's hash the tombstone carries onward to the peers. Applying in store order
   silently swapped it.
 
+`A|` shares it, from the other side: a run of adds is spooled (the lines to a
+temp file, their value hashes on the stack) and every value resolved to its id in
+one pass, then each line is put with that answer (`ais_put_at_k_resolved`). A hash
+repeated inside one batch is left for the put to scan, since the first occurrence
+may append the record the second names; any other verb flushes the run first, and
+a `D|` in particular, which may name an add spooled before it. A 20k-line import
+went from 13 s to under 2 s.
+
 `K|` has the same per-line scan and could share the mechanism: `ais_merge_detach` writes
 `ktomb` and postings, never the store, so the same seek-then-apply split holds, and the
 wire already emits the detaches in their own run after the deletes. `M|` cannot:

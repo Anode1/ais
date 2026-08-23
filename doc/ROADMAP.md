@@ -144,9 +144,9 @@ reports instead of gating (see the note in `.github/workflows/flutter.yml`), and
 the Android layers carry the real UI coverage. Fixing it would be worth it: the
 desktop harness needs no device and runs in seconds.
 
-### 4. Two defects are knowingly unfixed
+### 4. One defect is knowingly unfixed
 
-Each is understood, none loses data, and each is left for a stated reason.
+It is understood, loses no data, and is left for a stated reason.
 
 - **A blob clash from before v0.3.20 leaves one duplicate record per device.**
   Names are unique at birth now, so this cannot happen to a new index, and a
@@ -154,11 +154,6 @@ Each is understood, none loses data, and each is left for a stated reason.
   verb can do is retract the duplicates already minted. A user-invoked cleanup
   is possible; an automatic one is not, because two records pointing at
   identical bytes are two notes by design, not one duplicated note.
-- **Bulk import is O(n²).** `put` scans the store for an existing value, which is
-  50 ms at a million records interactively and quadratic over a large import:
-  5k lines 1.1 s, 10k 3.8 s, 20k 13.4 s on a desktop, so a phone's first sync
-  with a 20k-record index stalls for a minute. The measurement and the batch
-  design that fixes it are in [`performance.txt`](performance.txt).
 
 ## Not planned (non-goals)
 
