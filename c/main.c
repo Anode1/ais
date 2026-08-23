@@ -648,8 +648,9 @@ int main(int argc, char **argv)
              * likely cause, not a certain one. */
             switch (ais_set_value(&a, id, values[0], values[1])) {
             case 0:  break;
-            case -2: die("--set: record %ld unchanged: another record already holds '%s'\n"
-                         "     (a value is identity here; edit that record, or --del it first)",
+            case -2: die("--set: record %ld unchanged: a record already holds '%s',\n"
+                         "     this one as another link, or another record (a value is\n"
+                         "     identity here; edit the holder, or --del it first)",
                          id, values[1]);
                      break;
             case -3: die("--set: record %ld unchanged: a DELETED record still holds '%s'\n"
