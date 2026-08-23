@@ -13,7 +13,7 @@
 # Point AIS_OLD at a previous release's binary; without it the layer SKIPs, so a
 # fresh checkout still runs green:
 #
-#     gh release download v0.3.19 -p 'ais-*-linux-x86_64.zip'
+#     gh release download v0.3.20 -p 'ais-*-linux-x86_64.zip'
 #     unzip ais-*-linux-x86_64.zip
 #     AIS_OLD=./ais-*/ais sh tests/upgrade.sh ./c/ais
 #

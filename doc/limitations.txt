@@ -43,8 +43,10 @@ Concurrency / scale
 Files (in the index directory)
   store is the source of truth. idx/ off multi are DERIVED -- delete any of
   them and `compact` rebuilds it. blobs/ holds documents and is REAL DATA (not
-  rebuildable). tomb and ktomb are REAL DATA too: they are the record of what was
-  DELETED, and nothing can rebuild them from the store, because a deleted record
-  is not in the store. Removing tomb resurrects everything ever deleted -- and the
-  next sync pushes those records back to every other device. next_id is the id
-  counter; lock is the writer flock.
+  rebuildable). tomb, ktomb, katt and edits are REAL DATA too: they are the
+  record of what was DELETED, detached, re-attached and EDITED, and nothing can
+  rebuild them from the store, because a deleted record is not in the store.
+  Removing tomb resurrects everything ever deleted -- and the next sync pushes
+  those records back to every other device; removing edits lets a stale copy of
+  an edited value, arriving from a backup, put the old text back. next_id is the
+  id counter; lock is the writer flock.

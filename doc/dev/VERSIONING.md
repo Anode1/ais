@@ -121,7 +121,7 @@ reached every device.
 ## Cutting a release
 
 The tag is the release. Everything below exists because the tag is also what
-four other files quote, and a tag pushed before they agree ships a build that
+five other files quote, and a tag pushed before they agree ships a build that
 names the previous version.
 
 **1. Gate.** `make ut` green, then `make codeut-asan` and `make codeut-ubsan`
@@ -130,7 +130,7 @@ the hook). Build from a clean tree: `AIS_VERSION` is stamped at compile time, so
 an object file left from before the tag keeps the old string and `make` has no
 reason to relink. `make clean` first, then check `./ais --version`.
 
-**2. The bump commit,** `release: vX.Y.Z`, moving the four places that carry the
+**2. The bump commit,** `release: vX.Y.Z`, moving the five places that carry the
 number in text:
 
 | File | What |
@@ -142,7 +142,7 @@ number in text:
 | `doc/ROADMAP.md` | the "Known gaps, as of" heading and the release chores under it |
 
 `flutter.yml` fails the build if the first two disagree with each other. Nothing
-checks the other two.
+checks the other three.
 
 **3. The tag,** annotated, its body in three sections: FIX (what was broken),
 PARITY (what one front end gained that another already had), DESIGN (what

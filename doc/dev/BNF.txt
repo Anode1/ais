@@ -93,6 +93,18 @@ INDEX/ktomb     -- per-key detaches. REAL DATA for the same reason as tomb, and
 <ktomb_file>   ::= ( <ktomb_line> "\n" )*
 <ktomb_line>   ::= <id> "|" <ts> "|" <hash> "|" <key>
 
+INDEX/katt      -- per-key attaches, the counterpart to ktomb: a key put back on
+                   after a detach. Same shape, exported as "T|<ts>|<hash>|<key>".
+<katt_file>    ::= ( <katt_line> "\n" )*
+<katt_line>    ::= <id> "|" <ts> "|" <hash> "|" <key>
+
+INDEX/edits     -- in-place value edits. REAL DATA for the same reason as tomb:
+                   nothing rebuilds it from the store, and without it a stale copy
+                   of the old value arriving from a backup recreates the old text.
+                   Exported as "E|<ts>|<hash>|<value>", before the records.
+<edits_file>   ::= ( <edits_line> "\n" )*
+<edits_line>   ::= <ts> "|" <hash> "|" <value>   ? the value hashing to <hash> became <value> ?
+
 INDEX/multi     -- ids carrying more than one value line
 <multi_file>   ::= ( <id> "\n" )*
 
@@ -151,10 +163,14 @@ and that ambiguity is precisely why the format changed. See FORMAT_V2.md.
 <kv_line>      ::= ( <key> ( " " <key> )* " " )? <vmark> " " <value>
 <vmark>        ::= "-v" | "--value"
 <legacy_line>  ::= <keys> "|" <value> | <id> "|" <keys> "|" <value>   ? pre-v2 ?
-<merge_line>   ::= <add_line> | <del_line> | <detach_line>
+<merge_line>   ::= <add_line> | <del_line> | <detach_line> | <attach_line>
+                 | <edit_line> | <ctime_line> | <link_line> | <blob_section>
 <add_line>     ::= "A|" ( <ts> )? "|" <keys> "|" <value>   ? add; empty <ts> = oldest ?
 <del_line>     ::= "D|" <ts> "|" <hash>                     ? record tombstone ?
 <detach_line>  ::= "K|" <ts> "|" <hash> "|" <key>           ? per-key detach (ktomb) ?
+<attach_line>  ::= "T|" <ts> "|" <hash> "|" <key>           ? per-key attach (katt) ?
+<edit_line>    ::= "E|" <ts> "|" <hash> "|" <value>         ? the value hashing to <hash> became <value>; emitted before the records ?
+<ctime_line>   ::= "C|" <ts> "|" <hash>                     ? the record's true creation time, when its add line carries a raised <ts> ?
 <link_line>    ::= "M|" <ts> "|" <hash> "|" <value>         ? another link on the record whose FIRST value hashes to <hash> ?
 <blob_section> ::= "B|" <relpath> "|" <size> "\n" <size raw bytes>   ? a document body ?
 

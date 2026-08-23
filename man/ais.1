@@ -197,6 +197,11 @@ Attach another value to record ID (repeat
 .B \-v
 for several).
 .TP
+.B \-\-set \fIID\fR \-v \fIOLD\fR \-v \fINEW\fR
+Replace ONE of record ID's values, in place: the record keeps its id, its place in
+the timeline and its keys. The other devices apply it in place too, on the same
+record. Refused on a value another record already holds.
+.TP
 .B \-\-update \fIID\fR \fIKEY ...\fR
 Edit the keys of record ID: a bare KEY attaches, a
 .B \-KEY
@@ -259,9 +264,7 @@ the record never touches what it points at.
 Print every record.
 .TP
 .B \-\-export
-Write the merge stream (the
-.BR A| / D|
-lines) that
+Write the merge stream (records, edits, deletions, links, documents) that
 .B \-\-import
 reads, so
 .B "ais \-f A \-\-export | ais \-f B \-\-import"
@@ -299,9 +302,11 @@ With no argument, read
 .IR keys | value
 lines (or an
 .B \-\-export
-merge stream) from standard input and merge each (the inverse of
-.BR \-\-dump ;
-blank lines and #-comments are skipped). Given a
+merge stream) from standard input and merge each (blank lines and #-comments are
+skipped; a
+.B \-\-dump
+line reads back as a plain record, links and documents travel only by
+.BR \-\-export ). Given a
 .I URL
 .RB ( http://HOST:PORT ,
 from a peer's
