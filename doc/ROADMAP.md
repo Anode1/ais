@@ -160,12 +160,13 @@ Each is understood, loses no data, and is left for a stated reason.
   text in one round; a reclaim path needs a bound on how stale a peer can be,
   which nothing provides yet.
 
-- **A blob clash from before v0.3.20 leaves one duplicate record per device.**
-  Names are unique at birth now, so this cannot happen to a new index, and a
-  clash already on disk settles the moment every device updates. What no wire
-  verb can do is retract the duplicates already minted. A user-invoked cleanup
-  is possible; an automatic one is not, because two records pointing at
-  identical bytes are two notes by design, not one duplicated note.
+- **A blob clash from before v0.3.20 left one duplicate record per device, and
+  only the user can retract them.** Names are unique at birth now, so this
+  cannot happen to a new index. The duplicates already minted are for
+  `ais --dedupe-docs`, run on each device with a sync between: it shows the
+  copies beside the record kept and deletes what is confirmed. Automatic it
+  cannot be, because two records pointing at identical bytes are two notes by
+  design, not one duplicated note.
 
 ## Not planned (non-goals)
 

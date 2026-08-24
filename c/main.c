@@ -316,6 +316,26 @@ static void do_get(ais *a, char *const keys[], int nkeys, ais_mode mode)
         die("get failed");
 }
 
+/* --dedupe-docs: collect the copies to delete, and show each beside its keeper. */
+struct dedupe_list { long *ids; long n, cap; int quiet; };
+
+static int dedupe_show_cb(long keep_id, const char *keep_rel,
+                          long copy_id, const char *copy_rel, void *vp)
+{
+    struct dedupe_list *L = vp;
+    if (L->n == L->cap) {
+        long cap = L->cap ? L->cap * 2 : 32;
+        long *nv = realloc(L->ids, (size_t)cap * sizeof *nv);
+        if (nv == NULL) return -1;
+        L->ids = nv;
+        L->cap = cap;
+    }
+    L->ids[L->n++] = copy_id;
+    if (!L->quiet)
+        fprintf(stderr, "  keep %ld|%s\n  drop %ld|%s\n", keep_id, keep_rel, copy_id, copy_rel);
+    return 0;
+}
+
 /* Confirm a destructive action: read a line from stdin, return 1 only on y/yes.
  * AIS is append-only by default, so removing anything needs an explicit yes. */
 static int confirm(const char *prompt)
@@ -368,7 +388,8 @@ int main(int argc, char **argv)
            CMD_FIND, CMD_ADD, CMD_DEL, CMD_DELKEY, CMD_DUMP, CMD_KEYS, CMD_STATS,
            CMD_COMPACT, CMD_INIT, CMD_IMPORT, CMD_IMPORTI, CMD_WHERE, CMD_SERVE, CMD_PROJECT,
            CMD_DOC, CMD_TIMELINE, CMD_TAGS, CMD_DEFAULT, CMD_UPDATE, CMD_SET, CMD_UNTAG,
-           CMD_SWITCH, CMD_INDEXES, CMD_FORGET, CMD_EXPORT, CMD_SYNC, CMD_SYNCFOLDER };
+           CMD_SWITCH, CMD_INDEXES, CMD_FORGET, CMD_EXPORT, CMD_SYNC, CMD_SYNCFOLDER,
+           CMD_DEDUPE };
     static const struct option longopts[] = {
         { "index",       required_argument, NULL, 'f' },
         { "or",          no_argument,       NULL, 'o' },
@@ -392,6 +413,7 @@ int main(int argc, char **argv)
         { "del",         no_argument,       NULL, CMD_DEL },
         { "del-key",     no_argument,       NULL, CMD_DELKEY },   /* alias, kept forever */
         { "del-under",   no_argument,       NULL, CMD_DELKEY },
+        { "dedupe-docs", no_argument,       NULL, CMD_DEDUPE },
         { "untag",       no_argument,       NULL, CMD_UNTAG },
         { "dump",        no_argument,       NULL, CMD_DUMP },
         { "keys",        no_argument,       NULL, CMD_KEYS },
@@ -462,7 +484,7 @@ int main(int argc, char **argv)
         case CMD_PROJECT: case CMD_DOC: case CMD_TIMELINE: case CMD_TAGS:
         case CMD_DEFAULT: case CMD_UPDATE: case CMD_SET: case CMD_UNTAG:
         case CMD_SWITCH: case CMD_INDEXES: case CMD_FORGET: case CMD_SYNC:
-        case CMD_SYNCFOLDER:
+        case CMD_SYNCFOLDER: case CMD_DEDUPE:
             if (cmd != 0) die("only one command at a time");
             cmd = c;
             break;
@@ -798,6 +820,41 @@ int main(int argc, char **argv)
                 if (n < 0) die("del-key failed");
                 printf("deleted %ld\n", n);
             } else { fprintf(stderr, "aborted\n"); ais_close(&a); return 1; }
+            break;
+        }
+        case CMD_DEDUPE: {
+            /* The copies a pre-0.3.20 sync clash minted (ROADMAP.md). The engine
+             * reports them; showing and deleting is the CLI's, since two records
+             * over identical bytes are two notes by design and only the user
+             * can say these are not. Listed on stderr, as --del-under's manifest. */
+            struct dedupe_list L;
+            long n;
+            L.ids = NULL; L.n = 0; L.cap = 0; L.quiet = assume_yes;
+            n = ais_doc_copies(&a, dedupe_show_cb, &L);
+            if (n < 0) die("--dedupe-docs: cannot read the documents");
+            if (n == 0) {
+                fprintf(stderr, "no document is a copy of another\n");
+                free(L.ids);
+                break;
+            }
+            if (!assume_yes)
+                fprintf(stderr, "\nA sync before v0.3.20 re-minted one document as X, X-1, X-1-1 on\n"
+                                "every device. The first of each pair above stays; each copy goes,\n"
+                                "from every key it is filed under. Then sync, and run this on the\n"
+                                "other devices too: the copies were minted per device.\n\n");
+            {
+                char p[128];
+                snprintf(p, sizeof p, "Permanently delete %s %ld cop%s?",
+                         n == 1 ? "this" : "these", n, n == 1 ? "y" : "ies");
+                if (assume_yes || confirm(p)) {
+                    long i, done = 0;
+                    for (i = 0; i < L.n; i++)
+                        if (ais_del(&a, L.ids[i]) == 0)
+                            done++;
+                    printf("deleted %ld\n", done);
+                } else { fprintf(stderr, "aborted\n"); free(L.ids); ais_close(&a); return 1; }
+            }
+            free(L.ids);
             break;
         }
         case CMD_COMPACT:

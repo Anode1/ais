@@ -1695,6 +1695,78 @@ static void test_doc_discard(void)
     scratch_rm(dir);
 }
 
+/* ais_doc_copies: the pre-0.3.20 clash re-minted one document as X, X-1, X-1-1,
+ * each a live record over the same bytes. The walk reports the copies beside
+ * the shortest name, leaves a different body, a tagged (unique-at-birth) name
+ * and a multi-link record alone, and deleting the copies retires their blobs. */
+struct copy_seen { long keep[8], copy[8]; int n; };
+static int copy_cb(long keep_id, const char *keep_rel, long copy_id, const char *copy_rel, void *vp)
+{
+    struct copy_seen *S = vp;
+    (void)keep_rel; (void)copy_rel;
+    if (S->n < 8) { S->keep[S->n] = keep_id; S->copy[S->n] = copy_id; }
+    S->n++;
+    return 0;
+}
+static void write_blob(const char *dir, const char *rel, const char *body)
+{
+    char path[AIS_PATH_MAX];
+    FILE *f;
+    snprintf(path, sizeof path, "%s/%s", dir, rel);
+    f = fopen(path, "w");
+    if (f != NULL) { fputs(body, f); fclose(f); }
+}
+static void test_doc_copies(void)
+{
+    const char *dir = "/tmp/ais_ut_copies";
+    char blobs[AIS_PATH_MAX];
+    ais a;
+    struct copy_seen S;
+    long n, x, x1, x11, x2, xt, multi;
+
+    scratch_rm(dir);
+    ais_open(&a, dir);
+    snprintf(blobs, sizeof blobs, "%s/blobs", dir);
+    mkdir(blobs, 0777);
+    write_blob(dir, "blobs/2020-01-01-000000.txt",          "one\ntwo\n");
+    write_blob(dir, "blobs/2020-01-01-000000-1.txt",        "one\ntwo\n");
+    write_blob(dir, "blobs/2020-01-01-000000-1-1.txt",      "one\ntwo\n");
+    write_blob(dir, "blobs/2020-01-01-000000-2.txt",        "other\n");
+    write_blob(dir, "blobs/2020-01-01-000000~cafe0123.txt", "one\ntwo\n");
+    write_blob(dir, "blobs/2020-01-01-000000-3.txt",        "one\ntwo\n");
+    x   = ais_put(&a, "paper", "blobs/2020-01-01-000000.txt");
+    x1  = ais_put(&a, "paper", "blobs/2020-01-01-000000-1.txt");
+    x11 = ais_put(&a, "paper", "blobs/2020-01-01-000000-1-1.txt");
+    x2  = ais_put(&a, "paper", "blobs/2020-01-01-000000-2.txt");
+    xt  = ais_put(&a, "paper", "blobs/2020-01-01-000000~cafe0123.txt");
+    multi = ais_put(&a, "paper", "blobs/2020-01-01-000000-3.txt");
+    ais_add(&a, multi, "https://x/beside-the-document");
+
+    S.n = 0;
+    n = ais_doc_copies(&a, copy_cb, &S);
+    CHECK(n == 2, "copies: two copies reported");
+    CHECK(S.n == 2 && S.keep[0] == x && S.keep[1] == x,
+          "copies: the shortest name is the keeper");
+    CHECK(S.n == 2 && ((S.copy[0] == x1 && S.copy[1] == x11) ||
+                       (S.copy[0] == x11 && S.copy[1] == x1)),
+          "copies: X-1 and X-1-1 are the copies");
+    (void)x2; (void)xt;
+
+    ais_on_discard(&a, ais_doc_discard_cb, a.dir);
+    CHECK(ais_del(&a, x1) == 0 && ais_del(&a, x11) == 0, "copies: the copies delete");
+    {   char p[AIS_PATH_MAX];
+        snprintf(p, sizeof p, "%s/blobs/2020-01-01-000000-1-1.txt", dir);
+        CHECK(access(p, F_OK) != 0, "copies: a deleted copy's blob is gone");
+        snprintf(p, sizeof p, "%s/blobs/2020-01-01-000000.txt", dir);
+        CHECK(access(p, F_OK) == 0, "copies: the keeper's blob stays");
+    }
+    S.n = 0;
+    CHECK(ais_doc_copies(&a, copy_cb, &S) == 0, "copies: nothing left to report");
+
+    ais_close(&a);
+    scratch_rm(dir);
+}
+
 /* A delete that arrives from a PEER retires the payload here too: the phone has
  * no CLI and no compaction, so waiting for one would keep a deleted document on
  * disk forever -- and an export streams all of blobs/, handing it back to the
@@ -5954,6 +6026,7 @@ int main(void)
     printf("put_value (one paste -> one record):\n");
     test_put_value();
     test_doc_discard();
+    test_doc_copies();
     test_doc_discard_on_merged_delete();
     test_doc_discard_on_compact();
     printf("doc_display (blob -> content, shared by web + Flutter):\n");

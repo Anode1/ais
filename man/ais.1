@@ -51,7 +51,7 @@ ais \- associative index: save values under keys, get them back by keys
 .B ais
 .RB [ \-f
 .IR DIR ]
-.BR \-\-del | \-\-set | \-\-del-under | \-\-untag | \-\-dump | \-\-keys | \-\-stats | \-\-timeline | \-\-tags | \-\-compact | \-\-export | \-\-import | \-\-import-interactively | \-\-sync | \-\-sync-folder | \-\-where | \-\-project | \-\-switch | \-\-indexes | \-\-forget | \-\-default | \-\-serve | \-\-init
+.BR \-\-del | \-\-set | \-\-del-under | \-\-dedupe-docs | \-\-untag | \-\-dump | \-\-keys | \-\-stats | \-\-timeline | \-\-tags | \-\-compact | \-\-export | \-\-import | \-\-import-interactively | \-\-sync | \-\-sync-folder | \-\-where | \-\-project | \-\-switch | \-\-indexes | \-\-forget | \-\-default | \-\-serve | \-\-init
 .RI [ ARG ]
 .SH DESCRIPTION
 .B ais
@@ -232,6 +232,17 @@ lists what would be destroyed and points at
 for the non-destructive alternative.
 .B \-\-del-key
 is the old name, kept as an alias.
+.TP
+.B \-\-dedupe-docs
+Delete every document that is a byte-for-byte copy of another under a clash name.
+A sync before v0.3.20 could mint one document as
+.IR X ", " X-1 ", " X-1-1
+on every device, each a live record; the shortest name stays and the copies go,
+after the list is shown and confirmed
+.RB ( \-y
+skips the prompt). Sync afterwards and run it on the other devices too: the
+copies were minted per device. Two identical documents under unrelated names are
+two notes and are left alone, as is an encrypted document.
 .TP
 .B \-\-forget-deleted
 Only with

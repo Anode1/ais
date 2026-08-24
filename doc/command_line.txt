@@ -48,6 +48,8 @@ COMMANDS (--word; operands are bare args, values via -v; an ID is the number
   ais --del ID                   delete record ID
   ais --untag KEY                remove the tag KEY, KEEPING every record
   ais --del-under KEY            DELETE every record filed under KEY (not just the tag)
+  ais --dedupe-docs              DELETE documents that are byte-for-byte copies of another
+                                 (a sync before v0.3.20 minted X, X-1, X-1-1: X stays)
   ais --dump | --keys | --stats  print records / list keys / counts
                                  --dump emits 'KEY... -v VALUE', which is this
                                  same grammar: a dumped line can be pasted back as
@@ -109,7 +111,7 @@ OPTIONS
                     persistent via 'ais --project KEY')
   -i, --interactive save interactively: stdin lines are values, prompts for keys
   -e, --encrypt     store the value encrypted (prompts for value + passphrase)
-  -y, --yes         assume yes for --del / --del-under / --untag / --compact
+  -y, --yes         assume yes for --del / --del-under / --untag / --compact / --dedupe-docs
   -d, --debug       trace to standard error
   -h                short help;  --help  this full help
   --version         print version and exit

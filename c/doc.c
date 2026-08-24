@@ -18,6 +18,8 @@
 
 #include "common.h"
 #include "doc.h"
+#include "compact.h"      /* tomb_contains: a deleted record takes no part */
+#include "store.h"        /* store_each_record, multi_contains */
 #include "secret.h"       /* secret_shred_blob: the encrypted half of ais_doc_discard */
 #include "win.h"          /* mkdir shim on native Windows; empty on POSIX */
 
@@ -424,4 +426,123 @@ long ais_put_value(ais *a, const char *keys, const char *value)
     memcpy(line, value, n);
     line[n] = '\0';
     return ais_put(a, keys, line);
+}
+
+/* ---- ais_doc_copies: the pre-0.3.20 clash duplicates ---------------------- */
+
+struct doc_copy { long id; char *rel; char *stem; char hash[17]; };
+struct doc_copies { const ais *a; struct doc_copy *v; int n, cap; int err; };
+
+/* "blobs/2026-08-21-181500-1-1.txt" -> "2026-08-21-181500": the extension goes,
+ * then every trailing "-N" the free-name loop or the old import rename added. */
+static char *doc_stem(const char *rel)
+{
+    char *stem = strdup(rel + 6), *dot, *dash;
+    if (stem == NULL)
+        return NULL;
+    dot = strrchr(stem, '.');
+    if (dot != NULL)
+        *dot = '\0';
+    for (;;) {
+        size_t i;
+        dash = strrchr(stem, '-');
+        if (dash == NULL || dash[1] == '\0')
+            break;
+        for (i = 1; dash[i] != '\0'; i++)
+            if (dash[i] < '0' || dash[i] > '9')
+                return stem;
+        *dash = '\0';
+    }
+    return stem;
+}
+
+static int doc_copies_cb(long id, const char *ts, const char *keys, const char *value, void *vp)
+{
+    struct doc_copies *C = vp;
+    char path[AIS_PATH_MAX];
+    const char *base, *dot;
+    struct doc_copy *e;
+    (void)ts; (void)keys;
+
+    if (!doc_blob_path(C->a->dir, value, path, sizeof path))
+        return 0;
+    base = value + 6;
+    if (strchr(base, '~') != NULL)
+        return 0;                              /* minted unique: never a clash */
+    dot = strrchr(base, '.');
+    if (dot == NULL || strcmp(dot, ".txt") != 0)
+        return 0;                              /* an encrypted body never matches */
+    if (tomb_contains(C->a, id) != 0 || multi_contains(C->a, id) == 1)
+        return 0;
+    if (C->n == C->cap) {
+        int cap = C->cap ? C->cap * 2 : 64;
+        struct doc_copy *nv = realloc(C->v, (size_t)cap * sizeof *nv);
+        if (nv == NULL) { C->err = 1; return -1; }
+        C->v = nv;
+        C->cap = cap;
+    }
+    e = &C->v[C->n];
+    e->id = id;
+    e->rel = strdup(value);
+    e->stem = doc_stem(value);
+    if (e->rel == NULL || e->stem == NULL || blob_body_hash(path, e->hash) != 0) {
+        free(e->rel); free(e->stem);           /* unreadable: not a candidate */
+        return 0;
+    }
+    C->n++;
+    return 0;
+}
+
+/* Same stem, same body, then the one to keep first: shortest name, lowest id. */
+static int doc_copy_cmp(const void *pa, const void *pb)
+{
+    const struct doc_copy *a = pa, *b = pb;
+    int c = strcmp(a->stem, b->stem);
+    size_t la, lb;
+    if (c != 0) return c;
+    c = strcmp(a->hash, b->hash);
+    if (c != 0) return c;
+    la = strlen(a->rel); lb = strlen(b->rel);
+    if (la != lb) return la < lb ? -1 : 1;
+    return (a->id < b->id) ? -1 : (a->id > b->id);
+}
+
+long ais_doc_copies(ais *a, ais_doc_copy_cb cb, void *ctx)
+{
+    struct doc_copies C;
+    long reported = 0;
+    int i, k;
+
+    if (a == NULL || cb == NULL)
+        return -1;
+    memset(&C, 0, sizeof C);
+    C.a = a;
+    if (store_each_record(a, doc_copies_cb, &C) < -1 || C.err) {
+        reported = -1;
+        goto out;
+    }
+    qsort(C.v, (size_t)C.n, sizeof *C.v, doc_copy_cmp);
+    for (i = 0; i < C.n; i = k) {
+        char keep[AIS_PATH_MAX];
+        for (k = i + 1; k < C.n; k++) {
+            char copy[AIS_PATH_MAX];
+            if (strcmp(C.v[k].stem, C.v[i].stem) != 0 ||
+                strcmp(C.v[k].hash, C.v[i].hash) != 0)
+                break;
+            /* the hash groups; the bytes decide */
+            if (!doc_blob_path(a->dir, C.v[i].rel, keep, sizeof keep) ||
+                !doc_blob_path(a->dir, C.v[k].rel, copy, sizeof copy) ||
+                !files_equal(keep, copy))
+                continue;
+            if (cb(C.v[i].id, C.v[i].rel, C.v[k].id, C.v[k].rel, ctx) != 0) {
+                reported = -1;
+                goto out;
+            }
+            reported++;
+        }
+    }
+out:
+    for (i = 0; i < C.n; i++) { free(C.v[i].rel); free(C.v[i].stem); }
+    free(C.v);
+    return reported;
 }

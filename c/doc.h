@@ -81,4 +81,17 @@ void ais_doc_discard_cb(const char *value, void *index_dir);
  * NUL-terminated unless OUTSZ == 0. */
 long ais_doc_display(const ais *a, const char *value, char *out, size_t outsz);
 
+/* The pre-0.3.20 sync clash re-minted one document as X, X-1, X-1-1 ... on
+ * every device, each a live record pointing at a byte-identical body, and no
+ * wire verb can retract them (ROADMAP.md). This walks the live document records,
+ * groups them by name stem and body, and reports each COPY beside the record it
+ * is a copy of (the shortest name, then the lowest id): the caller shows the
+ * list and deletes what the user confirms. Only untagged names (no "~") take
+ * part, since a name minted since is unique at birth; an encrypted body never
+ * matches (its bytes differ by IV); a record holding other links beside the
+ * document is left alone. Returns the number of copies reported, or -1. */
+typedef int (*ais_doc_copy_cb)(long keep_id, const char *keep_rel,
+                               long copy_id, const char *copy_rel, void *ctx);
+long ais_doc_copies(ais *a, ais_doc_copy_cb cb, void *ctx);
+
 #endif /* AIS_DOC_H */

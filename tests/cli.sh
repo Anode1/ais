@@ -430,6 +430,30 @@ okeq    "del-under: exactly 10 record lines"        "10" \
 ok      "del-under: a long value is truncated"      "xxx\.\.\.$" "$perr"
 rm -rf "$PV"
 
+# 17i-quater. --dedupe-docs: the pre-0.3.20 clash copies, shown, then deleted.
+DD=$(mktemp -d "${TMPDIR:-/tmp}/ais_dedupe.XXXXXX") || exit 2
+"$AIS" -f "$DD" --init >/dev/null
+mkdir -p "$DD/blobs"
+printf 'one\ntwo\n' > "$DD/blobs/2020-01-01-000000.txt"
+cp "$DD/blobs/2020-01-01-000000.txt" "$DD/blobs/2020-01-01-000000-1.txt"
+cp "$DD/blobs/2020-01-01-000000.txt" "$DD/blobs/2020-01-01-000000-1-1.txt"
+printf 'other\n' > "$DD/blobs/2020-01-01-000000-2.txt"
+for b in 2020-01-01-000000.txt 2020-01-01-000000-1.txt 2020-01-01-000000-1-1.txt 2020-01-01-000000-2.txt; do
+    "$AIS" -f "$DD" -v "blobs/$b" paper >/dev/null
+done
+printf 'n\n' > "$DD/ans"
+derr=$(AIS_TTY="$DD/ans" "$AIS" -f "$DD" --dedupe-docs 2>&1 >/dev/null)
+ok      "dedupe-docs: the list names the keeper"    "keep 1|blobs/2020-01-01-000000.txt" "$derr"
+ok      "dedupe-docs: and each copy"                "drop 3|blobs/2020-01-01-000000-1-1.txt" "$derr"
+okeq    "dedupe-docs: a different body is not listed" "0" "$(printf '%s' "$derr" | grep -c -- '-2.txt')"
+ok      "dedupe-docs: n aborts"                     "aborted" "$derr"
+okeq    "dedupe-docs: nothing deleted on n"         "4" "$("$AIS" -f "$DD" --dump | grep -c blobs/)"
+ok      "dedupe-docs: -y deletes the copies"        "deleted 2" "$("$AIS" -f "$DD" --dedupe-docs -y 2>/dev/null)"
+okeq    "dedupe-docs: the keeper and the other body stay" "2" "$("$AIS" -f "$DD" --dump | grep -c blobs/)"
+okempty "dedupe-docs: the copies' blobs are gone"   "$(ls "$DD/blobs" | grep -- '-1')"
+ok      "dedupe-docs: a second run finds nothing"   "no document is a copy" "$("$AIS" -f "$DD" --dedupe-docs -y 2>&1)"
+rm -rf "$DD"
+
 # 17i-ter. The prompt's own counts and its singular form, not just the result line.
 PS=$(mktemp -d "${TMPDIR:-/tmp}/ais_prompt.XXXXXX") || exit 2
 printf 'n\n' > "$PS/ans"
