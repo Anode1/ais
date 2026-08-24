@@ -27,7 +27,7 @@ The latest stable build for every platform. The link below always points at the 
 
 > **<https://github.com/Anode1/ais/releases/latest>**
 
-- **Android**: install `ais-<tag>-android.apk` from the release page (you will have to allow installing from your browser, once). `…-android.aab` beside it is the Play Store upload format — it is not installable by hand, so take the `.apk`.
+- **Android**: install `ais-<tag>-android.apk` from the release page (you will have to allow installing from your browser, once). `…-android.aab` beside it is the Play Store upload format; it is not installable by hand, so take the `.apk`.
 - **macOS / Linux**: unzip the `…-<os>-<arch>.zip`, then `./ais --serve` opens the GUI in your browser (or use the `ais` CLI; add it to your PATH to use it anywhere).
 - **Windows**: _no Windows build is published at the moment_ while the desktop GUI is reworked, so there is nothing to download on that line yet. Build from source (below), or run the Android app, or reach a machine on your LAN that is running `ais --serve`.
 
