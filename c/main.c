@@ -840,8 +840,11 @@ int main(int argc, char **argv)
             if (!assume_yes)
                 fprintf(stderr, "\nA sync before v0.3.20 re-minted one document as X, X-1, X-1-1 on\n"
                                 "every device. The first of each pair above stays; each copy goes,\n"
-                                "from every key it is filed under. Then sync, and run this on the\n"
-                                "other devices too: the copies were minted per device.\n\n");
+                                "from every key it is filed under. Run this on every device, then\n"
+                                "sync: each numbered its own copies during its own import, so the\n"
+                                "names differ and this delete cannot name another device's copy.\n"
+                                "Until every device has run it, a copy can come back from one\n"
+                                "that has not.\n\n");
             {
                 char p[128];
                 snprintf(p, sizeof p, "Permanently delete %s %ld cop%s?",

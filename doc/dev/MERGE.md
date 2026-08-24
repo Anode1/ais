@@ -89,7 +89,7 @@ across devices, and must carry timestamps to resolve add-vs-delete conflicts.
 Today `tomb` is `id` per line: local-only and untimestamped, so neither portable nor
 conflict-resolvable. Change it to:
 
-    tomb (v2):   <id>|<ts>|<hash>     # hash = a stable content hash of "keys|value"
+    tomb (v2):   <id>|<ts>|<hash>     # hash = a stable content hash of the VALUE
 
 - **id** keeps today's fast LOCAL suppression unchanged (`tomb_contains` still matches by id).
 - **ts** (the delete time) enables last-write-wins.

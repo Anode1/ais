@@ -240,9 +240,11 @@ A sync before v0.3.20 could mint one document as
 on every device, each a live record; the shortest name stays and the copies go,
 after the list is shown and confirmed
 .RB ( \-y
-skips the prompt). Sync afterwards and run it on the other devices too: the
-copies were minted per device. Two identical documents under unrelated names are
-two notes and are left alone, as is an encrypted document.
+skips the prompt). Run it on every device: each numbered its own copies during
+its own import, so the names differ and one device's delete cannot name another's.
+Until every device has run it, a copy can come back from one that has not. Two
+identical documents under unrelated names are two notes and are left alone, as is
+an encrypted document.
 .TP
 .B \-\-forget-deleted
 Only with
