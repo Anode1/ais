@@ -7,8 +7,8 @@
 // About screen reads). The defaults mirror pubspec.yaml's `version:`, so a build
 // with no defines still shows something sane; keep them in step with pubspec.
 const String kAppVersion =
-    String.fromEnvironment('APP_VERSION', defaultValue: '0.3.21');
-const String kAppBuild = String.fromEnvironment('APP_BUILD', defaultValue: '21');
+    String.fromEnvironment('APP_VERSION', defaultValue: '0.3.22');
+const String kAppBuild = String.fromEnvironment('APP_BUILD', defaultValue: '22');
 
 /// The standard `1.2.3 (456)` display form.
 String get appVersionLabel => '$kAppVersion ($kAppBuild)';

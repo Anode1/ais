@@ -97,7 +97,7 @@ repo cannot yet show. Paid signing is not planned. The wiring stays in place;
 reapply once the project has visible adoption. Until a build is signed, verify a
 download by its SHA-256 or build from source (see the README).
 
-## Known gaps, as of v0.3.21
+## Known gaps, as of v0.3.22
 
 Four things are open, and this is the list to work from: the release chores that
 remain, coverage nobody has, a test that cannot see, and defects left on purpose
@@ -108,7 +108,7 @@ with the reason for each.
 A tag publishes ten artifacts. Two stores have never received one, and each is
 a manual step:
 
-- Upload `ais-v0.3.21-android.aab` to the Play Console and start the closed
+- Upload `ais-v0.3.22-android.aab` to the Play Console and start the closed
   test, following [`dev/ANDROID_RELEASE.md`](dev/ANDROID_RELEASE.md). Take the
   screenshots from `screenshots/play/`, not the ones beside them: Play requires
   24-bit PNG with no alpha and refuses a side more than twice the other, and the
