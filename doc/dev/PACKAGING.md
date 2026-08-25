@@ -30,7 +30,7 @@ listens on a socket unless the user asks for it (`ais --serve` binds 127.0.0.1;
 release tarball has no `.git`, so an unpatched build reports `0.0.0-dev`. Pass the
 version explicitly to every make invocation:
 
-    make AIS_VERSION=0.3.22
+    make AIS_VERSION=0.3.23
 
 The same value is stamped into the binary (`ais --version`) and into the man
 page's footer at install time.
@@ -109,7 +109,7 @@ built by GitHub Actions from the tag, and each ships a matching `.sha256`:
 
 For a source package, prefer the tag tarball:
 
-    https://github.com/Anode1/ais/archive/refs/tags/v0.3.22.tar.gz
+    https://github.com/Anode1/ais/archive/refs/tags/v0.3.23.tar.gz
 
 ## Reference PKGBUILD
 

@@ -97,7 +97,7 @@ repo cannot yet show. Paid signing is not planned. The wiring stays in place;
 reapply once the project has visible adoption. Until a build is signed, verify a
 download by its SHA-256 or build from source (see the README).
 
-## Known gaps, as of v0.3.22
+## Known gaps, as of v0.3.23
 
 Four things are open, and this is the list to work from: the release chores that
 remain, coverage nobody has, a test that cannot see, and defects left on purpose
@@ -105,11 +105,13 @@ with the reason for each.
 
 ### 1. Publishing is not finished
 
-A tag publishes ten artifacts. Two stores have never received one, and each is
-a manual step:
+A tag publishes ten artifacts. Reaching the two stores is manual, and only one
+of them has ever received a build:
 
-- Upload `ais-v0.3.22-android.aab` to the Play Console and start the closed
-  test, following [`dev/ANDROID_RELEASE.md`](dev/ANDROID_RELEASE.md). Take the
+- Upload `ais-v0.3.23-android.aab` to the Play Console as a new release on the
+  closed test track, following [`dev/ANDROID_RELEASE.md`](dev/ANDROID_RELEASE.md).
+  The listing is done and the closed test is running on build 425 (0.3.22), so
+  every later build is another upload by hand. Take the
   screenshots from `screenshots/play/`, not the ones beside them: Play requires
   24-bit PNG with no alpha and refuses a side more than twice the other, and the
   plain captures fail both.
@@ -117,19 +119,21 @@ a manual step:
   `.SRCINFO`. `packaging/aur/PKGBUILD` here is the reference copy, not the one
   users install.
 
-### 2. Three things have never been verified anywhere
+### 2. Three things are barely verified
 
-Not "tested and passing", but never run at all. Each needs hardware or time
-rather than code:
+One has been run once, by hand; the other two have never been run at all. Each
+needs hardware or time rather than code:
 
-- **A real arm64 phone on a real Wi-Fi network.** Every sync test to date went
-  through emulator NAT (`10.0.2.2`) or `adb forward` over loopback. Untested:
-  `.local`/mDNS names, a router with client isolation, and the arm64 and
-  armeabi-v7a ABIs. This is the most likely source of a "sync does not work"
-  report from a tester.
+- **A real arm64 phone on a real Wi-Fi network.** One pass exists: on 2026-08-24
+  an Android phone on build 425 paired by QR with `ais --serve` on a laptop over
+  ordinary Wi-Fi and converged both ways, and an earlier attempt that evening
+  failed silently, which is what the 300-second host wait and the reported join
+  result in v0.3.23 come from. Every other sync test went through emulator NAT
+  (`10.0.2.2`) or `adb forward` over loopback. Still untested: `.local`/mDNS
+  names, a router with client isolation, and the armeabi-v7a ABI.
 - **A multi-day soak.** Everything converges in seconds here. Nothing has tested
   a week of use, clock skew between two machines, or an index that grew.
-- **Backgrounding mid-sync, and doze during the 120-second host wait.** The
+- **Backgrounding mid-sync, and doze during the 300-second host wait.** The
   screen-awake flag is set on the host screen and the rest is unknown.
 
 ### 3. The desktop UI test cannot see
