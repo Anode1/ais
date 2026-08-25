@@ -5,7 +5,7 @@ publish_to: none
 # (`flutter build ... $(sh tool/version.sh)`), which overrides this. Kept because
 # `flutter build` still wants a version when no --build-name/--build-number is
 # passed, e.g. a plain `flutter run`. Mirrored in lib/version.dart's defaults.
-version: 0.3.23+23
+version: 0.3.24+24
 
 environment:
   sdk: ">=3.0.0 <4.0.0"
