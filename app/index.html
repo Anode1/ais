@@ -235,15 +235,24 @@ async function revealSecret(node, v) {
   };
   node.appendChild(i); node.appendChild(b); node.appendChild(x); i.focus();
 }
-// A document blob comes over the wire as "aisdoc:<base64 of the content>", so the
-// multi-line content survives the line-based record split. Decode the base64 as
-// UTF-8 bytes and show it verbatim, newlines and all.
-function docText(v) {
+// A document blob comes over the wire as "aisdoc:<base64 of "path\ncontent">", so
+// the multi-line content survives the line-based record split. The first line
+// names the stored blob to /api/doc and /api/setvalue; the rest is the bounded
+// preview, shown verbatim, newlines and all.
+function docDecode(v) {
   try {
     var s = atob(v.slice(7)), b = new Uint8Array(s.length), i;
     for (i = 0; i < s.length; i++) b[i] = s.charCodeAt(i);
     return new TextDecoder().decode(b);
-  } catch (e) { return v; }
+  } catch (e) { return null; }
+}
+function docText(v) {
+  var d = docDecode(v);
+  return d == null ? v : d.slice(d.indexOf('\n') + 1);
+}
+function docPath(v) {
+  var d = docDecode(v);
+  return d == null ? '' : d.slice(0, d.indexOf('\n'));
 }
 function fillDoc(node, v) {
   var d = document.createElement('div'); d.className = 'doc';
@@ -346,7 +355,7 @@ function delRec(id) {
 // +key/-key delta. The old prompt() asked the user to compose that delta by hand
 // in a grammar they had to remember -- and did nothing at all in an installed PWA.
 function normkeys(s){ return s.replace(/,/g,' ').trim().replace(/\s+/g,' '); }
-var edId = 0, edTags = [], edOldVal = '', edEdit = false;
+var edId = 0, edTags = [], edOldVal = '', edOrig = '', edEdit = false;
 function edChips() {
   var c = $('edchips'); c.innerHTML = '';
   edTags.forEach(function (t) {
@@ -364,11 +373,23 @@ function edAdd() {
   $('edtag').value = ''; edChips();
 }
 async function openEdit(id, v) {
-  edId = id; edOldVal = v || '';
-  // an encrypted or blob-backed value is not editable as text
-  edEdit = edOldVal.indexOf('aisc:') != 0 && edOldVal.indexOf('aisdoc:') != 0;
+  edId = id; edOldVal = v || ''; edOrig = edOldVal;
+  // A document row (aisdoc:) edits its decoded TEXT: its path line names the
+  // blob, /api/doc supplies the full body (the row's preview may be truncated)
+  // and edSave posts the path back as the old value. /api/doc refusing (binary,
+  // too big for one save request) leaves the row tags-only. CR and CRLF are
+  // folded to LF as the textarea will fold them anyway; comparing unfolded text
+  // made a tags-only save rewrite a CRLF note. Encrypted stays uneditable; so
+  // does a raw 'blobs/' value, a document whose file is not on this device.
+  edEdit = edOldVal.indexOf('aisc:') != 0 && edOldVal.indexOf('blobs/') != 0;
+  if (edEdit && edOldVal.indexOf('aisdoc:') == 0) {
+    edOldVal = docPath(v);
+    var dr = edOldVal ? await fetch('/api/doc?v=' + encodeURIComponent(edOldVal)) : null;
+    edEdit = !!dr && dr.ok;
+    if (edEdit) edOrig = (await dr.text()).replace(/\r\n?/g, '\n');
+  }
   $('edvalwrap').style.display = edEdit ? 'block' : 'none';
-  if (edEdit) $('edval').value = edOldVal;
+  if (edEdit) $('edval').value = edOrig;
   var t = (await (await fetch('/api/keys?id=' + id)).text()).trim();
   edTags = t ? t.split(/\s+/) : []; edChips();
   $('edtag').value = '';
@@ -378,8 +399,9 @@ async function openEdit(id, v) {
 async function edSave() {
   edAdd();                                     // commit a key still being typed
   if (edEdit) {
-    var nv = $('edval').value.replace(/\r?\n/g, ' ').trim();
-    if (nv && nv != edOldVal) {
+    // newlines pass through: the engine chooses inline vs blob at this write
+    var nv = $('edval').value;
+    if (nv.trim() && nv != edOrig) {
       var sr = await fetch('/api/setvalue?id=' + edId, { method:'POST', body: edOldVal + '\n' + nv });
       if (!sr.ok) alert(await sr.text());   // the body names the cause, as the CLI does
     }

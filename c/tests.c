@@ -4922,6 +4922,173 @@ static void test_set_value_retires_the_document(void)
     scratch_rm(dir);
 }
 
+/* ais_set_value_text picks the representation at each write, so an edit can
+ * cross the one-line/document boundary in every direction. Each blob a record
+ * stops pointing at is removed; a fresh one is minted per multi-line save. */
+static void test_set_value_text_crosses_representations(void)
+{
+    ais a;
+    struct valvec vv;
+    struct stat st;
+    const char *dir = "/tmp/ais_ut_setvtext";
+    char first[AIS_PATH_MAX], path[AIS_PATH_MAX], nv[AIS_PATH_MAX];
+    char *body;
+    size_t blen;
+    long id;
+
+    scratch_rm(dir);
+    ais_open(&a, dir);
+    ais_on_discard(&a, ais_doc_discard_cb, a.dir);
+
+    id = ais_doc_put(&a, "note", "line one\nline two\n", 18);
+    vv.n = 0;
+    ais_record(&a, id, collect_val, &vv);
+    snprintf(first, sizeof first, "%s", vv.vals[0]);
+    snprintf(path, sizeof path, "%s/%s", dir, first);
+
+    /* doc -> doc: fresh blob with the new text, the old file gone */
+    CHECK(ais_set_value_text(&a, id, first, "line one\nEDITED\n", nv, sizeof nv) == 0,
+          "setvtext: doc -> doc edit applies");
+    vv.n = 0;
+    ais_record(&a, id, collect_val, &vv);
+    CHECK(vv.n == 1 && strncmp(vv.vals[0], "blobs/", 6) == 0 &&
+          strcmp(vv.vals[0], first) != 0,
+          "setvtext: the record points at a FRESH blob");
+    CHECK(strcmp(nv, vv.vals[0]) == 0,
+          "setvtext: NEWVAL reports the fresh path");
+    CHECK(stat(path, &st) != 0, "setvtext: the old blob is gone");
+    body = ais_doc_read(&a, vv.vals[0], &blen);
+    CHECK(body != NULL && blen == 16 && strcmp(body, "line one\nEDITED\n") == 0,
+          "setvtext: ais_doc_read returns the whole new text");
+    free(body);
+
+    /* doc -> plain: the value comes inline, the blob is retired */
+    snprintf(path, sizeof path, "%s/%s", dir, vv.vals[0]);
+    CHECK(ais_set_value_text(&a, id, vv.vals[0], "one line now\n", nv, sizeof nv) == 0,
+          "setvtext: doc -> plain edit applies");
+    vv.n = 0;
+    ais_record(&a, id, collect_val, &vv);
+    CHECK(vv.n == 1 && strcmp(vv.vals[0], "one line now") == 0,
+          "setvtext: inline, trailing newline trimmed");
+    CHECK(strcmp(nv, "one line now") == 0,
+          "setvtext: NEWVAL reports the trimmed line");
+    CHECK(stat(path, &st) != 0, "setvtext: doc -> plain retired the blob");
+    CHECK(ais_doc_read(&a, vv.vals[0], NULL) == NULL,
+          "setvtext: ais_doc_read refuses a non-document value");
+
+    /* plain -> doc: a multi-line replacement goes out-of-line */
+    CHECK(ais_set_value_text(&a, id, "one line now", "back to\nmany lines", NULL, 0) == 0,
+          "setvtext: plain -> doc edit applies");
+    vv.n = 0;
+    ais_record(&a, id, collect_val, &vv);
+    CHECK(vv.n == 1 && strncmp(vv.vals[0], "blobs/", 6) == 0,
+          "setvtext: plain -> doc went out-of-line");
+
+    /* a refused edit leaves no orphan blob behind */
+    ais_put(&a, "other", "taken");
+    CHECK(ais_set_value_text(&a, id, vv.vals[0], "taken", NULL, 0) == -2,
+          "setvtext: refused, another record holds the text");
+    {
+        char bd[AIS_PATH_MAX];
+        int extra = 0;
+        DIR *d;
+        struct dirent *e;
+        snprintf(bd, sizeof bd, "%s/blobs", dir);
+        d = opendir(bd);
+        CHECK(d != NULL, "setvtext: blobs/ opens");
+        if (d) {
+            while ((e = readdir(d)) != NULL)
+                if (e->d_name[0] != '.' &&
+                    strcmp(e->d_name, vv.vals[0] + 6) != 0)
+                    extra++;
+            closedir(d);
+        }
+        CHECK(extra == 0, "setvtext: the refused edit left no orphan blob");
+    }
+
+    /* blank text is refused before anything is written */
+    CHECK(ais_set_value_text(&a, id, vv.vals[0], "  \n\n", NULL, 0) == -1,
+          "setvtext: blank text is refused");
+
+    ais_close(&a);
+    scratch_rm(dir);
+}
+
+/* An editor must see exactly what it will save back: no NUL (a C string drops
+ * the tail), valid UTF-8 (a browser or Dart string substitutes replacement
+ * characters and a save writes them over the original bytes). */
+static void test_doc_text_ok_screens_the_editor(void)
+{
+    ais a;
+    const char *dir = "/tmp/ais_ut_textok";
+    struct valvec vv;
+    long id;
+    char *body;
+
+    CHECK(ais_doc_text_ok("plain\nlines\n", 12) == 1, "textok: plain text passes");
+    CHECK(ais_doc_text_ok("caf\xC3\xA9", 5) == 1,     "textok: two-byte UTF-8 passes");
+    CHECK(ais_doc_text_ok("\xF0\x9F\x99\x82", 4) == 1, "textok: four-byte UTF-8 passes");
+    CHECK(ais_doc_text_ok("a\0b", 3) == 0,            "textok: a NUL is refused");
+    CHECK(ais_doc_text_ok("caf\xE9", 4) == 0,         "textok: Latin-1 is refused");
+    CHECK(ais_doc_text_ok("\xC0\xAF", 2) == 0,        "textok: an overlong encoding is refused");
+    CHECK(ais_doc_text_ok("\xED\xA0\x80", 3) == 0,    "textok: a surrogate is refused");
+    CHECK(ais_doc_text_ok("\xC3", 1) == 0,            "textok: a cut-off sequence is refused");
+
+    /* the embed seam applies the screen: a binary document is view-only */
+    scratch_rm(dir);
+    ais_open(&a, dir);
+    id = ais_doc_put(&a, "bin", "caf\xE9\nline\n", 10);
+    CHECK(id > 0, "textok: a non-UTF-8 document stores fine");
+    vv.n = 0;
+    ais_record(&a, id, collect_val, &vv);
+    ais_close(&a);
+    {
+        void *h = ais_embed_open(dir);
+        CHECK(h != NULL, "textok: embed opens");
+        body = ais_embed_doc_read(h, vv.vals[0]);
+        CHECK(body == NULL, "textok: embed refuses it for editing");
+        ais_embed_close(h);
+    }
+    scratch_rm(dir);
+}
+
+/* The inline/blob threshold must leave room for the line's own overhead: a
+ * single line just under AIS_LINE_MAX goes out-of-line instead of being
+ * accepted here and refused, mutely, by the line writer. */
+static void test_long_single_line_goes_out_of_line(void)
+{
+    ais a;
+    const char *dir = "/tmp/ais_ut_longline";
+    struct valvec vv;
+    char *big;
+    size_t n = AIS_LINE_MAX - 20;          /* fits the old check, not the line */
+    long id;
+
+    big = malloc(n + 1);
+    CHECK(big != NULL, "longline: scratch buffer");
+    memset(big, 'x', n);
+    big[n] = '\0';
+
+    scratch_rm(dir);
+    ais_open(&a, dir);
+    id = ais_put_value(&a, "big", big);
+    CHECK(id > 0, "longline: an over-long single line SAVES");
+    vv.n = 0;
+    ais_record(&a, id, collect_val, &vv);
+    CHECK(vv.n == 1 && strncmp(vv.vals[0], "blobs/", 6) == 0,
+          "longline: as a document, not an inline line");
+
+    {
+        char nv2[AIS_PATH_MAX];
+        CHECK(ais_set_value_text(&a, id, vv.vals[0], big, nv2, sizeof nv2) == 0 &&
+              strncmp(nv2, "blobs/", 6) == 0,
+              "longline: the edit path also goes out-of-line");
+    }
+    free(big);
+    ais_close(&a);
+    scratch_rm(dir);
+}
+
 /* A next_id cache that is positive but BELOW an id the store holds must not be
  * trusted: the next put would reissue a live id, so one value would name two
  * records and one tombstone would take both. A truncated write leaves exactly
@@ -6120,6 +6287,9 @@ int main(void)
     test_delete_shreds_only_after_it_succeeds();
     printf("an edited-away document takes its file with it:\n");
     test_set_value_retires_the_document();
+    test_set_value_text_crosses_representations();
+    test_doc_text_ok_screens_the_editor();
+    test_long_single_line_goes_out_of_line();
     printf("next_id: a cache below the store is not trusted:\n");
     test_next_id_cache_below_the_store();
     printf("a value must fit the wire, not only the store:\n");

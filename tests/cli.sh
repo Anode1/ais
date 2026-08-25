@@ -289,10 +289,16 @@ ok      "set: keys survive"                  "zenodo.110" "$("$AIS" -f "$SV" art
 okeq    "set: still one record"              "$sid" "$("$AIS" -f "$SV" papers | head -1 | cut -d'|' -f1)"
 "$AIS" -f "$SV" --set "$sid" -v "no-such-value" -v "x" 2>/dev/null
 ok      "set: a value that does not match leaves the store alone" "zenodo.110" "$("$AIS" -f "$SV" papers)"
-# a multi-line new value is refused: it would split the line and orphan the tail.
+# a multi-line new value goes out-of-line: the record points at a fresh document
+# blob (never a raw newline in the store), and reads back whole.
 "$AIS" -f "$SV" --set "$sid" -v "https://doi.org/10.5281/zenodo.110" -v "$(printf 'a\nb')" 2>/dev/null
-ok      "set: a multi-line value is refused"  "zenodo.110" "$("$AIS" -f "$SV" papers)"
+ok      "set: a multi-line value becomes a document" "$(printf 'a\nb')" "$("$AIS" -f "$SV" papers | sed 's/^[0-9]*|//')"
 okeq    "set: the store is still one line per link" "2" "$(grep -c . "$SV/store")"
+ok      "set: the store holds a blob path, not the text" "blobs/" "$(grep -o 'blobs/' "$SV/store" | head -1)"
+# and back: a one-line edit of the document returns inline and retires the blob
+"$AIS" -f "$SV" --set "$sid" -v "$(grep -o 'blobs/[^|]*' "$SV/store" | head -1)" -v "https://doi.org/10.5281/zenodo.112" 2>/dev/null
+ok      "set: a one-line edit of a document comes back inline" "zenodo.112" "$("$AIS" -f "$SV" papers)"
+okeq    "set: the retired blob file is gone" "0" "$(ls "$SV/blobs" 2>/dev/null | grep -c .)"
 rm -rf "$SV"
 
 # 17d. An attached key is folded before it reaches the store line ('|' and control

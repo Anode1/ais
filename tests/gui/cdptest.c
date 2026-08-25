@@ -226,6 +226,36 @@ int main(int argc, char **argv) {
     ok("the marker never reaches the screen", cdp_wait_bool(c,
         "document.getElementById('out').innerText.indexOf('aisdoc:')<0", 3000) == 0);
 
+    /* ---- editing the document ------------------------------------------
+     * The editor opens on the FULL decoded text (never the aisdoc: marker or
+     * the blobs/ path -- /api/doc supplies the body, since the row's preview
+     * is bounded), newlines survive the save, and the same record shows the
+     * new text after. */
+    ok("edit opens on the note's decoded text", cdp_eval_bool(c,
+        "(function(){var h=document.querySelectorAll('.hit');"
+        "for(var i=0;i<h.length;i++){if(h[i].innerText.indexOf('line two')>=0){"
+        "var bs=h[i].querySelectorAll('button');"
+        "for(var j=0;j<bs.length;j++)if(bs[j].textContent==='edit'){bs[j].click();return true}}}"
+        "return false})()", &(int){0}) == 0 &&
+        cdp_wait_bool(c,
+        "!document.getElementById('editsheet').hidden"
+        "&&document.getElementById('edval').value==='line one\\nline two\\nline three'",
+        5000) == 0);
+    cdp_eval_bool(c, "(function(){document.getElementById('edval').value="
+                     "'line one\\nline 2 EDITED\\nline three\\nline four';"
+                     "edSave();return true})()", &(int){0});
+    ok("the edited note renders its new lines", cdp_wait_bool(c,
+        "document.getElementById('out').innerText.indexOf('line 2 EDITED')>=0"
+        "&&document.getElementById('out').innerText.indexOf('line four')>=0", 5000) == 0);
+    ok("still as text, not base64", cdp_wait_bool(c,
+        "document.getElementById('out').innerText.indexOf('aisdoc:')<0", 3000) == 0);
+    ok("and it is still ONE record",
+       cdp_eval_bool(c, "(function(){window.__d2=null;fetch('/api/get?keys=notes')"
+                        ".then(function(r){return r.text()}).then(function(t){window.__d2=t});return true})()",
+                     &(int){0}) == 0 &&
+       cdp_wait_bool(c, "window.__d2!==null&&window.__d2.split('\\n')"
+                        ".filter(function(s){return s.length}).length===1", 5000) == 0);
+
     /* ---- secrets -------------------------------------------------------
      * An encrypted record is opaque until a passphrase is given. Encryption is
      * server-side, so if the crypto module is not built there is nothing to

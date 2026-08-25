@@ -90,6 +90,26 @@ int   ais_embed_update(void *handle, long id, const char *keys);
 int   ais_embed_set_value(void *handle, long id, const char *old_value,
                           const char *new_value);
 
+/* Doc-aware ais_embed_set_value: TEXT may span lines, and the representation is
+ * chosen at this write as saving does (multi-line to a fresh blob, one line
+ * inline). OLD_VALUE is the stored string; for a document that is its "blobs/"
+ * path. On success NEWVAL (when non-NULL, NVSZ bytes) gets the value the
+ * record now stores -- the trimmed line or the fresh blob's path. Same return
+ * codes, plus -2/-3 when a live/deleted record already holds TEXT. */
+int   ais_embed_set_value_text(void *handle, long id, const char *old_value,
+                               const char *text, char *newval, int nvsz);
+
+/* The WHOLE document behind a "blobs/" VALUE, for an editor to start from
+ * (ais_embed_display is a bounded preview and may cut the tail). Freshly
+ * allocated, free with ais_embed_free(). NULL when VALUE is not a document
+ * blob present on this device, is not editable as text (NUL / non-UTF-8, see
+ * ais_doc_text_ok), or exceeds AIS_EMBED_DOC_EDIT_MAX. */
+char *ais_embed_doc_read(void *handle, const char *value);
+
+/* The largest document ais_embed_doc_read hands to an editor: bigger bodies
+ * stay view-only (three in-memory copies ride every edit on a phone). */
+#define AIS_EMBED_DOC_EDIT_MAX (1024 * 1024)
+
 /* Sync (Receive): pull + merge a peer's `ais --export --serve` over the LAN,
  * last-writer-wins by timestamp. URL is http://host[:port]; TOKEN is the peer's
  * one-time token. Returns 0 (merged), -1 (bad args / malformed URL), or -2

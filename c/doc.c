@@ -352,22 +352,20 @@ long ais_doc_display(const ais *a, const char *value, char *out, size_t outsz)
     return (long)got;
 }
 
-long ais_doc_put(ais *a, const char *keys, const char *content, size_t len)
+/* Mint a fresh blob and write CONTENT into it; fills RELVAL and BLOBPATH.
+ * Every failure removes the file it just made: a blob no record points at is
+ * the user's document left on disk with nothing able to recall or delete it.
+ * feed.c does the same for the encrypted twin. */
+static int blob_write_new(const ais *a, const char *content, size_t len,
+                          char *relval, size_t rvsz, char *blobpath, size_t bpsz)
 {
-    char blobpath[AIS_PATH_MAX], relval[AIS_PATH_MAX];
     FILE *bf;
 
-    if (a == NULL || keys == NULL || content == NULL)
+    if (ais_doc_blobname(a, relval, rvsz, blobpath, bpsz) != 0)
         return -1;
-    if (ais_doc_blobname(a, relval, sizeof relval, blobpath, sizeof blobpath) != 0)
-        return -1;
-
     bf = fopen(blobpath, "w");
     if (bf == NULL)
         return -1;
-    /* Every failure from here on removes the file it just made: a blob no record
-     * points at is the user's document left on disk with nothing able to recall
-     * or delete it. feed.c does the same for the encrypted twin. */
     if (len > 0 && fwrite(content, 1, len, bf) != len) {
         fclose(bf);
         remove(blobpath);
@@ -377,6 +375,18 @@ long ais_doc_put(ais *a, const char *keys, const char *content, size_t len)
         remove(blobpath);
         return -1;
     }
+    return 0;
+}
+
+long ais_doc_put(ais *a, const char *keys, const char *content, size_t len)
+{
+    char blobpath[AIS_PATH_MAX], relval[AIS_PATH_MAX];
+
+    if (a == NULL || keys == NULL || content == NULL)
+        return -1;
+    if (blob_write_new(a, content, len, relval, sizeof relval,
+                       blobpath, sizeof blobpath) != 0)
+        return -1;
 
     {
         long id = ais_put(a, keys, relval);   /* store only the path */
@@ -400,6 +410,12 @@ static int has_interior_newline(const char *s)
     return 0;
 }
 
+/* The longest single line stored INLINE. Beyond it the value goes out-of-line:
+ * the store line must also carry id|ts|keys| and the wire frame its overhead
+ * (AIS_WIRE_FRAME_MAX), so a value pushed right up to AIS_LINE_MAX would be
+ * accepted here and then refused, mutely, by the line writer. */
+#define DOC_INLINE_MAX (AIS_LINE_MAX - AIS_WIRE_FRAME_MAX)
+
 long ais_put_value(ais *a, const char *keys, const char *value)
 {
     char line[AIS_LINE_MAX];
@@ -421,11 +437,125 @@ long ais_put_value(ais *a, const char *keys, const char *value)
         n--;
     if (n == 0)
         return -1;                         /* nothing to store */
-    if (n >= sizeof line)
+    if (n > DOC_INLINE_MAX)
         return ais_doc_put(a, keys, value, strlen(value));
     memcpy(line, value, n);
     line[n] = '\0';
     return ais_put(a, keys, line);
+}
+
+int ais_set_value_text(ais *a, long id, const char *old_value, const char *text,
+                       char *newval, size_t nvsz)
+{
+    char line[AIS_LINE_MAX];
+    size_t n;
+
+    if (newval != NULL && nvsz > 0)
+        newval[0] = '\0';
+    if (a == NULL || old_value == NULL || text == NULL)
+        return -1;
+
+    if (!has_interior_newline(text)) {
+        n = strlen(text);
+        while (n > 0 && (text[n - 1] == '\n' || text[n - 1] == '\r' ||
+                         text[n - 1] == ' '  || text[n - 1] == '\t'))
+            n--;
+        if (n == 0)
+            return -1;                     /* nothing to store */
+        if (n <= DOC_INLINE_MAX) {
+            int rc;
+            memcpy(line, text, n);
+            line[n] = '\0';
+            rc = ais_set_value(a, id, old_value, line);
+            if (rc == 0 && newval != NULL)
+                snprintf(newval, nvsz, "%s", line);
+            return rc;
+        }
+        /* an over-long single line cannot be a store line: keep it whole in a
+         * blob, as ais_put_value does */
+    }
+    {
+        char blobpath[AIS_PATH_MAX], relval[AIS_PATH_MAX];
+        int rc;
+
+        if (blob_write_new(a, text, strlen(text), relval, sizeof relval,
+                           blobpath, sizeof blobpath) != 0)
+            return -1;
+        rc = ais_set_value(a, id, old_value, relval);
+        if (rc != 0)
+            remove(blobpath);              /* a refused edit leaves no orphan */
+        else if (newval != NULL)
+            snprintf(newval, nvsz, "%s", relval);
+        return rc;
+    }
+}
+
+int ais_doc_text_ok(const char *s, size_t len)
+{
+    size_t i = 0;
+
+    if (s == NULL || memchr(s, '\0', len) != NULL)
+        return 0;
+    while (i < len) {                      /* strict UTF-8, no surrogates */
+        unsigned char c = (unsigned char)s[i];
+        size_t k, follow;
+        unsigned long cp;
+        if (c < 0x80) { i++; continue; }
+        if      ((c & 0xE0) == 0xC0) { follow = 1; cp = c & 0x1FUL; }
+        else if ((c & 0xF0) == 0xE0) { follow = 2; cp = c & 0x0FUL; }
+        else if ((c & 0xF8) == 0xF0) { follow = 3; cp = c & 0x07UL; }
+        else return 0;
+        if (i + follow >= len)
+            return 0;
+        for (k = 1; k <= follow; k++) {
+            unsigned char f = (unsigned char)s[i + k];
+            if ((f & 0xC0) != 0x80)
+                return 0;
+            cp = (cp << 6) | (f & 0x3FUL);
+        }
+        if (cp > 0x10FFFFUL || (cp >= 0xD800UL && cp <= 0xDFFFUL) ||
+            (follow == 1 && cp < 0x80) || (follow == 2 && cp < 0x800) ||
+            (follow == 3 && cp < 0x10000UL))
+            return 0;                      /* overlong / out of range */
+        i += follow + 1;
+    }
+    return 1;
+}
+
+char *ais_doc_read(const ais *a, const char *value, size_t *len)
+{
+    char path[AIS_PATH_MAX];
+    FILE *f;
+    long sz;
+    char *buf;
+
+    if (len != NULL)
+        *len = 0;
+    if (!ais_doc_is_blob(a, value, path, sizeof path))
+        return NULL;
+    f = fopen(path, "rb");
+    if (f == NULL)
+        return NULL;
+    if (fseek(f, 0, SEEK_END) != 0 || (sz = ftell(f)) < 0 ||
+        fseek(f, 0, SEEK_SET) != 0) {
+        fclose(f);
+        return NULL;
+    }
+    buf = malloc((size_t)sz + 1);
+    if (buf == NULL) {
+        fclose(f);
+        return NULL;
+    }
+    if (fread(buf, 1, (size_t)sz, f) != (size_t)sz) {
+        fclose(f);
+        free(buf);
+        return NULL;
+    }
+    fclose(f);
+    buf[sz] = '\0';
+    if (len != NULL)
+        *len = (size_t)sz;
+    return buf;
 }
 
 /* ---- ais_doc_copies: the pre-0.3.20 clash duplicates ---------------------- */

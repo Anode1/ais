@@ -25,8 +25,10 @@ typedef _DelC = Int32 Function(Pointer<Void>, Int64);
 typedef _DelD = int Function(Pointer<Void>, int);
 typedef _UpdateC = Int32 Function(Pointer<Void>, Int64, Pointer<Utf8>);
 typedef _UpdateD = int Function(Pointer<Void>, int, Pointer<Utf8>);
-typedef _SetValueC = Int32 Function(Pointer<Void>, Int64, Pointer<Utf8>, Pointer<Utf8>);
-typedef _SetValueD = int Function(Pointer<Void>, int, Pointer<Utf8>, Pointer<Utf8>);
+typedef _SetValTextC = Int32 Function(
+    Pointer<Void>, Int64, Pointer<Utf8>, Pointer<Utf8>, Pointer<Utf8>, Int32);
+typedef _SetValTextD = int Function(
+    Pointer<Void>, int, Pointer<Utf8>, Pointer<Utf8>, Pointer<Utf8>, int);
 typedef _PullC = Int32 Function(Pointer<Void>, Pointer<Utf8>, Pointer<Utf8>);
 typedef _PullD = int Function(Pointer<Void>, Pointer<Utf8>, Pointer<Utf8>);
 typedef _ServeC = Int32 Function(Pointer<Void>, Int32, Pointer<Utf8>);
@@ -165,8 +167,10 @@ class AisEngine {
   late final _KeysD _keysFn = _lib.lookupFunction<_KeysC, _KeysD>('ais_embed_keys');
   late final _DelD _del = _lib.lookupFunction<_DelC, _DelD>('ais_embed_del');
   late final _UpdateD _update = _lib.lookupFunction<_UpdateC, _UpdateD>('ais_embed_update');
-  late final _SetValueD _setValue =
-      _lib.lookupFunction<_SetValueC, _SetValueD>('ais_embed_set_value');
+  late final _SetValTextD _setValueText =
+      _lib.lookupFunction<_SetValTextC, _SetValTextD>('ais_embed_set_value_text');
+  late final _DisplayD _docReadFn =
+      _lib.lookupFunction<_DisplayC, _DisplayD>('ais_embed_doc_read');
   late final _BundleD _exportBundle =
       _lib.lookupFunction<_BundleC, _BundleD>('ais_embed_export_bundle');
   late final _BundleD _importBundle =
@@ -549,20 +553,50 @@ class AisEngine {
     }
   }
 
-  /// Replace record [id]'s value, preserving its id, save time and keys.
-  /// [oldValue] must be the record's exact stored value. 0 on success; -2 when
-  /// another record already holds the new value, -3 when a deleted record still
-  /// holds it until the next compaction, -1 on a mismatch, an unknown id or an
-  /// IO error. The store is left untouched on every failure.
-  int setValue(int id, String oldValue, String newValue) {
+  /// Replace record [id]'s value in place, preserving its id, save time and
+  /// keys. [text] may span lines: the engine picks the representation at this
+  /// write as saving does (multi-line to a fresh blob, one line inline).
+  /// [oldValue] must be the record's exact stored value; for a document its
+  /// `blobs/` path. Returns the engine code and, on success, the value the
+  /// record now stores (the trimmed line or the fresh blob's path -- a record
+  /// can hold several values, so nothing after the fact could tell which one
+  /// this edit made). Codes: 0 success; -2 another record already holds the
+  /// new value, -3 a deleted record still holds it until the next compaction,
+  /// -1 a mismatch, an unknown id or an IO error. The store is left untouched
+  /// on every failure.
+  (int, String?) setValueText(int id, String oldValue, String text) {
+    const outSz = 4096; // a stored line or a blobs/ path, never near this
     Pointer<Utf8> o = nullptr, n = nullptr;
+    final out = calloc<Uint8>(outSz).cast<Utf8>();
     try {
       o = oldValue.toNativeUtf8();
-      n = newValue.toNativeUtf8();
-      return _setValue(_h, id, o, n);
+      n = text.toNativeUtf8();
+      final rc = _setValueText(_h, id, o, n, out, outSz);
+      return (rc, rc == 0 ? out.toDartString() : null);
     } finally {
       if (o != nullptr) calloc.free(o);
       if (n != nullptr) calloc.free(n);
+      calloc.free(out);
+    }
+  }
+
+  /// The WHOLE document behind a `blobs/` [value], for the editor to start
+  /// from ([display] is a bounded preview and may cut the tail). Null when
+  /// [value] is not a document blob present on this device, or the engine
+  /// refuses it for editing (binary / non-UTF-8 / oversized: doc.h's
+  /// ais_embed_doc_read); the decode guard below is a belt on the same rule.
+  String? docRead(String value) {
+    Pointer<Utf8> v = nullptr, p = nullptr;
+    try {
+      v = value.toNativeUtf8();
+      p = _docReadFn(_h, v);
+      if (p == nullptr) return null;
+      return p.toDartString();
+    } on FormatException {
+      return null;
+    } finally {
+      if (v != nullptr) calloc.free(v);
+      if (p != nullptr) _free(p);
     }
   }
 

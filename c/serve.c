@@ -273,7 +273,11 @@ static const char PAGE[] =
 /* A document blob comes over the wire as "aisdoc:<base64 of the content>", so the
  * (possibly multi-line) content survives the line-based record split. Decode as
  * UTF-8 bytes and show it verbatim (newlines preserved). */
-"function docText(v){try{var s=atob(v.slice(7)),b=new Uint8Array(s.length),i;for(i=0;i<s.length;i++)b[i]=s.charCodeAt(i);return new TextDecoder().decode(b)}catch(e){return v}}"
+/* the base64 carries "path\ncontent" (show_value): the first line names the
+ * stored blob to /api/doc and /api/setvalue, the rest is the bounded preview */
+"function docDecode(v){try{var s=atob(v.slice(7)),b=new Uint8Array(s.length),i;for(i=0;i<s.length;i++)b[i]=s.charCodeAt(i);return new TextDecoder().decode(b)}catch(e){return null}}"
+"function docText(v){var d=docDecode(v);return d==null?v:d.slice(d.indexOf('\\n')+1)}"
+"function docPath(v){var d=docDecode(v);return d==null?'':d.slice(0,d.indexOf('\\n'))}"
 "function fillDoc(node,v){var d=document.createElement('div');d.style.whiteSpace='pre-wrap';d.textContent=docText(v);node.appendChild(d)}"
 /* 'not on this device' (Flutter parity): a present doc blob arrives as
  * aisdoc:<content>; an absent one falls through as the raw 'blobs/' path, as does a
@@ -330,19 +334,30 @@ static const char PAGE[] =
 "if(delUndoFn){delUndoFn();delUndoFn=null}delRow=null;delCommit=null;hideToast()}"
 /* Edit modal: value (when editable) + a chip tag editor, computing a minimal
  * +tag/-tag delta on save. */
-"var edId=0,edTags=[],edOldVal='',edEdit=false;"
+"var edId=0,edTags=[],edOldVal='',edOrig='',edEdit=false;"
 "function edChips(){var c=$('edchips');c.innerHTML='';edTags.forEach(function(t){"
 "var s=document.createElement('span');s.className='chip';s.textContent=t;"
 "var b=document.createElement('button');b.textContent='\\u00d7';b.onclick=function(){edTags=edTags.filter(function(x){return x!=t});edChips()};"
 "s.appendChild(b);c.appendChild(s)})}"
 "function edAdd(){normkeys($('edtag').value).split(' ').forEach(function(t){if(t&&edTags.indexOf(t)<0)edTags.push(t)});$('edtag').value='';edChips()}"
-"async function openEdit(id,v){edId=id;edOldVal=v;edEdit=(v.indexOf('aisc:')!=0&&v.indexOf('aisdoc:')!=0);"
-"$('edvalwrap').style.display=edEdit?'block':'none';if(edEdit)$('edval').value=v;"
+/* A document row (aisdoc:) edits its decoded TEXT: its path line names the blob,
+ * /api/doc supplies the full body (the row's preview may be truncated) and edSave
+ * posts the path back as the old value. /api/doc refusing (binary, too big for
+ * one save request) leaves the row tags-only. CR and CRLF are folded to LF as
+ * the textarea will fold them anyway; comparing unfolded text made a tags-only
+ * save rewrite a CRLF note. A raw 'blobs/' value is an absent document
+ * (notHere): nothing to edit on this device. */
+"async function openEdit(id,v){edId=id;edOldVal=v;edOrig=v;edEdit=(v.indexOf('aisc:')!=0&&v.indexOf('blobs/')!=0);"
+"if(edEdit&&v.indexOf('aisdoc:')==0){edOldVal=docPath(v);"
+"var dr=edOldVal?await fetch('/api/doc?v='+encodeURIComponent(edOldVal)):null;edEdit=!!dr&&dr.ok;"
+"if(edEdit)edOrig=(await dr.text()).replace(/\\r\\n?/g,'\\n')}"
+"$('edvalwrap').style.display=edEdit?'block':'none';if(edEdit)$('edval').value=edOrig;"
 "var t=(await(await fetch('/api/keys?id='+id)).text()).trim();edTags=t?t.split(/\\s+/):[];edChips();"
 "$('edtag').value='';$('editsheet').hidden=false}"
 "async function edSave(){edAdd();"
-"if(edEdit){var nv=$('edval').value.replace(/\\r?\\n/g,' ').trim();"
-"if(nv&&nv!=edOldVal){var sr=await fetch('/api/setvalue?id='+edId,{method:'POST',body:edOldVal+'\\n'+nv});"
+/* newlines pass through: the engine chooses inline vs blob at this write */
+"if(edEdit){var nv=$('edval').value;"
+"if(nv.trim()&&nv!=edOrig){var sr=await fetch('/api/setvalue?id='+edId,{method:'POST',body:edOldVal+'\\n'+nv});"
 "if(!sr.ok)alert(await sr.text())}}"
 "var o=(await(await fetch('/api/keys?id='+edId)).text()).trim(),oa=o?o.split(/\\s+/):[],dl=[];"
 "oa.forEach(function(t){if(edTags.indexOf(t)<0)dl.push('-'+t)});edTags.forEach(function(t){if(oa.indexOf(t)<0)dl.push(t)});"
@@ -836,22 +851,39 @@ static void keys_of(ais *a, long id, char *buf, size_t sz)
     ais_tags(a, keysof_tag, &c);
 }
 
+/* The largest document the web editor takes: the whole edit must ride back in
+ * one /api/setvalue body, whose request buffer is AIS_LINE_MAX. Bigger bodies
+ * stay view-only here (the CLI edits any size). */
+#define SERVE_DOC_EDIT_MAX (AIS_LINE_MAX / 2)
+
 /* A multi-line value is stored as a plain-text document blob (blobs/<ts>.txt) whose
  * PATH is the record value; the GUI must show the CONTENT. If VALUE is such a blob,
- * read it (capped) and return "aisdoc:<base64>" in OUT: base64 carries the bytes
- * with no newline or '|', so the line-based wire and the client's record split stay
- * intact. Otherwise return VALUE. Single-threaded, so a static read buffer is safe. */
+ * read it (capped) and return "aisdoc:<base64 of "path\ncontent">" in OUT: base64
+ * carries the bytes with no newline or '|', so the line-based wire and the client's
+ * record split stay intact, and the leading path line lets the client name THIS
+ * document to /api/doc and /api/setvalue -- a by-id lookup could pick another value
+ * of the same record. Otherwise return VALUE. Single-threaded, so a static read
+ * buffer is safe. */
 static const char *show_value(ais *a, const char *value, char *out, size_t outsz)
 {
-    static char content[AIS_LINE_MAX / 2];        /* preview cap, one shared resolver */
-    long got = ais_doc_display(a, value, content, sizeof content);
+    static char doc[AIS_PATH_MAX + AIS_LINE_MAX / 2]; /* "path\n" + preview cap */
+    size_t off;
+    long got;
 
+    if (strncmp(value, "blobs/", 6) != 0)
+        return value;                             /* inline text / URL / secret: as-is */
+    off = strlen(value);
+    if (off + 1 >= AIS_PATH_MAX)
+        return value;
+    memcpy(doc, value, off);
+    doc[off++] = '\n';
+    got = ais_doc_display(a, value, doc + off, sizeof doc - off);
     if (got < 0)
-        return value;                             /* not a document blob (or absent): as-is */
-    if (outsz < 7 + AIS_B64_ENCLEN((size_t)got))
+        return value;                             /* absent here: the raw path, viewer badges it */
+    if (outsz < 7 + AIS_B64_ENCLEN(off + (size_t)got))
         return value;                             /* won't fit: fall back to the path */
     memcpy(out, "aisdoc:", 7);
-    return (b64_encode((const unsigned char *)content, (size_t)got, out + 7, outsz - 7) >= 0)
+    return (b64_encode((const unsigned char *)doc, off + (size_t)got, out + 7, outsz - 7) >= 0)
                ? out : value;
 }
 
@@ -1240,6 +1272,7 @@ static void handle(ais *a, int fd)
     int meta = 0;                         /* ?meta=1: /api/get lines carry keys too   */
     long afterc = 0;                      /* ?afterc= count cursor for /api/tags paging */
     char *afterk = nokeys;                /* ?afterk= key cursor for /api/tags paging */
+    char *docv = nokeys;                  /* ?v= stored blobs/ value for /api/doc     */
     long body_len = 0;                    /* Content-Length, for a big POST body      */
     int  count = 0;                       /* ?count= page size (0 => engine default)  */
     char *tlfrom = nokeys, *tlto = nokeys; /* ?from= ?to= date range (YYYY-MM-DD)      */
@@ -1398,6 +1431,9 @@ static void handle(ais *a, int fd)
         } else if (strncmp(query, "to=", 3) == 0) {
             tlto = query + 3;
             url_decode(tlto);
+        } else if (strncmp(query, "v=", 2) == 0) {
+            docv = query + 2;                /* /api/doc: a stored "blobs/" value */
+            url_decode(docv);
         }
         query = (amp != NULL) ? amp + 1 : NULL;
     }
@@ -1550,15 +1586,40 @@ static void handle(ais *a, int fd)
             keys_of(a, reqid, kb, sizeof kb);
             write_all(fd, kb, strlen(kb));
         }
+    } else if (strcmp(method, "GET") == 0 && strcmp(path, "/api/doc") == 0) {
+        /* the FULL text of the document behind ?v= (a stored "blobs/" value,
+         * carried on every aisdoc: row). The list views hold only a bounded
+         * preview (show_value), so the editor must start here or a long note's
+         * tail would be cut on save. Refused -- and the GUI then offers no text
+         * edit -- when the body is not editable text (NUL / non-UTF-8: a
+         * browser would substitute replacement characters and a save would
+         * write them back) or would not fit the one-request save. */
+        char dpath[AIS_PATH_MAX];
+        char *dbody = NULL;
+        size_t dlen = 0;
+        if (ais_doc_is_blob(a, docv, dpath, sizeof dpath))
+            dbody = ais_doc_read(a, docv, &dlen);
+        if (dbody != NULL && dlen <= SERVE_DOC_EDIT_MAX &&
+            ais_doc_text_ok(dbody, dlen)) {
+            send_head(fd, "text/plain");
+            write_all(fd, dbody, dlen);
+        } else {
+            static const char e[] = "HTTP/1.0 404 Not Found\r\n"
+                "Connection: close\r\n\r\nnot editable here\n";
+            write_all(fd, e, sizeof(e) - 1);
+        }
+        free(dbody);
     } else if (strcmp(method, "POST") == 0 && strcmp(path, "/api/setvalue") == 0) {
-        /* body = "oldvalue\nnewvalue": rewrite record ?id=N's value in place,
-         * keeping its id + timeline slot. Single-line values only (a multi-line
-         * value lives out-of-line as a blob, which the UI won't offer to edit). */
+        /* body = "oldvalue\nnewtext": rewrite record ?id=N's value in place,
+         * keeping its id + timeline slot. The old value is one line by
+         * construction (a document's is its "blobs/" path, from /api/doc); the
+         * new text may span lines, and the engine picks the representation at
+         * this write as saving does (ais_set_value_text). */
         char *nv = (body != NULL) ? strchr(body, '\n') : NULL;
         if (reqid > 0 && nv != NULL) {
             int rc;
             *nv++ = '\0';
-            rc = ais_set_value(a, reqid, body, nv);
+            rc = ais_set_value_text(a, reqid, body, nv, NULL, 0);
             if (rc == 0) {
                 send_head(fd, "text/plain");
                 write_all(fd, "updated\n", 8);

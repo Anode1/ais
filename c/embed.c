@@ -121,6 +121,36 @@ int ais_embed_set_value(void *handle, long id, const char *old_value,
     return ais_set_value((ais *)handle, id, old_value, new_value);
 }
 
+int ais_embed_set_value_text(void *handle, long id, const char *old_value,
+                             const char *text, char *newval, int nvsz)
+{
+    if (handle == NULL || old_value == NULL || text == NULL)
+        return -1;
+    return ais_set_value_text((ais *)handle, id, old_value, text,
+                              newval, nvsz > 0 ? (size_t)nvsz : 0);
+}
+
+char *ais_embed_doc_read(void *handle, const char *value)
+{
+    char *body;
+    size_t len;
+
+    if (handle == NULL || value == NULL)
+        return NULL;
+    body = ais_doc_read((ais *)handle, value, &len);
+    if (body == NULL)
+        return NULL;
+    /* An editor's read, not a viewer's: refuse what a text field would mangle.
+     * Binary or non-UTF-8 content would come back as replacement characters and
+     * saving those destroys the original bytes; a huge body would be three
+     * copies on a phone's UI isolate. The blob itself stays intact either way. */
+    if (len > AIS_EMBED_DOC_EDIT_MAX || !ais_doc_text_ok(body, len)) {
+        free(body);
+        return NULL;
+    }
+    return body;
+}
+
 static int embed_pull(void *handle, const char *url, const char *token, int bidir)
 {
 #ifdef _WIN32

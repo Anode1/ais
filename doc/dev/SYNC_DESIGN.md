@@ -86,7 +86,9 @@ spec. See LAYOUT.md (format), BNF.txt (grammar).
   - `--set` edits the identity field in place and keeps the id, ts and keys.
     What reaches the peers is an `E|` fact, applied to their record in place
     (MERGE.md, "An edited value travels as E|"), so every front end edits in
-    place through `ais_set_value` and none needs a delete-plus-save of its own.
+    place through `ais_set_value_text` (doc-aware: multi-line text goes to a
+    fresh blob the record then points at) and none needs a delete-plus-save of
+    its own.
 - Save emits the DIFF against the loaded state (only the +'s and -'s you changed),
   NOT the absolute keyset, so a concurrent add on another device is not wiped.
 - `-key` is internal: the GUI toggles tag chips and emits it; users never type

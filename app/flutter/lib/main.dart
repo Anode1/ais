@@ -554,9 +554,9 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
   String _normKeys(String s) =>
       s.replaceAll(',', ' ').trim().replaceAll(RegExp(r'\s+'), ' ');
 
-  // A blob-backed value holds only an internal "blobs/<ts>.txt" path. In-place
-  // "Edit value" edits the raw stored string, so on a blob it would show the path
-  // and, on Save, replace the pointer with inline text -- orphaning the blob.
+  // A blob-backed value holds only an internal "blobs/<ts>.txt" path; the
+  // content lives in that file. "Edit value" on such a row edits the CONTENT
+  // (docRead/setValueText), never the path.
   bool _isBlob(String v) => v.startsWith('blobs/');
 
   // A multi-line paste is stored out-of-line as a blob; the record holds the path.
@@ -2131,8 +2131,12 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
   }
 
   // Fix a record's value in place: the engine keeps its id and timeline slot.
-  // Offered only for plain values; encrypted/away/blob rows omit the menu item.
-  // Returns the new value when it changed, else null (cancel/no-op/failure).
+  // A document (blobs/) row edits its full text (docRead: the list shows only a
+  // bounded preview) and every save goes through the same doc-aware engine
+  // entry as Add, so an edit may cross the one-line/document boundary either
+  // way. Offered for plain and document rows; encrypted/away rows omit the item.
+  // Returns the record's new STORED value when it changed (for a document, its
+  // fresh blobs/ path), else null (cancel/no-op/failure).
   Future<String?> _editValue(int id, String oldValue) async {
     final messenger = ScaffoldMessenger.of(context);
     if (_ais == null) {
@@ -2145,7 +2149,18 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
           content: Text('A sync is running. Try again in a moment.')));
       return null; // don't write while a sync holds the handle
     }
-    final ctrl = TextEditingController(text: oldValue);
+    var orig = oldValue;
+    if (_isBlob(oldValue)) {
+      final t = _ais!.docRead(oldValue);
+      if (t == null) {
+        // the row gates on _notHere, so this is a race (blob just left)
+        messenger.showSnackBar(
+            const SnackBar(content: Text('That note is not on this device')));
+        return null;
+      }
+      orig = t;
+    }
+    final ctrl = TextEditingController(text: orig);
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => _OwnedFields(
@@ -2175,14 +2190,26 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
       messenger.showSnackBar(const SnackBar(content: Text("Value can't be empty")));
       return null;
     }
-    if (newValue == oldValue) return null;
-    // A NUL or an over-long value would be silently truncated by the engine.
-    final content = contentError(value: newValue, keys: '');
-    if (content != null) {
-      messenger.showSnackBar(SnackBar(content: Text(content)));
+    if (newValue == orig) return null;
+    // A NUL would be silently truncated by the engine. The line-length cap
+    // applies only to what will be stored INLINE: multi-line (or over-long)
+    // text goes out-of-line, where no such limit exists.
+    if (newValue.contains('\u0000')) {
+      messenger.showSnackBar(const SnackBar(
+          content: Text('Remove the special (null) character before saving.')));
       return null;
     }
-    final rc = _ais!.setValue(id, oldValue, newValue);
+    if (!newValue.trimRight().contains('\n')) {
+      final content = contentError(value: newValue, keys: '');
+      if (content != null) {
+        messenger.showSnackBar(SnackBar(content: Text(content)));
+        return null;
+      }
+    }
+    // oldValue stays the STORED string (a blobs/ path for a document): that is
+    // the line the engine matches and replaces. newStored is what the record
+    // holds now (the trimmed line, or a fresh blobs/ path).
+    final (rc, newStored) = _ais!.setValueText(id, oldValue, newValue);
     if (!mounted) return null;
     final done = rc == 0;
     messenger.showSnackBar(SnackBar(
@@ -2194,7 +2221,7 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
                     ? 'A deleted note still holds that text: run Clean up first'
                     : "Couldn't update the value")));
     if (done) _setView(_view); // refresh whichever view is showing
-    return done ? newValue : null;
+    return done ? newStored : null;
   }
 
   // Reveal an encrypted ("aisc:") hit. Encrypted DOCUMENTS need the CLI.
@@ -2312,8 +2339,8 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
                       }
                     },
                     itemBuilder: (_) => [
-                      // plain values edit as raw text; encrypted/away/blob rows omit this
-                      if (!isSecret && !away && !_isBlob(curValue))
+                      // plain and document rows edit as text; encrypted/away rows omit this
+                      if (!isSecret && !away)
                         const PopupMenuItem(
                             value: 'value', child: Text('Edit value')),
                       const PopupMenuItem(value: 'tags', child: Text('Edit tags')),
@@ -2497,8 +2524,8 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
                   // sharing ciphertext / a missing blob is useless; gate like Edit value
                   if (!isSecret && !away)
                     const PopupMenuItem(value: 'share', child: Text('Share')),
-                  // plain values edit as raw text; encrypted/away/blob rows omit this
-                  if (!isSecret && !away && !_isBlob(v))
+                  // plain and document rows edit as text; encrypted/away rows omit this
+                  if (!isSecret && !away)
                     const PopupMenuItem(value: 'value', child: Text('Edit value')),
                   const PopupMenuItem(value: 'edit', child: Text('Edit tags')),
                   const PopupMenuItem(value: 'delete', child: Text('Delete')),
@@ -2692,8 +2719,8 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
             // sharing ciphertext / a missing blob is useless; gate like Edit value
             if (!r.value.startsWith('aisc:') && !_notHere(r.value))
               const PopupMenuItem(value: 'share', child: Text('Share')),
-            // plain values edit as raw text; encrypted/away/blob rows omit this
-            if (!r.value.startsWith('aisc:') && !_notHere(r.value) && !_isBlob(r.value))
+            // plain and document rows edit as text; encrypted/away rows omit this
+            if (!r.value.startsWith('aisc:') && !_notHere(r.value))
               const PopupMenuItem(value: 'value', child: Text('Edit value')),
             const PopupMenuItem(value: 'edit', child: Text('Edit tags')),
             const PopupMenuItem(value: 'delete', child: Text('Delete')),

@@ -53,3 +53,8 @@ Files (in the index directory)
   edit, carries the replacement text, and is never pruned (--forget-deleted
   rewrites it, dropping only deleted records' facts): a record edited many
   times costs more in the edit log and in every sync bundle than in the store.
+  Editing a document points its record at a fresh blob; the edit fact syncs
+  even when the body does not (a body over the 64 MiB transfer cap, or a body
+  whose write failed mid --import), and a peer applying the fact discards its
+  old body without checking the new one arrived. Keep documents that large out
+  of edits, or sync them by whole folder.

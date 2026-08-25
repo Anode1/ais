@@ -47,6 +47,32 @@ long ais_doc_put(ais *a, const char *keys, const char *content, size_t len);
  * new record id, or -1. This is the entry point every GUI calls. */
 long ais_put_value(ais *a, const char *keys, const char *value);
 
+/* The in-place-edit twin of ais_put_value: replace record ID's value with TEXT,
+ * choosing the representation at THIS write. A multi-line (or over-long) TEXT
+ * goes to a fresh blob the record then points at; a single line goes inline.
+ * OLD_VALUE is the stored string (for a document, its "blobs/" path); the blob
+ * it referenced is disposed of by the discard seam inside ais_set_value. On
+ * success NEWVAL (when non-NULL) gets the value the record now stores: the
+ * trimmed line, or the fresh blob's path -- a record can hold several values,
+ * so no lookup after the fact can tell which one this edit made. Returns
+ * ais_set_value's codes: 0, -1, -2 (a record already holds TEXT), -3 (a
+ * deleted one still does). */
+int  ais_set_value_text(ais *a, long id, const char *old_value, const char *text,
+                        char *newval, size_t nvsz);
+
+/* Is S[0..len) storable-as-text for an EDITOR: no NUL, valid UTF-8. A document
+ * failing this (binary import, another encoding) must not be offered for text
+ * editing -- a browser or UTF-16 string layer would substitute replacement
+ * characters, and saving those back destroys the original bytes. */
+int  ais_doc_text_ok(const char *s, size_t len);
+
+/* The whole document behind VALUE (its "blobs/" path): malloc'd and
+ * NUL-terminated, *LEN (when non-NULL) gets the byte length. NULL when VALUE
+ * is not a document blob present here, or on read failure. The bounded
+ * ais_doc_display is for SHOWING; an editor must start from this, or a long
+ * document's tail would be cut on save. */
+char *ais_doc_read(const ais *a, const char *value, size_t *len);
+
 /* Is VALUE a document-blob reference ("blobs/<...>", the out-of-line store for a
  * multi-line value)? If so, build the blob's absolute path under the index in
  * PATH and return 1; else 0. Existence is the caller's to check (open PATH,

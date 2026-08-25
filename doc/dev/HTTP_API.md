@@ -21,6 +21,7 @@ shapes the CLI prints. A GUI that can be debugged with `curl` is the point.
 | GET | `/api/timeline?count=N[&before=ID][&from=D][&to=D]` | `id\|ts\|keys\|value`, newest first |
 | GET | `/api/tags[?count=N&afterc=C&afterk=K]` | `count\|key`, busiest first |
 | GET | `/api/keys?id=N` | the visible tags of one record |
+| GET | `/api/doc?v=blobs/...` | the full text of one document, named by its stored `blobs/` value (the first line inside every `aisdoc:` base64, see below). List views carry only a bounded preview, so an editor starts from this. 404 when the file is not here, is not editable text (NUL / non-UTF-8), or exceeds what one `setvalue` request could save back (~32 KB) |
 | GET | `/api/stats` | `records:` / `keys:` / `deleted:`, as `ais --stats` |
 | GET | `/api/where` | the index directory |
 | GET | `/api/version` | `engine:` and on-disk `format:`; see `VERSIONING.md` |
@@ -29,13 +30,20 @@ shapes the CLI prints. A GUI that can be debugged with `curl` is the point.
 counts lines counts links, not records — group by the id before showing a count,
 especially in anything destructive. Both front ends learned this the hard way.
 
+A document value reaches the client as `aisdoc:<base64 of "path\ncontent">`: the
+first line is the stored `blobs/` path — the handle for `/api/doc` and the old
+value for `setvalue`, carried per row because an id alone cannot name one value
+of a multi-link record — and the rest is the bounded preview. An absent document
+(file not on this device) arrives as its raw `blobs/` path instead, and is not
+editable there.
+
 ## Writing
 
 | Method | Path | Does |
 | --- | --- | --- |
 | POST | `/api/put?keys=A+B[&enc=1]` | save; body is the value, or `passphrase\nvalue` when `enc=1` |
 | POST | `/api/update?id=N&keys=A+-B` | attach/detach tags (a `-` prefix detaches) |
-| POST | `/api/setvalue?id=N` | replace one value in place; body is `oldvalue\nnewvalue` |
+| POST | `/api/setvalue?id=N` | replace one value in place; body is `oldvalue\nnewtext`. The old value is one line (a document's is its `blobs/` path, from the row's `aisdoc:` header line); the new text may span lines, and the engine stores it inline or as a fresh document blob, as saving does |
 | POST | `/api/del?id=N` | delete one record |
 | POST | `/api/reveal` | body is `passphrase\nmarked-value`; replies with the cleartext, or empty |
 

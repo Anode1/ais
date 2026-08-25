@@ -665,10 +665,10 @@ int main(int argc, char **argv)
             if (optind >= argc) die("--set needs an ID");
             if (nval != 2) die("--set needs -v OLD_VALUE -v NEW_VALUE");
             id = atol(argv[optind]);
-            /* ais_set_value fails for several reasons and prints its own message
-             * for the ones it can explain (a multi-line value); this names the
-             * likely cause, not a certain one. */
-            switch (ais_set_value(&a, id, values[0], values[1])) {
+            /* Doc-aware: a multi-line NEW_VALUE goes to a fresh blob, editing a
+             * document means OLD_VALUE is its "blobs/" path. The refusal below
+             * names the likely cause, not a certain one. */
+            switch (ais_set_value_text(&a, id, values[0], values[1], NULL, 0)) {
             case 0:  break;
             case -2: die("--set: record %ld unchanged: a record already holds '%s',\n"
                          "     this one as another link, or another record (a value is\n"
