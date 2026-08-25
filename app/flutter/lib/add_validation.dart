@@ -52,10 +52,16 @@ String? contentError({required String value, required String keys}) {
 bool saveSucceeded(int id) => id >= 0;
 
 /// The message after an Add save. id < 0 (bad args, blob write failure, crypto
-/// not built) is reported as a failure, never as "Saved".
-String saveOutcomeMessage(int id, String keys) => !saveSucceeded(id)
-    ? 'Could not save. Check storage and try again.'
-    : (keys.isEmpty ? 'Saved (no tags)' : 'Saved under: $keys');
+/// not built) is reported as a failure, never as "Saved". [merged] means the
+/// text was already in the index, so the save landed on that record (a value is
+/// identity): restamped to today, keys attached, no new row. Saying "Saved"
+/// there reads as a second note, and the missing row as data loss.
+String saveOutcomeMessage(int id, String keys, {bool merged = false}) =>
+    !saveSucceeded(id)
+        ? 'Could not save. Check storage and try again.'
+        : merged
+            ? 'Already in your memory: kept as one entry, dated today'
+            : (keys.isEmpty ? 'Saved (no tags)' : 'Saved under: $keys');
 
 /// The message after an in-place tag edit; the engine's update() bool decides.
 /// It is false for an unknown or deleted record, where nothing changed.

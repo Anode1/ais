@@ -84,6 +84,14 @@ void main() {
     test('id 0 is a valid stored record (boundary)', () {
       expect(saveSucceeded(0), isTrue);
     });
+    test('a merged save says so, never "Saved"', () {
+      expect(saveOutcomeMessage(3, 'note', merged: true),
+          'Already in your memory: kept as one entry, dated today');
+    });
+    test('a failed save stays a failure even if flagged merged', () {
+      expect(saveOutcomeMessage(-1, 'note', merged: true),
+          'Could not save. Check storage and try again.');
+    });
   });
 
   // update() is false for an unknown or deleted record.

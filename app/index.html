@@ -625,8 +625,18 @@ async function save() {
     var r = await fetch('/api/put?keys=' + encodeURIComponent(keys) + (enc ? '&enc=1' : ''),
                         { method:'POST', body: enc ? (pp + '\n' + value) : value });
     if (!r.ok) throw new Error('server ' + r.status);
+    var rt = await r.text();
   } catch (e) { alert('Save failed (' + e.message + '). Nothing was saved.'); return; }
   closeSheet();
+  // same text, same record: the reply says the save merged (restamped to today,
+  // keys attached); silence here reads as the first note vanishing. The toast
+  // is skipped while a delete's Undo owns it.
+  if (rt.indexOf('merged') == 0 && !delTimer) {
+    $('toast').firstChild.textContent = 'Already in your memory: kept as one entry, dated today';
+    $('toastundo').hidden = true;
+    $('toast').hidden = false;
+    setTimeout(function () { if (!delTimer) hideToast(); }, 4000);
+  }
   $('q').value = keys; recall();          // show what was just saved
   if (syncFolderSaved()) syncFolderRun(true);   // and get it into the shared folder
 }

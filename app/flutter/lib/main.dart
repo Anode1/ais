@@ -2910,6 +2910,11 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
                       // off-isolate ais_put does (a cross-isolate write race). The
                       // sheet is modal, so no new delete can be armed meanwhile.
                       _flushPendingDeletes();
+                      // The one save that adds no live record is a merge: same
+                      // text, same record (value is identity), restamped to
+                      // today. Count around the save to say so afterwards; an
+                      // encrypted save always mints a fresh record (its IV).
+                      final before = encrypt ? -1 : _ais!.countLive();
                       int id = -1;
                       try {
                         if (encrypt) {
@@ -2935,10 +2940,12 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
                       if (ctx.mounted) nav.pop(); // only pop if the sheet is still open
                       // Show the new record at the top of Recent. Saving is not a
                       // query: don't drop into a search for it.
+                      final merged = before >= 0 && _ais!.countLive() == before;
                       _setView('timeline');
                       _runFolderSync(silent: true); // push the new record to peers
                       messenger.showSnackBar(SnackBar(
-                          content: Text(saveOutcomeMessage(id, keys))));
+                          content: Text(saveOutcomeMessage(id, keys,
+                              merged: merged))));
                     },
             ),
           ],

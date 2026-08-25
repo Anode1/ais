@@ -50,6 +50,13 @@ if ! curl -s -o /dev/null "$B/"; then echo "  FAIL server did not start on $PORT
 ok "put (plain)"   "saved 1"      "$(printf 'hello venice' | curl -s -X POST --data-binary @- "$B/api/put?keys=venice")"
 ok "get (plain)"   "hello venice" "$(curl -s "$B/api/get?keys=venice")"
 
+# same text again: one record (value is identity), restamped, keys attached --
+# and the reply SAYS merged, or the missing second row reads as data loss
+ok "put (same text) says merged"  "merged" "$(printf 'hello venice' | curl -s -X POST --data-binary @- "$B/api/put?keys=lagoon")"
+ok "and it is still one record"   "1"      "$(curl -s "$B/api/get?keys=venice" | grep -c .)"
+ok "with the new key attached"    "hello venice" "$(curl -s "$B/api/get?keys=lagoon")"
+curl -s -X POST "$B/api/update?id=1&keys=-lagoon" >/dev/null   # keep the tag fixtures below as written
+
 # --- keyset paging: /api/get and /api/tags page a large set with a cursor ---
 # venice is id 1; seed three more under pgk (ids 2,3,4), ascending.
 printf 'p one'   | curl -s -X POST --data-binary @- "$B/api/put?keys=pgk" >/dev/null

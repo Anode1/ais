@@ -481,8 +481,14 @@ static const char PAGE[] =
 /* On a failed or unreachable put, tell the user and KEEP the sheet so they can
  * retry: never a stuck, silent modal. */
 "try{var r=await fetch('/api/put?keys='+encodeURIComponent(k)+(enc?'&enc=1':''),{method:'POST',body:enc?(pp+'\\n'+v):v});"
-"if(!r.ok)throw new Error('server '+r.status)}catch(e){alert('Save failed ('+e.message+'). Nothing was saved.');return}"
-"closeSheet();setView('timeline');if(syncFolderSaved())syncFolderRun(true)}"
+"if(!r.ok)throw new Error('server '+r.status);var rt=await r.text()}catch(e){alert('Save failed ('+e.message+'). Nothing was saved.');return}"
+"closeSheet();setView('timeline');"
+/* same text, same record: the reply says the save merged (restamped to today,
+ * keys attached); silence here reads as the first note vanishing. The toast is
+ * skipped while a delete's Undo owns it. */
+"if(rt.indexOf('merged')==0&&!delTimer){$('toast').firstChild.textContent='Already in your memory: kept as one entry, dated today';"
+"$('toastundo').hidden=true;$('toast').hidden=false;setTimeout(function(){if(!delTimer)hideToast()},4000)}"
+"if(syncFolderSaved())syncFolderRun(true)}"
 "$('q').addEventListener('keydown',function(e){if(e.key=='Enter')setView('recall')});"
 "$('seg-recall').onclick=function(){setView('recall')};"
 "[].forEach.call(document.querySelectorAll('#bnav button'),function(b){b.onclick=function(){setView(b.dataset.v)}});"
@@ -1443,7 +1449,13 @@ static void handle(ais *a, int fd)
         do_get(a, keys, want_or, after, count, meta, fd);
     } else if (strcmp(method, "POST") == 0 && strcmp(path, "/api/put") == 0) {
         char msg[64];
-        long c = enc ? do_put_enc(a, keys, body) : do_put(a, keys, body);
+        long n0 = -1, n1 = -1, c;
+        /* A save of text the index already holds lands on the SAME record (a
+         * value is identity): restamped to now, keys attached, no new row. The
+         * reply must say so -- "saved" reads as a second note, and the missing
+         * row as data loss. A merge is the one save that adds no live record. */
+        ais_count_live(a, &n0);
+        c = enc ? do_put_enc(a, keys, body) : do_put(a, keys, body);
         if (c <= 0) {
             /* Saving nothing is a FAILURE, not a 200 with a count of zero: on a
              * 200 both pages close the sheet as if the value had been stored, and
@@ -1453,7 +1465,10 @@ static void handle(ais *a, int fd)
                 "Connection: close\r\n\r\nnothing was saved\n";
             write_all(fd, e, sizeof(e) - 1);
         } else {
-            int m = snprintf(msg, sizeof(msg), "saved %ld record(s)\n", c);
+            int merged = (n0 >= 0 && ais_count_live(a, &n1) == 0 && n1 == n0);
+            int m = merged
+                  ? snprintf(msg, sizeof(msg), "merged with an existing record\n")
+                  : snprintf(msg, sizeof(msg), "saved %ld record(s)\n", c);
             send_head(fd, "text/plain");
             if (m > 0)
                 write_all(fd, msg, (size_t)m);
