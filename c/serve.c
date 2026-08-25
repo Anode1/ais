@@ -586,23 +586,31 @@ static const char PAGE[] =
 "el.appendChild(cv)}catch(e){el.textContent='(QR unavailable)'}}"
 /* the Sync sheet: a role picker, then a Host pane (address+token+QR, polling) or
  * a Join pane (address+token inputs). Both converge (the bidir exchange). */
-"var syncPoll=null;"
+"var syncPoll=null,hostUrl='',hostTok='';"
 "function openSync(){$('syncpick').style.display='flex';$('syncfile').style.display='block';$('synchost').hidden=true;$('syncjoin').hidden=true;$('syncsheet').hidden=false}"
 "function closeSync(){$('syncsheet').hidden=true;if(syncPoll){clearInterval(syncPoll);syncPoll=null}}"
+/* A code on screen is an invitation to scan it, so it is there only while it still
+ * works: drawn when a host starts, wiped the moment that host is spent. */
+"function hostShow(url,tok){hostUrl=url;hostTok=tok;$('hostaddr').textContent=url;$('hosttok').textContent='token: '+tok;"
+"qrDraw($('qr'),'ais://sync?host='+encodeURIComponent(url.split('://')[1])+'&token='+tok)}"
+"function hostClear(){hostUrl='';hostTok='';$('hostaddr').textContent='';$('hosttok').textContent='';$('qr').innerHTML=''}"
 "async function syncHost(){$('syncpick').style.display='none';$('syncfile').style.display='none';$('synchost').hidden=false;"
 "$('hoststatus').textContent='Starting...';"
 "var r=await fetch('/api/sync/host',{method:'POST'});"
-"if(!r.ok){$('hoststatus').textContent='Could not start host. Is one already running?';return}"
-"var t=(await r.text()).split('\\n'),url=t[0],tok=t[1];"
-"$('hostaddr').textContent=url;$('hosttok').textContent='token: '+tok;"
-"qrDraw($('qr'),'ais://sync?host='+encodeURIComponent(url.split('://')[1])+'&token='+tok);"
-"$('hoststatus').textContent='Waiting for the other device...';"
-"if(syncPoll)clearInterval(syncPoll);"
+/* Refused means the host started a moment ago is still waiting, and ITS code is
+ * still good: show that one rather than a dead one, or nothing. */
+"if(!r.ok){var w=(await(await fetch('/api/sync/status')).text()).trim();"
+"if(w=='waiting'&&hostUrl){hostShow(hostUrl,hostTok);$('hoststatus').textContent='This code is still waiting. Scan it.';hostPoll();return}"
+"hostClear();$('hoststatus').textContent='A sync started here a moment ago is still running. Let it finish, then press Host again.';return}"
+"var t=(await r.text()).split('\\n');hostShow(t[0],t[1]);"
+"$('hoststatus').textContent='Waiting for the other device...';hostPoll()}"
+"function hostPoll(){if(syncPoll)clearInterval(syncPoll);"
 "syncPoll=setInterval(async function(){var s=(await(await fetch('/api/sync/status')).text()).trim();"
-"if(s=='synced'){clearInterval(syncPoll);syncPoll=null;$('hoststatus').textContent='Synced. Both devices now have the same records.';setView(view)}"
-"else if(s=='half'){clearInterval(syncPoll);syncPoll=null;$('hoststatus').textContent='They got your records, but theirs did not come back. Nothing was lost -- sync again to finish.';setView(view)}"
-"else if(s=='again'){clearInterval(syncPoll);syncPoll=null;$('hoststatus').textContent='Synced, but one more round is needed to match exactly. Nothing was lost -- sync again.';setView(view)}"
-"else if(s=='timeout'){clearInterval(syncPoll);syncPoll=null;$('hoststatus').textContent='No device joined in time. Try again.'}},1500)}"
+"if(s=='waiting')return;clearInterval(syncPoll);syncPoll=null;hostClear();"
+"if(s=='synced'){$('hoststatus').textContent='Synced. Both devices now have the same records.';setView(view)}"
+"else if(s=='half'){$('hoststatus').textContent='They got your records, but theirs did not come back. Nothing was lost -- sync again to finish.';setView(view)}"
+"else if(s=='again'){$('hoststatus').textContent='Synced, but one more round is needed to match exactly. Nothing was lost -- sync again.';setView(view)}"
+"else{$('hoststatus').textContent='That code expired before anyone joined. Press Host again for a fresh one.'}},1500)}"
 "function syncJoinPane(){$('syncpick').style.display='none';$('syncfile').style.display='none';$('syncjoin').hidden=false;$('joinstatus').textContent='';$('jaddr').focus()}"
 /* file export/import: no network -- carry the whole index as one .aisb file */
 "function fileExport(){var a=document.createElement('a');a.href='/api/export-bundle';a.download='ais-export.aisb';document.body.appendChild(a);a.click();a.remove()}"
@@ -1034,7 +1042,9 @@ static int serve_asset(int fd, const char *name)
  * exchange the mobile app uses (both devices converge in one round).
  */
 #define SERVE_SYNC_BIDIR    1     /* symmetric exchange (matches the mobile Sync) */
-#define SERVE_SYNC_TIMEOUT 120    /* seconds the host child waits for one peer    */
+#define SERVE_SYNC_TIMEOUT 300    /* seconds the host child waits for one peer:   */
+                                  /* unlock, camera, cold start, confirm -- two   */
+                                  /* minutes ran out before the phone joined      */
 
 static volatile sig_atomic_t sync_child = -1;   /* live Host child pid, or -1 (one at a time) */
 static volatile sig_atomic_t sync_last  = -2;   /* last Host outcome: 0 served, 1 half, else not */

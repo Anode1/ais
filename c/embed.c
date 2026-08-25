@@ -168,7 +168,9 @@ static int embed_serve(void *handle, int port, const char *token, int bidir)
     if (a == NULL || token == NULL)
         return -1;                          /* bad args */
     signal(SIGPIPE, SIG_IGN);               /* a peer that vanishes mid-write must not kill the app */
-    r = sync_serve(a, port, token, 120, bidir);   /* wait up to 120s for one peer */
+    /* 300s, not 120: the peer has to unlock a phone, open the camera, wait out a
+     * cold start and confirm, and two minutes ran out before it joined. */
+    r = sync_serve(a, port, token, 300, bidir);
     if (r == -2) return -3;                 /* the port is busy (bind failed) -- fast, not a timeout */
     if (r == AIS_SYNC_PARTIAL) return 1;    /* they got ours; we did not get theirs */
     if (r == AIS_SYNC_AGAIN)   return 2;    /* both merged, but one more round is needed */

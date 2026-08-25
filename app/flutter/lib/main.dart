@@ -19,12 +19,57 @@ import 'record_rows.dart';
 import 'add_validation.dart';
 import 'version.dart';
 
-void main() => runApp(const AisApp());
+void main() async {
+  // Read the saved theme BEFORE the first frame: loading it afterwards paints one
+  // frame of the wrong one, which is exactly the flash the setting exists to stop.
+  WidgetsFlutterBinding.ensureInitialized();
+  themeModeNotifier.value = await loadThemeMode();
+  runApp(const AisApp());
+}
 
-// Session-only theme choice, driven from the overflow menu via a
-// ValueListenableBuilder. Not persisted: resets to System on next launch.
+// The theme choice, driven from the overflow menu via a ValueListenableBuilder and
+// kept across launches in the app's own support dir -- NOT in the index: the index
+// folder is what Syncthing carries between devices, and a screen preference set on
+// the phone has no business changing the laptop's.
 final ValueNotifier<ThemeMode> themeModeNotifier =
     ValueNotifier(ThemeMode.system);
+
+Future<File> _themeFile() async =>
+    File('${(await getApplicationSupportDirectory()).path}/theme');
+
+/// The saved choice, or System when nothing is saved yet or the file is unreadable
+/// (a fresh install, a cleared app dir): the app opens, it just opens as System.
+Future<ThemeMode> loadThemeMode() async {
+  try {
+    final f = await _themeFile();
+    if (!f.existsSync()) return ThemeMode.system;
+    switch (f.readAsStringSync().trim()) {
+      case 'light':
+        return ThemeMode.light;
+      case 'dark':
+        return ThemeMode.dark;
+      default:
+        return ThemeMode.system;
+    }
+  } catch (_) {
+    return ThemeMode.system;
+  }
+}
+
+/// Best-effort: a theme that cannot be written is still applied for this session.
+Future<void> saveThemeMode(ThemeMode m) async {
+  try {
+    final f = await _themeFile();
+    f.parent.createSync(recursive: true);
+    f.writeAsStringSync(m == ThemeMode.light
+        ? 'light'
+        : m == ThemeMode.dark
+            ? 'dark'
+            : 'system');
+  } catch (e) {
+    debugPrint('AIS: could not save the theme choice: $e');
+  }
+}
 
 class AisApp extends StatelessWidget {
   const AisApp({super.key});
@@ -1127,22 +1172,23 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
     final before = _ais!.countLive();   // to say what the merge actually did
     _syncBusy = true;
     final fut = _ais!.pullAsync(url, token, bidir: true);
-    final hidden = await showDialog<bool>(
-          context: context,
-          barrierDismissible: false,
-          builder: (_) => _SyncWaitDialog(
-              title: 'Join a sync',
-              waiting: 'Syncing...',
-              note: 'You can hide this; syncing continues in the background.',
-              done: fut),
-        ) ??
-        false;
+    await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => _SyncWaitDialog(
+          title: 'Join a sync',
+          waiting: 'Syncing...',
+          note: 'You can hide this; the result is still reported.',
+          done: fut),
+    );
     final rc = await fut;
     _syncBusy = false;
     if (!mounted) return;
-    // rc < 0, not rc != 0: a HALF-done sync (1) did move records and needs an
-    // action from the user, so it is announced even from a hidden dialog.
-    if (hidden && rc < 0) return; // don't surprise with a late failure snackbar
+    // Every outcome is announced, hidden dialog or not: a join gives up after 10s
+    // (embed_pull's LAN timeout), inside the same interaction, and silence reads as
+    // success. Hidden and failed looked exactly like synced, and the records that
+    // never arrived were not missed until later. Host still keeps its silence: that
+    // wait is five minutes, and a snackbar that late is a surprise.
     final String msg;
     switch (rc) {
       case 0:
@@ -1209,7 +1255,7 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
     final before = _ais!.countLive();   // to say what the merge actually did
     _syncBusy = true;
     _keepAwake(true);                   // the QR has to stay visible to be scanned
-    final fut = _ais!.serveAsync(port, token, bidir: true); // blocks up to ~120s
+    final fut = _ais!.serveAsync(port, token, bidir: true); // blocks up to ~300s
     final hidden = await showDialog<bool>(
           context: context,
           barrierDismissible: false,
@@ -1255,7 +1301,7 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
         msg = 'The sync port was taken just as we started. Try again.';
         break;
       default:
-        msg = 'No device joined in time. Try again.';
+        msg = 'That code expired before anyone joined. Tap Sync again for a fresh one.';
     }
     messenger.showSnackBar(SnackBar(content: Text(msg)));
     if (rc >= 0) _setView(_view); // a half-done sync still merged theirs
@@ -1464,7 +1510,9 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
         ],
       ),
     );
-    if (picked != null) themeModeNotifier.value = picked;
+    if (picked == null) return;
+    themeModeNotifier.value = picked;
+    await saveThemeMode(picked);
   }
 
   // The on-disk format version, from the index's own `version` file (c/store.c

@@ -427,7 +427,7 @@ class AisEngine {
   }
 
   /// Serve this index to one LAN peer that pulls with `ais --import` (sync:
-  /// Send). Blocks up to ~120s for one peer, so run it off the UI isolate.
+  /// Send). Blocks up to ~300s for one peer, so run it off the UI isolate.
   /// Returns 0 = a peer pulled and merged, 1 = HALF done (bidir only: they got
   /// ours, we did not get theirs), -1 = bad args, -2 = no peer completed
   /// (timeout / wrong token / error), -3 = the port is already in use.
