@@ -44,8 +44,9 @@ The **Android** app has shipped (above); **iOS** is the next focus. The same
 on a simulator, where the engine opens an index. What is left is the Apple side:
 signing, a device, TestFlight. No interface work, since the screens are shared
 with Android, and no core changes.
-Issue [#1](https://github.com/Anode1/ais/issues/1) carries the whole brief: what
-is missing, the signing steps and how to tell it works. A native Swift client
+Issue [#1](https://github.com/Anode1/ais/issues/1) carries the brief: what is
+missing and how to tell it works. [`dev/IOS_RELEASE.md`](dev/IOS_RELEASE.md) is
+the Apple side step by step, from a machine with no Mac. A native Swift client
 over the same `embed.h` seam is possible and nothing needs it; the spec that
 described one is in git at `313fb42:doc/dev/IOS_NATIVE.md`.
 

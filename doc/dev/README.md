@@ -40,12 +40,13 @@ README's "Learn more" table. Start with `../../AGENTS.md`, then `LAYOUT.md` and
 | [PACKAGING.md](PACKAGING.md) | for distro maintainers: build, test, staged install, licences, the `AIS_VERSION` override |
 | [DISTRIBUTION.md](DISTRIBUTION.md) | one download per platform, what each gets, and the PWA/WASM track |
 | [ANDROID_RELEASE.md](ANDROID_RELEASE.md) | getting a build onto a phone, into Play, and onto F-Droid |
+| [IOS_RELEASE.md](IOS_RELEASE.md) | the Apple side step by step: enrolment, signing without a Mac, TestFlight, the App Store |
 | [WINDOWS.md](WINDOWS.md) | the whole Windows situation: what CI builds, and the sync, signing and packaging plans |
 
-iOS has no file here on purpose: the engine is wired in and CI runs the app on a
-simulator, and everything left is the Apple account side, which lives in
-[issue #1](https://github.com/Anode1/ais/issues/1) so it does not go stale in two
-places at once.
+iOS is split in two so neither half goes stale: `IOS_RELEASE.md` owns the Apple
+account and the path to the store, and
+[issue #1](https://github.com/Anode1/ais/issues/1) owns the developer brief, the
+engine wiring and the acceptance list to run on a real phone.
 
 ## Writing
 
