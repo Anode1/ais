@@ -9,8 +9,9 @@ API Key ID, API Issuer ID.
 - [x] Dual licence added (2026-08-30): MIT in `commercial/LICENSE-MIT` beside
       the GPL. App Store binaries distribute under MIT, so no GPL exception is
       needed.
-- [ ] Written OK from the second contributor (1 commit: `.gitignore`,
-      `release.yml`) for the dual licence.
+- [x] No consent to collect: the one commit under a second account
+      (`.gitignore`, `release.yml`) was the author's own work, so there is a
+      single copyright holder.
 
 ## 1. Enrol as a developer ($99/yr)
 
@@ -75,8 +76,9 @@ API Key ID, API Issuer ID.
 
 ## 7. TestFlight
 
-- [ ] Users and Access > + > invite your own Apple ID, role Developer
-      (internal tester, no Beta App Review).
+- [ ] Users and Access > + > invite your own Apple ID and the second
+      tester's, role Developer (internal testers, no Beta App Review); two
+      phones widen the hardware coverage and give sync a real second device.
 - [ ] TestFlight > Internal Testing > group > tester > build.
 - [ ] Install **TestFlight** on the phone, accept the invite, install AIS.
 - [ ] Run the acceptance list from issue #1 on the phone: QR join, speech

@@ -33,10 +33,9 @@ that clash is why VLC was pulled from the App Store in 2011, on a complaint from
 one of its copyright holders. It takes a copyright holder objecting; nobody
 enforces it unaided.
 
-You are effectively the only one. `git log --format='%an'` shows a second
-contributor with a single commit, touching `.gitignore` and
-`.github/workflows/release.yml`, so nothing of the program itself. Get a written
-line of agreement from her anyway, and add the standard exception:
+You are the only one: the single commit under a second account (`.gitignore`,
+`.github/workflows/release.yml`) was the author's own work, so there is one
+copyright holder. The standard exception would have been:
 
     As a special exception, the copyright holders of AIS give permission to
     distribute binaries built from this source through Apple's App Store and
