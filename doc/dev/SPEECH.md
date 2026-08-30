@@ -1,7 +1,8 @@
 # Speech support
 
 Voice as a first-class input: speak to recall (GET) and speak to file (PUT).
-[ROADMAP.md](../ROADMAP.md) names the goal; this doc owns the design. Flutter
+[ROADMAP.md](../ROADMAP.md) names the goal; this doc owns the design; the
+surveyed evidence and sources are in [SPEECH_SURVEY.md](SPEECH_SURVEY.md). Flutter
 has no speech UI of its own (no dictation widget, no listening state, no
 recognition API; `speech_to_text` is a community plugin that returns
 transcripts), so the in-app interaction is designed once here, the same on

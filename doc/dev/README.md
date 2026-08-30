@@ -43,6 +43,7 @@ README's "Learn more" table. Start with `../../AGENTS.md`, then `LAYOUT.md` and
 | [IOS_RELEASE.md](IOS_RELEASE.md) | the Apple side step by step: enrolment, signing without a Mac, TestFlight, the App Store |
 | [IOS_TODO.md](IOS_TODO.md) | the release checklist, one box per step of IOS_RELEASE.md |
 | [SPEECH.md](SPEECH.md) | voice input: the one in-app interaction, the OS entry points, and the build order |
+| [SPEECH_SURVEY.md](SPEECH_SURVEY.md) | the evidence behind SPEECH.md: what capture apps do, platform status, sources |
 | [WINDOWS.md](WINDOWS.md) | the whole Windows situation: what CI builds, and the sync, signing and packaging plans |
 
 iOS is split in two so neither half goes stale: `IOS_RELEASE.md` owns the Apple
