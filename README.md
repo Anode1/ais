@@ -137,4 +137,4 @@ The skill itself is [`.claude/skills/ais/SKILL.md`](.claude/skills/ais/SKILL.md)
 
 ## License
 
-New code (`c/`): GNU GPL v2 or later (per source headers). Legacy material (`legacy/`) under its original Apache License 2.0. Author: Vasili Gavrilov (GitHub [Anode1](https://github.com/Anode1)).
+New code: dual licensed, your choice of GNU GPL v2 or later ([COPYING](COPYING)) or MIT ([commercial/LICENSE-MIT](commercial/LICENSE-MIT)). Legacy material (`legacy/`) under its original Apache License 2.0. Author: Vasili Gavrilov (GitHub [Anode1](https://github.com/Anode1)).

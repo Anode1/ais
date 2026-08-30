@@ -22,6 +22,10 @@ appear: **Team ID**, **profile name**, **API Key ID**, **API Issuer ID**.
 
 ## 0. The licence, before anything else
 
+**Resolved 2026-08-30**: the project is dual licensed, GPL-2.0-or-later or MIT
+(`commercial/LICENSE-MIT`), and App Store binaries distribute under MIT, so the
+exception below is not needed. The section stays as the reasoning.
+
 AIS is GPL v2 or later. Apple's Licensed Application End User License Agreement
 limits use to devices the buyer owns or controls, plus Family Sharing. Section 6
 of the GPL forbids imposing further restrictions on the rights it grants, and

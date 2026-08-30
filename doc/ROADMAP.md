@@ -65,6 +65,7 @@ Voice as a first-class input: **speak to file** (PUT) and **speak to recall**
 (GET). On-device recognition where the platform provides it (iOS and Android
 native speech APIs, not browser Safari, which is one reason iOS needs a native
 shell). This is the seam toward the longer-horizon hands-free / wearable use.
+Design and build order: [dev/SPEECH.md](dev/SPEECH.md).
 
 ### Agent integration on Android
 

@@ -1,6 +1,6 @@
 /* common.h -- shared limits and includes for AIS.
  *
- * Copyright (C) 2001 Vasili Gavrilov. GNU GPL v2 or later.
+ * Copyright (C) 2001 Vasili Gavrilov. GPL-2.0-or-later OR MIT.
  */
 #ifndef AIS_COMMON_H
 #define AIS_COMMON_H
