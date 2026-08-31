@@ -17,6 +17,7 @@
 #include <string.h>
 #include <time.h>          /* clock() -- the batched-import cost test */
 #include <unistd.h>
+#include <signal.h>        /* kill -- tear down the forked --serve child */
 #include <sys/stat.h>      /* mkdir (canonicalize a scratch dir via realpath) */
 #include <sys/wait.h>      /* waitpid -- the forked socket-transport test */
 #include <sys/socket.h>    /* the busy-port sync test holds a port in-process */
