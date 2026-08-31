@@ -398,7 +398,11 @@ static int is_ctime_line(const char *l)
     return l[0] == 'C' && l[1] == '|' && strchr(l + 2, '|') != NULL;
 }
 
-void feed_import_from_map(ais *a, FILE *in, ais_blobmap *map)
+/* The body of feed_import_from_map, reporting through N/SKIPPED instead of
+ * stderr: the foreign importers (import.c) fold their own skip counts into one
+ * report. Returns the records put, or -1 when the input was refused whole (a
+ * sync bundle; the reason was printed). */
+static long import_run(ais *a, FILE *in, ais_blobmap *map, long *skipped)
 {
     char line[AIS_LINE_MAX];
     char vbuf[AIS_LINE_MAX];              /* a remapped value, when one is remapped */
@@ -413,7 +417,7 @@ void feed_import_from_map(ais *a, FILE *in, ais_blobmap *map)
     int  edstate = 0;                        /* 0 not loaded, 1 loaded, -1 failed */
     ais_att_fact patt[AIS_ATT_BATCH];     /* T| facts likewise (ais_merge_attach_many) */
     int  natt = 0;
-    long n = 0, skipped = 0;
+    long n = 0;
     int  warned_old = 0;      /* say "this is the old format" once, not per line */
     char cts[AIS_TS_MAX], chash[17];      /* one pending C| (a raised A|'s true time) */
 
@@ -445,7 +449,7 @@ void feed_import_from_map(ais *a, FILE *in, ais_blobmap *map)
         if (rl < 0) {
             fprintf(stderr, "import: line longer than %d bytes, skipped whole\n",
                     AIS_LINE_MAX - 1);
-            skipped++;
+            (*skipped)++;
             continue;
         }
 
@@ -574,7 +578,7 @@ void feed_import_from_map(ais *a, FILE *in, ais_blobmap *map)
                  * another. Refuse the line, as an over-long one is refused. */
                 if (ts[0] != '\0' && !store_looks_like_ts(ts)) {
                     fprintf(stderr, "import: not a timestamp, line skipped: %.40s\n", ts);
-                    skipped++;
+                    (*skipped)++;
                     continue;
                 }
                 ats = ts[0] ? ts : NULL;
@@ -730,7 +734,7 @@ void feed_import_from_map(ais *a, FILE *in, ais_blobmap *map)
                     fprintf(stderr, "import: unknown '%.*s|' record, skipped "
                                     "(from a newer ais?): %.60s\n",
                             (int)vl, line, line);
-                    skipped++;
+                    (*skipped)++;
                     continue;
                 }
             }
@@ -744,7 +748,7 @@ void feed_import_from_map(ais *a, FILE *in, ais_blobmap *map)
                 fclose(spool);
             if (edstate == 1)
                 edits_mem_free(&edmem);
-            return;
+            return -1;
         }
 
         /* Either the current grammar, "KEY... -v VALUE", or a pre-v2 '|'-separated
@@ -754,7 +758,7 @@ void feed_import_from_map(ais *a, FILE *in, ais_blobmap *map)
             int noisy = 0;
             if (strchr(line, '|') == NULL) {
                 fprintf(stderr, "import: no -v, skipped: %s\n", line);
-                skipped++;
+                (*skipped)++;
                 continue;
             }
             feed_old_line(line, &keys, &val, &noisy);
@@ -772,7 +776,7 @@ void feed_import_from_map(ais *a, FILE *in, ais_blobmap *map)
          * keyless outright, so there is nothing to disambiguate. */
         if (ais_put(a, keys, val) < 0) {       /* shared with the sync merge: skip, don't abort */
             fprintf(stderr, "import: skipped (put failed): %s\n", val);
-            skipped++;
+            (*skipped)++;
             continue;
         }
         n++;
@@ -789,12 +793,36 @@ void feed_import_from_map(ais *a, FILE *in, ais_blobmap *map)
         edits_mem_free(&edmem);
     if (lost > 0) {
         fprintf(stderr, "import: %ld records lost to a failed temp file or allocation\n", lost);
-        skipped += lost;
+        *skipped += lost;
     }
+    return n;
+}
+
+void feed_import_report(long n, long skipped)
+{
     if (skipped > 0)
         fprintf(stderr, "imported %ld, skipped %ld\n", n, skipped);
     else
         fprintf(stderr, "imported %ld\n", n);
+}
+
+void feed_import_from_map(ais *a, FILE *in, ais_blobmap *map)
+{
+    long skipped = 0;
+    long n = import_run(a, in, map, &skipped);
+
+    if (n < 0)
+        return;                       /* refused whole; the reason was printed */
+    feed_import_report(n, skipped);
+}
+
+long feed_import_stream(ais *a, FILE *in, long *skipped)
+{
+    ais_blobmap map = { NULL, NULL, 0, 0 };
+    long n = import_run(a, in, &map, skipped);
+
+    ais_blobmap_free(&map);
+    return (n < 0) ? 0 : n;
 }
 
 void feed_import(ais *a) { feed_import_from(a, stdin); }

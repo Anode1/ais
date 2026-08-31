@@ -1343,5 +1343,55 @@ okeq    "-e -v -: 1023 bytes + pipe newline pass the guard" "0" \
         "$(printf '%s' "$eedge" | grep -c 'secret longer')"
 rm -rf "$EE"
 
+
+# Foreign importers: a browser's bookmarks HTML and a Takeout Keep folder.
+# Keys are only names the user made (folder/label words, engine-normalized) plus
+# one constant marker key, so `--del-under bookmark` reverses the whole batch.
+FIX="$(dirname "$0")/fixtures"
+FI=$(mktemp -d "${TMPDIR:-/tmp}/ais_fimp.XXXXXX") || exit 2
+bmout=$("$AIS" -f "$FI" --import-bookmarks "$FIX/bookmarks.html" 2>&1); bmrc=$?
+ok      "bookmarks: 4 imported, the malformed <A> skipped" "imported 4, skipped 1" "$bmout"
+okeq    "bookmarks: exit 0 when something imported"        "0" "$bmrc"
+bmdump=$("$AIS" -f "$FI" --dump)
+ok      "bookmarks: root entry gets just 'bookmark'"       "^bookmark -v http://root.example/ Root Link" "$bmdump"
+ok      "bookmarks: folder words + marker key"             "^old recipes bookmark -v http://pie" "$bmdump"
+ok      "bookmarks: nested folder inherits the path"       "^old recipes baking bookmark -v http://bread.example/ Bread" "$bmdump"
+ok      "bookmarks: entities decode in URL and title"      "?a=1&b=2 Grandma's Pie & Cake" "$bmdump"
+ok      "bookmarks: untitled entry is the URL alone"       "^bookmark -v http://untitled.example/$" "$bmdump"
+ok      "bookmarks: recall by a folder word"               "bread" "$("$AIS" -f "$FI" baking)"
+"$AIS" -f "$FI" --del-under bookmark -y >/dev/null 2>&1
+okempty "bookmarks: --del-under bookmark reverses it all"  "$("$AIS" -f "$FI" bookmark 2>/dev/null)"
+printf '<p>no anchors here</p>\n' > "$FI.none.html"
+"$AIS" -f "$FI" --import-bookmarks "$FI.none.html" 2>/dev/null; nbrc=$?
+okeq    "bookmarks: nothing imported exits 1"              "1" "$nbrc"
+rm -f "$FI.none.html"
+rm -rf "$FI"
+
+KI=$(mktemp -d "${TMPDIR:-/tmp}/ais_keep.XXXXXX") || exit 2
+kout=$("$AIS" -f "$KI" --import-keep "$FIX/keep" 2>&1); krc=$?
+ok      "keep: 3 imported, the trashed note skipped"       "imported 3, skipped 1" "$kout"
+okeq    "keep: exit 0 when something imported"             "0" "$krc"
+kdump=$("$AIS" -f "$KI" --dump)
+ok      "keep: label words + marker, single line inline"   "^cooking ideas keep -v one line note" "$kdump"
+ok      "keep: multi-line note went out of line"           "^errands keep -v blobs/" "$kdump"
+ok      "keep: the document recalls whole"                 "second line" "$("$AIS" -f "$KI" errands)"
+ok      "keep: title leads the document"                   "Shopping" "$("$AIS" -f "$KI" errands)"
+ok      "keep: list items become '- ' lines"               "- bread \[rye\]" "$("$AIS" -f "$KI" keep)"
+okempty "keep: the trashed note is not here"               "$("$AIS" -f "$KI" --find trash 2>/dev/null)"
+: > "$KI.zip"
+zout=$("$AIS" -f "$KI" --import-keep "$KI.zip" 2>&1); zrc=$?
+ok      "keep: a .zip is refused with the extract hint"    "extract the .zip" "$zout"
+okeq    "keep: and exits nonzero"                          "nz" "$([ "$zrc" -ne 0 ] && echo nz)"
+rm -f "$KI.zip"
+
+# The port check --serve already has, now on both LAN-serve forms too.
+pout=$("$AIS" -f "$KI" --export --serve 99999 2>&1); prc=$?
+ok      "port: --export --serve 99999 says the range"      "1..65535" "$pout"
+okeq    "port: --export --serve 99999 exits 2"             "2" "$prc"
+pout=$("$AIS" -f "$KI" --sync --serve 0 2>&1); prc=$?
+ok      "port: --sync --serve 0 says the range"            "1..65535" "$pout"
+okeq    "port: --sync --serve 0 exits 2"                   "2" "$prc"
+rm -rf "$KI"
+
 echo "---- $pass passed, $fail failed"
 [ "$fail" -eq 0 ]

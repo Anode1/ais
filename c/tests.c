@@ -33,6 +33,7 @@
 #include "compact.h"
 #include "stats.h"
 #include "find.h"
+#include "import.h"
 #include "doc.h"
 #include "embed.h"
 #include "feed.h"
@@ -6614,6 +6615,55 @@ static void test_serve_api_find(void)
     kill(pid, SIGKILL);
     waitpid(pid, NULL, 0);
     scratch_rm(dir);
+
+/* ---- foreign importers (import.c): the separable parse helpers ---------- */
+
+/* import_keys_add: word-splits, normalizes as the engine files keys, dedupes. */
+static void test_import_keys_add(void)
+{
+    char buf[128] = "";
+    char tiny[8] = "";
+
+    CHECK(import_keys_add(buf, sizeof buf, "My Old Recipes") == 0 &&
+          strcmp(buf, "my old recipes") == 0,
+          "keys_add: words split and lowercased");
+    CHECK(import_keys_add(buf, sizeof buf, "Recipes  Cafe/2020") == 0 &&
+          strcmp(buf, "my old recipes cafe_2020") == 0,
+          "keys_add: a repeated word dedupes; '/' folds as key_encode does");
+    CHECK(import_keys_add(tiny, sizeof tiny, "toolongword") == -1 && tiny[0] == '\0',
+          "keys_add: a token that will not fit refuses, buffer unchanged");
+}
+
+/* import_html_entities: the common five decode (in place), the rest pass. */
+static void test_import_html_entities(void)
+{
+    char buf[128];
+
+    snprintf(buf, sizeof buf, "%s", "A &amp; B &lt;c&gt; &quot;d&quot; &#39;e&#39; &copy;");
+    import_html_entities(buf, buf, sizeof buf);
+    CHECK(strcmp(buf, "A & B <c> \"d\" 'e' &copy;") == 0,
+          "entities: the five decode in place, an unknown one passes through");
+}
+
+/* import_json_string: escapes, \uXXXX and a surrogate pair; NULL when open. */
+static void test_import_json_string(void)
+{
+    char buf[128];
+    const char *end;
+
+    end = import_json_string("\"a\\n\\\"b\\\" \\u00e9 \\ud83d\\ude00\" tail", buf, sizeof buf);
+    CHECK(end != NULL && strncmp(end, " tail", 5) == 0 &&
+          strcmp(buf, "a\n\"b\" \xc3\xa9 \xf0\x9f\x98\x80") == 0,
+          "json string: escapes, \\u and a surrogate pair decode to UTF-8");
+    CHECK(import_json_string("\"never closed", buf, sizeof buf) == NULL,
+          "json string: an unterminated string returns NULL");
+}
+
+static void test_import_parse_helpers(void)
+{
+    test_import_keys_add();
+    test_import_html_entities();
+    test_import_json_string();
 }
 
 int main(void)
@@ -6840,6 +6890,9 @@ int main(void)
     printf("case-insensitive find + /api/find:\n");
     test_find_ci();
     test_serve_api_find();
+    /* -- foreign importers block (appended as one unit) -- */
+    printf("foreign importers (import.c): the separable parse helpers:\n");
+    test_import_parse_helpers();
     printf("----\n%d passed, %d failed\n", ut_pass, ut_fail);
     return ut_fail == 0 ? 0 : 1;
 }

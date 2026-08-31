@@ -28,6 +28,16 @@ void feed_import_from(ais *a, FILE *in);
  * when there are no blobs in the stream. */
 void feed_import_from_map(ais *a, FILE *in, ais_blobmap *map);
 
+/* feed_import_from reporting through the arguments instead of stderr: returns
+ * the records put and adds skips to *SKIPPED. The foreign importers (import.c)
+ * spool synthesized A| lines through this, so their puts share --import's
+ * batched one-lock store pass instead of scanning the store once per record. */
+long feed_import_stream(ais *a, FILE *in, long *skipped);
+
+/* The one-line "imported N[, skipped M]" report, on stderr, shared by every
+ * importer. */
+void feed_import_report(long n, long skipped);
+
 /* Write the merge/export stream to OUT: A|ts|keys|value for live records, then
  * D|ts|hash for tombstones. The inverse of merge-aware import; what --export serves. */
 void feed_export(ais *a, FILE *out);

@@ -8,10 +8,11 @@
  *   -i            interactive: ask keys per piped line
  *   --CMD         a command: find add update set del del-under (del-key, its
  *                 old name) untag dedupe-docs dump keys tags timeline stats
- *                 compact init import import-interactively export sync
- *                 sync-folder where serve project default switch indexes
- *                 forget doc. Operands are the bare args; values come
- *                 through -v. The list is longopts[] below; keep them in step.
+ *                 compact init import import-interactively import-bookmarks
+ *                 import-keep export sync sync-folder where serve project
+ *                 default switch indexes forget doc. Operands are the bare
+ *                 args; values come through -v. The list is longopts[] below;
+ *                 keep them in step.
  * No bare word is ever a command, so a tag named "doc" or "find" recalls fine.
  *
  * INDEX location precedence: -f DIR > nearest .ais/ > saved default in
@@ -36,6 +37,7 @@
 #include "feed.h"
 #include "stats.h"
 #include "find.h"
+#include "import.h"
 #include "locate.h"
 #include "serve.h"
 #include "sync.h"
@@ -388,6 +390,23 @@ static int confirm(const char *prompt)
             strcasecmp(buf, "yes") == 0);
 }
 
+/* The optional PORT operand of --serve (alone, or on --export/--sync). A TCP
+ * port is 1..65535; anything else would truncate mod 65536 in htons and bind
+ * somewhere the printed URL is not. Returns the port, or -1 having said why. */
+static int serve_port(const char *arg, int dflt)
+{
+    int port;
+
+    if (arg == NULL)
+        return dflt;
+    port = atoi(arg);
+    if (port < 1 || port > 65535) {
+        fprintf(stderr, "ais: --serve: PORT must be 1..65535, not '%s'\n", arg);
+        return -1;
+    }
+    return port;
+}
+
 /* ---- main --------------------------------------------------------------- */
 
 /* At file scope (not in main) so hint_command_word can walk the same table the
@@ -397,7 +416,7 @@ enum { OPT_HELP = 1000, OPT_VERSION, OPT_TOKEN, OPT_PURGE,
        CMD_COMPACT, CMD_INIT, CMD_IMPORT, CMD_IMPORTI, CMD_WHERE, CMD_SERVE, CMD_PROJECT,
        CMD_DOC, CMD_TIMELINE, CMD_TAGS, CMD_DEFAULT, CMD_UPDATE, CMD_SET, CMD_UNTAG,
        CMD_SWITCH, CMD_INDEXES, CMD_FORGET, CMD_EXPORT, CMD_SYNC, CMD_SYNCFOLDER,
-       CMD_DEDUPE };
+       CMD_DEDUPE, CMD_IMPORTBM, CMD_IMPORTKEEP };
 static const struct option longopts[] = {
     { "index",       required_argument, NULL, 'f' },
     { "or",          no_argument,       NULL, 'o' },
@@ -433,6 +452,8 @@ static const struct option longopts[] = {
     { "init",        no_argument,       NULL, CMD_INIT },
     { "import",      no_argument,       NULL, CMD_IMPORT },
     { "import-interactively", no_argument, NULL, CMD_IMPORTI },
+    { "import-bookmarks", no_argument,  NULL, CMD_IMPORTBM },
+    { "import-keep", no_argument,       NULL, CMD_IMPORTKEEP },
     { "export",      no_argument,       NULL, CMD_EXPORT },
     { "sync",        no_argument,       NULL, CMD_SYNC },
     { "sync-folder", no_argument,       NULL, CMD_SYNCFOLDER },
@@ -513,7 +534,7 @@ int main(int argc, char **argv)
         case CMD_PROJECT: case CMD_DOC: case CMD_TIMELINE: case CMD_TAGS:
         case CMD_DEFAULT: case CMD_UPDATE: case CMD_SET: case CMD_UNTAG:
         case CMD_SWITCH: case CMD_INDEXES: case CMD_FORGET: case CMD_SYNC:
-        case CMD_SYNCFOLDER: case CMD_DEDUPE:
+        case CMD_SYNCFOLDER: case CMD_DEDUPE: case CMD_IMPORTBM: case CMD_IMPORTKEEP:
             if (cmd != 0) die("only one command at a time");
             cmd = c;
             break;
@@ -599,15 +620,29 @@ int main(int argc, char **argv)
             } else feed_import(&a);               /* ais --import : merge stdin */
             break;
         case CMD_IMPORTI: feed_import_interactive(&a); break;
+        case CMD_IMPORTBM:                    /* a browser's exported bookmarks HTML */
+            if (optind >= argc)
+                die("--import-bookmarks needs the exported bookmarks HTML file");
+            if (import_bookmarks(&a, argv[optind]) == 0)
+                rc = 1;                       /* nothing imported */
+            break;
+        case CMD_IMPORTKEEP:                  /* an extracted Takeout Keep folder */
+            if (optind >= argc)
+                die("--import-keep needs the extracted Takeout Keep folder");
+            if (import_keep(&a, argv[optind]) == 0)
+                rc = 1;                       /* nothing imported */
+            break;
         case CMD_EXPORT:
             if (serve_flag) {                     /* ais --export --serve [PORT] : serve over LAN */
-                int port = (optind < argc) ? atoi(argv[optind]) : AIS_SYNC_PORT;
+                int port = serve_port((optind < argc) ? argv[optind] : NULL, AIS_SYNC_PORT);
+                if (port < 0) { ais_close(&a); return 2; }
                 if (sync_serve_lan(&a, port, 120, 0) != 0) { ais_close(&a); return 1; }
             } else feed_export(&a, stdout);       /* ais --export : merge stream to stdout */
             break;
         case CMD_SYNC:                            /* symmetric: both sides converge in one round */
             if (serve_flag) {                     /* ais --sync --serve [PORT] : host */
-                int port = (optind < argc) ? atoi(argv[optind]) : AIS_SYNC_PORT;
+                int port = serve_port((optind < argc) ? argv[optind] : NULL, AIS_SYNC_PORT);
+                if (port < 0) { ais_close(&a); return 2; }
                 if (sync_serve_lan(&a, port, 120, 1) != 0) { ais_close(&a); return 1; }
             } else if (optind < argc) {           /* ais --sync <url> --token T : join */
                 if (sync_pull_url(&a, argv[optind], token_arg, 120, 1) != 0) { ais_close(&a); return 1; }
@@ -928,18 +963,8 @@ int main(int argc, char **argv)
             } else { fprintf(stderr, "aborted\n"); ais_close(&a); return 1; }
             break;
         case CMD_SERVE: {
-            /* A TCP port is 1..65535; anything else would truncate mod 65536
-             * in htons and bind somewhere the printed URL is not. */
-            int port = 8765;
-            if (optind < argc) {
-                port = atoi(argv[optind]);
-                if (port < 1 || port > 65535) {
-                    fprintf(stderr, "ais: --serve: PORT must be 1..65535, not '%s'\n",
-                            argv[optind]);
-                    ais_close(&a);
-                    return 2;
-                }
-            }
+            int port = serve_port((optind < argc) ? argv[optind] : NULL, 8765);
+            if (port < 0) { ais_close(&a); return 2; }
             if (ais_serve(&a, port) != 0)
                 die("serve: cannot bind 127.0.0.1:%d", port);
             break;

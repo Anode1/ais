@@ -68,6 +68,14 @@ COMMANDS (--word; operands are bare args, values via -v; an ID is the number
                                  Pre-v2 '|' lines still read, with a warning)
   ais --import-interactively     like --import, but confirm each record [y/N]
                                  (default N); review each before it is stored
+  ais --import-bookmarks FILE    file each link in a browser's exported bookmarks
+                                 HTML (Chrome/Firefox/Safari) under its folder
+                                 names' words plus the marker key 'bookmark'
+                                 (undo: ais --del-under bookmark)
+  ais --import-keep DIR          file each note in an extracted Takeout Keep
+                                 folder of .json files under its label names'
+                                 words plus the marker key 'keep'; trashed notes
+                                 are skipped, multi-line notes become documents
   ais --export                   write the merge stream (records, edits, deletions, links,
                                  documents) for another index's --import: the full round trip
   ais --export --serve [PORT]    serve that stream to one LAN peer, encrypted (prints a token)
@@ -81,6 +89,7 @@ COMMANDS (--word; operands are bare args, values via -v; an ID is the number
   ais --where                    print the resolved index directory
   ais --serve [PORT]             local web GUI (default port 8765); env AIS_NO_OPEN=1
                                  runs it headless (no browser) -- for agent/CI testing
+                                 (a PORT, here and on --export/--sync --serve, is 1..65535)
   ais --project [KEY]            show / set / clear ('') the default project key
   ais --switch [NAME]            switch the current index; no arg shows it,
                                  -c NAME [DIR] creates a new index and switches

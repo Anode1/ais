@@ -488,6 +488,9 @@ other is a bug; the suite runs the same driver twice to catch it.
     ais [-f DIR] --tags | --timeline       browse keys, or records newest-first
     ais [-f DIR] --import < FILE | --where | --project [KEY] | --serve [PORT]
     ais [-f DIR] --import-interactively   like --import, but y/N per record (answers on the tty)
+    ais [-f DIR] --import-bookmarks FILE | --import-keep DIR   file a browser's or Keep's own
+                                          export; keys are the user's folder/label words plus one
+                                          marker key (bookmark, keep) so --del-under reverses it
     ais --switch [NAME]               switch the current index (no arg shows it; -c NAME [DIR] creates)
     ais --indexes                     list named indexes (* on current; 'home' = ~/.ais)
     ais --forget NAME                 drop a name from the registry (its data dir is left alone)

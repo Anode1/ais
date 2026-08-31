@@ -51,7 +51,7 @@ ais \- associative index: save values under keys, get them back by keys
 .B ais
 .RB [ \-f
 .IR DIR ]
-.BR \-\-del | \-\-set | \-\-del-under | \-\-dedupe-docs | \-\-untag | \-\-dump | \-\-keys | \-\-stats | \-\-timeline | \-\-tags | \-\-compact | \-\-export | \-\-import | \-\-import-interactively | \-\-sync | \-\-sync-folder | \-\-where | \-\-project | \-\-switch | \-\-indexes | \-\-forget | \-\-default | \-\-serve | \-\-init
+.BR \-\-del | \-\-set | \-\-del-under | \-\-dedupe-docs | \-\-untag | \-\-dump | \-\-keys | \-\-stats | \-\-timeline | \-\-tags | \-\-compact | \-\-export | \-\-import | \-\-import-interactively | \-\-import-bookmarks | \-\-import-keep | \-\-sync | \-\-sync-folder | \-\-where | \-\-project | \-\-switch | \-\-indexes | \-\-forget | \-\-default | \-\-serve | \-\-init
 .RI [ ARG ]
 .SH DESCRIPTION
 .B ais
@@ -358,6 +358,23 @@ ais \-\-import-interactively < project-knowledge.txt
 .fi
 .RE
 .TP
+.B \-\-import-bookmarks \fIFILE\fR
+File each link in a browser's exported bookmarks HTML (what Chrome, Firefox and
+Safari write). The value is the URL and the link's title; the keys are the words
+of its folder names plus the constant marker key
+.BR bookmark
+(a root-level link gets just that), so the whole batch is reversible:
+.BR "ais \-\-del-under bookmark" .
+No tag is guessed; only names the user made carry over.
+.TP
+.B \-\-import-keep \fIDIR\fR
+File each note in an extracted Takeout Keep folder of .json files. The value is
+the note's title and text (a list becomes one "- item" line each); a multi-line
+note is stored as a document. The keys are the words of its label names plus the
+marker key
+.BR keep .
+Trashed notes are skipped. A .zip is refused: extract it first.
+.TP
 .B \-\-sync \-\-serve \fR[\fIPORT\fR]
 Two-way LAN sync. This form hosts one peer (prints a URL, a one-time token, and a QR); the
 other device joins with
@@ -452,6 +469,10 @@ browser. Set the environment variable
 to skip opening the browser and run headless: for an agent, a screenshot script
 .RB ( tests/shot/ ),
 or CI that drives the server and must not pop up a browser window.
+A
+.I PORT
+outside 1..65535 is refused (exit 2), here and on
+.BR "\-\-export \-\-serve" " and " "\-\-sync \-\-serve" .
 .SH EXAMPLES
 .nf
 ais -v ~/photos/IMG_3920.jpg italy venice 2023
