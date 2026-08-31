@@ -149,6 +149,8 @@ void usage_long(FILE *out)
 "  -h                short help;  --help  this full help\n"
 "  --version         print version and exit\n"
 "\n"
+"EXIT STATUS  0 success; 1 no match or nothing done (grep semantics); 2 usage error\n"
+"\n"
 "INDEX LOCATION (when -f is not given; no env vars -- -f is the only override)\n"
 "  1. the nearest .ais/ at or above the current directory (like git)\n"
 "  2. the current named index, if one is set ('ais --switch NAME'; --indexes lists them)\n"

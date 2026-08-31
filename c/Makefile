@@ -117,7 +117,9 @@ $(TESTBIN): $(SOURCES.c)
 TIMEOUT := $(shell command -v timeout 2>/dev/null)
 UT_TIMEOUT = $(if $(TIMEOUT),$(TIMEOUT) 300,)
 
-ut check: $(TESTBIN)
+# $(BIN) too: the CLI-contract tests in tests.c exec ./ais (exit codes, the
+# serve port check, the -f refusal), which main()-less ais_ut cannot reach.
+ut check: $(TESTBIN) $(BIN)
 	$(UT_TIMEOUT) ./$(TESTBIN)
 
 # ut-asan / ut-ubsan: the SAME unit tests, but built with the compiler's
@@ -127,11 +129,11 @@ ut check: $(TESTBIN)
 # binaries so they never clobber ais_ut. -fno-sanitize-recover makes UBSan
 # hard-fail (its default is to print and continue). The automatic Linux+macOS
 # backstop lives in ../.github/workflows/sanitizers.yml.
-ut-asan:
+ut-asan: $(BIN)
 	$(CC) $(AIS_CFLAGS) -g -DUNIT_TEST -fsanitize=address -fno-omit-frame-pointer \
 	  $(CPPFLAGS) $(SOURCES.c) -o $(TESTBIN)_asan $(LDLIBS)
 	$(UT_TIMEOUT) ./$(TESTBIN)_asan
-ut-ubsan:
+ut-ubsan: $(BIN)
 	$(CC) $(AIS_CFLAGS) -g -DUNIT_TEST -fsanitize=undefined -fno-sanitize-recover=undefined \
 	  $(CPPFLAGS) $(SOURCES.c) -o $(TESTBIN)_ubsan $(LDLIBS)
 	$(UT_TIMEOUT) ./$(TESTBIN)_ubsan

@@ -428,7 +428,7 @@ char *ais_embed_find(void *handle, const char *needle)
     tmp = tmpfile();
     if (tmp == NULL)
         return NULL;
-    if (ais_find(a, needle, tmp) != 0) { fclose(tmp); return NULL; }
+    if (ais_find(a, needle, tmp) < 0) { fclose(tmp); return NULL; }
     if (fflush(tmp) != 0 || fseek(tmp, 0, SEEK_END) != 0 ||
         (size = ftell(tmp)) < 0 || fseek(tmp, 0, SEEK_SET) != 0) {
         fclose(tmp);

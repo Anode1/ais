@@ -14,6 +14,7 @@ struct find_ctx {
     ais        *a;
     const char *needle;
     FILE       *out;
+    long        matched;   /* live lines printed: the CLI exits 1 on zero */
 };
 
 static int find_line(long id, const char *ts, const char *keys,
@@ -29,16 +30,21 @@ static int find_line(long id, const char *ts, const char *keys,
     t = tomb_contains(F->a, id);
     if (t < 0)
         return -1;
-    if (t == 0)
+    if (t == 0) {
         fprintf(F->out, "%ld|%s\n", id, value);
+        F->matched++;
+    }
     return 0;
 }
 
-int ais_find(ais *a, const char *needle, FILE *out)
+long ais_find(ais *a, const char *needle, FILE *out)
 {
     struct find_ctx F;
     F.a = a;
     F.needle = needle;
     F.out = out;
-    return store_each_record(a, find_line, &F);
+    F.matched = 0;
+    if (store_each_record(a, find_line, &F) < 0)
+        return -1;
+    return F.matched;
 }

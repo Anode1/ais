@@ -104,7 +104,7 @@ if command -v python3 >/dev/null 2>&1; then
 import socket,sys,time
 port,path,body=int(sys.argv[1]),sys.argv[2],sys.argv[3].encode()
 s=socket.create_connection(('127.0.0.1',port))
-s.sendall(("POST %s HTTP/1.1\r\nHost: x\r\nContent-Length: %d\r\nConnection: close\r\n\r\n"
+s.sendall(("POST %s HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Length: %d\r\nConnection: close\r\n\r\n"
            %(path,len(body))).encode())
 time.sleep(0.25)                 # the body lands in a LATER packet
 s.sendall(body)
@@ -146,7 +146,7 @@ if command -v python3 >/dev/null 2>&1; then
     python3 - "$PORT" "$1" "$2" <<'PY'
 import socket,sys,time
 port,path,body=int(sys.argv[1]),sys.argv[2],sys.argv[3].encode()
-req=("POST %s HTTP/1.1\r\nHost: x\r\nContent-Length: %d\r\nConnection: close\r\n\r\n"
+req=("POST %s HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Length: %d\r\nConnection: close\r\n\r\n"
      %(path,len(body))).encode()+body
 s=socket.create_connection(('127.0.0.1',port))
 s.sendall(req[:15]); time.sleep(0.25); s.sendall(req[15:])   # split INSIDE the headers

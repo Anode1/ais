@@ -5,7 +5,9 @@
  * touches the committed fixture tests/INDEX/store. */
 #ifdef UNIT_TEST
 
-/* setenv() for the AIS_TTY test seam (BSD+POSIX, hidden under bare -std=c99) */
+/* setenv() for the AIS_TTY test seam (BSD+POSIX, hidden under bare -std=c99);
+ * _XOPEN_SOURCE for posix_openpt and friends (the tty-hint test) */
+#define _XOPEN_SOURCE 600
 #define _DEFAULT_SOURCE
 #define _POSIX_C_SOURCE 200809L
 
@@ -37,6 +39,7 @@
 #include "sync.h"
 #include "locate.h"
 #include "secret.h"
+#include "serve.h"     /* ais_serve: the hardening block forks a live server */
 #include "b64.h"
 
 /* The crypto round-trip test compiles only once Monocypher has been vendored
@@ -1057,7 +1060,7 @@ static void test_find(void)
     ais_put(&a, "food", "best gelato in venice");   /* id 3 */
 
     fp = tmpfile();
-    CHECK(ais_find(&a, "venice", fp) == 0, "find 'venice' -> 0");
+    CHECK(ais_find(&a, "venice", fp) == 2, "find 'venice' -> 2 matches");
     rewind(fp); got = fread(buf, 1, sizeof(buf) - 1, fp); buf[got] = '\0'; fclose(fp);
     CHECK(strstr(buf, "1|venice is sinking") != NULL, "find: hit id 1");
     CHECK(strstr(buf, "3|best gelato in venice") != NULL, "find: hit id 3");
@@ -1066,13 +1069,13 @@ static void test_find(void)
     /* a substring that is in a KEY but not a value must NOT match (find is
      * content, not tags): 'trip' is a key, never a value here */
     fp = tmpfile();
-    CHECK(ais_find(&a, "trip", fp) == 0, "find 'trip' -> 0");
+    CHECK(ais_find(&a, "trip", fp) == 0, "find 'trip' -> 0 matches");
     rewind(fp); got = fread(buf, 1, sizeof(buf) - 1, fp); buf[got] = '\0'; fclose(fp);
     CHECK(got == 0, "find: key text is not matched");
 
     CHECK(ais_del(&a, 3) == 0, "find: del id 3 -> 0");
     fp = tmpfile();
-    CHECK(ais_find(&a, "venice", fp) == 0, "find 'venice' after del -> 0");
+    CHECK(ais_find(&a, "venice", fp) == 1, "find 'venice' after del -> 1 match");
     rewind(fp); got = fread(buf, 1, sizeof(buf) - 1, fp); buf[got] = '\0'; fclose(fp);
     CHECK(strstr(buf, "1|venice is sinking") != NULL, "find: id 1 still hit");
     CHECK(strstr(buf, "gelato") == NULL, "find: tombstoned id 3 suppressed");
@@ -6112,6 +6115,280 @@ static void serialise_runs(void)
     flock(fd, LOCK_EX);
 }
 
+/* ======================================================================== *
+ *  Hardening regression block: Host check, response headers, --serve port,
+ *  -f refusal, exit-status contract, tty hint. Appended as ONE unit; the
+ *  CLI-level tests exec ./ais (built by `make ut`, see c/Makefile).
+ * ======================================================================== */
+
+/* Run CMD under /bin/sh with stderr folded into stdout; capture into OUT and
+ * return the exit status (-1 if it could not run or was killed). */
+static int cli_run(const char *cmd, char *out, size_t outsz)
+{
+    char full[1024];
+    FILE *p;
+    size_t got;
+    int st;
+
+    if (snprintf(full, sizeof full, "%s 2>&1", cmd) >= (int)sizeof full)
+        return -1;
+    p = popen(full, "r");
+    if (p == NULL)
+        return -1;
+    got = fread(out, 1, outsz - 1, p);
+    out[got] = '\0';
+    while (fgetc(p) != EOF)
+        ;                              /* drain, so pclose sees a clean exit */
+    st = pclose(p);
+    return (st != -1 && WIFEXITED(st)) ? WEXITSTATUS(st) : -1;
+}
+
+/* One HTTP transaction against 127.0.0.1:PORT: connect (retrying while the
+ * forked server comes up), send REQ, read the whole reply into RESP. 0/-1. */
+static int http_txn(int port, const char *req, char *resp, size_t respsz)
+{
+    int fd = -1, tries;
+    size_t got = 0;
+    ssize_t n;
+    struct sockaddr_in to;
+
+    memset(&to, 0, sizeof to);
+    to.sin_family = AF_INET;
+    to.sin_port = htons((unsigned short)port);
+    to.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    for (tries = 0; tries < 50; tries++) {
+        fd = socket(AF_INET, SOCK_STREAM, 0);
+        if (fd < 0)
+            return -1;
+        if (connect(fd, (struct sockaddr *)&to, sizeof to) == 0)
+            break;
+        close(fd);
+        fd = -1;
+        usleep(100 * 1000);
+    }
+    if (fd < 0)
+        return -1;
+    if (write(fd, req, strlen(req)) != (ssize_t)strlen(req)) {
+        close(fd);
+        return -1;
+    }
+    while (got < respsz - 1 && (n = read(fd, resp + got, respsz - 1 - got)) > 0)
+        got += (size_t)n;
+    resp[got] = '\0';
+    close(fd);
+    return 0;
+}
+
+/* Host guard + headers: a Host that is not 127.0.0.1/localhost is 403'd (DNS
+ * rebinding), every 200 carries nosniff/DENY/CSP, text/html carries charset,
+ * and the printed URL shows the port getsockname reports. */
+static void test_serve_host_and_headers(void)
+{
+    const char *dir = "/tmp/ais_ut_srvhard";
+    const char *errfile = "/tmp/ais_ut_srvhard.err";
+    const int port = 47251;
+    char resp[8192], line[128];
+    pid_t pid;
+
+    setenv("AIS_NO_OPEN", "1", 1);     /* never spawn a browser from a test */
+    scratch_rm(dir);
+    remove(errfile);
+    { ais A; ais_open(&A, dir); ais_put(&A, "venice", "Hotel Danieli"); ais_close(&A); }
+
+    fflush(stdout);                    /* no buffered test lines into the fork */
+    pid = fork();
+    if (pid == 0) {
+        ais A;
+        if (freopen(errfile, "w", stderr) == NULL)
+            _exit(1);
+        setvbuf(stderr, NULL, _IONBF, 0);   /* SIGKILL must not eat the URL line */
+        ais_open(&A, dir);
+        ais_serve(&A, port);           /* loops forever; the parent kills us */
+        _exit(0);
+    }
+
+    /* a rebound hostname must not reach any route */
+    CHECK(http_txn(port, "GET /api/get?keys=venice HTTP/1.0\r\nHost: evil.example\r\n\r\n",
+                   resp, sizeof resp) == 0
+          && strstr(resp, "403") != NULL && strstr(resp, "host not allowed") != NULL,
+          "serve: foreign Host is 403'd");
+    CHECK(http_txn(port, "GET /api/get?keys=venice HTTP/1.0\r\nHost: 127.0.0.1:47251\r\n\r\n",
+                   resp, sizeof resp) == 0
+          && strstr(resp, "200 OK") != NULL && strstr(resp, "Hotel Danieli") != NULL,
+          "serve: 127.0.0.1:port Host passes");
+    CHECK(strstr(resp, "X-Content-Type-Options: nosniff") != NULL
+          && strstr(resp, "X-Frame-Options: DENY") != NULL
+          && strstr(resp, "Content-Security-Policy:") != NULL,
+          "serve: hardening headers on an API reply");
+    CHECK(http_txn(port, "GET / HTTP/1.0\r\nHost: localhost\r\n\r\n",
+                   resp, sizeof resp) == 0
+          && strstr(resp, "200 OK") != NULL
+          && strstr(resp, "Content-Type: text/html; charset=utf-8") != NULL,
+          "serve: localhost Host passes; page is text/html with charset");
+    CHECK(http_txn(port, "GET /api/get?keys=venice HTTP/1.0\r\n\r\n", resp, sizeof resp) == 0
+          && strstr(resp, "200 OK") != NULL,
+          "serve: a Host-less script request still passes");
+
+    kill(pid, SIGKILL);
+    waitpid(pid, NULL, 0);
+
+    /* the URL on screen names the port that was actually bound */
+    {
+        FILE *f = fopen(errfile, "r");
+        line[0] = '\0';
+        if (f != NULL) {
+            size_t got = fread(line, 1, sizeof line - 1, f);
+            line[got] = '\0';
+            fclose(f);
+        }
+        CHECK(strstr(line, "http://127.0.0.1:47251/") != NULL,
+              "serve: printed URL carries the bound port");
+    }
+    remove(errfile);
+    scratch_rm(dir);
+}
+
+/* Exit-status contract: 0 = matched/done, 1 = no match or nothing done, 2 =
+ * usage. Recall and --find get grep semantics; a declined delete is not 0. */
+static void test_cli_exit_codes(void)
+{
+    const char *dir = "/tmp/ais_ut_clirc";
+    char cmd[512], out[2048];
+
+    scratch_rm(dir);
+    snprintf(cmd, sizeof cmd, "./ais --init -f %s", dir);   /* -f needs an existing index */
+    (void)cli_run(cmd, out, sizeof out);
+    snprintf(cmd, sizeof cmd, "./ais -f %s -v 'hotel danieli' venice", dir);
+    CHECK(cli_run(cmd, out, sizeof out) == 0, "cli: save exits 0");
+
+    snprintf(cmd, sizeof cmd, "./ais -f %s venice", dir);
+    CHECK(cli_run(cmd, out, sizeof out) == 0, "cli: recall with a match exits 0");
+    snprintf(cmd, sizeof cmd, "./ais -f %s nosuchkey", dir);
+    CHECK(cli_run(cmd, out, sizeof out) == 1, "cli: recall with no match exits 1");
+
+    snprintf(cmd, sizeof cmd, "./ais -f %s --find danieli", dir);
+    CHECK(cli_run(cmd, out, sizeof out) == 0, "cli: --find with a match exits 0");
+    snprintf(cmd, sizeof cmd, "./ais -f %s --find nosuchtext", dir);
+    CHECK(cli_run(cmd, out, sizeof out) == 1, "cli: --find with no match exits 1");
+
+    /* declining the --del confirmation must not report success */
+    snprintf(cmd, sizeof cmd, "printf 'n\\n' > %s.ans", dir);
+    (void)system(cmd);
+    snprintf(cmd, sizeof cmd, "AIS_TTY=%s.ans ./ais -f %s --del 1", dir, dir);
+    CHECK(cli_run(cmd, out, sizeof out) == 1, "cli: aborted --del exits 1");
+    snprintf(cmd, sizeof cmd, "./ais -f %s venice", dir);
+    CHECK(cli_run(cmd, out, sizeof out) == 0, "cli: and the record survived");
+
+    /* an unused key is nothing done, not success */
+    snprintf(cmd, sizeof cmd, "./ais -f %s --untag nosuchkey", dir);
+    CHECK(cli_run(cmd, out, sizeof out) == 1, "cli: --untag of an unused key exits 1");
+    snprintf(cmd, sizeof cmd, "./ais -f %s --del-under nosuchkey", dir);
+    CHECK(cli_run(cmd, out, sizeof out) == 1, "cli: --del-under of an unused key exits 1");
+
+    snprintf(cmd, sizeof cmd, "rm -f %s.ans", dir);
+    (void)system(cmd);
+    scratch_rm(dir);
+}
+
+/* --serve PORT outside 1..65535 is a usage error (exit 2), not a mod-65536
+ * bind under a dead printed URL. */
+static void test_cli_serve_port_reject(void)
+{
+    const char *dir = "/tmp/ais_ut_cliport";
+    char cmd[512], out[2048];
+
+    scratch_rm(dir);
+    snprintf(cmd, sizeof cmd, "AIS_NO_OPEN=1 ./ais -f %s --init", dir);
+    (void)cli_run(cmd, out, sizeof out);
+    snprintf(cmd, sizeof cmd, "AIS_NO_OPEN=1 ./ais -f %s --serve 99999", dir);
+    CHECK(cli_run(cmd, out, sizeof out) == 2 && strstr(out, "1..65535") != NULL,
+          "cli: --serve 99999 exits 2 and says the range");
+    snprintf(cmd, sizeof cmd, "AIS_NO_OPEN=1 ./ais -f %s --serve 0", dir);
+    CHECK(cli_run(cmd, out, sizeof out) == 2, "cli: --serve 0 exits 2");
+    scratch_rm(dir);
+}
+
+/* -f DIR requires an existing index: a typo must fail loudly, naming the path
+ * and --init, and must not mint a directory. */
+static void test_cli_f_requires_index(void)
+{
+    const char *dir = "/tmp/ais_ut_cli_noindex";
+    char cmd[512], out[2048];
+
+    scratch_rm(dir);
+    snprintf(cmd, sizeof cmd, "./ais -f %s venice", dir);
+    CHECK(cli_run(cmd, out, sizeof out) == 1
+          && strstr(out, "no index at") != NULL && strstr(out, "--init") != NULL,
+          "cli: -f to a missing dir refuses and names --init");
+    CHECK(access(dir, F_OK) != 0, "cli: and the dir was not created");
+}
+
+/* Zero recall matches at a terminal, where the bare key names a command:
+ * say the '--' was forgotten. Piped, no hint. */
+static void test_cli_tty_hint(void)
+{
+    const char *dir = "/tmp/ais_ut_clihint";
+    char cmd[512], out[2048];
+    int mfd;
+    pid_t pid;
+
+    scratch_rm(dir);
+    snprintf(cmd, sizeof cmd, "./ais --init -f %s", dir);   /* -f needs an existing index */
+    (void)cli_run(cmd, out, sizeof out);
+    snprintf(cmd, sizeof cmd, "./ais -f %s -v x k", dir);
+    (void)cli_run(cmd, out, sizeof out);
+
+    /* piped stderr: no hint even for a command word */
+    snprintf(cmd, sizeof cmd, "./ais -f %s dump", dir);
+    CHECK(cli_run(cmd, out, sizeof out) == 1 && strstr(out, "the command is") == NULL,
+          "hint: piped recall of 'dump' exits 1 with no hint");
+
+    /* stderr on a pty: the hint appears, derived from the option table */
+    mfd = posix_openpt(O_RDWR | O_NOCTTY);
+    if (mfd < 0 || grantpt(mfd) != 0 || unlockpt(mfd) != 0) {
+        ut_fail++;
+        printf("  FAIL hint: could not open a pty\n");
+        if (mfd >= 0) close(mfd);
+        scratch_rm(dir);
+        return;
+    }
+    fflush(stdout);                    /* no buffered test lines into the fork */
+    pid = fork();
+    if (pid == 0) {
+        int sfd = open(ptsname(mfd), O_RDWR);
+        if (sfd < 0)
+            _exit(126);
+        dup2(sfd, STDERR_FILENO);
+        close(sfd);
+        close(mfd);
+        if (freopen("/dev/null", "w", stdout) == NULL)
+            _exit(126);
+        execl("./ais", "ais", "-f", dir, "dump", (char *)NULL);
+        _exit(127);
+    }
+    {
+        char buf[512];
+        size_t got = 0;
+        ssize_t n;
+        int st = 0;
+        /* Wait FIRST (the hint is far below the pty buffer), then drain
+         * non-blocking: a child that died before opening the slave would
+         * otherwise park this read forever (no slave, no EIO). */
+        waitpid(pid, &st, 0);
+        fcntl(mfd, F_SETFL, O_NONBLOCK);
+        while (got < sizeof buf - 1 &&
+               (n = read(mfd, buf + got, sizeof buf - 1 - got)) > 0)
+            got += (size_t)n;
+        buf[got] = '\0';
+        close(mfd);
+        CHECK(strstr(buf, "no records under 'dump'; the command is --dump") != NULL,
+              "hint: tty recall of 'dump' names --dump");
+        CHECK(WIFEXITED(st) && WEXITSTATUS(st) == 1,
+              "hint: and still exits 1 (no match)");
+    }
+    scratch_rm(dir);
+}
+
 int main(void)
 {
     serialise_runs();
@@ -6321,6 +6598,13 @@ int main(void)
     printf("embed bundle (FFI file export/import round-trip):\n");
     test_embed_bundle_file();
 #endif
+    /* -- hardening regression block (appended as one unit) -- */
+    printf("server and CLI hardening (host, headers, port, -f, exit codes, hint):\n");
+    test_serve_host_and_headers();
+    test_cli_exit_codes();
+    test_cli_serve_port_reject();
+    test_cli_f_requires_index();
+    test_cli_tty_hint();
     printf("----\n%d passed, %d failed\n", ut_pass, ut_fail);
     return ut_fail == 0 ? 0 : 1;
 }

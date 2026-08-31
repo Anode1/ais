@@ -743,13 +743,29 @@ static void serve_load_syncfolder(const ais *a, char *out, size_t osz)
         out[--n] = '\0';
 }
 
+/* Every 200 carries the browser hardening headers: nosniff (a text/plain API
+ * reply must never be sniffed into HTML), DENY (no framing, so no clickjack of
+ * the localhost GUI), and a CSP sized to what the two pages need -- the embedded
+ * PAGE runs inline script/style only, the $AIS_WEB page adds same-origin
+ * stylesheet, icon, manifest and service worker; both fetch() same-origin. */
 static void send_head(int fd, const char *ctype)
 {
-    char h[128];
-    int n = snprintf(h, sizeof(h),
-                     "HTTP/1.0 200 OK\r\nContent-Type: %s\r\nConnection: close\r\n\r\n",
-                     ctype);
-    if (n > 0)
+    char h[512];
+    int n;
+
+    if (strcmp(ctype, "text/html") == 0)
+        ctype = "text/html; charset=utf-8";
+    n = snprintf(h, sizeof(h),
+                 "HTTP/1.0 200 OK\r\nContent-Type: %s\r\n"
+                 "X-Content-Type-Options: nosniff\r\n"
+                 "X-Frame-Options: DENY\r\n"
+                 "Content-Security-Policy: default-src 'none'; "
+                 "script-src 'self' 'unsafe-inline'; "
+                 "style-src 'self' 'unsafe-inline'; "
+                 "connect-src 'self'; img-src 'self'; manifest-src 'self'\r\n"
+                 "Connection: close\r\n\r\n",
+                 ctype);
+    if (n > 0 && (size_t)n < sizeof(h))
         write_all(fd, h, (size_t)n);
 }
 
@@ -1283,6 +1299,7 @@ static void handle(ais *a, int fd)
     int  count = 0;                       /* ?count= page size (0 => engine default)  */
     char *tlfrom = nokeys, *tlto = nokeys; /* ?from= ?to= date range (YYYY-MM-DD)      */
     int  cross_site = 0;                  /* CSRF: request from another web origin    */
+    int  bad_host = 0;                    /* DNS rebinding: Host is not this server   */
 
     n = SOCK_READ(fd, buf, sizeof(buf) - 1);   /* first read: usually the whole request */
     if (n <= 0)
@@ -1338,7 +1355,32 @@ static void handle(ais *a, int fd)
                     cross_site = 1;
             }
         }
+
+        /* DNS-rebinding guard: the server binds 127.0.0.1 only, so the sole
+         * legitimate Hosts are 127.0.0.1 and localhost (any port). A page at
+         * evil.example whose DNS is re-pointed at 127.0.0.1 reaches this socket
+         * with Host: evil.example -- refuse it before any route runs. Same
+         * whole-name-then-':' match as the Origin check above. A request with
+         * no Host header passes: every browser sends one; bare HTTP/1.0
+         * scripts do not, and they are not the rebinding vector. */
+        {
+            char hv[128];
+            if (http_header(buf, "Host", hv, sizeof hv)) {
+                int local = (strncmp(hv, "127.0.0.1", 9) == 0 ||
+                             strncmp(hv, "localhost", 9) == 0) &&
+                            (hv[9] == '\0' || hv[9] == ':');
+                if (!local)
+                    bad_host = 1;
+            }
+        }
         if (he != NULL) *he = keep;
+    }
+
+    if (bad_host) {
+        static const char e[] = "HTTP/1.0 403 Forbidden\r\n"
+            "Connection: close\r\n\r\nhost not allowed\n";
+        write_all(fd, e, sizeof(e) - 1);
+        return;
     }
 
     body = strstr(buf, "\r\n\r\n");       /* split headers from body first... */
@@ -1854,6 +1896,14 @@ int ais_serve(ais *a, int port)
     if (listen(sfd, 16) != 0) {
         SOCK_CLOSE(sfd);
         return -1;
+    }
+    /* Print the port getsockname reports, not the argument: the URL on screen
+     * is then always the one actually bound. */
+    {
+        struct sockaddr_in me;
+        socklen_t ml = sizeof me;
+        if (getsockname(sfd, (struct sockaddr *)&me, &ml) == 0)
+            port = (int)ntohs(me.sin_port);
     }
     fprintf(stderr, "ais serve: http://127.0.0.1:%d/  (Ctrl-C to stop)\n", port);
 

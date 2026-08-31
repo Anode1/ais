@@ -111,6 +111,7 @@ rm -rf "$DD"
 
 # 6. interactive: stdin = values, keys read per line from $AIS_TTY (scripted tty)
 II=$(mktemp -d "${TMPDIR:-/tmp}/ais_i.XXXXXX") || exit 2
+mkdir "$II/idx"              # -f refuses to create a missing DIR
 printf 'x1\nx2\n' > "$II/keys"
 printf 'http://a\nhttp://b\n' | AIS_TTY="$II/keys" "$AIS" -f "$II/idx" -i kul >/dev/null 2>&1
 out=$("$AIS" -f "$II/idx" kul)

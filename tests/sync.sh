@@ -65,6 +65,7 @@ host_token() {
 echo "sync (two CLI peers over loopback)"
 
 # Two indexes, each holding one record the other has never seen.
+mkdir -p "$W/a" "$W/b"       # -f refuses to create a missing DIR
 "$AIS" -f "$W/a" -v 'http://from-a' atag >/dev/null 2>&1
 "$AIS" -f "$W/b" -v 'http://from-b' btag >/dev/null 2>&1
 

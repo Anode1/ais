@@ -6,9 +6,12 @@
  *                 record; -v - reads values from stdin, one per line)
  *   -k KEY        an explicit key (the same as a bare KEY)
  *   -i            interactive: ask keys per piped line
- *   --CMD         a command: find add del del-key dump keys tags timeline
- *                 stats compact init import where serve project doc. Operands
- *                 are the bare args; values come through -v.
+ *   --CMD         a command: find add update set del del-under (del-key, its
+ *                 old name) untag dedupe-docs dump keys tags timeline stats
+ *                 compact init import import-interactively export sync
+ *                 sync-folder where serve project default switch indexes
+ *                 forget doc. Operands are the bare args; values come
+ *                 through -v. The list is longopts[] below; keep them in step.
  * No bare word is ever a command, so a tag named "doc" or "find" recalls fine.
  *
  * INDEX location precedence: -f DIR > nearest .ais/ > saved default in
@@ -20,7 +23,7 @@
 #define _POSIX_C_SOURCE 200809L  /* strtok_r */
 #include <getopt.h>
 #include <stdio.h>
-#include <unistd.h>    /* access: name the missing parent when -f cannot open */
+#include <unistd.h>    /* access: -f requires an existing index; isatty: tty hint */
 #include <stdlib.h>
 #include <errno.h>
 #include <string.h>
@@ -52,6 +55,7 @@
  * "id|value". A keyed record with no link yet prints "id|". */
 struct get_ctx {
     ais *a;
+    long matched;       /* ids seen: zero matches exits 1, like grep         */
     int  printed_any;   /* per-id: did ais_record emit at least one value?   */
     int  reveal;        /* interactive recall at a tty: reveal "aisc:" secrets */
 };
@@ -86,6 +90,7 @@ static int print_value(long id, const char *value, void *vp)
 static int on_id(long id, void *vp)
 {
     struct get_ctx *g = vp;
+    g->matched++;
     g->printed_any = 0;
     ais_record(g->a, id, print_value, g);
     if (!g->printed_any)
@@ -306,14 +311,17 @@ static int print_index(const char *name, const char *path, void *vp)
     return 0;
 }
 
-static void do_get(ais *a, char *const keys[], int nkeys, ais_mode mode)
+/* Returns how many records matched: the caller exits 1 on zero, like grep. */
+static long do_get(ais *a, char *const keys[], int nkeys, ais_mode mode)
 {
     struct get_ctx g;
     g.a = a;
+    g.matched = 0;
     g.printed_any = 0;
     g.reveal = secret_reveal_context();    /* only an interactive recall reveals secrets */
     if (ais_get(a, keys, nkeys, mode, on_id, &g) < 0)
         die("get failed");
+    return g.matched;
 }
 
 /* --dedupe-docs: collect the copies to delete, and show each beside its keeper. */
@@ -382,58 +390,79 @@ static int confirm(const char *prompt)
 
 /* ---- main --------------------------------------------------------------- */
 
+/* At file scope (not in main) so hint_command_word can walk the same table the
+ * parser uses: one list, never a stale copy. */
+enum { OPT_HELP = 1000, OPT_VERSION, OPT_TOKEN, OPT_PURGE,
+       CMD_FIND, CMD_ADD, CMD_DEL, CMD_DELKEY, CMD_DUMP, CMD_KEYS, CMD_STATS,
+       CMD_COMPACT, CMD_INIT, CMD_IMPORT, CMD_IMPORTI, CMD_WHERE, CMD_SERVE, CMD_PROJECT,
+       CMD_DOC, CMD_TIMELINE, CMD_TAGS, CMD_DEFAULT, CMD_UPDATE, CMD_SET, CMD_UNTAG,
+       CMD_SWITCH, CMD_INDEXES, CMD_FORGET, CMD_EXPORT, CMD_SYNC, CMD_SYNCFOLDER,
+       CMD_DEDUPE };
+static const struct option longopts[] = {
+    { "index",       required_argument, NULL, 'f' },
+    { "or",          no_argument,       NULL, 'o' },
+    { "debug",       no_argument,       NULL, 'd' },
+    { "yes",         no_argument,       NULL, 'y' },
+    { "interactive", no_argument,       NULL, 'i' },
+    { "encrypt",     no_argument,       NULL, 'e' },
+    { "value",       required_argument, NULL, 'v' },
+    { "key",         required_argument, NULL, 'k' },
+    { "project",     no_argument,       NULL, CMD_PROJECT },
+    { "default",     no_argument,       NULL, CMD_DEFAULT },
+    { "switch",      no_argument,       NULL, CMD_SWITCH },
+    { "indexes",     no_argument,       NULL, CMD_INDEXES },
+    { "forget",      no_argument,       NULL, CMD_FORGET },
+    { "help",        no_argument,       NULL, OPT_HELP },
+    { "version",     no_argument,       NULL, OPT_VERSION },
+    { "find",        no_argument,       NULL, CMD_FIND },
+    { "add",         no_argument,       NULL, CMD_ADD },
+    { "update",      no_argument,       NULL, CMD_UPDATE },
+    { "set",         no_argument,       NULL, CMD_SET },
+    { "del",         no_argument,       NULL, CMD_DEL },
+    { "del-key",     no_argument,       NULL, CMD_DELKEY },   /* alias, kept forever */
+    { "del-under",   no_argument,       NULL, CMD_DELKEY },
+    { "dedupe-docs", no_argument,       NULL, CMD_DEDUPE },
+    { "untag",       no_argument,       NULL, CMD_UNTAG },
+    { "dump",        no_argument,       NULL, CMD_DUMP },
+    { "keys",        no_argument,       NULL, CMD_KEYS },
+    { "tags",        no_argument,       NULL, CMD_TAGS },
+    { "timeline",    no_argument,       NULL, CMD_TIMELINE },
+    { "stats",       no_argument,       NULL, CMD_STATS },
+    { "compact",     no_argument,       NULL, CMD_COMPACT },
+    { "forget-deleted", no_argument,    NULL, OPT_PURGE },
+    { "init",        no_argument,       NULL, CMD_INIT },
+    { "import",      no_argument,       NULL, CMD_IMPORT },
+    { "import-interactively", no_argument, NULL, CMD_IMPORTI },
+    { "export",      no_argument,       NULL, CMD_EXPORT },
+    { "sync",        no_argument,       NULL, CMD_SYNC },
+    { "sync-folder", no_argument,       NULL, CMD_SYNCFOLDER },
+    { "where",       no_argument,       NULL, CMD_WHERE },
+    { "serve",       no_argument,       NULL, CMD_SERVE },
+    { "token",       required_argument, NULL, OPT_TOKEN },
+    { "doc",         no_argument,       NULL, CMD_DOC },
+    { NULL, 0, NULL, 0 }
+};
+
+/* A recall that matched nothing, where the one bare key names a long option
+ * (`ais dump`, `ais find x`): the user forgot the '--'. Say so, on stderr, only
+ * at a terminal -- a script grepping stdout sees nothing new. Derived from
+ * longopts[] (val >= OPT_HELP: the words reachable only as --word). */
+static void hint_command_word(const char *key)
+{
+    int i;
+
+    if (!isatty(STDERR_FILENO))
+        return;
+    for (i = 0; longopts[i].name != NULL; i++)
+        if (longopts[i].val >= OPT_HELP && strcmp(longopts[i].name, key) == 0) {
+            fprintf(stderr, "no records under '%s'; the command is --%s\n",
+                    key, key);
+            return;
+        }
+}
+
 int main(int argc, char **argv)
 {
-    enum { OPT_HELP = 1000, OPT_VERSION, OPT_TOKEN, OPT_PURGE,
-           CMD_FIND, CMD_ADD, CMD_DEL, CMD_DELKEY, CMD_DUMP, CMD_KEYS, CMD_STATS,
-           CMD_COMPACT, CMD_INIT, CMD_IMPORT, CMD_IMPORTI, CMD_WHERE, CMD_SERVE, CMD_PROJECT,
-           CMD_DOC, CMD_TIMELINE, CMD_TAGS, CMD_DEFAULT, CMD_UPDATE, CMD_SET, CMD_UNTAG,
-           CMD_SWITCH, CMD_INDEXES, CMD_FORGET, CMD_EXPORT, CMD_SYNC, CMD_SYNCFOLDER,
-           CMD_DEDUPE };
-    static const struct option longopts[] = {
-        { "index",       required_argument, NULL, 'f' },
-        { "or",          no_argument,       NULL, 'o' },
-        { "debug",       no_argument,       NULL, 'd' },
-        { "yes",         no_argument,       NULL, 'y' },
-        { "interactive", no_argument,       NULL, 'i' },
-        { "encrypt",     no_argument,       NULL, 'e' },
-        { "value",       required_argument, NULL, 'v' },
-        { "key",         required_argument, NULL, 'k' },
-        { "project",     no_argument,       NULL, CMD_PROJECT },
-        { "default",     no_argument,       NULL, CMD_DEFAULT },
-        { "switch",      no_argument,       NULL, CMD_SWITCH },
-        { "indexes",     no_argument,       NULL, CMD_INDEXES },
-        { "forget",      no_argument,       NULL, CMD_FORGET },
-        { "help",        no_argument,       NULL, OPT_HELP },
-        { "version",     no_argument,       NULL, OPT_VERSION },
-        { "find",        no_argument,       NULL, CMD_FIND },
-        { "add",         no_argument,       NULL, CMD_ADD },
-        { "update",      no_argument,       NULL, CMD_UPDATE },
-        { "set",         no_argument,       NULL, CMD_SET },
-        { "del",         no_argument,       NULL, CMD_DEL },
-        { "del-key",     no_argument,       NULL, CMD_DELKEY },   /* alias, kept forever */
-        { "del-under",   no_argument,       NULL, CMD_DELKEY },
-        { "dedupe-docs", no_argument,       NULL, CMD_DEDUPE },
-        { "untag",       no_argument,       NULL, CMD_UNTAG },
-        { "dump",        no_argument,       NULL, CMD_DUMP },
-        { "keys",        no_argument,       NULL, CMD_KEYS },
-        { "tags",        no_argument,       NULL, CMD_TAGS },
-        { "timeline",    no_argument,       NULL, CMD_TIMELINE },
-        { "stats",       no_argument,       NULL, CMD_STATS },
-        { "compact",     no_argument,       NULL, CMD_COMPACT },
-        { "forget-deleted", no_argument,    NULL, OPT_PURGE },
-        { "init",        no_argument,       NULL, CMD_INIT },
-        { "import",      no_argument,       NULL, CMD_IMPORT },
-        { "import-interactively", no_argument, NULL, CMD_IMPORTI },
-        { "export",      no_argument,       NULL, CMD_EXPORT },
-        { "sync",        no_argument,       NULL, CMD_SYNC },
-        { "sync-folder", no_argument,       NULL, CMD_SYNCFOLDER },
-        { "where",       no_argument,       NULL, CMD_WHERE },
-        { "serve",       no_argument,       NULL, CMD_SERVE },
-        { "token",       required_argument, NULL, OPT_TOKEN },
-        { "doc",         no_argument,       NULL, CMD_DOC },
-        { NULL, 0, NULL, 0 }
-    };
     const char *dir = NULL;
     const char *project_arg = NULL;
     const char *values[AIS_KEYS_MAX];
@@ -518,6 +547,12 @@ int main(int argc, char **argv)
         } else if (ais_locate(dir, resolved, sizeof(resolved)) != 0) {
             die("cannot determine an index location (use -f DIR)");
         } else {
+            /* -f names an index that must already exist; creating one is
+             * --init's job. Silently minting a directory here turns a typo
+             * into an empty index that recalls nothing. */
+            if (dir != NULL && cmd != CMD_INIT && access(resolved, F_OK) != 0)
+                die("no index at '%s' (create one: ais --init -f %s)",
+                    resolved, resolved);
             dir = resolved;
         }
     }
@@ -545,6 +580,7 @@ int main(int argc, char **argv)
 
     /* ---- commands (--CMD); operands are the bare args, values via -v ---- */
     if (cmd != 0) {
+        int rc = 0;    /* 1 = nothing matched or nothing was done (grep semantics) */
         switch (cmd) {
         case CMD_DUMP:  ais_dump(&a, stdout); break;
         case CMD_KEYS:  if (ais_keys(&a, print_key, stdout) < 0) die("keys failed"); break;
@@ -636,10 +672,14 @@ int main(int argc, char **argv)
             }
             printf("synced folder: %s\n", argv[optind]);
             break;
-        case CMD_FIND:
+        case CMD_FIND: {
+            long nf;
             if (optind >= argc) die("--find needs TEXT");
-            if (ais_find(&a, argv[optind], stdout) != 0) die("find failed");
+            nf = ais_find(&a, argv[optind], stdout);
+            if (nf < 0) die("find failed");
+            if (nf == 0) rc = 1;                  /* no match, like grep */
             break;
+        }
         case CMD_ADD: {
             long id; int j;
             if (optind >= argc) die("--add needs an ID");
@@ -753,6 +793,7 @@ int main(int argc, char **argv)
                 die("--untag: cannot read '%s'", key);
             if (n == 0) {
                 fprintf(stderr, "nothing is filed under '%s'\n", key);
+                rc = 1;                           /* nothing was done */
                 break;
             }
             snprintf(p, sizeof(p),
@@ -798,6 +839,7 @@ int main(int argc, char **argv)
                 nprev = pv.shown;
                 if (nprev == 0) {
                     fprintf(stderr, "nothing is filed under '%s'\n", key);
+                    rc = 1;                       /* nothing was done */
                     break;
                 }
                 if (pv.shown > DELKEY_PREVIEW_MAX)
@@ -819,6 +861,7 @@ int main(int argc, char **argv)
                 n = ais_del_key(&a, key);
                 if (n < 0) die("del-key failed");
                 printf("deleted %ld\n", n);
+                if (n == 0) rc = 1;               /* -y on an unused key */
             } else { fprintf(stderr, "aborted\n"); ais_close(&a); return 1; }
             break;
         }
@@ -835,6 +878,7 @@ int main(int argc, char **argv)
             if (n == 0) {
                 fprintf(stderr, "no document is a copy of another\n");
                 free(L.ids);
+                rc = 1;                           /* nothing to delete */
                 break;
             }
             if (!assume_yes)
@@ -884,8 +928,18 @@ int main(int argc, char **argv)
             } else { fprintf(stderr, "aborted\n"); ais_close(&a); return 1; }
             break;
         case CMD_SERVE: {
-            int port = (optind < argc) ? atoi(argv[optind]) : 8765;
-            if (port <= 0) port = 8765;
+            /* A TCP port is 1..65535; anything else would truncate mod 65536
+             * in htons and bind somewhere the printed URL is not. */
+            int port = 8765;
+            if (optind < argc) {
+                port = atoi(argv[optind]);
+                if (port < 1 || port > 65535) {
+                    fprintf(stderr, "ais: --serve: PORT must be 1..65535, not '%s'\n",
+                            argv[optind]);
+                    ais_close(&a);
+                    return 2;
+                }
+            }
             if (ais_serve(&a, port) != 0)
                 die("serve: cannot bind 127.0.0.1:%d", port);
             break;
@@ -988,7 +1042,7 @@ int main(int argc, char **argv)
             break;
         }
         ais_close(&a);
-        return 0;
+        return rc;
     }
 
     /* ---- save (put mode): -v or -i ---- */
@@ -1051,7 +1105,11 @@ int main(int argc, char **argv)
              tok = strtok_r(NULL, " ", &save))
             kv[nk++] = tok;
         if (nk == 0) { usage_short(stderr); ais_close(&a); return 2; }
-        do_get(&a, kv, nk, mode);
+        if (do_get(&a, kv, nk, mode) == 0) {
+            hint_command_word(kv[0]);   /* `ais dump` was probably `ais --dump` */
+            ais_close(&a);
+            return 1;                   /* no match, like grep */
+        }
     }
 
     ais_close(&a);
