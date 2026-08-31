@@ -30,6 +30,29 @@ void main() {
         addSaveError(value: 'x', engineReady: true, syncing: false, encrypt: true, passphrase: 'pw'),
         isNull);
     });
+    test('encrypt with a mismatched confirmation is blocked', () {
+      expect(
+        addSaveError(value: 'x', engineReady: true, syncing: false, encrypt: true, passphrase: 'a', passphraseRepeat: 'b'),
+        'Passphrases do not match');
+    });
+    test('the match is on the RAW strings: a trailing space differs', () {
+      expect(
+        addSaveError(value: 'x', engineReady: true, syncing: false, encrypt: true, passphrase: 'a', passphraseRepeat: 'a '),
+        'Passphrases do not match');
+      expect(
+        addSaveError(value: 'x', engineReady: true, syncing: false, encrypt: true, passphrase: 'a ', passphraseRepeat: 'a '),
+        isNull);
+    });
+    test('no confirmation field (null) skips the match check', () {
+      expect(
+        addSaveError(value: 'x', engineReady: true, syncing: false, encrypt: true, passphrase: 'a', passphraseRepeat: null),
+        isNull);
+    });
+    test('the confirmation is ignored while Encrypt is off', () {
+      expect(
+        addSaveError(value: 'x', engineReady: true, syncing: false, encrypt: false, passphrase: '', passphraseRepeat: 'stale'),
+        isNull);
+    });
     test('whitespace-only value is treated as empty', () {
       expect(
         addSaveError(value: '   ', engineReady: true, syncing: false, encrypt: false, passphrase: ''),

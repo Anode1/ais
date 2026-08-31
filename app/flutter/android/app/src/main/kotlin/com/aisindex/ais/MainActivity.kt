@@ -13,8 +13,10 @@ import io.flutter.plugin.common.MethodChannel
 // waits for getInitialLink; one that arrives while running is pushed as onLink.
 class MainActivity : FlutterActivity() {
     private var channel: MethodChannel? = null
+    private var share: MethodChannel? = null
     private var screen: MethodChannel? = null
     private var initialLink: String? = null
+    private var initialShared: String? = null
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -24,6 +26,20 @@ class MainActivity : FlutterActivity() {
             if (call.method == "getInitialLink") {
                 result.success(initialLink)
                 initialLink = null
+            } else {
+                result.notImplemented()
+            }
+        }
+
+        // Share-sheet intake (ACTION_SEND, text/plain): same shape as ais/deeplink.
+        // A share that cold-started the app waits for getInitialShared; one that
+        // arrives while running is pushed as onShared. Dart prefills the Add sheet.
+        initialShared = sharedTextOf(intent)
+        share = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "ais/share")
+        share!!.setMethodCallHandler { call, result ->
+            if (call.method == "getInitialShared") {
+                result.success(initialShared)
+                initialShared = null
             } else {
                 result.notImplemented()
             }
@@ -54,10 +70,18 @@ class MainActivity : FlutterActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         linkOf(intent)?.let { channel?.invokeMethod("onLink", it) }
+        sharedTextOf(intent)?.let { share?.invokeMethod("onShared", it) }
     }
 
     private fun linkOf(intent: Intent?): String? {
         val data: Uri? = intent?.data
         return if (intent?.action == Intent.ACTION_VIEW && data?.scheme == "ais") data.toString() else null
+    }
+
+    // Only EXTRA_TEXT crosses: EXTRA_SUBJECT is deliberately dropped, so a
+    // shared title is never invented into tags -- tags stay the user's.
+    private fun sharedTextOf(intent: Intent?): String? {
+        if (intent?.action != Intent.ACTION_SEND || intent.type != "text/plain") return null
+        return intent.getStringExtra(Intent.EXTRA_TEXT)?.takeIf { it.isNotBlank() }
     }
 }

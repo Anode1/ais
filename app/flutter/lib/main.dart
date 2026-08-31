@@ -100,13 +100,18 @@ class AisApp extends StatelessWidget {
 }
 
 class RecallPage extends StatefulWidget {
-  const RecallPage({super.key});
+  // Test seam for the tag-suggestion rows: `flutter test` runs with no engine
+  // (CI builds no libais.so), so the lookup is injectable. Null = the engine's
+  // whole tag cloud (_tagMatches).
+  final List<String> Function(String prefix)? tagLookup;
+  const RecallPage({super.key, this.tagLookup});
   @override
   State<RecallPage> createState() => _RecallPageState();
 }
 
 class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
   final _q = TextEditingController();
+  final _qFocus = FocusNode(); // so a suggestion tap can hand focus back
   final _speech = SpeechToText();
   // Live search: each keystroke reschedules this, _recall() fires on the pause.
   Timer? _debounce;
@@ -178,6 +183,12 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
   // AppDelegate) pushes live links as 'onLink' and holds a cold-start link for
   // 'getInitialLink'. Absent on desktop, where the calls just throw and are ignored.
   static const _linkChannel = MethodChannel('ais/deeplink');
+
+  // Android share-sheet intake (ACTION_SEND, text/plain). MainActivity holds a
+  // share that cold-started the app for 'getInitialShared' and pushes one that
+  // arrives while running as 'onShared'; either way the text prefills the Add
+  // sheet. Absent on desktop and iOS, where the calls just throw and are ignored.
+  static const _shareChannel = MethodChannel('ais/share');
 
   // iOS-only: ask the runner to set NSURLIsExcludedFromBackupKey on the index dir
   // (see ios/Runner/AppDelegate.swift). Absent elsewhere, where the call just throws.
@@ -267,6 +278,7 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
     // prompt to a user gesture rather than app launch.
     if (mounted) setState(() {});
     _wireDeepLinks();
+    _wireShareIntake();
   }
 
 
@@ -280,6 +292,29 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
     _linkChannel.invokeMethod<String>('getInitialLink').then((link) {
       if (link != null && link.isNotEmpty) _handleLink(link);
     }).catchError((_) {}); // no such channel on desktop; ignore
+  }
+
+  // Register the live-share handler, then check for a share that cold-started us.
+  void _wireShareIntake() {
+    _shareChannel.setMethodCallHandler((call) async {
+      if (call.method == 'onShared' && call.arguments is String) {
+        _handleShared(call.arguments as String);
+      }
+    });
+    _shareChannel.invokeMethod<String>('getInitialShared').then((text) {
+      if (text != null && text.isNotEmpty) _handleShared(text);
+    }).catchError((_) {}); // no such channel on desktop; ignore
+  }
+
+  // Text shared from another app prefills the Add sheet's value. Tags stay the
+  // user's: a share's subject line is dropped on the native side, never turned
+  // into tags here.
+  void _handleShared(String text) {
+    if (!mounted || text.isEmpty) return;
+    // A share can arrive over an open sheet or dialog; clear the way first,
+    // like a scanned link does.
+    Navigator.of(context).popUntil((r) => r.isFirst);
+    _showAdd(value: text);
   }
 
   // A scanned ais://sync?host=IP:PORT&token=HEX link, opened by the phone's own
@@ -461,6 +496,33 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
       }
       _tagsMore = page.length == _tagsPage;
     });
+  }
+
+  // Existing tags starting with [prefix] (case-insensitive), busiest first, at
+  // most six: what the TagSuggestRow under every tag field shows. Pages through
+  // the WHOLE tag cloud (the FFI is cheap), so "rec" finds recipe even when the
+  // Tags view has only its first page loaded. Widget tests inject
+  // widget.tagLookup instead: they run with no engine to page.
+  List<String> _tagMatches(String prefix) {
+    final injected = widget.tagLookup;
+    if (injected != null) return injected(prefix);
+    final e = _ais;
+    if (e == null || prefix.isEmpty) return const [];
+    final p = prefix.toLowerCase();
+    final out = <String>[];
+    var afterCount = 0;
+    var afterKey = '';
+    while (out.length < 6) {
+      final page = e.tagsPage(afterCount: afterCount, afterKey: afterKey, count: _tagsPage);
+      for (final t in page) {
+        if (t.key.toLowerCase().startsWith(p)) out.add(t.key);
+        if (out.length >= 6) break;
+      }
+      if (page.length < _tagsPage) break;
+      afterCount = page.last.count;
+      afterKey = page.last.key;
+    }
+    return out;
   }
 
   // Fresh timeline load: page one from the newest, within [_tlFrom, _tlTo].
@@ -1691,6 +1753,7 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
                         Expanded(
                           child: TextField(
                             controller: _q,
+                            focusNode: _qFocus,
                             // The app opens on the timeline, not search; autofocus
                             // here would pop the soft keyboard on every launch on
                             // mobile. Keep it only on desktop (no soft keyboard).
@@ -1738,6 +1801,18 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
                           ),
                         ),
                       ],
+                    ),
+                    // The completion row every tag field gets. Completing re-runs
+                    // the search at once: a programmatic controller change never
+                    // fires onChanged, so the debounce path above would sit idle.
+                    TagSuggestRow(
+                      controller: _q,
+                      focusNode: _qFocus,
+                      lookup: _tagMatches,
+                      onCompleted: () {
+                        _debounce?.cancel();
+                        _recallLive();
+                      },
                     ),
                     const SizedBox(height: 8),
                     // "Match any tag" (OR) as a chip. The library path moved
@@ -2025,79 +2100,13 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
     }
     final original = _ais!.keysOf(hit.id).split(RegExp(r'\s+'))
         .where((t) => t.isNotEmpty).toList();
-    final tags = [...original];
-    final ctrl = TextEditingController();
-    final focus = FocusNode();
-
-    // Split on spaces/commas so a pasted or submitted multi-word string becomes
-    // one chip PER tag, matching how the engine tokenizes on update.
-    void addToken(StateSetter setDlg, String raw) {
-      final parts =
-          raw.split(RegExp(r'[,\s]+')).where((p) => p.isNotEmpty).toList();
-      final fresh = parts.where((p) => !tags.contains(p)).toList();
-      if (fresh.isEmpty) return;
-      setDlg(() => tags.addAll(fresh));
-    }
-
-    final ok = await showDialog<bool>(
+    // The dialog owns its fields and pops with the edited list (Apply commits
+    // any token still in the field first), or null on Cancel.
+    final tags = await showDialog<List<String>>(
       context: context,
-      builder: (ctx) => _OwnedFields(
-        owned: [ctrl, focus],
-        child: StatefulBuilder(
-        builder: (ctx, setDlg) => AlertDialog(
-          title: const Text('Edit tags'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              if (tags.isNotEmpty)
-                Wrap(
-                  spacing: 6,
-                  runSpacing: 4,
-                  children: [
-                    for (final t in tags)
-                      InputChip(
-                        label: Text(t),
-                        visualDensity: VisualDensity.compact,
-                        onDeleted: () => setDlg(() => tags.remove(t)),
-                      ),
-                  ],
-                ),
-              const SizedBox(height: 8),
-              TextField(
-                controller: ctrl,
-                focusNode: focus,
-                autofocus: true,
-                decoration: const InputDecoration(hintText: 'Add a tag'),
-                onChanged: (v) {
-                  // a space or comma commits the token in progress
-                  if (v.endsWith(' ') || v.endsWith(',')) {
-                    addToken(setDlg, v.substring(0, v.length - 1));
-                    ctrl.clear();
-                  }
-                },
-                onSubmitted: (v) {
-                  addToken(setDlg, v);
-                  ctrl.clear();
-                  focus.requestFocus();
-                },
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
-            FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Apply')),
-          ],
-        ),
-        ),
-      ),
+      builder: (ctx) => EditTagsDialog(initial: original, suggest: _tagMatches),
     );
-    // Capture any token still in the field; _OwnedFields frees ctrl and focus.
-    final trailing = ctrl.text;
-    if (ok != true || _ais == null) return;
-    for (final p in trailing.split(RegExp(r'[,\s]+')).where((p) => p.isNotEmpty)) {
-      if (!tags.contains(p)) tags.add(p);
-    }
+    if (tags == null || _ais == null) return;
     final delta = <String>[
       for (final t in original) if (!tags.contains(t)) '-$t',
       for (final t in tags) if (!original.contains(t)) t,
@@ -2794,38 +2803,266 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
     );
   }
 
-  // The Add form. Keys are optional and prefilled from the search box.
-  void _showAdd() {
-    final valCtrl = TextEditingController();
-    final keysCtrl = TextEditingController(text: _q.text.trim());
-    final ppCtrl = TextEditingController();
-    bool encrypt = false;                 // off by default
-    bool saving = false;                  // true while the off-isolate encrypt runs
-    bool ppShow = false;                  // reveal toggle for the sealing passphrase
-    String? error;                        // in-sheet feedback so a save never fails silently
+  // The Add form. Keys are optional and prefilled from the search box; [value]
+  // prefills the note itself (the Android share sheet lands here).
+  void _showAdd({String value = ''}) {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       showDragHandle: true,
-      builder: (ctx) => _OwnedFields(
-        owned: [valCtrl, keysCtrl, ppCtrl],
-        child: StatefulBuilder(
-        builder: (ctx, setSheet) => Padding(
+      builder: (ctx) => AddSheet(
+        initialValue: value,
+        initialKeys: _q.text.trim(),
+        suggest: _tagMatches,
+        onSave: _addSave,
+      ),
+    );
+    // saved, cancelled, or swipe-dismissed: AddSheet's own dispose frees the
+    // fields with the route either way.
+  }
+
+  // Validate-and-store for the Add sheet: the inline error to show, or null
+  // when the record landed (the sheet closes itself; the view change and the
+  // snackbar happen here). Kept on the page State so AddSheet stays pumpable
+  // in a widget test with no engine.
+  Future<String?> _addSave(
+      {required String value,
+      required String keys,
+      required bool encrypt,
+      required String passphrase,
+      required String repeat}) async {
+    // Store the value verbatim (no trim), like the in-place edit path;
+    // addSaveError treats whitespace-only as empty.
+    final k = _normKeys(keys);
+    final err = addSaveError(
+        value: value,
+        engineReady: _ais != null,
+        syncing: _syncBlocks(),
+        encrypt: encrypt,
+        passphrase: passphrase,
+        passphraseRepeat: repeat,
+        keys: k);
+    if (err != null) return err;
+    // addSaveError stays quiet when the engine is not ready (the FAB is
+    // disabled then), but the share intake opens this sheet without the FAB.
+    if (_ais == null) return 'Library is still opening. Try again in a moment.';
+    final messenger = ScaffoldMessenger.of(context);
+    // Commit any armed swipe-delete BEFORE a background encrypt: a UI-isolate
+    // del() must not run on the shared handle while the off-isolate ais_put
+    // does (a cross-isolate write race). The sheet is modal, so no new delete
+    // can be armed meanwhile.
+    _flushPendingDeletes();
+    // The one save that adds no live record is a merge: same text, same record
+    // (value is identity), restamped to today. Count around the save to say so
+    // afterwards; an encrypted save always mints a fresh record (its IV).
+    final before = encrypt ? -1 : _ais!.countLive();
+    int id = -1;
+    try {
+      if (encrypt) {
+        id = await _ais!.storeEncryptedAsync(k, value, passphrase);
+      } else {
+        id = _ais!.store(k, value);
+      }
+    } catch (e) {
+      return 'Could not save: $e';
+    }
+    // The engine returns -1 when nothing was stored (bad args, blob write
+    // failure, crypto not built).
+    if (!saveSucceeded(id)) return saveOutcomeMessage(id, k);
+    if (!mounted) return null;
+    // Show the new record at the top of Recent. Saving is not a query: don't
+    // drop into a search for it.
+    final merged = before >= 0 && _ais!.countLive() == before;
+    _setView('timeline');
+    _runFolderSync(silent: true); // push the new record to peers
+    messenger.showSnackBar(
+        SnackBar(content: Text(saveOutcomeMessage(id, k, merged: merged))));
+    return null;
+  }
+
+  @override
+  void dispose() {
+    _flushPendingDeletes();          // an armed delete must not die with the page
+    WidgetsBinding.instance.removeObserver(this);
+    _qFocus.dispose();
+    _debounce?.cancel();
+    _speech.cancel(); // stop any active recognizer session
+    // A background LAN sync may still hold this handle by address; close()ing
+    // (freeing) it now would be a use-after-free in that isolate. This is the
+    // top-level page, so a dispose means the app is going away: let the OS reclaim it.
+    if (!_syncBusy) _ais?.close();
+    super.dispose();
+  }
+}
+
+// One row of completion chips under a tag field: THE tag-autocomplete widget,
+// shared by the Add sheet, the Edit-tags dialog and the header search field
+// (three hand-rolled copies is how rows drift apart here). [lookup] gives the
+// existing tags for the token being typed -- the trailing token, split on
+// spaces/commas like _normKeys -- and an empty token shows nothing. A tap
+// completes that token plus a trailing space and hands focus back to the
+// field; [onPick] replaces that default where completion means something else
+// (Edit-tags commits a chip), [onCompleted] runs after it (search re-queries:
+// a programmatic controller change fires no onChanged).
+class TagSuggestRow extends StatelessWidget {
+  final TextEditingController controller;
+  final FocusNode? focusNode;
+  final List<String> Function(String prefix) lookup;
+  final void Function(String tag)? onPick;
+  final VoidCallback? onCompleted;
+  static const int _max = 6;
+  const TagSuggestRow(
+      {super.key,
+      required this.controller,
+      required this.lookup,
+      this.focusNode,
+      this.onPick,
+      this.onCompleted});
+
+  // The trailing token, per _normKeys rules (spaces and commas separate tags).
+  static String _token(String text) {
+    final i = text.lastIndexOf(RegExp(r'[,\s]'));
+    return i < 0 ? text : text.substring(i + 1);
+  }
+
+  void _apply(String tag) {
+    final text = controller.text;
+    final head = text.substring(0, text.length - _token(text).length);
+    controller.value = TextEditingValue(
+      text: '$head$tag ',
+      selection: TextSelection.collapsed(offset: head.length + tag.length + 1),
+    );
+    onCompleted?.call();
+  }
+
+  @override
+  Widget build(BuildContext context) => ValueListenableBuilder<TextEditingValue>(
+        valueListenable: controller,
+        builder: (context, v, _) {
+          final tok = _token(v.text);
+          final tags = tok.isEmpty ? const <String>[] : lookup(tok).take(_max).toList();
+          if (tags.isEmpty) return const SizedBox.shrink();
+          return Padding(
+            padding: const EdgeInsets.only(top: 6),
+            // One row, never a wrap: scrolls sideways instead of growing down
+            // and pushing the field it belongs to off the keyboard.
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(children: [
+                for (final t in tags)
+                  Padding(
+                    padding: const EdgeInsets.only(right: 6),
+                    child: ActionChip(
+                      label: Text(t),
+                      visualDensity: VisualDensity.compact,
+                      onPressed: () {
+                        if (onPick != null) {
+                          onPick!(t);
+                        } else {
+                          _apply(t);
+                        }
+                        focusNode?.requestFocus();
+                      },
+                    ),
+                  ),
+              ]),
+            ),
+          );
+        },
+      );
+}
+
+// The Add form, extracted from _showAdd so a widget test can pump it with a
+// fake [onSave] and [suggest] (the real ones need the engine, which
+// `flutter test` never has). Owns its fields: State.dispose frees them at
+// route teardown, the timing _OwnedFields exists to guarantee.
+class AddSheet extends StatefulWidget {
+  final String initialValue;
+  final String initialKeys;
+  // Existing tags for the token being typed (busiest first, already capped).
+  final List<String> Function(String prefix) suggest;
+  // Validate-and-store. Returns the inline error to show, or null when the
+  // record landed and the sheet may close. Gets the raw field texts, the
+  // confirmation [repeat] included: the match check is validation, and
+  // validation lives behind this seam (add_validation.dart).
+  final Future<String?> Function(
+      {required String value,
+      required String keys,
+      required bool encrypt,
+      required String passphrase,
+      required String repeat}) onSave;
+  const AddSheet(
+      {super.key,
+      this.initialValue = '',
+      this.initialKeys = '',
+      required this.suggest,
+      required this.onSave});
+  @override
+  State<AddSheet> createState() => _AddSheetState();
+}
+
+class _AddSheetState extends State<AddSheet> {
+  late final _valCtrl = TextEditingController(text: widget.initialValue);
+  late final _keysCtrl = TextEditingController(text: widget.initialKeys);
+  final _ppCtrl = TextEditingController();
+  final _pp2Ctrl = TextEditingController();
+  final _keysFocus = FocusNode();
+  bool _encrypt = false; // off by default
+  bool _saving = false;  // true while the off-isolate encrypt runs
+  bool _ppShow = false;  // reveal toggle for the sealing passphrase (both fields)
+  String? _error;        // in-sheet feedback so a save never fails silently
+
+  @override
+  void dispose() {
+    _valCtrl.dispose();
+    _keysCtrl.dispose();
+    _ppCtrl.dispose();
+    _pp2Ctrl.dispose();
+    _keysFocus.dispose();
+    super.dispose();
+  }
+
+  Future<void> _save() async {
+    if (_encrypt) setState(() => _saving = true);
+    final err = await widget.onSave(
+        value: _valCtrl.text,
+        keys: _keysCtrl.text,
+        encrypt: _encrypt,
+        passphrase: _ppCtrl.text,
+        repeat: _pp2Ctrl.text);
+    // The sheet is swipe-dismissible during "Encrypting…", and setState on a
+    // disposed element throws.
+    if (!mounted) return;
+    if (err != null) {
+      setState(() {
+        _saving = false;
+        _error = err;
+      });
+      return;
+    }
+    Navigator.of(context).pop();
+  }
+
+  @override
+  Widget build(BuildContext context) => Padding(
         padding: EdgeInsets.only(
-            bottom: MediaQuery.of(ctx).viewInsets.bottom + 16,
+            bottom: MediaQuery.of(context).viewInsets.bottom + 16,
             left: 16, right: 16, top: 4),
-        child: Column(
+        // Scrolls: with the keyboard up and Encrypt on, the fixed Column
+        // overflowed the sheet.
+        child: SingleChildScrollView(
+          child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Text('Add to your memory',
-                style: Theme.of(ctx).textTheme.titleMedium),
+                style: Theme.of(context).textTheme.titleMedium),
             const SizedBox(height: 14),
             // The thing being saved comes first, then how to find it again. The
             // other order asked for the label before the thing it labels, which
             // is not how anyone describes what they are doing.
             TextField(
-              controller: valCtrl,
+              controller: _valCtrl,
               autofocus: true,
               minLines: 1,
               maxLines: 3,
@@ -2837,139 +3074,179 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
             ),
             const SizedBox(height: 12),
             TextField(
-              controller: keysCtrl,
+              controller: _keysCtrl,
+              focusNode: _keysFocus,
               decoration: const InputDecoration(
                 labelText: 'Tags (space-separated, optional)',
                 hintText: 'e.g. venice italy hotel',
                 border: OutlineInputBorder(),
               ),
             ),
+            TagSuggestRow(
+              controller: _keysCtrl,
+              focusNode: _keysFocus,
+              lookup: widget.suggest,
+            ),
             const SizedBox(height: 4),
             Row(children: [
               Switch(
-                value: encrypt,
-                onChanged: (b) => setSheet(() => encrypt = b),
+                value: _encrypt,
+                onChanged: (b) => setState(() => _encrypt = b),
               ),
               const Text('Encrypt'),
             ]),
-            if (encrypt)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 4),
-                child: TextField(
-                  controller: ppCtrl,
-                  obscureText: !ppShow,
-                  decoration: InputDecoration(
-                    labelText: 'Passphrase',
-                    border: const OutlineInputBorder(),
-                    suffixIcon: IconButton(
-                      icon: Icon(ppShow ? Icons.visibility_off : Icons.visibility),
-                      tooltip: ppShow ? 'Hide' : 'Show',
-                      onPressed: () => setSheet(() => ppShow = !ppShow),
-                    ),
+            if (_encrypt) ...[
+              TextField(
+                controller: _ppCtrl,
+                obscureText: !_ppShow,
+                decoration: InputDecoration(
+                  labelText: 'Passphrase',
+                  border: const OutlineInputBorder(),
+                  suffixIcon: IconButton(
+                    icon: Icon(_ppShow ? Icons.visibility_off : Icons.visibility),
+                    tooltip: _ppShow ? 'Hide' : 'Show',
+                    onPressed: () => setState(() => _ppShow = !_ppShow),
                   ),
                 ),
               ),
-            if (error != null)
+              const SizedBox(height: 8),
+              TextField(
+                controller: _pp2Ctrl,
+                obscureText: !_ppShow,
+                decoration: const InputDecoration(
+                  labelText: 'Repeat passphrase',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.only(top: 6, bottom: 4),
+                child: Text('A lost passphrase cannot be recovered.',
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: Theme.of(context).colorScheme.onSurfaceVariant)),
+              ),
+            ],
+            if (_error != null)
               Padding(
                 padding: const EdgeInsets.only(top: 2, bottom: 6),
-                child: Text(error!,
-                    style: TextStyle(color: Theme.of(ctx).colorScheme.error)),
+                child: Text(_error!,
+                    style: TextStyle(color: Theme.of(context).colorScheme.error)),
               ),
             const SizedBox(height: 16),
             FilledButton.icon(
-              icon: saving
+              icon: _saving
                   ? const SizedBox(
                       width: 16, height: 16,
                       child: CircularProgressIndicator(strokeWidth: 2))
                   : const Icon(Icons.check),
-              label: Text(saving ? 'Encrypting…' : 'Save'),
-              onPressed: saving
-                  ? null
-                  : () async {
-                      // Store the value verbatim (no trim), like the in-place edit
-                      // path; addSaveError treats whitespace-only as empty.
-                      final value = valCtrl.text;
-                      final keys = _normKeys(keysCtrl.text);
-                      final err = addSaveError(
-                          value: value,
-                          engineReady: _ais != null,
-                          syncing: _syncBlocks(),
-                          encrypt: encrypt,
-                          passphrase: ppCtrl.text,
-                          keys: keys);
-                      if (err != null) {
-                        setSheet(() => error = err);
-                        return;
-                      }
-                      if (_ais == null) return;
-                      setSheet(() => error = null);
-                      final messenger = ScaffoldMessenger.of(context);
-                      final nav = Navigator.of(ctx);
-                      // Commit any armed swipe-delete BEFORE a background encrypt: a
-                      // UI-isolate del() must not run on the shared handle while the
-                      // off-isolate ais_put does (a cross-isolate write race). The
-                      // sheet is modal, so no new delete can be armed meanwhile.
-                      _flushPendingDeletes();
-                      // The one save that adds no live record is a merge: same
-                      // text, same record (value is identity), restamped to
-                      // today. Count around the save to say so afterwards; an
-                      // encrypted save always mints a fresh record (its IV).
-                      final before = encrypt ? -1 : _ais!.countLive();
-                      int id = -1;
-                      try {
-                        if (encrypt) {
-                          setSheet(() => saving = true);
-                          id = await _ais!.storeEncryptedAsync(keys, value, ppCtrl.text);
-                        } else {
-                          id = _ais!.store(keys, value);
-                        }
-                      } catch (e) {
-                        // The sheet is swipe-dismissible during "Encrypting…", and
-                        // setSheet on a disposed element throws, so check ctx.mounted
-                        // (not the State's own mounted).
-                        if (ctx.mounted) setSheet(() { saving = false; error = 'Could not save: $e'; });
-                        return;
-                      }
-                      // The engine returns -1 when nothing was stored (bad args,
-                      // blob write failure, crypto not built).
-                      if (!saveSucceeded(id)) {
-                        if (ctx.mounted) setSheet(() { saving = false; error = saveOutcomeMessage(id, keys); });
-                        return;
-                      }
-                      if (!mounted) return;
-                      if (ctx.mounted) nav.pop(); // only pop if the sheet is still open
-                      // Show the new record at the top of Recent. Saving is not a
-                      // query: don't drop into a search for it.
-                      final merged = before >= 0 && _ais!.countLive() == before;
-                      _setView('timeline');
-                      _runFolderSync(silent: true); // push the new record to peers
-                      messenger.showSnackBar(SnackBar(
-                          content: Text(saveOutcomeMessage(id, keys,
-                              merged: merged))));
-                    },
+              label: Text(_saving ? 'Encrypting…' : 'Save'),
+              onPressed: _saving ? null : _save,
             ),
           ],
         ),
-      ),
         ),
-      ),
-    );
-    // saved, cancelled, or swipe-dismissed: _OwnedFields frees the fields with
-    // the route either way.
-  }
+      );
+}
+
+// The Edit-tags dialog, extracted from _editKeys so a widget test can pump it
+// with a fake [suggest]. Pops with the edited tag list on Apply (any token
+// still in the field is committed first), or null on Cancel. Owns and frees
+// its own field and focus node.
+class EditTagsDialog extends StatefulWidget {
+  final List<String> initial;
+  final List<String> Function(String prefix) suggest;
+  const EditTagsDialog({super.key, required this.initial, required this.suggest});
+  @override
+  State<EditTagsDialog> createState() => _EditTagsDialogState();
+}
+
+class _EditTagsDialogState extends State<EditTagsDialog> {
+  late final List<String> _tags = [...widget.initial];
+  final _ctrl = TextEditingController();
+  final _focus = FocusNode();
 
   @override
   void dispose() {
-    _flushPendingDeletes();          // an armed delete must not die with the page
-    WidgetsBinding.instance.removeObserver(this);
-    _debounce?.cancel();
-    _speech.cancel(); // stop any active recognizer session
-    // A background LAN sync may still hold this handle by address; close()ing
-    // (freeing) it now would be a use-after-free in that isolate. This is the
-    // top-level page, so a dispose means the app is going away: let the OS reclaim it.
-    if (!_syncBusy) _ais?.close();
+    _ctrl.dispose();
+    _focus.dispose();
     super.dispose();
   }
+
+  // Split on spaces/commas so a pasted or submitted multi-word string becomes
+  // one chip PER tag, matching how the engine tokenizes on update.
+  void _addToken(String raw) {
+    final parts =
+        raw.split(RegExp(r'[,\s]+')).where((p) => p.isNotEmpty).toList();
+    final fresh = parts.where((p) => !_tags.contains(p)).toList();
+    if (fresh.isEmpty) return;
+    setState(() => _tags.addAll(fresh));
+  }
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+        title: const Text('Edit tags'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (_tags.isNotEmpty)
+              Wrap(
+                spacing: 6,
+                runSpacing: 4,
+                children: [
+                  for (final t in _tags)
+                    InputChip(
+                      label: Text(t),
+                      visualDensity: VisualDensity.compact,
+                      onDeleted: () => setState(() => _tags.remove(t)),
+                    ),
+                ],
+              ),
+            const SizedBox(height: 8),
+            TextField(
+              controller: _ctrl,
+              focusNode: _focus,
+              autofocus: true,
+              decoration: const InputDecoration(hintText: 'Add a tag'),
+              onChanged: (v) {
+                // a space or comma commits the token in progress
+                if (v.endsWith(' ') || v.endsWith(',')) {
+                  _addToken(v.substring(0, v.length - 1));
+                  _ctrl.clear();
+                }
+              },
+              onSubmitted: (v) {
+                _addToken(v);
+                _ctrl.clear();
+                _focus.requestFocus();
+              },
+            ),
+            // A suggestion tap commits straight to a chip: the field's own
+            // "space commits" rule above never sees a programmatic completion.
+            // Tags already chipped are not re-offered.
+            TagSuggestRow(
+              controller: _ctrl,
+              focusNode: _focus,
+              lookup: (p) =>
+                  widget.suggest(p).where((t) => !_tags.contains(t)).toList(),
+              onPick: (t) {
+                _addToken(t);
+                _ctrl.clear();
+              },
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(context, null),
+              child: const Text('Cancel')),
+          FilledButton(
+              onPressed: () {
+                _addToken(_ctrl.text); // capture any token still in the field
+                Navigator.pop(context, List<String>.of(_tags));
+              },
+              child: const Text('Apply')),
+        ],
+      );
 }
 
 // A non-dismissible barrier dialog shown while a sync FFI call blocks: it keeps

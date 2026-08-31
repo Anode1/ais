@@ -11,18 +11,25 @@ const int kAisKeyMax = 512;
 const int kAisLineMax = 65536;
 
 /// The message to show when Save is tapped, or null if the save may proceed.
+/// [passphraseRepeat] is the confirmation field; null means no such field is
+/// shown. Compared raw, no trimming: the engine gets the passphrase verbatim,
+/// so a copy that differs by a space encrypts under a different key.
 String? addSaveError({
   required String value,
   required bool engineReady,
   required bool syncing,
   required bool encrypt,
   required String passphrase,
+  String? passphraseRepeat,
   String keys = '',
 }) {
   if (!engineReady) return null; // the Add button is disabled; nothing to report
   if (value.trim().isEmpty) return 'Type something to remember first.';
   if (syncing) return 'A sync is running. Try again in a moment.';
   if (encrypt && passphrase.isEmpty) return 'Enter a passphrase to encrypt.';
+  if (encrypt && passphraseRepeat != null && passphrase != passphraseRepeat) {
+    return 'Passphrases do not match';
+  }
   final content = contentError(value: value, keys: keys);
   if (content != null) return content;
   return null;
