@@ -6615,6 +6615,7 @@ static void test_serve_api_find(void)
     kill(pid, SIGKILL);
     waitpid(pid, NULL, 0);
     scratch_rm(dir);
+}
 
 /* ---- foreign importers (import.c): the separable parse helpers ---------- */
 
