@@ -6,7 +6,7 @@ API Key ID, API Issuer ID.
 
 ## 0. Licence (before paying Apple)
 
-- [x] Dual licence added (2026-08-30): MIT in `commercial/LICENSE-MIT` beside
+- [x] Dual licence added (2026-08-30): MIT in `LICENSE-MIT` beside
       the GPL. App Store binaries distribute under MIT, so no GPL exception is
       needed.
 - [x] No consent to collect: the one commit under a second account
