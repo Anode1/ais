@@ -179,6 +179,8 @@ static const char PAGE[] =
 "<label style='display:flex;align-items:center;gap:.35rem;font-size:.85rem;color:var(--muted);white-space:nowrap'>"
 "<input id=enc type=checkbox style='width:auto'> Encrypt</label>"
 "<input id=pp type=password placeholder='Passphrase' hidden style='flex:1'></div>"
+"<input id=pp2 type=password placeholder='Repeat passphrase' hidden>"
+"<p id=ppnote class=muted style='font-size:.85rem;margin:.1rem 0' hidden>A lost passphrase cannot be recovered.</p>"
 "<div class=actions><button id=cancel class=ghost>Cancel</button><button id=save class=primary>Save</button></div>"
 "</div></div>"
 /* Edit modal: in-place value edit + a chip tag editor (Flutter parity). The value
@@ -473,11 +475,15 @@ static const char PAGE[] =
 "if(v=='recall'){var q=$('q').value.trim();if(q)recall();"
 "else{$('out').innerHTML='<div class=empty><p>Type tags, then Search.</p>'+addCTA+'</div>';$('out').className='';$('count').textContent=''}}"
 "else if(v=='timeline')loadTimeline();else loadTags()}"
-"function openSheet(){$('vk').value=$('q').value.trim();$('enc').checked=false;$('pp').value='';$('pp').hidden=true;$('sheet').hidden=false;$('v').focus()}"
-"function closeSheet(){$('sheet').hidden=true;$('v').value='';$('pp').value=''}"
+"function openSheet(){$('vk').value=$('q').value.trim();$('enc').checked=false;$('pp').value='';$('pp').hidden=true;"
+"$('pp2').value='';$('pp2').hidden=true;$('ppnote').hidden=true;$('sheet').hidden=false;$('v').focus()}"
+"function closeSheet(){$('sheet').hidden=true;$('v').value='';$('pp').value='';$('pp2').value=''}"
 "async function save(){var v=$('v').value.trim();if(!v)return;var k=normkeys($('vk').value);"
-"var enc=$('enc').checked,pp=$('pp').value;"
+"var enc=$('enc').checked,pp=$('pp').value,pp2=$('pp2').value;"
 "if(enc&&!pp){alert('Enter a passphrase to encrypt');return}"
+/* exact match, no trimming: a stray space would encrypt under a passphrase the
+ * user cannot retype, and a lost passphrase cannot be recovered */
+"if(enc&&pp!==pp2){alert('Passphrases do not match');return}"
 /* On a failed or unreachable put, tell the user and KEEP the sheet so they can
  * retry: never a stuck, silent modal. */
 "try{var r=await fetch('/api/put?keys='+encodeURIComponent(k)+(enc?'&enc=1':''),{method:'POST',body:enc?(pp+'\\n'+v):v});"
@@ -509,7 +515,8 @@ static const char PAGE[] =
 "$('edtag').addEventListener('keydown',function(e){if(e.key=='Enter'||e.key==','){e.preventDefault();edAdd()}});"
 "$('edtag').addEventListener('blur',edAdd);"
 "$('editsheet').addEventListener('click',function(e){if(e.target==$('editsheet'))$('editsheet').hidden=true});"
-"$('enc').onchange=function(){$('pp').hidden=!$('enc').checked;if($('enc').checked)$('pp').focus()};"
+"$('enc').onchange=function(){$('pp').hidden=$('pp2').hidden=$('ppnote').hidden=!$('enc').checked;"
+"if($('enc').checked)$('pp').focus()};"
 "$('sheet').addEventListener('click',function(e){if(e.target==$('sheet'))closeSheet()});"
 "async function loadStore(){$('store').textContent='Library: '+await(await fetch('/api/where')).text()}"
 /* inline field, not prompt(): prompt() is silently disabled in installed-PWA and

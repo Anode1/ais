@@ -31,6 +31,13 @@ int main(int argc, char **argv) {
     ok("navigate to --serve page", cdp_navigate(c, url) == 0);
     ok("page loaded (#q present)", cdp_wait_bool(c, "!!document.getElementById('q')", 5000) == 0);
 
+    /* Cold open with NO hash must land on the timeline, which lists the seeded
+     * record. The PWA shipped a "Loading..." hang here because the harness only
+     * ever reached views by hash or by setView. */
+    ok("cold open (no hash) renders the timeline", cdp_wait_bool(c, HIT, 5000) == 0);
+    ok("no stuck Loading...", cdp_wait_bool(c,
+        "document.getElementById('out').innerText.indexOf('Loading')<0", 3000) == 0);
+
     /* The page now OPENS on Recent (which lists every record), so switch to the
      * empty Search view first to establish the "absent until queried" baseline. */
     cdp_eval_bool(c, "(function(){setView('recall');return true})()", &(int){0});
@@ -306,6 +313,12 @@ int main(int argc, char **argv) {
                          "document.getElementById('save').click();return true})()", &(int){0});
         ok("Encrypt reveals the passphrase field", cdp_wait_bool(c,
             "document.getElementById('pp').hidden===false", 3000) == 0);
+        ok("and its confirmation field", cdp_wait_bool(c,
+            "document.getElementById('pp2').hidden===false", 3000) == 0);
+        ok("and says a lost passphrase is gone", cdp_wait_bool(c,
+            "document.getElementById('ppnote').hidden===false"
+            "&&document.getElementById('ppnote').textContent==='A lost passphrase cannot be recovered.'",
+            3000) == 0);
         ok("no passphrase is refused, in those words", cdp_wait_bool(c,
             "window.__alert==='Enter a passphrase to encrypt'", 3000) == 0);
         ok("the sheet stays open to retry", cdp_wait_bool(c,
@@ -316,9 +329,27 @@ int main(int argc, char **argv) {
                          &(int){0}) == 0 &&
            cdp_wait_bool(c, "window.__k!==null&&window.__k.indexOf('safe-combo-1234')<0", 5000) == 0);
 
-        cdp_eval_bool(c, "(function(){document.getElementById('pp').value='pw123';"
+        /* Mismatch blocks the save. The second value differs by a trailing
+         * space only: the comparison must be exact, no trimming, because the
+         * engine would encrypt under whatever #pp holds. */
+        cdp_eval_bool(c, "(function(){window.__alert=null;"
+                         "document.getElementById('pp').value='pw123';"
+                         "document.getElementById('pp2').value='pw123 ';"
                          "document.getElementById('save').click();return true})()", &(int){0});
-        ok("with a passphrase it saves and closes", cdp_wait_bool(c,
+        ok("mismatched passphrases are refused, in those words", cdp_wait_bool(c,
+            "window.__alert==='Passphrases do not match'", 3000) == 0);
+        ok("the mismatch keeps the sheet open", cdp_wait_bool(c,
+            "document.getElementById('sheet').hidden===false", 3000) == 0);
+        ok("and saved nothing",
+           cdp_eval_bool(c, "(function(){window.__k=null;fetch('/api/get?keys=locker')"
+                            ".then(function(r){return r.text()}).then(function(t){window.__k=t});return true})()",
+                         &(int){0}) == 0 &&
+           cdp_wait_bool(c, "window.__k!==null&&window.__k.indexOf('safe-combo-1234')<0"
+                            "&&window.__k.indexOf('aisc:')<0", 5000) == 0);
+
+        cdp_eval_bool(c, "(function(){document.getElementById('pp2').value='pw123';"
+                         "document.getElementById('save').click();return true})()", &(int){0});
+        ok("matching passphrases save and close", cdp_wait_bool(c,
             "document.getElementById('sheet').hidden===true", 5000) == 0);
         /* what landed is the marker, not the value: the whole point of the box */
         ok("the stored value is encrypted, not the cleartext",

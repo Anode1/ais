@@ -79,6 +79,8 @@
       <label><input id="enc" type="checkbox"> Encrypt</label>
       <input id="pp" type="password" placeholder="Passphrase" hidden>
     </div>
+    <input id="pp2" type="password" placeholder="Repeat passphrase" hidden>
+    <p id="ppnote" class="muted" style="font-size:.85rem;margin:.1rem 0" hidden>A lost passphrase cannot be recovered.</p>
     <div class="actions">
       <button id="cancel" class="ghost">Cancel</button>
       <button id="save" class="primary">Save</button>
@@ -608,17 +610,21 @@ new MutationObserver(function () {
 function openSheet(){
   $('vk').value = $('q').value.trim();
   $('enc').checked = false; $('pp').value = ''; $('pp').hidden = true;
+  $('pp2').value = ''; $('pp2').hidden = true; $('ppnote').hidden = true;
   $('sheet').hidden = false; $('v').focus();
 }
-function closeSheet(){ $('sheet').hidden = true; $('v').value = ''; $('pp').value = ''; }
+function closeSheet(){ $('sheet').hidden = true; $('v').value = ''; $('pp').value = ''; $('pp2').value = ''; }
 
 async function save() {
   var value = $('v').value.trim(); if (!value) return;
   var keys = $('vk').value.trim();
-  var enc = $('enc').checked, pp = $('pp').value;
+  var enc = $('enc').checked, pp = $('pp').value, pp2 = $('pp2').value;
   // refuse rather than save in the clear: a ticked Encrypt box with no passphrase
   // is the one case where doing the obvious thing would leak the secret
   if (enc && !pp) { alert('Enter a passphrase to encrypt'); return; }
+  // exact match, no trimming: a stray space would encrypt under a passphrase the
+  // user cannot retype, and a lost passphrase cannot be recovered
+  if (enc && pp !== pp2) { alert('Passphrases do not match'); return; }
   // on a failed or unreachable put, say so and KEEP the sheet, so the value the
   // user typed is still there to retry with
   try {
@@ -649,7 +655,10 @@ $('tlfrom').onchange = function (){ loadTimeline(); };
 $('tlto').onchange = function (){ loadTimeline(); };
 $('tlclear').onclick = function (){ $('tlfrom').value = ''; $('tlto').value = ''; loadTimeline(); };
 $('addbtn').onclick = openSheet;
-$('enc').onchange = function () { $('pp').hidden = !$('enc').checked; if ($('enc').checked) $('pp').focus(); };
+$('enc').onchange = function () {
+  $('pp').hidden = $('pp2').hidden = $('ppnote').hidden = !$('enc').checked;
+  if ($('enc').checked) $('pp').focus();
+};
 $('cancel').onclick = closeSheet;
 $('save').onclick = save;
 $('sheet').addEventListener('click', function(e){ if (e.target == $('sheet')) closeSheet(); });
@@ -745,7 +754,7 @@ loadStore();
 // #tags / #recall / #timeline opens that view directly, so a view is linkable
 // (and reachable by a screenshot or a UI test, which cannot click before load).
 var h0 = (location.hash || '').slice(1);
-if (h0 == 'tags' || h0 == 'recall' || h0 == 'timeline') setView(h0);
+setView(h0 == 'tags' || h0 == 'recall' || h0 == 'timeline' ? h0 : 'timeline'); // else open on content, not a blank search
 
 // ---- Sync (nearby device / a file / a shared folder) ----------------------
 // The same feature, the same ids and the same wording as the embedded page:
