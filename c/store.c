@@ -299,6 +299,8 @@ int store_open(ais *a, const char *dir)
     a->survivals = 0;
     a->discard = NULL;               /* a front end opts in with ais_on_discard */
     a->discard_ctx = NULL;
+    a->seq_off = -1;                 /* no line resolved yet (store_value_seq) */
+    a->seq_id = 0;
 
     n = snprintf(a->dir, sizeof(a->dir), "%s", dir);
     if (n < 0 || (size_t)n >= sizeof(a->dir))
@@ -704,6 +706,56 @@ int store_value_at(const ais *a, long id, long offset, ais_val_cb cb, void *ctx)
     (void)keys;
     cb(id, val, ctx);
     return 1;
+}
+
+int store_value_seq(ais *a, long id, ais_val_cb cb, void *ctx)
+{
+    char path[AIS_PATH_MAX];
+    char line[AIS_LINE_MAX];
+    FILE *fp;
+    int rc = 0;
+
+    if (store_path(a, "store", path, sizeof(path)) != 0)
+        return -1;
+    fp = fopen(path, "r");
+    if (fp == NULL)
+        return (errno == ENOENT) ? 0 : -1;
+
+    /* Resume only when the cursor is behind the wanted id AND the remembered
+     * offset still holds the line it held last time; a store rewritten or
+     * compacted underneath fails the id check and the scan restarts from the
+     * top. Wrong is impossible, stale merely costs the restart. */
+    if (a->seq_off < 0 || a->seq_id >= id ||
+        fseek(fp, a->seq_off, SEEK_SET) != 0)
+        rewind(fp);
+    else {
+        long lid;
+        char *ts, *keys, *val;
+        if (fgets(line, sizeof(line), fp) == NULL ||
+            store_parse(line, &lid, &ts, &keys, &val) != 0 || lid != a->seq_id)
+            rewind(fp);
+    }
+
+    for (;;) {
+        long pos, lid;
+        char *ts, *keys, *val;
+        pos = ftell(fp);
+        if (pos < 0 || fgets(line, sizeof(line), fp) == NULL)
+            break;                       /* EOF: miss -> caller falls back */
+        if (store_parse(line, &lid, &ts, &keys, &val) != 0)
+            continue;
+        if (lid == id) {
+            a->seq_off = pos;            /* the cursor: re-validated next call */
+            a->seq_id = id;
+            cb(id, val, ctx);
+            rc = 1;
+            break;
+        }
+        if (lid > id)
+            break;                       /* passed it: miss -> caller falls back */
+    }
+    fclose(fp);
+    return rc;
 }
 
 /* Like store_value_at, but parses the WHOLE record (id|ts|keys|value) at OFFSET

@@ -120,6 +120,17 @@ int  off_get(const ais *a, long id, long *offset);
  * equals ID (else the offset is stale). 1 served, 0 mismatch/empty, -1 error. */
 int  store_value_at(const ais *a, long id, long offset, ais_val_cb cb, void *ctx);
 
+/* Resolve a SINGLE-LINE record by scanning forward from the line this handle
+ * resolved last (the seq_off/seq_id cursor in the handle), restarting from the
+ * top when the cursor is absent, at or past ID, or no longer matches the store.
+ * Recall emits ids ascending and the store is physically in id order, so a run
+ * of n ids costs one store pass in total, where a scan per id cost n passes --
+ * that was recall running 80x behind --dump on the same 10k index whenever
+ * "off" was absent (a key attach drops it; only compact rebuilds it). Serves
+ * only a line whose id equals ID, so a stale cursor is slow, never wrong.
+ * 1 served, 0 miss (caller falls back to the full scan), -1 error. */
+int  store_value_seq(ais *a, long id, ais_val_cb cb, void *ctx);
+
 /* Parse the WHOLE record (id|ts|keys|value) at byte OFFSET and forward it to CB,
  * but only if that line's id equals ID. For paging by id (timeline) without a
  * scan. 1 served, 0 mismatch/stale, -1 error. */

@@ -1831,12 +1831,22 @@ int ais_record(ais *a, long id, ais_val_cb cb, void *ctx)
 {
     struct record_ctx R;
     long offset;
+    int multi = multi_contains(a, id);
 
     /* Fast path: a single-line record whose first-line offset is in "off".
      * Multi-line records (ais_add) and any miss fall through to the scan, and
      * store_value_at re-checks the line's id, so this can never be wrong. */
-    if (multi_contains(a, id) == 0 && off_get(a, id, &offset) == 1 &&
-        store_value_at(a, id, offset, cb, ctx) == 1)
+    if (multi == 0 && off_get(a, id, &offset) == 1 &&
+        store_value_at(a, id, offset, cb, ctx) == 1) {
+        a->seq_off = offset;             /* keep the forward cursor abreast */
+        a->seq_id = id;
+        return 0;
+    }
+
+    /* No usable "off" entry: the forward cursor (store_value_seq), so a recall
+     * resolving n ascending ids costs one store pass, not one per id. A
+     * multi-line id or a miss still takes the full scan below. */
+    if (multi == 0 && store_value_seq(a, id, cb, ctx) == 1)
         return 0;
 
     R.id = id;

@@ -6097,6 +6097,147 @@ static void test_sync_url(void)
     CHECK(sync_parse_url("http://", host, sizeof host, &port) == -1, "url: empty host rejected");
 }
 
+/* ==== recall id resolution: the forward cursor (store_value_seq) ============
+ * Added with the near-linear recall fix. With "off" absent (a key attach drops
+ * it; only compact rebuilds it), ais_record full-scanned the store PER ID, so a
+ * 10k-record recall cost 10k passes (4.5 s where --dump took 0.06 s). The seq
+ * cursor resolves an ascending run in one pass. No timings here (CI-flaky):
+ * these pin correctness, and the cursor state itself proves which path served. */
+
+/* Ascending resolution without "off" serves every value, via the cursor: the
+ * full-scan fallback never touches seq_id/seq_off, so their advance is the
+ * operation-count guard that the near-linear path handled the run. */
+static void test_seq_resolves_ascending_without_off(void)
+{
+    ais a;
+    const char *dir = "/tmp/ais_ut_seq";
+    char offp[AIS_PATH_MAX];
+    char val[32], want[32];
+    long ids[8];
+    int i, allok = 1;
+
+    scratch_rm(dir);
+    ais_open(&a, dir);
+    for (i = 0; i < 8; i++) {
+        snprintf(val, sizeof val, "seqv%d", i);
+        ids[i] = ais_put(&a, "seqk", val);
+    }
+    snprintf(offp, sizeof offp, "%s/off", dir);
+    CHECK(unlink(offp) == 0, "seq: the off accelerator is removed");
+    CHECK(a.seq_off == -1 && a.seq_id == 0, "seq: the cursor starts unset");
+    for (i = 0; i < 8; i++) {
+        struct valvec vv;
+        vv.n = 0;
+        ais_record(&a, ids[i], collect_val, &vv);
+        snprintf(want, sizeof want, "seqv%d", i);
+        if (vv.n != 1 || strcmp(vv.vals[0], want) != 0)
+            allok = 0;
+    }
+    CHECK(allok, "seq: every ascending id resolves to its own value");
+    CHECK(a.seq_id == ids[7] && a.seq_off > 0,
+          "seq: the cursor advanced, so the one-pass path served the run");
+    ais_close(&a);
+    scratch_rm(dir);
+}
+
+/* Out-of-order and absent ids stay correct: a backward id restarts the scan, an
+ * absent id emits nothing, and the run afterwards still resolves. */
+static void test_seq_out_of_order_and_absent_ids(void)
+{
+    ais a;
+    struct valvec vv;
+    const char *dir = "/tmp/ais_ut_seq2";
+    char offp[AIS_PATH_MAX];
+    char val[32], want[32];
+    long ids[6];
+    int i, allok = 1;
+
+    scratch_rm(dir);
+    ais_open(&a, dir);
+    for (i = 0; i < 6; i++) {
+        snprintf(val, sizeof val, "oov%d", i);
+        ids[i] = ais_put(&a, "ook", val);
+    }
+    snprintf(offp, sizeof offp, "%s/off", dir);
+    CHECK(unlink(offp) == 0, "seq-ooo: off removed");
+    for (i = 5; i >= 0; i--) {           /* descending: every step rewinds */
+        vv.n = 0;
+        ais_record(&a, ids[i], collect_val, &vv);
+        snprintf(want, sizeof want, "oov%d", i);
+        if (vv.n != 1 || strcmp(vv.vals[0], want) != 0)
+            allok = 0;
+    }
+    CHECK(allok, "seq-ooo: descending ids each resolve to their own value");
+    vv.n = 0;
+    ais_record(&a, ids[5] + 100, collect_val, &vv);
+    CHECK(vv.n == 0, "seq-ooo: an absent id emits nothing");
+    vv.n = 0;
+    ais_record(&a, ids[2], collect_val, &vv);
+    CHECK(vv.n == 1 && strcmp(vv.vals[0], "oov2") == 0,
+          "seq-ooo: and the next lookup after the miss is still right");
+    ais_close(&a);
+    scratch_rm(dir);
+}
+
+/* A store rewritten underneath (a key attach renames it and shifts every
+ * offset) invalidates the cursor: the remembered line no longer matches, the
+ * scan restarts, and the answer stays right. Stale is slow, never wrong. */
+static void test_seq_cursor_survives_a_store_rewrite(void)
+{
+    ais a;
+    struct valvec vv;
+    const char *dir = "/tmp/ais_ut_seq3";
+    char offp[AIS_PATH_MAX];
+
+    scratch_rm(dir);
+    ais_open(&a, dir);
+    ais_put(&a, "rwk", "rwv1");
+    ais_put(&a, "rwk", "rwv2");
+    ais_put(&a, "rwk", "rwv3");
+    snprintf(offp, sizeof offp, "%s/off", dir);
+    CHECK(unlink(offp) == 0, "seq-rw: off removed");
+    vv.n = 0;
+    ais_record(&a, 2, collect_val, &vv);
+    CHECK(vv.n == 1 && strcmp(vv.vals[0], "rwv2") == 0, "seq-rw: cursor set at id 2");
+    /* re-put value 1 with a new key: store_set_keys rewrites the store in
+     * place, so every byte offset past line 1 moves and off is dropped */
+    CHECK(ais_put(&a, "rwk extralongkey", "rwv1") == 1, "seq-rw: key attach rewrites the store");
+    vv.n = 0;
+    ais_record(&a, 3, collect_val, &vv);
+    CHECK(vv.n == 1 && strcmp(vv.vals[0], "rwv3") == 0,
+          "seq-rw: the stale cursor is caught and id 3 still resolves");
+    ais_close(&a);
+    scratch_rm(dir);
+}
+
+/* A multi-line record must never be served one line by the cursor: with off
+ * absent it still reads in full, through the scan that collects every line. */
+static void test_seq_multi_id_reads_all_lines(void)
+{
+    ais a;
+    struct valvec vv;
+    const char *dir = "/tmp/ais_ut_seq4";
+    char offp[AIS_PATH_MAX];
+    long id;
+
+    scratch_rm(dir);
+    ais_open(&a, dir);
+    id = ais_put(&a, "mk", "mv-first");
+    ais_put(&a, "mk", "mv-other");
+    CHECK(ais_add(&a, id, "mv-second") == 0, "seq-multi: a second link added");
+    snprintf(offp, sizeof offp, "%s/off", dir);
+    CHECK(unlink(offp) == 0, "seq-multi: off removed");
+    vv.n = 0;
+    ais_record(&a, id, collect_val, &vv);
+    CHECK(vv.n == 2 && strcmp(vv.vals[0], "mv-first") == 0 &&
+          strcmp(vv.vals[1], "mv-second") == 0,
+          "seq-multi: both lines come back, in store order");
+    ais_close(&a);
+    scratch_rm(dir);
+}
+
+/* ==== end recall id resolution block ======================================= */
+
 /* The suite's scratch indexes live at FIXED /tmp paths, so two copies of this
  * binary at once delete each other's fixtures, which reads as a scatter of
  * unrelated failures (the sleep-driven sync tests worst). A run-long lock
@@ -6605,6 +6746,11 @@ int main(void)
     test_cli_serve_port_reject();
     test_cli_f_requires_index();
     test_cli_tty_hint();
+    printf("recall id resolution (forward cursor, one pass without off):\n");
+    test_seq_resolves_ascending_without_off();
+    test_seq_out_of_order_and_absent_ids();
+    test_seq_cursor_survives_a_store_rewrite();
+    test_seq_multi_id_reads_all_lines();
     printf("----\n%d passed, %d failed\n", ut_pass, ut_fail);
     return ut_fail == 0 ? 0 : 1;
 }

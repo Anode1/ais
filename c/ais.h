@@ -53,6 +53,13 @@ typedef struct ais {
                                * again". Not persisted. */
     ais_discard_cb discard;   /* see ais_on_discard; NULL = dispose of nothing  */
     void *discard_ctx;
+    long seq_off;             /* byte offset of the store line ais_record last
+                               * resolved (-1 = none): the forward cursor that
+                               * makes an ascending recall one store pass when
+                               * "off" is absent (store_value_seq). Re-checked
+                               * against the store on every use, like an off
+                               * entry, so stale is slow, never wrong. */
+    long seq_id;              /* the id on that line */
 } ais;
 
 /* Open (creating if absent) the INDEX directory `dir`, taking a single-writer
