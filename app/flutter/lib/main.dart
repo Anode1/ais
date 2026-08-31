@@ -104,7 +104,12 @@ class RecallPage extends StatefulWidget {
   // (CI builds no libais.so), so the lookup is injectable. Null = the engine's
   // whole tag cloud (_tagMatches).
   final List<String> Function(String prefix)? tagLookup;
-  const RecallPage({super.key, this.tagLookup});
+  // Same seam for the search path: recall and find are injectable so the
+  // search tests run engine-less too. Null = the real engine.
+  final List<Hit> Function(String keys, bool orMode)? recallLookup;
+  final List<Hit> Function(String needle)? findLookup;
+  const RecallPage(
+      {super.key, this.tagLookup, this.recallLookup, this.findLookup});
   @override
   State<RecallPage> createState() => _RecallPageState();
 }
@@ -123,6 +128,10 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
   // carries only id+value, so tags are fetched ONCE when results load (here, not
   // in the itemBuilder, which reruns on scroll). Cleared whenever results reset.
   Map<int, String> _resultKeys = const {};
+  // Ids in _results that matched the query only in their VALUE (via find()),
+  // not by tag. They sit at the tail of _results, rendered under one
+  // "matched in the value" separator. Empty = no value section.
+  Set<int> _valueOnly = const {};
   List<TlRow> _tl = const [];
   List<TagRow> _tags = const [];
   int _tlBefore = 0; // keyset cursor: last id of the loaded timeline page
@@ -359,27 +368,45 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
     await _syncJoin(prefillUrl: 'http://$host', prefillToken: token);
   }
 
+  // Engine calls behind the test seams: with no libais.so the widget tests
+  // inject recall/find, so the whole search path runs engine-less (keys then
+  // just come back empty).
+  List<Hit> _recallHits(String keys) =>
+      widget.recallLookup?.call(keys, _matchAny) ??
+      _ais!.recallPage(keys, orMode: _matchAny, after: 0, count: _recallPage);
+  List<Hit> _findHits(String needle) =>
+      widget.findLookup?.call(needle) ?? _ais?.find(needle) ?? const [];
+  String _keysFor(int id) => (_ais?.keysOf(id) ?? '').trim();
+
   void _recall() {
     final keys = _normKeys(_q.text);
-    if (_ais == null || keys.isEmpty) return;
+    if ((_ais == null && widget.recallLookup == null) || keys.isEmpty) return;
     final t0 = DateTime.now();
     // Page one only. The cursor/more come from the RAW page, so the Undo-window
     // filter below cannot make the page look short and stop pagination early.
-    final page = _ais!.recallPage(keys, orMode: _matchAny, after: 0, count: _recallPage);
+    final page = _recallHits(keys);
     // Exclude ids still inside their Undo window: a re-query must not resurrect
     // a row the user just swiped away.
     final g = oneRowPerRecord(
         page.where((h) => !_pendingDelete.contains(h.id)).toList());
     final r = g.rows;
-    final extra = g.extra;
-    final keysMap = {for (final h in r) h.id: _ais!.keysOf(h.id).trim()};
+    // The VALUE half: the engine's substring find() over note values, appended
+    // after the tag matches under one separator. A record the tag half already
+    // lists is not repeated. The OR chip means nothing here: find takes no keys.
+    final tagIds = {for (final h in page) h.id};
+    final gv = oneRowPerRecord(_findHits(_q.text.trim())
+        .where((h) => !_pendingDelete.contains(h.id) && !tagIds.contains(h.id))
+        .toList());
+    final v = gv.rows;
+    final keysMap = {for (final h in [...r, ...v]) h.id: _keysFor(h.id)};
     setState(() {
       _query = keys;
       _searched = true;
       _textSearch = false; // a fresh key search leaves the text-fallback mode
       _ms = DateTime.now().difference(t0).inMilliseconds;
-      _resultExtra = extra;
-      _results = r;
+      _resultExtra = {...g.extra, ...gv.extra};
+      _results = [...r, ...v];
+      _valueOnly = {for (final h in v) h.id};
       _resultKeys = keysMap;
       _recallBefore = page.isNotEmpty ? page.last.id : 0;
       _recallMore = page.length == _recallPage;
@@ -403,7 +430,14 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
     final extra = gm.extra;
     final keysMap = {for (final h in fresh) h.id: _ais!.keysOf(h.id).trim()};
     setState(() {
-      _results = [..._results, ...fresh];
+      // New tag rows go BEFORE the value section, and a value row this page
+      // proves is really a tag match is promoted (its value copy dropped).
+      final freshIds = {for (final h in fresh) h.id};
+      final tagRows = _results.where((h) => !_valueOnly.contains(h.id));
+      final valRows = _results
+          .where((h) => _valueOnly.contains(h.id) && !freshIds.contains(h.id));
+      _valueOnly = _valueOnly.difference(freshIds);
+      _results = [...tagRows, ...fresh, ...valRows];
       _resultKeys = {..._resultKeys, ...keysMap};
       _resultExtra = {..._resultExtra, ...extra};
       if (page.isNotEmpty) _recallBefore = page.last.id;
@@ -438,6 +472,7 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
       _textSearch = true;
       _ms = DateTime.now().difference(t0).inMilliseconds;
       _results = r;
+      _valueOnly = const {}; // one flat list here, no separator
       _resultKeys = keysMap;
       _recallMore = false; // find() returns the whole set: nothing to page
     });
@@ -458,6 +493,7 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
         // empty query: blank the pane and show the hint, like the other GUIs
         setState(() {
           _results = const [];
+          _valueOnly = const {};
           _searched = false;
           _recallMore = false;
           _status = 'Type tags, then Search.';
@@ -1528,6 +1564,7 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
         _blobCache.clear();
         _notHereCache.clear();
         _results = const [];
+        _valueOnly = const {};
         _resultKeys = const {};
         _tl = const [];
         _tlBefore = 0;
@@ -1767,6 +1804,7 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
                                 // cleared: fall back to the hint, don't search
                                 setState(() {
                                   _results = const [];
+                                  _valueOnly = const {};
                                   _resultKeys = const {};
                                   _searched = false;
                                   _textSearch = false; // cleared query drops the fallback too
@@ -2448,6 +2486,12 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
     }
     // find() results reuse the recall row builder; the header above the list is the
     // only thing marking them as TEXT matches rather than tag matches.
+    // A key search lays out [tag rows][footer][separator][value rows]: the value
+    // section is always the tail of _results (see _recall/_loadMoreRecall), so
+    // its start is the first row whose id sits in _valueOnly.
+    final vFrom = _results.indexWhere((h) => _valueOnly.contains(h.id));
+    final tagCount = vFrom >= 0 ? vFrom : _results.length;
+    final head = tagCount + (_recallMore ? 1 : 0);
     final list = NotificationListener<ScrollNotification>(
       onNotification: (n) {
         if (_recallMore && _nearBottom(n)) _loadMoreRecall();
@@ -2455,95 +2499,13 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
       },
       child: ListView.separated(
       padding: const EdgeInsets.only(bottom: 88),
-      itemCount: _results.length + (_recallMore ? 1 : 0),
+      itemCount: head + (vFrom >= 0 ? 1 + _results.length - tagCount : 0),
       separatorBuilder: (_, __) => const Divider(height: 1, indent: 16, endIndent: 16),
       itemBuilder: (_, i) {
-        if (i >= _results.length) return _loadingFooter();
-        final hit = _results[i];
-        final v = hit.value;
-        final isSecret = v.startsWith('aisc:');
-        final away = _notHere(v);
-        return Dismissible(
-          key: ValueKey(hit.id),
-          direction: DismissDirection.endToStart,
-          background: _deleteBg(cs),
-          onDismissed: (_) => _deferDelete(hit.id),
-          child: ListTile(
-          // Primary path: tap the row for its detail/edit page.
-          onTap: () => _openDetail(hit.id, v),
-          visualDensity: const VisualDensity(vertical: -1),
-          minVerticalPadding: 10,
-          contentPadding: const EdgeInsets.symmetric(horizontal: 16),
-          title: Row(mainAxisSize: MainAxisSize.min, children: [
-            Flexible(
-              child: isSecret
-                  ? Row(mainAxisSize: MainAxisSize.min, children: [
-                      Icon(Icons.lock_outline, size: 16, color: cs.outline),
-                      const SizedBox(width: 6),
-                      Text('encrypted', style: TextStyle(color: cs.onSurfaceVariant)),
-                    ])
-                  : _rowLabel(v, cs),
-            ),
-            if (away) _notHereBadge(cs),
-          ]),
-          // The record's tags (fetched once when results loaded), plus a note when
-          // it holds links this row does not show: deleting removes the WHOLE record.
-          subtitle: Text(
-            ((_resultKeys[hit.id]?.isNotEmpty ?? false)
-                    ? _resultKeys[hit.id]!
-                    : '(no tags)') +
-                ((_resultExtra[hit.id] ?? 0) > 0
-                    ? '  ·  +${_resultExtra[hit.id]} more link'
-                        '${_resultExtra[hit.id] == 1 ? '' : 's'}'
-                    : ''),
-            style: Theme.of(context)
-                .textTheme
-                .bodySmall
-                ?.copyWith(color: cs.onSurfaceVariant),
-          ),
-          trailing: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              if (isSecret)
-                IconButton(
-                  icon: const Icon(Icons.lock_open),
-                  tooltip: 'Reveal',
-                  onPressed: () => _revealHit(hit),
-                ),
-              PopupMenuButton<String>(
-                icon: const Icon(Icons.more_vert),
-                tooltip: 'More',
-                onSelected: (a) {
-                  if (a == 'copy') {
-                    Clipboard.setData(ClipboardData(text: _display(v)));
-                    ScaffoldMessenger.of(context)
-                        .showSnackBar(const SnackBar(content: Text('Copied')));
-                  } else if (a == 'share') {
-                    _share(v);
-                  } else if (a == 'value') {
-                    _editValue(hit.id, v);
-                  } else if (a == 'edit') {
-                    _editKeys(hit);
-                  } else if (a == 'delete') {
-                    _deferDelete(hit.id);
-                  }
-                },
-                itemBuilder: (_) => [
-                  const PopupMenuItem(value: 'copy', child: Text('Copy')),
-                  // sharing ciphertext / a missing blob is useless; gate like Edit value
-                  if (!isSecret && !away)
-                    const PopupMenuItem(value: 'share', child: Text('Share')),
-                  // plain and document rows edit as text; encrypted/away rows omit this
-                  if (!isSecret && !away)
-                    const PopupMenuItem(value: 'value', child: Text('Edit value')),
-                  const PopupMenuItem(value: 'edit', child: Text('Edit tags')),
-                  const PopupMenuItem(value: 'delete', child: Text('Delete')),
-                ],
-              ),
-            ],
-          ),
-          ),
-        );
+        if (i < tagCount) return _resultRow(_results[i], cs);
+        if (_recallMore && i == tagCount) return _loadingFooter();
+        if (i == head) return _valueMatchSeparator(cs);
+        return _resultRow(_results[i - head - 1 + tagCount], cs);
       },
     ),
     );
@@ -2551,6 +2513,95 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
       return Column(children: [_textMatchHeader(cs), Expanded(child: list)]);
     }
     return list;
+  }
+
+  // ONE row builder for every recall/find hit, whichever section it sits in:
+  // a second copy is how the sections would drift apart.
+  Widget _resultRow(Hit hit, ColorScheme cs) {
+    final v = hit.value;
+    final isSecret = v.startsWith('aisc:');
+    final away = _notHere(v);
+    return Dismissible(
+      key: ValueKey(hit.id),
+      direction: DismissDirection.endToStart,
+      background: _deleteBg(cs),
+      onDismissed: (_) => _deferDelete(hit.id),
+      child: ListTile(
+      // Primary path: tap the row for its detail/edit page.
+      onTap: () => _openDetail(hit.id, v),
+      visualDensity: const VisualDensity(vertical: -1),
+      minVerticalPadding: 10,
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+      title: Row(mainAxisSize: MainAxisSize.min, children: [
+        Flexible(
+          child: isSecret
+              ? Row(mainAxisSize: MainAxisSize.min, children: [
+                  Icon(Icons.lock_outline, size: 16, color: cs.outline),
+                  const SizedBox(width: 6),
+                  Text('encrypted', style: TextStyle(color: cs.onSurfaceVariant)),
+                ])
+              : _rowLabel(v, cs),
+        ),
+        if (away) _notHereBadge(cs),
+      ]),
+      // The record's tags (fetched once when results loaded), plus a note when
+      // it holds links this row does not show: deleting removes the WHOLE record.
+      subtitle: Text(
+        ((_resultKeys[hit.id]?.isNotEmpty ?? false)
+                ? _resultKeys[hit.id]!
+                : '(no tags)') +
+            ((_resultExtra[hit.id] ?? 0) > 0
+                ? '  ·  +${_resultExtra[hit.id]} more link'
+                    '${_resultExtra[hit.id] == 1 ? '' : 's'}'
+                : ''),
+        style: Theme.of(context)
+            .textTheme
+            .bodySmall
+            ?.copyWith(color: cs.onSurfaceVariant),
+      ),
+      trailing: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (isSecret)
+            IconButton(
+              icon: const Icon(Icons.lock_open),
+              tooltip: 'Reveal',
+              onPressed: () => _revealHit(hit),
+            ),
+          PopupMenuButton<String>(
+            icon: const Icon(Icons.more_vert),
+            tooltip: 'More',
+            onSelected: (a) {
+              if (a == 'copy') {
+                Clipboard.setData(ClipboardData(text: _display(v)));
+                ScaffoldMessenger.of(context)
+                    .showSnackBar(const SnackBar(content: Text('Copied')));
+              } else if (a == 'share') {
+                _share(v);
+              } else if (a == 'value') {
+                _editValue(hit.id, v);
+              } else if (a == 'edit') {
+                _editKeys(hit);
+              } else if (a == 'delete') {
+                _deferDelete(hit.id);
+              }
+            },
+            itemBuilder: (_) => [
+              const PopupMenuItem(value: 'copy', child: Text('Copy')),
+              // sharing ciphertext / a missing blob is useless; gate like Edit value
+              if (!isSecret && !away)
+                const PopupMenuItem(value: 'share', child: Text('Share')),
+              // plain and document rows edit as text; encrypted/away rows omit this
+              if (!isSecret && !away)
+                const PopupMenuItem(value: 'value', child: Text('Edit value')),
+              const PopupMenuItem(value: 'edit', child: Text('Edit tags')),
+              const PopupMenuItem(value: 'delete', child: Text('Delete')),
+            ],
+          ),
+        ],
+      ),
+      ),
+    );
   }
 
   // The trailing row of a paged list while the next keyset page loads. Kept tiny
@@ -2589,6 +2640,23 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
             ],
           ),
         ),
+      );
+
+  // The one separator inside a key search's list: every row below it matched
+  // the query in its VALUE text, not by tag.
+  Widget _valueMatchSeparator(ColorScheme cs) => Padding(
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+        child: Row(children: [
+          Icon(Icons.notes, size: 14, color: cs.onSurfaceVariant),
+          const SizedBox(width: 6),
+          Expanded(
+            child: Text('matched in the value',
+                style: Theme.of(context)
+                    .textTheme
+                    .bodySmall
+                    ?.copyWith(color: cs.onSurfaceVariant)),
+          ),
+        ]),
       );
 
   // A quiet marker above find() results: note-TEXT matches, not tag matches.
