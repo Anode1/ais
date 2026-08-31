@@ -6514,6 +6514,9 @@ static void test_cli_tty_hint(void)
         size_t got = 0;
         ssize_t n;
         int st = 0;
+        /* macOS discards the pty queue when the last slave fd closes; hold
+         * one open here so the child's write survives its exit. */
+        int keep = open(ptsname(mfd), O_RDWR | O_NOCTTY);
         /* Wait FIRST (the hint is far below the pty buffer), then drain
          * non-blocking: a child that died before opening the slave would
          * otherwise park this read forever (no slave, no EIO). */
@@ -6523,6 +6526,8 @@ static void test_cli_tty_hint(void)
                (n = read(mfd, buf + got, sizeof buf - 1 - got)) > 0)
             got += (size_t)n;
         buf[got] = '\0';
+        if (keep >= 0)
+            close(keep);
         close(mfd);
         CHECK(strstr(buf, "no records under 'dump'; the command is --dump") != NULL,
               "hint: tty recall of 'dump' names --dump");
