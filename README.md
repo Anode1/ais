@@ -2,7 +2,7 @@
 
 **Save anything under your own keys, recall it by those keys.**
 
-A command-line program over an index in plain text on your own disk. You save anything (a link, a file, a note, a password) under one or more keys, and recall it by those keys: `ais venice italy` gives back what you saved under both, the way your mind does, by association. It stores only a reference, so your documents stay where you keep them; the index is a view, and your data is never touched. Not a search engine over everyone's web, and not a tagger that guesses: an index of your own things under your own words. Why that matters is [below](#why).
+An index in plain text on your own disk, with apps for the phone, the browser and the terminal over it. You save anything (a link, a file, a note, a password) under one or more keys, and recall it by those keys: `ais venice italy` gives back what you saved under both, the way your mind does, by association. It stores only a reference, so your documents stay where you keep them; the index is a view, and your data is never touched. Not a search engine over everyone's web, and not a tagger that guesses: an index of your own things under your own words. Why that matters is [below](#why).
 
 One engine, thin front-ends. The CLI is the contract; the web GUI (`ais --serve`), the Flutter mobile app and a native Win32 wrapper sit over it, and the engine depends on none of them. C, no database, no runtime to install.
 
@@ -20,40 +20,6 @@ Because it is plain text, it outlives its own tools: your index survives decades
   <img src="screenshots/android-tags.png" width="30%" alt="Browse everything by tag">
 </p>
 <p align="center"><em>Save links, file paths and notes, recall them by tag; passwords stay encrypted (&#128274;).</em></p>
-
-## Download
-
-The latest stable build for every platform. The link below always points at the current release, never an old one:
-
-> **<https://github.com/Anode1/ais/releases/latest>**
-
-- **Android**: install `ais-<tag>-android.apk` from the release page (you will have to allow installing from your browser, once). `…-android.aab` beside it is the Play Store upload format; it is not installable by hand, so take the `.apk`.
-- **macOS / Linux**: unzip the `…-<os>-<arch>.zip`, then `./ais --serve` opens the GUI in your browser (or use the `ais` CLI; add it to your PATH to use it anywhere).
-- **Windows**: _no Windows build is published at the moment_ while the desktop GUI is reworked, so there is nothing to download on that line yet. Build from source (below), or run the Android app, or reach a machine on your LAN that is running `ais --serve`.
-
-The desktop binaries are not code-signed, so the first run is flagged as an unrecognized download (macOS Gatekeeper "could not verify"). That is a new-and-unsigned notice, not a malware finding: on macOS run `xattr -dr com.apple.quarantine .` in the unzipped folder. A copy you build yourself is never flagged. The Android package **is** signed, with the project's own upload key.
-
-## Verify a download
-
-Each release file ships beside a matching `…zip.sha256`. Download both, then check the hash (prints `OK` on a match):
-
-```sh
-shasum -a 256 -c ais-*-*.zip.sha256          # macOS / Linux
-```
-
-Releases are built in the open by GitHub Actions (`.github/workflows/release.yml`), not on anyone's machine.
-
-## Quick start (from source)
-
-```sh
-make                 # build ./ais
-./ais --init           # create an index here (a .ais/ directory, git-style)
-./ais --serve          # open the web GUI in your browser
-```
-
-`ais --help` lists every command; [`doc/USING.txt`](doc/USING.txt) has the everyday CLI cheat-sheet (recall, add, edit) and where your data lives.
-
-**Tip:** `alias is='ais'` gives you two-character recall: `is venice italy` reads like the question it answers.
 
 ## Why
 
@@ -89,6 +55,40 @@ No, it points *into* them. For files, photos and pages ais is an index of pointe
 
 **Can it hold passwords? Is it a password manager?**
 Yes. A secret is stored encrypted inline (`-e`), so a login lives right next to the context it belongs to, and two things set it apart from a built-in manager. It is **cross-platform**: Apple Keychain and Google Password Manager are locked to one ecosystem, while ais is the same plain-text index on Windows, macOS, Linux, Android and the CLI, so your secrets travel with you. And it is **agent-safe**: decryption is interactive (a passphrase you supply at a terminal or in the app), so an agent reading your index sees an opaque `aisc:` marker, not the secret, with no master key or unlocked vault to drain. What it is *not* is a bulk web-login manager: no autofill, no generation, no shared vaults, so for hundreds of site logins a dedicated cross-platform manager is still more convenient. See [`about.txt`](doc/about.txt).
+
+## Download
+
+The latest stable build for every platform. The link below always points at the current release, never an old one:
+
+> **<https://github.com/Anode1/ais/releases/latest>**
+
+- **Android**: install `ais-<tag>-android.apk` from the release page (you will have to allow installing from your browser, once). `…-android.aab` beside it is the Play Store upload format; it is not installable by hand, so take the `.apk`.
+- **macOS / Linux**: unzip the `…-<os>-<arch>.zip`, then `./ais --serve` opens the GUI in your browser (or use the `ais` CLI; add it to your PATH to use it anywhere).
+- **Windows**: _no Windows build is published at the moment_ while the desktop GUI is reworked, so there is nothing to download on that line yet. Build from source (below), or run the Android app, or reach a machine on your LAN that is running `ais --serve`.
+
+The desktop binaries are not code-signed, so the first run is flagged as an unrecognized download (macOS Gatekeeper "could not verify"). That is a new-and-unsigned notice, not a malware finding: on macOS run `xattr -dr com.apple.quarantine .` in the unzipped folder. A copy you build yourself is never flagged. The Android package **is** signed, with the project's own upload key.
+
+## Verify a download
+
+Each release file ships beside a matching `…zip.sha256`. Download both, then check the hash (prints `OK` on a match):
+
+```sh
+shasum -a 256 -c ais-*-*.zip.sha256          # macOS / Linux
+```
+
+Releases are built in the open by GitHub Actions (`.github/workflows/release.yml`), not on anyone's machine.
+
+## Quick start (from source)
+
+```sh
+make                 # build ./ais
+./ais --init           # create an index here (a .ais/ directory, git-style)
+./ais --serve          # open the web GUI in your browser
+```
+
+`ais --help` lists every command; [`doc/USING.txt`](doc/USING.txt) has the everyday CLI cheat-sheet (recall, add, edit) and where your data lives.
+
+**Tip:** `alias is='ais'` gives you two-character recall: `is venice italy` reads like the question it answers.
 
 ## Learn more
 
