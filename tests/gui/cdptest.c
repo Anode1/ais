@@ -360,6 +360,82 @@ int main(int argc, char **argv) {
                             "&&window.__k.indexOf('safe-combo-1234')<0", 5000) == 0);
     }
 
+    /* ---- value-ranked search + tag autocomplete -------------------------
+     * The search's second half: records whose VALUE holds the query rank
+     * after the tag matches, under one "matched in the value" separator,
+     * deduped by id, and the value match is case-insensitive end to end.
+     * Seed three records over the API: one findable only by a value word,
+     * one matching a query both ways, one matching that query by value only. */
+    cdp_eval_bool(c, "(function(){window.__f1=null;fetch('/api/put?keys=contacts',"
+                     "{method:'POST',body:'call the plumber Mario'})"
+                     ".then(function(r){return r.text()}).then(function(t){window.__f1=t});return true})()",
+                  &(int){0});
+    cdp_wait_bool(c, "window.__f1!==null", 5000);
+    cdp_eval_bool(c, "(function(){window.__f2=null;fetch('/api/put?keys=gelato',"
+                     "{method:'POST',body:'gelato place in dorsoduro'})"
+                     ".then(function(r){return r.text()}).then(function(t){window.__f2=t});return true})()",
+                  &(int){0});
+    cdp_wait_bool(c, "window.__f2!==null", 5000);
+    cdp_eval_bool(c, "(function(){window.__f3=null;fetch('/api/put?keys=food',"
+                     "{method:'POST',body:'best gelato in rome'})"
+                     ".then(function(r){return r.text()}).then(function(t){window.__f3=t});return true})()",
+                  &(int){0});
+    cdp_wait_bool(c, "window.__f3!==null", 5000);
+
+    /* (a) a word that is in the value but in NO tag still finds the record,
+     * listed after the separator; nothing sits before the separator */
+    cdp_eval_bool(c, "(function(){document.getElementById('q').value='plumber';"
+                     "setView('recall');return true})()", &(int){0});
+    ok("a value-only word finds its record", cdp_wait_bool(c,
+        "document.getElementById('out').innerText.indexOf('plumber Mario')>=0", 5000) == 0);
+    ok("it renders after the value separator", cdp_wait_bool(c,
+        "!!document.getElementById('vsep')"
+        "&&document.getElementById('out').innerText.indexOf('matched in the value')"
+        "<document.getElementById('out').innerText.indexOf('plumber Mario')", 3000) == 0);
+    ok("no tag matched, so no rows precede the separator", cdp_wait_bool(c,
+        "document.getElementById('out').querySelectorAll('.hit').length===1", 3000) == 0);
+    cdp_eval_bool(c, "(function(){document.getElementById('q').value='PLUMBER';"
+                     "setView('recall');return true})()", &(int){0});
+    ok("and the value match is case-insensitive", cdp_wait_bool(c,
+        "document.getElementById('out').innerText.indexOf('plumber Mario')>=0", 5000) == 0);
+
+    /* (b) a query matching both ways: the tag match stays before the
+     * separator, the value-only record lands after it, and the record that
+     * matched both ways is listed exactly once */
+    cdp_eval_bool(c, "(function(){document.getElementById('q').value='gelato';"
+                     "setView('recall');return true})()", &(int){0});
+    ok("the tag match renders before the separator", cdp_wait_bool(c,
+        "(function(){var t=document.getElementById('out').innerText;"
+        "return t.indexOf('dorsoduro')>=0&&t.indexOf('matched in the value')>t.indexOf('dorsoduro')})()",
+        5000) == 0);
+    ok("the value-only record renders after it", cdp_wait_bool(c,
+        "(function(){var t=document.getElementById('out').innerText;"
+        "return t.indexOf('best gelato in rome')>t.indexOf('matched in the value')})()", 3000) == 0);
+    ok("the both-ways record is not duplicated", cdp_wait_bool(c,
+        "document.getElementById('out').innerText.split('dorsoduro').length===2", 3000) == 0);
+
+    /* (c) tag autocomplete under the search field: typing a prefix of an
+     * existing tag offers a chip; tapping it completes the token (plus a
+     * trailing space) and re-runs the search */
+    cdp_eval_bool(c, "(function(){var q=document.getElementById('q');q.value='';q.focus();"
+                     "return true})()", &(int){0});
+    cdp_insert_text(c, "gela");
+    ok("typing a prefix offers the tag chip", cdp_wait_bool(c,
+        "(function(){var r=document.getElementById('qsuggest');"
+        "for(var i=0;i<r.children.length;i++)if(r.children[i].textContent==='gelato')return true;"
+        "return false})()", 5000) == 0);
+    ok("tapping it completes the token and searches", cdp_eval_bool(c,
+        "(function(){var r=document.getElementById('qsuggest');"
+        "for(var i=0;i<r.children.length;i++)if(r.children[i].textContent==='gelato'){r.children[i].click();return true}"
+        "return false})()", &(int){0}) == 0 &&
+        cdp_wait_bool(c, "document.getElementById('q').value==='gelato '", 3000) == 0 &&
+        cdp_wait_bool(c, "document.getElementById('out').innerText.indexOf('dorsoduro')>=0", 5000) == 0);
+    /* the same row sits under the Add and Edit tag fields */
+    ok("the Add sheet carries a suggestion row", cdp_wait_bool(c,
+        "!!document.getElementById('vksuggest')", 3000) == 0);
+    ok("the Edit sheet carries a suggestion row", cdp_wait_bool(c,
+        "!!document.getElementById('edsuggest')", 3000) == 0);
+
     cdp_close(c);
     printf("cdp: %d passed, %d failed\n", pass, fail);
     return fail ? 1 : 0;

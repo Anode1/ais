@@ -35,7 +35,7 @@ SAVE (-v marks the value; bare args and -k are keys; keys are optional)
 
 COMMANDS (--word; operands are bare args, values via -v; an ID is the number
           in the 'id|value' that get and --find print)
-  ais --find TEXT                records whose value contains TEXT
+  ais --find TEXT                records whose value contains TEXT (any case)
   ais --doc KEY... < FILE        save a multi-line document as a blob file
                                  (--del removes it; a file you merely POINT at
                                  is never touched)

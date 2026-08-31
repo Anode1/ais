@@ -28,6 +28,7 @@
 #include "b64.h"           /* base64 a document blob's content onto the line-based wire */
 #include "common.h"
 #include "doc.h"
+#include "find.h"        /* ais_find: the /api/find content search */
 #include "secret.h"      /* GUI encrypt: secret_encrypt for the "aisc:" marker */
 #include "stats.h"       /* ais_stats: the GUI shows what clean-up would reclaim */
 #include "locate.h"       /* ais_default_set: persist the chosen store */
@@ -147,6 +148,10 @@ static const char PAGE[] =
 ".chip{display:inline-flex;align-items:center;gap:.35rem;background:var(--field);border:1px solid var(--line);border-radius:16px;padding:.25rem .7rem;font-size:.9rem}"
 ".chip button{border:0;background:none;color:var(--muted);cursor:pointer;font:inherit;font-size:1rem;line-height:1;padding:0}"
 ".chip button:hover{color:var(--danger)}"
+/* tag-autocomplete chips are BUTTONS (the .chip rule alone leaves a button its
+ * browser font); an empty suggestion row must not keep the .chips margins */
+"button.chip{font:inherit;font-size:.9rem;cursor:pointer;color:var(--fg)}"
+".chips:empty{display:none}"
 "#toast{position:fixed;left:50%;bottom:82px;transform:translateX(-50%);z-index:20;display:flex;align-items:center;gap:1rem;background:#2b2b33;color:#fff;padding:.65rem 1.1rem;border-radius:10px;box-shadow:0 4px 16px rgba(0,0,0,.35)}"
 "#toast[hidden]{display:none}#toast button{color:#bbc3ff;border:0;background:none;text-decoration:underline;cursor:pointer;font:inherit}"
 "@media(max-width:600px){#sheet,#editsheet,#syncsheet{align-items:flex-end}"
@@ -156,6 +161,7 @@ static const char PAGE[] =
 "<header id=bar><div class=barin><div class=titlerow><span class=brand>AIS</span><span id=count class=muted></span></div>"
 "<div class=searchrow><input id=q type=search placeholder='type tags to filter' autocomplete=off autofocus>"
 "<button id=seg-recall class=getbtn>Search</button></div>"
+"<div id=qsuggest class=chips></div>"   /* tag-autocomplete chips for #q */
 "<label class=allk style='display:flex;align-items:center;gap:.4rem;font-size:.85rem;color:var(--muted);margin-top:.5rem'><input id=anyk type=checkbox style='width:auto'> Match any tag</label>"
 "<div class=storerow><span id=store class=muted></span><span style='flex:1'></span>"
 "<button id=cleanbtn class=link>clean up</button>""<button id=syncbtn class=link>sync</button><button id=storebtn class=link>change</button></div>"
@@ -175,6 +181,7 @@ static const char PAGE[] =
  * Add sheet, and the order anyone describes the action in. */
 "<textarea id=v rows=3 placeholder='What to remember: a link, a note, a number...'></textarea>"
 "<input id=vk placeholder='Tags (space or comma separated, optional)'>"
+"<div id=vksuggest class=chips></div>"   /* tag-autocomplete chips for #vk */
 "<div class=encrow style='display:flex;align-items:center;gap:.5rem;margin:.1rem 0'>"
 "<label style='display:flex;align-items:center;gap:.35rem;font-size:.85rem;color:var(--muted);white-space:nowrap'>"
 "<input id=enc type=checkbox style='width:auto'> Encrypt</label>"
@@ -191,6 +198,7 @@ static const char PAGE[] =
 "<label class=muted style='font-size:.8rem'>Tags</label>"
 "<div id=edchips class=chips></div>"
 "<input id=edtag placeholder='Add a tag (space or comma to add)'>"
+"<div id=edsuggest class=chips></div>"   /* tag-autocomplete chips for #edtag */
 "<div class=actions><button id=edcancel class=ghost>Cancel</button><button id=edsave class=primary>Save</button></div>"
 "</div></div>"
 /* Sync sheet: mirrors the mobile Sync (Host / Join). One device Hosts and waits;
@@ -301,7 +309,10 @@ static const char PAGE[] =
 "var L=(await(await fetch(u)).text()).split('\\n').filter(function(s){return s.length});"
 "if(g!=viewGen)return;"                                  /* the view moved on: drop it */
 "var mb=$('rcmore');if(mb)mb.remove();"
-"if(!rcN&&!L.length){o.textContent='No results for '+rcQ;o.className='empty';$('count').textContent='0 results';rcMore=false;return}o.className='';"
+/* no tag match: the value half (findAppend) may still answer; only when both
+ * halves are empty does the old empty state render */
+"if(!rcN&&!L.length){rcMore=false;await findAppend(g,0);if(g!=viewGen)return;"
+"if(!$('vsep')){o.textContent='No results for '+rcQ;o.className='empty';$('count').textContent='0 results'}return}o.className='';"
 /* meta=1 lines are id|keys|value; showing WHY a row matched (its tags) is what
  * makes an OR result readable. */
 "L.forEach(function(ln){var p=ln.indexOf('|'),q=ln.indexOf('|',p+1),id=p>=0?ln.slice(0,p):'',ks=q>=0?ln.slice(p+1,q):'',v=q>=0?ln.slice(q+1):ln.slice(p+1);"
@@ -310,7 +321,27 @@ static const char PAGE[] =
 "var km=document.createElement('div');km.className='meta';km.textContent=ks||'(no tags)';r.appendChild(km);"
 "if(id){r.appendChild(rowActions(id,v));rcAfter=+id}o.appendChild(r)});"
 "rcN+=L.length;$('count').textContent=rcN+' result'+(rcN==1?'':'s')+' - '+(performance.now()-rcT0).toFixed(0)+' ms';"
-"if(L.length==tlPage){rcMore=true;var b=document.createElement('button');b.id='rcmore';b.className='loadmore';b.textContent='Load more';b.onclick=pageMore;o.appendChild(b)}else rcMore=false}"
+"if(L.length==tlPage){rcMore=true;var b=document.createElement('button');b.id='rcmore';b.className='loadmore';b.textContent='Load more';b.onclick=pageMore;o.appendChild(b)}"
+"else{rcMore=false;await findAppend(g,rcN)}}"
+/* Value-ranked second half (both pages, mirrored): after the tag matches, ask
+ * /api/find for records whose VALUE holds the trimmed query and append the
+ * ones not already listed (deduped by id) under one separator row. The OR chip
+ * governs only the tag half. TAGN is what that half listed: when it is 0 and
+ * the value half answers, the count line is the value half's. */
+"async function findAppend(g,tagN){var o=$('out'),qraw=$('q').value.trim();if(!qraw||$('vsep'))return;"
+"var t=await(await fetch('/api/find?q='+encodeURIComponent(qraw))).text();"
+"if(g!=viewGen)return;"                                  /* the view moved on: drop it */
+"var seen={};[].forEach.call(o.querySelectorAll('.hit'),function(r){if(r.dataset.id)seen[r.dataset.id]=1});"
+"var L=t.split('\\n').filter(function(s){return s.length}),added=0;"
+"L.forEach(function(ln){var p=ln.indexOf('|'),id=ln.slice(0,p),v=ln.slice(p+1);"
+"if(!id||seen[id])return;seen[id]=1;"
+/* textTransform pinned: the PWA uppercases .daygroup, and the label must read
+ * the same on both pages */
+"if(!added){var s=document.createElement('div');s.id='vsep';s.className='daygroup';s.style.textTransform='none';s.textContent='matched in the value';o.appendChild(s)}"
+"var r=document.createElement('div');r.className='hit';r.dataset.id=id;"
+"(v.indexOf('aisc:')==0?fillSecret(r,v):v.indexOf('aisdoc:')==0?fillDoc(r,v):fillVal(r,v));if(notHere(v))r.appendChild(awayBadge());"
+"r.appendChild(rowActions(id,v));o.appendChild(r);added++});"
+"if(added&&!tagN)$('count').textContent=added+' result'+(added==1?'':'s')}"
 /* per-row edit (attach/detach keys by id) and delete; both refresh the view */
 "function rowActions(id,v){var d=document.createElement('div');d.className='act';"
 "var m=document.createElement('button');m.className='actbtn';m.textContent='\\u22EE';m.title='more';m.style.fontSize='1.2rem';"
@@ -355,7 +386,7 @@ static const char PAGE[] =
 "if(edEdit)edOrig=(await dr.text()).replace(/\\r\\n?/g,'\\n')}"
 "$('edvalwrap').style.display=edEdit?'block':'none';if(edEdit)$('edval').value=edOrig;"
 "var t=(await(await fetch('/api/keys?id='+id)).text()).trim();edTags=t?t.split(/\\s+/):[];edChips();"
-"$('edtag').value='';$('editsheet').hidden=false}"
+"$('edtag').value='';$('edsuggest').innerHTML='';$('editsheet').hidden=false}"
 "async function edSave(){edAdd();"
 /* newlines pass through: the engine chooses inline vs blob at this write */
 "if(edEdit){var nv=$('edval').value;"
@@ -475,7 +506,7 @@ static const char PAGE[] =
 "if(v=='recall'){var q=$('q').value.trim();if(q)recall();"
 "else{$('out').innerHTML='<div class=empty><p>Type tags, then Search.</p>'+addCTA+'</div>';$('out').className='';$('count').textContent=''}}"
 "else if(v=='timeline')loadTimeline();else loadTags()}"
-"function openSheet(){$('vk').value=$('q').value.trim();$('enc').checked=false;$('pp').value='';$('pp').hidden=true;"
+"function openSheet(){$('vk').value=$('q').value.trim();$('vksuggest').innerHTML='';$('enc').checked=false;$('pp').value='';$('pp').hidden=true;"
 "$('pp2').value='';$('pp2').hidden=true;$('ppnote').hidden=true;$('sheet').hidden=false;$('v').focus()}"
 "function closeSheet(){$('sheet').hidden=true;$('v').value='';$('pp').value='';$('pp2').value=''}"
 "async function save(){var v=$('v').value.trim();if(!v)return;var k=normkeys($('vk').value);"
@@ -495,6 +526,28 @@ static const char PAGE[] =
 "if(rt.indexOf('merged')==0&&!delTimer){$('toast').firstChild.textContent='Already in your memory: kept as one entry, dated today';"
 "$('toastundo').hidden=true;$('toast').hidden=false;setTimeout(function(){if(!delTimer)hideToast()},4000)}"
 "if(syncFolderSaved())syncFolderRun(true)}"
+/* Tag autocomplete (Flutter parity): up to 6 existing tags (busiest first,
+ * from /api/tags) prefix-matched case-insensitively against the token being
+ * typed -- tokens split on spaces/commas, an empty token suggests nothing. A
+ * tap completes the token plus a trailing space and keeps focus on the field
+ * (mousedown preventDefault); DONE runs after it (the search field re-runs
+ * the search, the sheet fields just keep typing). */
+"function tagToken(s){var i=Math.max(s.lastIndexOf(' '),s.lastIndexOf(','));return i<0?s:s.slice(i+1)}"
+"async function suggestTags(inp,row,done){var tok=tagToken(inp.value);row.innerHTML='';if(!tok)return;"
+"var t=await(await fetch('/api/tags')).text();"
+"if(tagToken(inp.value)!=tok)return;"                    /* typed on: stale */
+"row.innerHTML='';var p=tok.toLowerCase(),n=0;"
+"t.split('\\n').forEach(function(ln){if(n>=6||!ln)return;var k=ln.slice(ln.indexOf('|')+1);"
+"if(k.toLowerCase().indexOf(p)!=0)return;n++;"
+"var b=document.createElement('button');b.type='button';b.className='chip';b.textContent=k;"
+"b.onmousedown=function(e){e.preventDefault()};"         /* the field keeps focus */
+"b.onclick=function(){var v=inp.value;inp.value=v.slice(0,v.length-tagToken(v).length)+k+' ';"
+"row.innerHTML='';inp.focus();if(done)done()};"
+"row.appendChild(b)})}"
+"function wireSuggest(id,rowid,done){var i=$(id);i.addEventListener('input',function(){suggestTags(i,$(rowid),done)})}"
+"wireSuggest('q','qsuggest',function(){setView('recall')});"   /* completing = searching */
+"wireSuggest('vk','vksuggest',null);"
+"wireSuggest('edtag','edsuggest',null);"
 "$('q').addEventListener('keydown',function(e){if(e.key=='Enter')setView('recall')});"
 "$('seg-recall').onclick=function(){setView('recall')};"
 "[].forEach.call(document.querySelectorAll('#bnav button'),function(b){b.onclick=function(){setView(b.dataset.v)}});"
@@ -1302,6 +1355,7 @@ static void handle(ais *a, int fd)
     long afterc = 0;                      /* ?afterc= count cursor for /api/tags paging */
     char *afterk = nokeys;                /* ?afterk= key cursor for /api/tags paging */
     char *docv = nokeys;                  /* ?v= stored blobs/ value for /api/doc     */
+    char *findq = nokeys;                 /* ?q= value substring for /api/find        */
     long body_len = 0;                    /* Content-Length, for a big POST body      */
     int  count = 0;                       /* ?count= page size (0 => engine default)  */
     char *tlfrom = nokeys, *tlto = nokeys; /* ?from= ?to= date range (YYYY-MM-DD)      */
@@ -1489,6 +1543,9 @@ static void handle(ais *a, int fd)
         } else if (strncmp(query, "v=", 2) == 0) {
             docv = query + 2;                /* /api/doc: a stored "blobs/" value */
             url_decode(docv);
+        } else if (strncmp(query, "q=", 2) == 0) {
+            findq = query + 2;               /* /api/find: the value substring */
+            url_decode(findq);
         }
         query = (amp != NULL) ? amp + 1 : NULL;
     }
@@ -1496,6 +1553,23 @@ static void handle(ais *a, int fd)
     if (strcmp(method, "GET") == 0 && strcmp(path, "/api/get") == 0) {
         send_head(fd, "text/plain");
         do_get(a, keys, want_or, after, count, meta, fd);
+    } else if (strcmp(method, "GET") == 0 && strcmp(path, "/api/find") == 0) {
+        /* Content search over the values (?q=TEXT): the same "id|value" lines
+         * /api/get emits, straight from ais_find (case-insensitive, as
+         * --find). Captured via a tmpfile, as /api/stats is, because ais_find
+         * writes to a FILE; bounded by the result, not the store. */
+        FILE *fp = tmpfile();
+        send_head(fd, "text/plain");
+        if (fp != NULL) {
+            char fb[8192];
+            size_t rn;
+            if (ais_find(a, findq, fp) >= 0 && fflush(fp) == 0) {
+                rewind(fp);
+                while ((rn = fread(fb, 1, sizeof fb, fp)) > 0)
+                    write_all(fd, fb, rn);
+            }
+            fclose(fp);
+        }
     } else if (strcmp(method, "POST") == 0 && strcmp(path, "/api/put") == 0) {
         char msg[64];
         long n0 = -1, n1 = -1, c;

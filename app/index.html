@@ -40,6 +40,7 @@
     <input id="q" type="search" enterkeyhint="search" placeholder="type tags to filter" autocomplete="off" autofocus>
     <button id="mic" class="iconbtn" title="Speak" hidden>&#127908;</button>
   </div>
+  <div id="qsuggest" class="chips"></div>  <!-- tag-autocomplete chips for #q -->
   <label style="display:flex;align-items:center;gap:.4rem;font-size:.85rem;color:var(--muted);margin-top:.45rem">
     <input id="anyk" type="checkbox" style="width:auto"> Match any tag</label>
   <div id="tlrange" style="display:none;gap:.4rem;align-items:center;margin-top:.5rem;font-size:.85rem;color:var(--muted)">
@@ -73,6 +74,7 @@
     <h2>Add to your memory</h2>
     <textarea id="v" rows="3" placeholder="What to remember &mdash; a link, a note, a number&hellip;"></textarea>
     <input id="vk" placeholder="Tags (space or comma separated, optional)">
+    <div id="vksuggest" class="chips"></div>  <!-- tag-autocomplete chips for #vk -->
     <!-- Encrypt: the passphrase field stays hidden until it is asked for, and the
          passphrase rides the POST body, never the URL -->
     <div class="encrow">
@@ -100,6 +102,7 @@
     <label class="muted" style="font-size:.8rem" for="edtag">Tags</label>
     <div id="edchips" class="chips"></div>
     <input id="edtag" placeholder="Add a tag">
+    <div id="edsuggest" class="chips"></div>  <!-- tag-autocomplete chips for #edtag -->
     <div class="actions">
       <button id="edcancel" class="ghost">Cancel</button>
       <button id="edsave" class="primary">Save</button>
@@ -270,7 +273,7 @@ function render(text, q, ms) {
     // query is not always something the user typed about themselves
     var e = document.createElement('p'); e.className = 'empty';
     e.textContent = 'No tag match for "' + q + '"';
-    out.appendChild(e); return;
+    out.appendChild(e); return 0;
   }
   lines.forEach(function (ln) {
     var p = ln.indexOf('|'), id = p>=0 ? ln.slice(0,p) : '', v = p>=0 ? ln.slice(p+1) : ln;
@@ -281,6 +284,7 @@ function render(text, q, ms) {
     if (id) row.appendChild(rowActions(id, v));
     out.appendChild(row);
   });
+  return lines.length;
 }
 
 // per-record edit (attach/detach keys by id) and delete; both refresh the view
@@ -395,6 +399,7 @@ async function openEdit(id, v) {
   var t = (await (await fetch('/api/keys?id=' + id)).text()).trim();
   edTags = t ? t.split(/\s+/) : []; edChips();
   $('edtag').value = '';
+  $('edsuggest').innerHTML = '';
   $('editsheet').hidden = false;
   $('editsheet').querySelector('.card').focus();
 }
@@ -426,7 +431,43 @@ async function recall() {
   var oo = $('anyk') && $('anyk').checked ? '&or=1' : '';
   var t = await (await fetch('/api/get?keys=' + encodeURIComponent(q) + oo)).text();
   if (g != gen) return;                 // the view moved on: drop it
-  render(t, q, performance.now() - t0);
+  var tagN = render(t, q, performance.now() - t0);
+  await findAppend(g, tagN);
+  if (g != gen) return;
+  // tags matched nothing but values did: the value section stands alone
+  if (!tagN && $('vsep')) { var e = $('out').querySelector('.empty'); if (e) e.remove(); }
+}
+// Value-ranked second half (both pages, mirrored): after the tag matches, ask
+// /api/find for records whose VALUE holds the trimmed query and append the
+// ones not already listed (deduped by id) under one separator row. The OR chip
+// governs only the tag half. TAGN is what that half listed: when it is 0 and
+// the value half answers, the count line is the value half's.
+async function findAppend(g, tagN) {
+  var o = $('out'), qraw = $('q').value.trim();
+  if (!qraw || $('vsep')) return;
+  var t = await (await fetch('/api/find?q=' + encodeURIComponent(qraw))).text();
+  if (g != gen) return;                 // the view moved on: drop it
+  var seen = {};
+  [].forEach.call(o.querySelectorAll('.hit'), function (r) { if (r.dataset.id) seen[r.dataset.id] = 1; });
+  var L = t.split('\n').filter(function (s){ return s.length; }), added = 0;
+  L.forEach(function (ln) {
+    var p = ln.indexOf('|'), id = ln.slice(0, p), v = ln.slice(p + 1);
+    if (!id || seen[id]) return;
+    seen[id] = 1;
+    if (!added) {
+      // textTransform pinned: this page uppercases .daygroup, and the label
+      // must read the same on both pages
+      var s = document.createElement('div'); s.id = 'vsep'; s.className = 'daygroup';
+      s.style.textTransform = 'none';
+      s.textContent = 'matched in the value'; o.appendChild(s);
+    }
+    var r = document.createElement('div'); r.className = 'hit'; r.dataset.id = id;
+    (v.indexOf('aisc:') == 0 ? fillSecret(r, v)
+     : v.indexOf('aisdoc:') == 0 ? fillDoc(r, v) : fillVal(r, v));
+    r.appendChild(rowActions(id, v));
+    o.appendChild(r); added++;
+  });
+  if (added && !tagN) $('count').textContent = added + ' result' + (added == 1 ? '' : 's');
 }
 
 // timeline: id|ts|keys|value (value may contain '|', so split off the first 3)
@@ -609,6 +650,7 @@ new MutationObserver(function () {
 
 function openSheet(){
   $('vk').value = $('q').value.trim();
+  $('vksuggest').innerHTML = '';
   $('enc').checked = false; $('pp').value = ''; $('pp').hidden = true;
   $('pp2').value = ''; $('pp2').hidden = true; $('ppnote').hidden = true;
   $('sheet').hidden = false; $('v').focus();
@@ -647,6 +689,48 @@ async function save() {
   if (syncFolderSaved()) syncFolderRun(true);   // and get it into the shared folder
 }
 
+// Tag autocomplete (Flutter parity): up to 6 existing tags (busiest first,
+// from /api/tags) prefix-matched case-insensitively against the token being
+// typed -- tokens split on spaces/commas, an empty token suggests nothing. A
+// tap completes the token plus a trailing space and keeps focus on the field
+// (mousedown preventDefault); DONE runs after it (the search field re-runs
+// the search, the sheet fields just keep typing).
+function tagToken(s) {
+  var i = Math.max(s.lastIndexOf(' '), s.lastIndexOf(','));
+  return i < 0 ? s : s.slice(i + 1);
+}
+async function suggestTags(inp, row, done) {
+  var tok = tagToken(inp.value);
+  row.innerHTML = '';
+  if (!tok) return;
+  var t = await (await fetch('/api/tags')).text();
+  if (tagToken(inp.value) != tok) return;   // typed on: stale
+  row.innerHTML = '';
+  var p = tok.toLowerCase(), n = 0;
+  t.split('\n').forEach(function (ln) {
+    if (n >= 6 || !ln) return;
+    var k = ln.slice(ln.indexOf('|') + 1);
+    if (k.toLowerCase().indexOf(p) != 0) return;
+    n++;
+    var b = document.createElement('button');
+    b.type = 'button'; b.className = 'chip'; b.textContent = k;
+    b.onmousedown = function (e) { e.preventDefault(); };   // the field keeps focus
+    b.onclick = function () {
+      var v = inp.value;
+      inp.value = v.slice(0, v.length - tagToken(v).length) + k + ' ';
+      row.innerHTML = ''; inp.focus();
+      if (done) done();
+    };
+    row.appendChild(b);
+  });
+}
+function wireSuggest(id, rowid, done) {
+  var i = $(id);
+  i.addEventListener('input', function () { suggestTags(i, $(rowid), done); });
+}
+wireSuggest('q', 'qsuggest', function () { setView('recall'); });   // completing = searching
+wireSuggest('vk', 'vksuggest', null);
+wireSuggest('edtag', 'edsuggest', null);
 $('q').addEventListener('keydown', function (e){ if (e.key=='Enter') setView('recall'); });
 [].forEach.call(document.querySelectorAll('#bnav button'), function (b) {
   b.onclick = function () { setView(b.dataset.v); };

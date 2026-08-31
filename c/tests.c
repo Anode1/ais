@@ -6530,6 +6530,92 @@ static void test_cli_tty_hint(void)
     scratch_rm(dir);
 }
 
+/* ======================================================================== *
+ *  Case-insensitive find + /api/find (appended as one block).
+ *  ais_find matches an ASCII case-insensitive substring and returns the
+ *  match count; /api/find?q= serves the same "id|value" lines over HTTP.
+ * ======================================================================== */
+
+static void test_find_ci(void)
+{
+    ais a;
+    FILE *fp;
+    char buf[2048];
+    size_t got;
+    const char *dir = "/tmp/ais_ut_findci";
+
+    scratch_rm(dir);
+    ais_open(&a, dir);
+    ais_put(&a, "trip", "Venice Is Sinking");        /* id 1 */
+    ais_put(&a, "food", "best GELATO in venice");    /* id 2 */
+
+    fp = tmpfile();
+    CHECK(ais_find(&a, "venice", fp) == 2, "find ci: lowercase needle hits both cases");
+    rewind(fp); got = fread(buf, 1, sizeof(buf) - 1, fp); buf[got] = '\0'; fclose(fp);
+    CHECK(strstr(buf, "1|Venice Is Sinking") != NULL, "find ci: the value keeps its own case");
+    fp = tmpfile();
+    CHECK(ais_find(&a, "VENICE", fp) == 2, "find ci: uppercase needle hits both");
+    fclose(fp);
+    fp = tmpfile();
+    CHECK(ais_find(&a, "gElAtO", fp) == 1, "find ci: mixed-case needle counts one match");
+    fclose(fp);
+    fp = tmpfile();
+    CHECK(ais_find(&a, "venise", fp) == 0, "find ci: a near-miss still matches nothing");
+    fclose(fp);
+
+    ais_close(&a);
+    scratch_rm(dir);
+}
+
+/* /api/find over a forked live server (the hardening block's pattern): the
+ * engine's lines, the case fold, '+' decoding, and an empty 200 on no match. */
+static void test_serve_api_find(void)
+{
+    const char *dir = "/tmp/ais_ut_srvfind";
+    const int port = 47252;
+    char resp[8192];
+    pid_t pid;
+
+    setenv("AIS_NO_OPEN", "1", 1);     /* never spawn a browser from a test */
+    scratch_rm(dir);
+    { ais A; ais_open(&A, dir); ais_put(&A, "venice", "Hotel Danieli");
+      ais_put(&A, "food", "best gelato"); ais_close(&A); }
+
+    fflush(stdout);                    /* no buffered test lines into the fork */
+    pid = fork();
+    if (pid == 0) {
+        ais A;
+        if (freopen("/dev/null", "w", stderr) == NULL)
+            _exit(1);
+        ais_open(&A, dir);
+        ais_serve(&A, port);           /* loops forever; the parent kills us */
+        _exit(0);
+    }
+
+    CHECK(http_txn(port, "GET /api/find?q=danieli HTTP/1.0\r\nHost: 127.0.0.1\r\n\r\n",
+                   resp, sizeof resp) == 0
+          && strstr(resp, "200 OK") != NULL && strstr(resp, "1|Hotel Danieli") != NULL,
+          "api/find: a lowercase needle finds the mixed-case value");
+    CHECK(strstr(resp, "gelato") == NULL, "api/find: a non-matching record stays out");
+    CHECK(strstr(resp, "X-Content-Type-Options: nosniff") != NULL,
+          "api/find: the hardening headers ride along");
+    CHECK(http_txn(port, "GET /api/find?q=Hotel+Danieli HTTP/1.0\r\nHost: 127.0.0.1\r\n\r\n",
+                   resp, sizeof resp) == 0 && strstr(resp, "1|Hotel Danieli") != NULL,
+          "api/find: '+' decodes to the space in the needle");
+    {
+        char *b;
+        CHECK(http_txn(port, "GET /api/find?q=nosuchtext HTTP/1.0\r\nHost: 127.0.0.1\r\n\r\n",
+                       resp, sizeof resp) == 0
+              && strstr(resp, "200 OK") != NULL
+              && (b = strstr(resp, "\r\n\r\n")) != NULL && b[4] == '\0',
+              "api/find: no match is an empty 200, not an error");
+    }
+
+    kill(pid, SIGKILL);
+    waitpid(pid, NULL, 0);
+    scratch_rm(dir);
+}
+
 int main(void)
 {
     serialise_runs();
@@ -6751,6 +6837,9 @@ int main(void)
     test_seq_out_of_order_and_absent_ids();
     test_seq_cursor_survives_a_store_rewrite();
     test_seq_multi_id_reads_all_lines();
+    printf("case-insensitive find + /api/find:\n");
+    test_find_ci();
+    test_serve_api_find();
     printf("----\n%d passed, %d failed\n", ut_pass, ut_fail);
     return ut_fail == 0 ? 0 : 1;
 }

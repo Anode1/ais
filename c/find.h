@@ -1,7 +1,8 @@
 /* find.h -- content search over record values.
  *
  * ais_find prints every live record whose value contains NEEDLE (a plain
- * substring, case-sensitive) as "id|value", one line per matching value.
+ * substring, matched case-insensitively over ASCII) as "id|value", one line
+ * per matching value.
  * Tombstoned records are suppressed. Streaming, bounded memory. Returns how
  * many lines matched, or -1 on error.
  */
