@@ -66,3 +66,24 @@ AIS writes no log when all is well -- that is the rule. If it hits a real error
 it leaves a single file (Windows GUI: %LOCALAPPDATA%\AIS\ais-error.log); its
 mere existence means a genuine problem, not a typo, so send it along. On Linux
 and macOS, run AIS from a terminal to see any error.
+
+
+ON A PHONE
+----------
+
+The phone app keeps your index in its private storage. Uninstalling the app
+deletes that storage, index included, on both Android and iOS. Android's
+uninstall dialog can show a "Keep app data" checkbox; some phones omit it or
+ignore it, so do not count on it.
+
+To keep the index alive on Android, give it a folder: after your first save
+the app offers "Set folder", and Sync has "Keep a copy in a folder". The app
+then keeps a copy of the whole index there, refreshed after every change, and
+that copy stays when the app is uninstalled. After a reinstall, tap "Restore
+from a folder" on the empty start screen and pick that folder; your records
+come back. A folder synced to another machine (Syncthing, a cloud drive)
+protects against losing the phone itself.
+
+On iOS there is no folder to give yet: use Sync > Export to a file now and
+then, and save it in the Files app or send it somewhere safe. Restore with
+Sync > Import from a file.

@@ -17,6 +17,7 @@ import 'package:speech_to_text/speech_to_text.dart';
 import 'ais_ffi.dart';
 import 'record_rows.dart';
 import 'add_validation.dart';
+import 'survival.dart';
 import 'version.dart';
 
 void main() async {
@@ -108,8 +109,15 @@ class RecallPage extends StatefulWidget {
   // search tests run engine-less too. Null = the real engine.
   final List<Hit> Function(String keys, bool orMode)? recallLookup;
   final List<Hit> Function(String needle)? findLookup;
+  // Same seam for the uninstall-survival flow (survival.dart): a fake mobile
+  // store the tests save into and restore from. Null = the real engine.
+  final SurvivalHarness? survival;
   const RecallPage(
-      {super.key, this.tagLookup, this.recallLookup, this.findLookup});
+      {super.key,
+      this.tagLookup,
+      this.recallLookup,
+      this.findLookup,
+      this.survival});
   @override
   State<RecallPage> createState() => _RecallPageState();
 }
@@ -183,6 +191,16 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
   String _syncFolder = '';
   String _syncFolderSaid = '';   // the last folder-sync problem reported, to not repeat it
 
+  // Uninstall survival (Android): a SAF folder the user picked; a bundle copy
+  // of the whole index is kept there so it outlives the app. The tree URI is
+  // remembered per-index in <dir>/backuptree; '' = off. The C engine cannot
+  // POSIX-open SAF trees, so the copy moves over the ais/backup channel
+  // (MainActivity streams it in and out), not through folder sync.
+  String _backupTree = '';
+  bool _backupSaid = false;  // a failed refresh is reported once per session
+  bool _backupDirty = false; // the index changed since the last copy refresh
+  String _restoreProblem = ''; // shown inside the empty state, its own style
+
   // When this device last synced by ANY route, so the Sync sheet can say so.
   // Kept BESIDE the index, not inside it, so it stays this device's own answer:
   // a peer's copy of the file would report a sync this device never made.
@@ -199,8 +217,9 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
   // sheet. Absent on desktop and iOS, where the calls just throw and are ignored.
   static const _shareChannel = MethodChannel('ais/share');
 
-  // iOS-only: ask the runner to set NSURLIsExcludedFromBackupKey on the index dir
-  // (see ios/Runner/AppDelegate.swift). Absent elsewhere, where the call just throws.
+  // iOS: set NSURLIsExcludedFromBackupKey on the index dir (AppDelegate.swift).
+  // Android: the SAF keep-a-copy folder (pickBackupTree / exportToTree /
+  // importFromTree, see MainActivity.kt). On desktop the calls just throw.
   static const _backupChannel = MethodChannel('ais/backup');
 
   // Hosting shows a QR and waits up to ~2 minutes for the other device to scan
@@ -234,8 +253,16 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
         state == AppLifecycleState.hidden ||
         state == AppLifecycleState.detached) {
       _flushPendingDeletes();
+      // Leaving the foreground is also the last safe moment to refresh the
+      // survival copy: an uninstall can follow without the app running again.
+      if (_backupDirty) _refreshBackupCopy();
     }
   }
+
+  // Mobile behaviors (the survival hint, the empty-state restore) under test:
+  // the harness stands in for the phone, since `flutter test` runs on the host.
+  bool get _mobile =>
+      widget.survival != null || Platform.isAndroid || Platform.isIOS;
 
   // Desktop shares the index the CLI resolves (nearest .ais/, ~/.ais/config, else
   // ~/.ais) through the engine, so no env vars. Mobile uses the app's private dir.
@@ -266,6 +293,15 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
   }
 
   Future<void> _init() async {
+    // The harness IS the store: no engine, no channels (see survival.dart).
+    final h = widget.survival;
+    if (h != null) {
+      _dir = h.dir;
+      _status = 'Type tags, then Search. Tap Add to save.';
+      _loadTimeline();
+      if (mounted) setState(() {});
+      return;
+    }
     try {
       final dir = await _indexDir();
       Directory(dir).createSync(recursive: true);
@@ -274,6 +310,7 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
       _dir = dir;
       _status = 'Type tags, then Search. Tap Add to save.';
       _syncFolder = _loadSyncFolder();
+      _backupTree = _loadBackupTree();
       _loadLastSync();
       _loadTimeline(); // open showing recent items, not a blank search pane
       _runFolderSync(silent: true); // pull peer changes on open (opening is the user action)
@@ -563,7 +600,9 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
 
   // Fresh timeline load: page one from the newest, within [_tlFrom, _tlTo].
   void _loadTimeline() {
-    final page = _ais?.timeline(before: 0, count: _tlPage, from: _tlFrom, to: _tlTo) ?? const [];
+    final page = widget.survival?.timeline() ??
+        _ais?.timeline(before: 0, count: _tlPage, from: _tlFrom, to: _tlTo) ??
+        const [];
     setState(() {
       // Hide ids inside their Undo window; cursor/more come from the raw page.
       _tl = page.where((r) => !_pendingDelete.contains(r.id)).toList();
@@ -899,6 +938,20 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
                 title: const Text('Stop folder sync'),
                 onTap: () => Navigator.pop(ctx, 'folder-off'),
               ),
+            // Android only: the SAF keep-a-copy folder (see _pickBackupFolder).
+            // The engine cannot POSIX-open a SAF tree, so this is a bundle
+            // copy streamed natively, not the folder sync above.
+            if (Platform.isAndroid)
+              ListTile(
+                leading: const Icon(Icons.inventory_2_outlined),
+                title: Text(_backupTree.isEmpty
+                    ? 'Keep a copy in a folder'
+                    : 'Keeping a copy in a folder'),
+                subtitle: Text(_backupTree.isEmpty
+                    ? 'The copy survives uninstalling the app'
+                    : 'Refreshed after every change. Tap to move it.'),
+                onTap: () => Navigator.pop(ctx, 'keep'),
+              ),
             const SizedBox(height: 8),
           ],
         ),
@@ -928,6 +981,9 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
         setState(() => _syncFolder = '');
         await _saveSyncFolder('');
         break;
+      case 'keep':
+        await _pickBackupFolder();
+        break;
     }
   }
 
@@ -946,6 +1002,188 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
     } catch (_) {}
   }
 
+  // -- Uninstall survival (see survival.dart for the shared logic) --
+  // Android hands ACTION_OPEN_DOCUMENT_TREE back as a content:// URI; scoped
+  // storage means the C engine cannot POSIX-open anything under it, so the
+  // whole index moves as ONE bundle file (ais_embed_export/import_bundle)
+  // streamed by MainActivity over the ais/backup channel.
+
+  String _loadBackupTree() {
+    try {
+      final f = File('$_dir/backuptree');
+      if (f.existsSync()) return f.readAsStringSync().trim();
+    } catch (_) {}
+    return '';
+  }
+
+  Future<void> _saveBackupTree(String uri) async {
+    try {
+      await File('$_dir/backuptree').writeAsString(uri);
+    } catch (_) {}
+  }
+
+  static const _backupName = 'ais-backup.aisb';
+
+  // Export the index to a private temp file, then stream it into the kept
+  // folder. False = no folder set, export failed, or the tree is gone
+  // (folder deleted, permission revoked).
+  Future<bool> _writeBackupCopy() async {
+    final eng = _ais;
+    if (eng == null || _backupTree.isEmpty) return false;
+    final tmp = '$_dir/keepcopy.aisb';
+    if (eng.exportBundle(tmp) != 0) return false;
+    try {
+      final ok = await _backupChannel.invokeMethod<bool>('exportToTree',
+          {'tree': _backupTree, 'src': tmp, 'name': _backupName});
+      return ok == true;
+    } catch (_) {
+      return false;
+    } finally {
+      try {
+        File(tmp).deleteSync();
+      } catch (_) {}
+    }
+  }
+
+  // Fire-and-forget refresh after a change; a failure is reported once per
+  // session, with the way to fix it.
+  void _refreshBackupCopy() {
+    if (_backupTree.isEmpty) return;
+    _writeBackupCopy().then((ok) {
+      if (ok) {
+        _backupDirty = false;
+        return;
+      }
+      if (!mounted || _backupSaid) return;
+      _backupSaid = true;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content:
+              const Text('Could not refresh the copy in your keep folder.'),
+          action: SnackBarAction(
+              label: 'Set folder', onPressed: _pickBackupFolder)));
+    });
+  }
+
+  // Pick the SAF folder that keeps the copy. MainActivity persists the URI
+  // permission; the first copy is written right away so the promise is tested
+  // while the user is looking.
+  Future<void> _pickBackupFolder() async {
+    if (_ais == null) return;
+    final messenger = ScaffoldMessenger.of(context);
+    String? uri;
+    try {
+      uri = await _backupChannel.invokeMethod<String>('pickBackupTree');
+    } catch (_) {
+      messenger.showSnackBar(const SnackBar(
+          content: Text('Not available on this device yet. '
+              'Use Sync > Export to a file instead.')));
+      return;
+    }
+    if (!mounted || uri == null || uri.isEmpty) return; // cancelled
+    _backupTree = uri;
+    await _saveBackupTree(uri);
+    _backupSaid = false;
+    final ok = await _writeBackupCopy();
+    if (ok) _backupDirty = false;
+    if (!mounted) return;
+    if (!ok) {
+      _backupTree = '';
+      await _saveBackupTree('');
+    }
+    messenger.showSnackBar(SnackBar(
+        content: Text(ok
+            ? 'A copy of your index now lives in that folder. '
+                'It survives uninstalling the app.'
+            : 'Could not write a copy there. Pick another folder.')));
+  }
+
+  // The one-time hint after the very first record lands on a phone: the store
+  // it just went into dies with the app. Marked shown at once (a plain file
+  // next to the store, like syncfolder), so it never nags.
+  void _maybeKeepHint(int liveBefore, ScaffoldMessengerState messenger) {
+    final flag = KeepHintFlag(_dir);
+    if (!keepHintDue(
+        mobile: _mobile, liveBefore: liveBefore, shown: flag.shown)) {
+      return;
+    }
+    flag.markShown();
+    // iOS has no SAF; until the native side grows a directory picker, the
+    // honest action there is the existing export share-sheet.
+    final android = widget.survival != null || Platform.isAndroid;
+    messenger.showSnackBar(SnackBar(
+        duration: const Duration(seconds: 12),
+        content: const Text(
+            "Your index lives in this app's private storage and is removed "
+            'if the app is uninstalled. Keep a copy in a folder to survive that.'),
+        action: SnackBarAction(
+            label: android ? 'Set folder' : 'Export a copy',
+            onPressed: android ? _pickBackupFolder : _exportFile)));
+  }
+
+  // The empty state's way back: pick the folder that holds a kept copy and
+  // merge it in. Prefers the app-maintained ais-backup.aisb; the native side
+  // falls back to the newest *.aisb (a dated manual export works too).
+  Future<void> _restoreFromFolder() async {
+    final h = widget.survival;
+    if (h != null) {
+      final ok = await h.pickAndRestore();
+      if (!mounted || ok == null) return; // cancelled
+      setState(() =>
+          _restoreProblem = ok ? '' : 'No AIS copy found in that folder.');
+      if (ok) _setView('timeline');
+      return;
+    }
+    final eng = _ais;
+    if (eng == null || _syncBlocks()) return;
+    String? uri;
+    try {
+      uri = await _backupChannel.invokeMethod<String>('pickBackupTree');
+    } catch (_) {
+      if (mounted) {
+        setState(() => _restoreProblem =
+            'Not available on this device yet. Use Sync > Import from a file.');
+      }
+      return;
+    }
+    if (!mounted || uri == null || uri.isEmpty) return; // cancelled
+    final tmp = '$_dir/restore.aisb';
+    bool? got;
+    try {
+      got = await _backupChannel.invokeMethod<bool>(
+          'importFromTree', {'tree': uri, 'dest': tmp, 'name': _backupName});
+    } catch (_) {
+      got = false;
+    }
+    if (!mounted) return;
+    if (got != true) {
+      setState(() => _restoreProblem = 'No AIS copy found in that folder.');
+      return;
+    }
+    final before = eng.countLive();
+    final rc = eng.importBundle(tmp);
+    try {
+      File(tmp).deleteSync();
+    } catch (_) {}
+    if (!mounted) return;
+    if (rc != 0) {
+      setState(() => _restoreProblem = rc == -2
+          ? 'That copy is from a newer AIS. Update this app first.'
+          : 'Could not read the copy in that folder.');
+      return;
+    }
+    // The folder that held the copy stays the keep folder, and they clearly
+    // know about keeping one: no hint at the next save.
+    _backupTree = uri;
+    await _saveBackupTree(uri);
+    KeepHintFlag(_dir).markShown();
+    _markSynced();
+    if (!mounted) return;
+    setState(() => _restoreProblem = '');
+    _setView('timeline');
+    ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Restored.${_mergeDetail(before)}')));
+  }
+
   // Beside the index (<dir>_lastsync), never inside it: see _lastSync.
   void _loadLastSync() {
     try {
@@ -962,6 +1200,7 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
 
   // Every converging route calls this: Host, Join, a folder pass, a file import.
   void _markSynced() {
+    _backupDirty = true; // every converging route can change the index
     _lastSync = DateTime.now();
     try {
       File('${_dir}_lastsync').writeAsStringSync(_lastSync!.toIso8601String());
@@ -1560,6 +1799,7 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
       setState(() {
         _dir = chosen;
         _syncFolder = _loadSyncFolder(); // sync-folder is per-index
+        _backupTree = _loadBackupTree(); // so is the keep folder
         // Blob content and file-presence are keyed per library.
         _blobCache.clear();
         _notHereCache.clear();
@@ -1876,7 +2116,8 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
       floatingActionButton: _emptyStateOffersAdd
           ? null
           : FloatingActionButton.extended(
-              onPressed: _ais == null ? null : _showAdd,
+              onPressed:
+                  (_ais == null && widget.survival == null) ? null : _showAdd,
               icon: const Icon(Icons.add),
               label: const Text('Add'),
             ),
@@ -1926,7 +2167,7 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
   // still OPENING, the real error + Retry if the open FAILED, null once it is live.
   // Keeps a slow or failed open from reading as "nothing saved yet".
   Widget? _engineGate(ColorScheme cs) {
-    if (_ais != null) return null;
+    if (_ais != null || widget.survival != null) return null;
     if (_status.startsWith('cannot open') || _status.startsWith('cannot resolve')) {
       return Center(
         child: Padding(
@@ -1964,7 +2205,9 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
   // this condition (c/serve.c, app/app.css), and GUI.md's rule is that a change
   // to one surface is a change to all three.
   bool get _emptyStateOffersAdd {
-    if (_ais == null) return false;      // the gate or a status message is showing
+    if (_ais == null && widget.survival == null) {
+      return false;                      // the gate or a status message is showing
+    }
     switch (_view) {
       case 'timeline':
         return _tl.isEmpty;
@@ -1992,6 +2235,7 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
   void _commitDelete(int id) {
     _delTimers.remove(id)?.cancel();
     if (_pendingDelete.remove(id) && _ais != null) {
+      _backupDirty = true;
       // del() returns false when the engine kept the record (unknown id, or a
       // write error). The row was already hidden, so say it failed and re-sync.
       if (!_ais!.del(id) && mounted) {
@@ -2085,6 +2329,7 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
       if (_pendingDelete.isEmpty && mounted) {
         _setView(_view);
         _runFolderSync(silent: true); // the delete settled: push it to peers
+        _refreshBackupCopy(); // and drop it from the survival copy
       }
     });
   }
@@ -2097,10 +2342,12 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
       );
 
   // The empty / first-run state; its button opens the same Add sheet as the FAB.
+  // Scrollable: with the restore action it can outgrow a short viewport
+  // (a phone in landscape, the soft keyboard up).
   Widget _emptyState(ColorScheme cs,
           {required IconData icon, required String line}) =>
       Center(
-        child: Padding(
+        child: SingleChildScrollView(
           padding: const EdgeInsets.all(32),
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -2115,10 +2362,30 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
                       ?.copyWith(color: cs.onSurfaceVariant)),
               const SizedBox(height: 20),
               FilledButton.icon(
-                onPressed: _ais == null ? null : _showAdd,
+                onPressed:
+                    (_ais == null && widget.survival == null) ? null : _showAdd,
                 icon: const Icon(Icons.add),
                 label: const Text('Add something'),
               ),
+              // Mobile: the store is empty, which is exactly what a fresh
+              // install looks like. Offer the way back to a kept copy.
+              if (_mobile) ...[
+                const SizedBox(height: 8),
+                TextButton.icon(
+                  onPressed: _restoreFromFolder,
+                  icon: const Icon(Icons.restore),
+                  label: const Text('Restore from a folder'),
+                ),
+              ],
+              if (_restoreProblem.isNotEmpty) ...[
+                const SizedBox(height: 12),
+                Text(_restoreProblem,
+                    textAlign: TextAlign.center,
+                    style: Theme.of(context)
+                        .textTheme
+                        .bodyMedium
+                        ?.copyWith(color: cs.error)),
+              ],
             ],
           ),
         ),
@@ -2172,6 +2439,7 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
           .showSnackBar(SnackBar(content: Text(tagsUpdateMessage(updated))));
     }
     if (updated) {
+      _backupDirty = true;
       _setView(_view); // refresh whichever view is showing (matches _editValue),
       // not a blind _recall() that no-ops off the recall tab and leaves stale tags
     }
@@ -2267,7 +2535,10 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
                 : rc == -3
                     ? 'A deleted note still holds that text: run Clean up first'
                     : "Couldn't update the value")));
-    if (done) _setView(_view); // refresh whichever view is showing
+    if (done) {
+      _backupDirty = true;
+      _setView(_view); // refresh whichever view is showing
+    }
     return done ? newStored : null;
   }
 
@@ -2478,7 +2749,7 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
       if (_searched && _query.isNotEmpty) return _noTagMatch(cs);
       if (_searched) return _centerMsg('No results for "$_query"', cs);
       // First-run: an error keeps its plain message, a healthy engine the empty state.
-      if (_ais == null) return _centerMsg(_status, cs);
+      if (_ais == null && widget.survival == null) return _centerMsg(_status, cs);
       assert(_emptyStateOffersAdd);   // the FAB stands down on exactly this branch
       return _emptyState(cs,
           icon: Icons.note_add_outlined,
@@ -2904,7 +3175,7 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
     final k = _normKeys(keys);
     final err = addSaveError(
         value: value,
-        engineReady: _ais != null,
+        engineReady: _ais != null || widget.survival != null,
         syncing: _syncBlocks(),
         encrypt: encrypt,
         passphrase: passphrase,
@@ -2913,7 +3184,10 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
     if (err != null) return err;
     // addSaveError stays quiet when the engine is not ready (the FAB is
     // disabled then), but the share intake opens this sheet without the FAB.
-    if (_ais == null) return 'Library is still opening. Try again in a moment.';
+    final h = widget.survival;
+    if (_ais == null && h == null) {
+      return 'Library is still opening. Try again in a moment.';
+    }
     final messenger = ScaffoldMessenger.of(context);
     // Commit any armed swipe-delete BEFORE a background encrypt: a UI-isolate
     // del() must not run on the shared handle while the off-isolate ais_put
@@ -2923,10 +3197,14 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
     // The one save that adds no live record is a merge: same text, same record
     // (value is identity), restamped to today. Count around the save to say so
     // afterwards; an encrypted save always mints a fresh record (its IV).
-    final before = encrypt ? -1 : _ais!.countLive();
+    // liveBefore also answers "was the store empty?" for the survival hint.
+    final liveBefore = h?.countLive() ?? _ais!.countLive();
+    final before = encrypt ? -1 : liveBefore;
     int id = -1;
     try {
-      if (encrypt) {
+      if (h != null) {
+        id = h.store(k, value);
+      } else if (encrypt) {
         id = await _ais!.storeEncryptedAsync(k, value, passphrase);
       } else {
         id = _ais!.store(k, value);
@@ -2940,11 +3218,15 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
     if (!mounted) return null;
     // Show the new record at the top of Recent. Saving is not a query: don't
     // drop into a search for it.
-    final merged = before >= 0 && _ais!.countLive() == before;
+    final merged =
+        before >= 0 && (h?.countLive() ?? _ais!.countLive()) == before;
     _setView('timeline');
     _runFolderSync(silent: true); // push the new record to peers
+    _backupDirty = true;
+    _refreshBackupCopy(); // the survival copy tracks every save
     messenger.showSnackBar(
         SnackBar(content: Text(saveOutcomeMessage(id, k, merged: merged))));
+    _maybeKeepHint(liveBefore, messenger);
     return null;
   }
 
