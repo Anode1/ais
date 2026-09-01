@@ -112,7 +112,7 @@ of them has ever received a build:
 
 - Upload `ais-v0.3.26-android.aab` to the Play Console as a new release on the
   closed test track, following [`dev/ANDROID_RELEASE.md`](dev/ANDROID_RELEASE.md).
-  The listing is done and the closed test is running on build 425 (0.3.22), so
+  The listing is done and the closed test is running on build 450 (0.3.26), so
   every later build is another upload by hand. Take the
   screenshots from `screenshots/play/`, not the ones beside them: Play requires
   24-bit PNG with no alpha and refuses a side more than twice the other, and the
