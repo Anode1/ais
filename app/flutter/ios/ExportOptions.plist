@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- App Store Connect export for the CI ios-release job (doc/dev/IOS_RELEASE.md
+     step 6). YOUR_TEAM_ID is a placeholder until enrolment issues the Team ID;
+     the job skips itself while the signing secrets are absent, so the
+     placeholder never reaches a real export. -->
+<plist version="1.0">
+<dict>
+  <key>method</key>            <string>app-store-connect</string>
+  <key>teamID</key>            <string>YOUR_TEAM_ID</string>
+  <key>signingStyle</key>      <string>manual</string>
+  <key>uploadSymbols</key>     <true/>
+  <key>provisioningProfiles</key>
+  <dict><key>com.aisindex.ais</key><string>AIS App Store</string></dict>
+</dict>
+</plist>
