@@ -37,17 +37,17 @@ URL); `ais --import <url> --token T` pulls and merges. Blob transfer is done (be
                                                           store (merge): live records arrive,
                                                           deletions propagate, last-write-wins by ts
 
-1. **Engine: tombstone-union merge** (`doc/dev/MERGE.md`) — **DONE**. `--import` is merge-aware;
+1. **Engine: tombstone-union merge** (`doc/dev/MERGE.md`): **DONE**. `--import` is merge-aware;
    timestamped content-addressed tombstones; last-write-wins; BOTH record-level (`tomb`) and
-   key-level (`ktomb`) -- a key-detach travels as a `K|<ts>|<hash>|<key>` line (`ais_merge_detach`)
+   key-level (`ktomb`): a key-detach travels as a `K|<ts>|<hash>|<key>` line (`ais_merge_detach`)
    and stays removed after sync.
-2. **Transport: `sync.c`** — **DONE**. `sync_export_sealed`/`sync_import_sealed` (seal / merge a
+2. **Transport: `sync.c`**: **DONE**. `sync_export_sealed`/`sync_import_sealed` (seal / merge a
    stream), `sync_serve`/`sync_pull` (ephemeral single-client TCP, token auth, timeouts),
    `aisc_seal`/`aisc_unseal`/`aisc_token` (crypto). Forked-loopback test green.
-3. **CLI surface** — **DONE**. `ais --export --serve [PORT]` (`sync_serve_lan`: token + pairing
+3. **CLI surface**: **DONE**. `ais --export --serve [PORT]` (`sync_serve_lan`: token + pairing
    line, then `sync_serve`) and `ais --import <url> --token T` (`sync_pull_url`: parse host:port,
    `sync_pull`); `--token` flag added; `ais --export` to stdout unchanged.
-4. **GUI: a "Sync" surface** — later. Phone (scan QR -> import) and the desktop GUIs.
+4. **GUI: a "Sync" surface**, later. Phone (scan QR -> import) and the desktop GUIs.
 
 Owner: the sync/engine track. All decisions locked; `ktomb` key-detach shipped (merges via the `K|` line).
 
@@ -66,8 +66,8 @@ Only the real, non-rebuildable data:
 
 NOT `idx/`, `off`, `next_id`, `version`, `lock` (rebuilt or local-only).
 
-The **full store** is sent, not an id-delta: device id spaces are independent, so
-"records after id N" is meaningless across devices. `put`/`merge` are idempotent and
+The **full store** is sent: device id spaces are independent, so an id-delta
+("records after id N") is meaningless across devices. `put`/`merge` are idempotent and
 dedup by content, so re-sending the whole store is safe and only genuinely-new records
 land. Stores are small plain text; optimize to a ts/hash delta later only if size warrants.
 
@@ -91,10 +91,10 @@ Reuses the existing dump/import vocabulary. The only new verb is `--export`; the
 
 `--import` is merge-aware for EVERY source (stdin / file / URL); the operand's form selects
 it (a `http(s)://` URL is remote, otherwise local). The only remote-only flag is `--token`
-(auth, not source). Phone GUI: scan the QR to fill url+token, one tap to import.
+(auth only). Phone GUI: scan the QR to fill url+token, one tap to import.
 
 ## Wire protocol (a raw length-framed exchange)
-The client is `ais` itself, not a browser, so the protocol is a small raw exchange. The token
+The client is `ais` itself (no browser involved), so the protocol is a small raw exchange. The token
 is NEVER sent; the client proves knowledge by answering a fresh challenge:
 
     server -> client:   challenge   (24 random bytes, fresh per session)
@@ -103,7 +103,7 @@ is NEVER sent; the client proves knowledge by answering a fresh challenge:
       (no error body, so it does not reveal whether data exists).
     server -> client:   [4-byte big-endian length][sealed blob]
        sealed = aisc_seal_key(k_seal, the full A|/D|/K| stream), k_seal = BLAKE2b-keyed(token,
-       "ais-sync-seal-v1") -- a DIFFERENT subkey than the proof.
+       "ais-sync-seal-v1"), a DIFFERENT subkey than the proof.
     client reads length + blob, aisc_unseal_key(k_seal, ...), then feed_import_from.
 
 The token never crosses the wire and the seal key is a domain-separated subkey, so a passive
@@ -127,7 +127,7 @@ Inside the sealed blob, the *plaintext* is versioned and self-describing:
                   bytes: the doc blob FILES themselves. The section ends at the first line
                   that does not start with "B|".
     record stream the A|/D|/K| feed_export text (records + tombstones + key-detaches), from there to end of
-                  payload -- unchanged from the one-way format, so this byte-0 gate is the
+                  payload, unchanged from the one-way format, so this byte-0 gate is the
                   only thing an older peer would trip on.
 
 Blob merge is by NAME + CONTENT (blobs are immutable and timestamp-named, so never by mtime):
@@ -140,7 +140,7 @@ validated to stay inside `blobs/` (no `/`, no `..`); each blob and the whole pay
 ## Two-way in one round (`--sync`, bidir)
 `sync_serve`/`sync_pull` take a `bidir` flag; with it set, one connection carries the sealed
 payload BOTH ways (server sends then receives+merges, client the reverse), so both devices
-converge in a single round with no fixed sender/receiver -- safe because the merge is a CRDT
+converge in a single round with no fixed sender/receiver, safe because the merge is a CRDT
 (`MERGE.md`). CLI verb `ais --sync --serve [PORT]` / `ais --sync <url> --token T`; the mobile
 app's one "Sync" button (Host / Join) runs the same exchange. One-way `--export`/`--import`
 (`bidir=0`) stays for a deliberate one-directional copy.
@@ -152,7 +152,7 @@ Reconcile is the content-keyed, ts-resolved tombstone-union merge (see `MERGE.md
 tombstone, and followed by `M|ts|hash|value` for every extra link on a multi-value record;
 document bodies (`B|blobs/<name>|<len>` plus that many raw bytes); record tombstones
 (`D|ts|hash`); per-key detaches (`K|ts|hash|key`); and per-key ATTACHES (`T|ts|hash|key`),
-which say when a key went onto a record that already existed -- without them a key any
+which say when a key went onto a record that already existed: without them a key any
 device had once detached could never be re-attached anywhere in the mesh.
 
 In front of all of them, `E|ts|hash|value` for every in-place edit, so a peer edits its
@@ -166,7 +166,7 @@ and `ais_merge_attach_many` applies the attaches, likewise batched. `D|` and `T|
 buffered because resolving one means scanning the store for the value it names, and a scan
 per line made an import cost O(lines x records); the buffers preserve stream order.
 
-An older AIS skips a verb it does not know, loudly, and imports the rest intact -- which
+An older AIS skips a verb it does not know, loudly, and imports the rest intact, which
 is why a verb may only be WRITTEN one release after the skip that tolerates it shipped
 (`MERGE.md`). `C|` and `T|` are sanctioned from 0.3.15 on that rule, `E|` from 0.3.21.
 Additions and deletions both converge,
@@ -178,7 +178,7 @@ the other.
 ## Security model (end-to-end encrypted, from the start)
 The local web `--serve` binds 127.0.0.1 deliberately; `--export --serve` (and `--sync
 --serve`) bind all interfaces so a LAN peer can reach them, and the channel is encrypted
-end-to-end, not merely token-gated:
+end-to-end:
 - the exporting device generates a **high-entropy one-time token** (>= 128-bit random,
   shown as text and a QR, never a short human PIN);
 - the token is the shared secret but **never travels**: the client proves knowledge by
@@ -216,15 +216,15 @@ the token, which is infeasible to brute-force. Still out of scope: cross-interne
   client/server over loopback) in `c/tests.c`.
 
 ## Remaining work & follow-ups
-1. **Blob files** — **DONE** (see "Sealed payload format" above). The doc blob FILES now travel
+1. **Blob files**: **DONE** (see "Sealed payload format" above). The doc blob FILES now travel
    in the sealed payload ahead of the record stream, with keep-both-on-collision and value
    repointing, so a synced doc reference no longer dangles.
-2. **QR / scan-to-join** — pairing link defined: `ais://sync?host=<ip:port>&token=<hex>`. The
+2. **QR / scan-to-join**: pairing link defined: `ais://sync?host=<ip:port>&token=<hex>`. The
    phone registers the `ais://` scheme (Android intent-filter + iOS `CFBundleURLTypes`) and a
    thin native `MethodChannel` (`ais/deeplink`, MainActivity / SceneDelegate) hands a scanned
-   link to Dart, which CONFIRMS then joins -- so the phone's OWN camera scans (no bundled QR
+   link to Dart, which CONFIRMS then joins, so the phone's OWN camera scans (no bundled QR
    scanner / no ML Kit). Android is the tested path; iOS is best-effort (deferred to TestFlight).
-   Still to do: RENDER that link as a QR on a host device -- the desktop web Sync surface
+   Still to do: RENDER that link as a QR on a host device, in the desktop web Sync page
    (`serve.c`, a small vendored single-file JS generator), and/or a phone-host QR via the
    pure-Dart `qr_flutter`. The link is confirmed before any sync because it can arrive from
    anywhere.

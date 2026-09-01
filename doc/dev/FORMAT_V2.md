@@ -26,8 +26,8 @@ same shape, which is what removes the ambiguity rather than marking around it.
 `a|b|c` was undecidable. The parser guessed by asking whether field 1 was all
 digits. That guess is wrong in both directions:
 
-- `2024|my note|http://x` -- a hand-written year tag, read as an id and lost
-- `work|my note|http://x` -- read as keys + a value containing a `|`
+- `2024|my note|http://x`: a hand-written year tag, read as an id and lost
+- `work|my note|http://x`: read as keys + a value containing a `|`
 
 Same shape, opposite rules. And the guess corrupts a **documented** feature:
 `help.c:113` teaches year tags (`ais -v photo.jpg italy venice 2023`), and
@@ -70,7 +70,7 @@ They are device-local surrogates and always were. `MERGE.md:18` is headed
 shared". The `--export` stream has no id field: `A|ts|keys|value`,
 `D|ts|hash`, `M|ts|hash|value`. Cross-device identity is `content_hash` over the
 value. A peer re-imports under fresh ids and reassembles multi-value records
-correctly. Verified, not inferred.
+correctly (verified).
 
 So the whole data model is already expressible without ids, and `--export` is the
 existence proof.
@@ -109,7 +109,7 @@ wrong record.
 **Fix first, before anything is value-addressed:** give `ais_add` a duplicate
 guard. That turns "a value is identity" from an almost-invariant into a real one.
 
-Write it as **hash filter, strcmp confirm**, not as a plain scan:
+Write it as **hash filter, strcmp confirm**:
 
     content_hash(new_value, h);        /* 16 hex chars */
     /* per store line: compare h first; on a hit, confirm with strcmp */
@@ -121,7 +121,7 @@ already uses (`mdel_seek`, ais.c:1187).
 But note why the local guard confirms and the wire cannot. `mdel_seek` accepts a
 hash match as proof because a delete arrives as `D|ts|hash` with no value: the
 hash is all the evidence there will ever be. A local guard holds both, so a
-`strcmp` on a hit costs nothing and removes the one bad outcome -- FNV-1a is
+`strcmp` on a hit costs nothing and removes the one bad outcome: FNV-1a is
 documented as "NOT a security hash" (store.c:170), and an unconfirmed collision
 would reject a legitimate distinct value with "already exists".
 
@@ -134,7 +134,7 @@ several. The shared id is the only thing saying "these are one record". Without
 it, `ais trio` printing three lines is indistinguishable from three records.
 Flutter's `record_rows.dart` records the acceptance failure this causes: a user
 watches a row they did not touch vanish. The replacement is a **presentation
-marker**, not another identifier -- an indent, a blank line between records, or
+marker**, not another identifier: an indent, a blank line between records, or
 one row per record carrying a link count.
 
 **2. Value-less records.** `main.c:92` prints `id|` for a posting that names an
@@ -156,7 +156,7 @@ Making them value-addressed anyway would cost three things and buy nothing:
 - `/api/get` and the FFI emit one line **per link**, so the id is the only
   grouping key; removing it forces one row per record with a link count
 - paging is a keyset cursor on `after=`/`before=` id, and a value has no order,
-  so it would need a server-issued opaque token -- which, if it wraps the id, has
+  so it would need a server-issued opaque token, which, if it wraps the id, has
   base64'd the problem rather than solved it
 - `show_value` rewrites a document's stored `blobs/....txt` into
   `aisdoc:<base64>` on the way out, so a value-keyed delete from the page would
@@ -167,7 +167,7 @@ shows them, and `--dump` stops leaking them.**
 
 ## The empty-keys asymmetry disappears
 
-Worth noting because it looked like a cost and is a gain. Today `import` accepts an
+This looked like a cost and is a gain. Today `import` accepts an
 empty keys field only on a line with an id "to vouch for it" (LAYOUT.md), because
 a hand-written `|value` is more likely a typo than a deliberate keyless record.
 
@@ -178,7 +178,7 @@ and the typo heuristic all go away together.
 
 ## Order of work
 
-1. ~~duplicate-value guard in `ais_add`~~ -- DONE 2026-08-03, folded into the pass
+1. ~~duplicate-value guard in `ais_add`~~: DONE 2026-08-03, folded into the pass
    add_link already made, hash filter with strcmp confirm, returns -2. Invariants
    pinned in tests/cli.sh under "wire:", "identity:" and "disposable:".
 2. the new `KEY... -v VALUE` grammar for `--dump` and `--import`, sharing the
@@ -192,7 +192,7 @@ and the typo heuristic all go away together.
 ## Related: content-addressed blob storage
 
 CORRECTION to an earlier reading of this file. `--doc` not deduping is not a gap:
-`SYNC_DESIGN.md:12` settles it deliberately -- "Blob (`--doc`): identified by OCCURRENCE,
+`SYNC_DESIGN.md:12` settles it deliberately: "Blob (`--doc`): identified by OCCURRENCE,
 not content. Each doc is its own record." Filing the same file twice is meant to
 give you two records. That is the identity rule and it stays.
 
@@ -218,7 +218,7 @@ Naming blobs by content hash would let identical bytes share one file, and buys:
 
 COST, and it is the one that matters: `--del` shreds the blob today
 (`secret_shred_blob`). If two records can share a file, deleting one must not
-destroy the other's storage, so this needs REFCOUNTING -- real complexity in a
+destroy the other's storage, so this needs REFCOUNTING: real complexity in a
 project whose argument is subtraction. Also: blob filenames stop sorting
 chronologically in `ls blobs/`, existing blobs keep their names so the directory
 becomes mixed, and it is a store-format change.

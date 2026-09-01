@@ -19,7 +19,7 @@ an exclusive flock for the duration of one mutating op.** A long-lived reader
   which is what lets a long untag interleave with other writers instead of
   holding the index for the duration. A record filed under the key by a
   concurrent writer mid-untag gets a higher id than the cursor, so the next batch
-  picks it up and untags it too -- the pass ends when a batch comes back empty,
+  picks it up and untags it too: the pass ends when a batch comes back empty,
   not at a snapshot taken when it started.
 - `next_id` is **disk-authoritative**. A writer calls `store_load_next_id` under
   the lock before assigning an id, so two processes never hand out the same one.

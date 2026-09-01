@@ -19,7 +19,7 @@ Help is welcome: open an issue to claim a piece.
   decrypts interactively; secrets are never emitted in plaintext by `--dump`.
 - **Built-in LAN sync** (`c/sync.c`): one-way encrypted transfer (`--export --serve` /
   `--import <url> --token`) and two-way device sync (`--sync --serve` / `--sync <url>
-  --token`) that converge in one round — end-to-end encrypted (XChaCha20-Poly1305 under a
+  --token`) that converge in one round, end-to-end encrypted (XChaCha20-Poly1305 under a
   one-time token), LAN-only. See [`doc/SYNC.md`](SYNC.md).
 - **Multiple named indexes** (`--switch` / `--indexes` / `--forget`) with a default
   project (`--project`).
@@ -31,8 +31,8 @@ Help is welcome: open an issue to claim a piece.
 ## Planned
 
 Roughly in priority order. These are now all UI or platform glue over the
-unchanged engine: the two former engine-level items — LAN sync and encrypted
-secrets — have shipped (see above).
+unchanged engine: the two former engine-level items, LAN sync and encrypted
+secrets, have shipped (see above).
 
 ### iPhone (iOS) · next up
 
@@ -72,8 +72,8 @@ Design and build order: [dev/SPEECH.md](dev/SPEECH.md).
 On the desktop an AI agent recalls from AIS by running the `ais` CLI as a tool,
 spending far fewer tokens than re-searching its files (measured in *Compress the
 Access*). On **Android** the same win needs a mobile seam: a way for an on-device
-or connected agent to query the index — a share/intent entry point, or the FFI
-`recall` exposed to a local agent runtime — so mobile agents get the same
+or connected agent to query the index (a share/intent entry point, or the FFI
+`recall` exposed to a local agent runtime) so mobile agents get the same
 near-zero-token recall the CLI gives today. Wrapper work over the unchanged
 engine; `embed.h`'s `recall` is already the contract.
 
@@ -171,8 +171,8 @@ Each is understood, loses no data, and is left for a stated reason.
   cannot happen to a new index. The duplicates already minted are for
   `ais --dedupe-docs`, run on each device with a sync between: it shows the
   copies beside the record kept and deletes what is confirmed. Automatic it
-  cannot be, because two records pointing at identical bytes are two notes by
-  design, not one duplicated note.
+  cannot be, because by design two records pointing at identical bytes are two
+  notes.
 
 ## Not planned (non-goals)
 
@@ -182,8 +182,7 @@ Each is understood, loses no data, and is left for a stated reason.
   decades-stable API; a self-contained .NET build drags a large runtime for no
   capability a user can feel.
 - **A heavyweight backend** (SQLite, a database, a server daemon). Plain text is
-  the durability and transparency guarantee, not a limitation, see the README
-  "Questions."
+  the durability and transparency guarantee; see the README "Questions."
 - **A cloud account or sync service.** Sync is peer-to-peer over your own files
   (the built-in LAN sync under *Shipped*, or Syncthing; see [`doc/SYNC.md`](SYNC.md));
   nothing phones home, by design.

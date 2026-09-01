@@ -103,7 +103,7 @@ build. `serve.c` is already Winsock-aware; `sync.c` is not.
 ## Signing: SignPath (planned, nothing runs today)
 
 No `SIGNPATH_*` variable is set on the repository and there is no `sign-windows`
-job. Adding the jobs below is part of the work, not a step already done.
+job; the jobs below are still to be added.
 
 Unsigned Windows downloads trigger SmartScreen's "Windows protected your PC /
 Unknown publisher". The release workflow *would* sign the installer with
@@ -155,8 +155,8 @@ add it to the SignPath artifact configuration.
 
 ## Packaging: the installer and winget
 
-`installer/winget/` holds the winget manifests. They are the template for a
-future submission, not submittable as they stand: the only version directory is
+`installer/winget/` holds the winget manifests, the template for a future
+submission. As they stand they cannot be submitted: the only version directory is
 twelve releases old and its `InstallerUrl` points at an artifact that no longer
 exists. That directory's README has the regeneration steps.
 

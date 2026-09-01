@@ -1,7 +1,7 @@
 # Why plain text
 
 A recurring objection: "plain text is a relic; a real index needs a binary
-database." This is the rebuttal, with measurements, not opinion.
+database." This is the rebuttal, with measurements.
 
 ## It is not the 1980s
 
@@ -35,7 +35,7 @@ available as an option, but at human scale it is not needed. (The early 2001
 versions balanced the tree deeply because filesystems then, Windows on
 first-generation Pentiums, slowed with only hundreds of files in one directory.
 Modern filesystems handle thousands without trouble, so the shallow scheme is a
-deliberate correction, not an oversight. Noted here to prevent re-introducing
+deliberate correction. Noted here to prevent re-introducing
 balancing that the hardware no longer requires.) The "it won't scale" critique
 assumes web scale; one person's memory is not web scale and never will be.
 
@@ -48,7 +48,7 @@ Because it is plain text, the whole toolbox already works on it:
     any text editor                     repair it by hand
 
 A binary index forfeits all of that and adds a parser you must trust. Plain text
-also degrades gracefully: a damaged byte costs one line, not the database. The
+also degrades gracefully: a damaged byte costs one line and the rest still reads. The
 format is at once the API, the backup, and the documentation (see the shipped
 example index).
 

@@ -28,13 +28,13 @@ shapes the CLI prints. A GUI that can be debugged with `curl` is the point.
 | GET | `/api/version` | `engine:` and on-disk `format:`; see `VERSIONING.md` |
 
 `/api/get` emits **one line per link**, and a record may hold several. A GUI that
-counts lines counts links, not records — group by the id before showing a count,
+counts lines counts links, not records: group by the id before showing a count,
 especially in anything destructive. Both front ends learned this the hard way.
 
 A document value reaches the client as `aisdoc:<base64 of "path\ncontent">`: the
-first line is the stored `blobs/` path — the handle for `/api/doc` and the old
+first line is the stored `blobs/` path (the handle for `/api/doc` and the old
 value for `setvalue`, carried per row because an id alone cannot name one value
-of a multi-link record — and the rest is the bounded preview. An absent document
+of a multi-link record) and the rest is the bounded preview. An absent document
 (file not on this device) arrives as its raw `blobs/` path instead, and is not
 editable there.
 
@@ -51,12 +51,12 @@ editable there.
 There is deliberately no `/api/add`: the CLI's `--add ID -v VALUE` (a second link
 on one record) has no HTTP equivalent, so a multi-link record can be READ from a
 GUI but never created or extended there. Acceptance testing flagged this as a real
-gap, not a design choice — noted here so it is not mistaken for one.
+gap, not a design choice; noted here so it is not mistaken for one.
 
 A save that stores nothing answers **500**, not 200 with a count of zero. An
 encrypted save on a build with no crypto module used to reply `saved 0
 record(s)` with a 200, so both pages closed the sheet as though the secret had
-been stored — the one case where believing a success message loses exactly the
+been stored: the one case where believing a success message loses exactly the
 thing you were protecting.
 
 ## Tag-level operations
@@ -74,9 +74,8 @@ takes, and refuse a value containing whitespace with a 400. Folding `a b` to
 `/api/del` and the CLI run.
 
 These two are one keystroke apart and opposite in consequence, so the UI
-obligations are not optional: the safe one names the TAG, the destructive one
-names the RECORDS and their count, and the destructive one previews what it will
-destroy and offers the safe one as a way out. `GUI.md` has the wording.
+obligations are not optional; `GUI.md` carries the locked wording and the rest
+of them.
 
 ## Maintenance
 
@@ -92,7 +91,7 @@ exactly the people who most need it.
 `forget=1` maps to `ais_compact_purge`: each tombstone keeps its id, so the
 record stays suppressed here, but loses its digest, so the deletion stops
 travelling to peers and stops being testable against a guess. The caller must
-say the price out loud before asking — a device that has not synced since can
+say the price out loud before asking: a device that has not synced since can
 push those records back. Both pages ask it as a **separate** question from
 "reclaim the space", because it is the one choice here another device can undo.
 
@@ -111,7 +110,7 @@ the CLI's `-y`. Nothing else creates the folder or bypasses a check.
 
 `/api/store` switches the active index and persists the choice via
 `ais_default_set`, which writes the developer's REAL `~/.ais/config`. Any test
-touching it must snapshot and restore that file — `tests/gui/serve.sh` does, and
+touching it must snapshot and restore that file: `tests/gui/serve.sh` does, and
 did not for a long time, which is how a plain `make ut` silently repointed a
 developer's saved default at a temp directory it then deleted.
 
@@ -119,8 +118,8 @@ developer's saved default at a temp directory it then deleted.
 
 `GET /` serves `$AIS_WEB/index.html` if that directory has one, else the
 embedded `PAGE`. Any other path is served from `$AIS_WEB` if present. The name
-must be one safe filename — the per-character filter rejects `/` and `..`, so
-traversal is not possible — but note that every file in that directory is
+must be one safe filename (the per-character filter rejects `/` and `..`, so
+traversal is not possible), but every file in that directory is
 web-readable, so do not point `$AIS_WEB` at a directory holding private files.
 
 `$AIS_WEB` was documented in `app/README.md` and `doc/android-install.md` for a
@@ -130,9 +129,9 @@ and `app/` was unreachable.
 
 ## Testing
 
-- `tests/gui/serve.sh` — the API itself, over `curl`.
-- `tests/gui/ui.sh` — both pages rendered in headless Chrome, asserting on the
+- `tests/gui/serve.sh`: the API itself, over `curl`.
+- `tests/gui/ui.sh`: both pages rendered in headless Chrome, asserting on the
   post-JS DOM.
-- `tests/gui/cdptest.c` — one CDP driver, run against **both** pages by
+- `tests/gui/cdptest.c`: one CDP driver, run against **both** pages by
   `tests/gui/inter.sh`. The element ids and function names are deliberately
   identical across the two front ends so this works; keep them that way.

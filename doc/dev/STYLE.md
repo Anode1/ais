@@ -3,8 +3,8 @@
 How AIS is written, and why. Read this before contributing. The existing sources under `c/`
 are the reference; when a rule here is unclear, read the code.
 
-**Scope: the engine core.** These rules bind the C engine -- the `c/` sources behind `ais.h` and
-`embed.h` -- and are non-negotiable there. GUI wrappers, language bindings, and plugins sit outside
+**Scope: the engine core.** These rules bind the C engine (the `c/` sources behind `ais.h` and
+`embed.h`) and are non-negotiable there. GUI wrappers, language bindings, and plugins sit outside
 the core and follow their host's conventions; they call the engine, they do not relax it. Do not let
 a peripheral's needs leak inward and dilute the core to ordinary C. The point of writing this down is
 that the strictness is the asset: it should not be distilled away by a well-meaning refactor.
@@ -18,11 +18,11 @@ that the strictness is the asset: it should not be distilled away by a well-mean
 
 ## Modularity: one file per concept
 
-Each `.c`/`.h` pair is **one cohesive concept** -- a frame of knowledge or processing. This is the
+Each `.c`/`.h` pair is **one cohesive concept**: a frame of knowledge or processing. This is the
 module-as-class discipline (a class is just a struct plus the functions over it; that is where classes
 came from). Decompose to keep complexity at bay: give a concept its own file when it is genuinely
-isolatable (the help text, the store, the posting lists, the merge), not arbitrarily. Names are clear
-and literal -- for files, types, and variables alike -- so a reader infers a file's responsibility
+isolatable (the help text, the store, the posting lists, the merge). Names are clear
+and literal, for files, types, and variables alike, so a reader infers a file's responsibility
 from its name and a function's from its signature.
 
 Two functions do not meet this bar and are known debts, not precedents: `main()` in `main.c` (~630
@@ -35,7 +35,7 @@ in place; splitting the dispatch out is welcome. No other function in the tree m
 
 - Process records **one at a time**, with **automatic (stack) variables and fixed-size buffers**.
 - Avoid `malloc`/`calloc`/`realloc` unless an operation genuinely cannot be done in bounded memory.
-- **Invariant: peak footprint is a function of the struct sizes, not the data size.** A 10 GB store
+- **Invariant: peak footprint is a function of the struct sizes alone.** A 10 GB store
   and a 10 KB store run in the same memory. The largest footprint must be computable by hand from the
   structures held.
 - When the heap is truly unavoidable, the allocation is bounded, documented, and freed on every path.
@@ -66,7 +66,7 @@ in place; splitting the dispatch out is welcome. No other function in the tree m
 
 Why this discipline pays, four ways:
 
-- **Safety.** It eliminates the leak / use-after-free / double-free class by construction -- the bulk
+- **Safety.** It eliminates the leak / use-after-free / double-free class by construction: the bulk
   of C's CVEs simply cannot occur where nothing is allocated. This is the avionics and medical-device
   standard (Power of Ten, MISRA C:2012 rule 21.3), which is why the author's earlier C tools ran
   unattended in hospitals and medical colleges, shipped as source and precompiled binaries with no
@@ -82,7 +82,7 @@ Why this discipline pays, four ways:
 
 ## Error handling and C idioms
 
-- **Return codes, not exits, in the modules.** A function returns `0`/`-1` (or a value/`-1`); the
+- **Return codes in the modules.** A function returns `0`/`-1` (or a value/`-1`); the
   caller decides. Only the CLI front-end (`main.c` and its helpers, e.g. `feed.c`) turns a fatal
   error into `die()`. No engine module calls `exit()` or prints an error: a single, visible exit
   path, per Power of Ten.
@@ -90,9 +90,9 @@ Why this discipline pays, four ways:
   errors (cannot open INDEX, lock held).
 - **`debug(fmt, ...)`** (`log.c`): gated on the runtime `-d` flag, prints to stderr; safe to sprinkle
   for tracing, off by default. No compile-time `#ifdef DEBUG`.
-- **Functions over macros** -- type-checked, debuggable, greppable. The old `LOG`/`FATAL`/`PRINT`
+- **Functions over macros**: type-checked, debuggable, greppable. The old `LOG`/`FATAL`/`PRINT`
   macro habit is retired.
-- **Bounded strings only** -- `snprintf` always; never `strcpy`/`strcat`/`sprintf`. A buffer's size is
+- **Bounded strings only**: `snprintf` always; never `strcpy`/`strcat`/`sprintf`. A buffer's size is
   always known (the `AIS_*_MAX` limits).
   The one sanctioned `strcpy` is the *checked copy into a fixed buffer*, where the guard sits on the
   line above it and returns rather than truncating:
@@ -107,9 +107,9 @@ Why this discipline pays, four ways:
   (`embed.c`: `ais_embed_get` and `keys_tag`; `serve.c`: `keysof_tag`). Anywhere the guard is not
   immediately visible above the call, it is a defect. `strcat` and `sprintf` have no sanctioned use.
 - **Single exit via `goto cleanup`** when a function holds a resource (open file, etc.): the
-  Linux-kernel idiom -- one place to close and return, no leak on any path.
+  Linux-kernel idiom: one place to close and return, no leak on any path.
 - **`static` for everything module-private**: a `.c` exposes only what its `.h` declares.
-- **Declare at point of use, `const`-correct, `size_t` for sizes** -- the C99 cleanups, not
+- **Declare at point of use, `const`-correct, `size_t` for sizes**: the C99 cleanups, not
   K&R top-of-function.
 - Build clean under `-std=c99 -Wall -Wextra`; the suite runs under AddressSanitizer/UBSan on every
   push and in a pre-push hook (`make codeut-asan`), which is how the memory-safety class is caught
@@ -128,7 +128,7 @@ The on-disk format that makes this possible (append-only plain-text store, monot
 per-key sharded posting lists, tombstones, compaction, "the store is the source of truth and the
 index is rebuildable") is the subject of `LAYOUT.md`; this file is only about how the *code* is written.
 
-## Robustness and portability (non-negotiable)
+## Damage tolerance and portability (non-negotiable)
 
 - Plain text outlives its tools. Prefer it to binary formats that fail catastrophically on a single
   corrupt byte.
@@ -146,7 +146,7 @@ index is rebuildable") is the subject of `LAYOUT.md`; this file is only about ho
 None of this is invented here; the parts are canonical, only the assembly is ours:
 
 - **Stack-first, no dynamic allocation, footprint bounded by struct sizes** is the safety-critical
-  standard, not a preference: NASA/JPL's *Power of Ten* (Holzmann, 2006), rule 3 (no heap after
+  standard: NASA/JPL's *Power of Ten* (Holzmann, 2006), rule 3 (no heap after
   initialization), and MISRA C:2012 rule 21.3, which bans `malloc`/`free`. It is the discipline
   avionics and medical-device C is held to, which is why code written this way runs unattended.
 - **Many small files over one blob** (per-key files, rsync-friendly, corruption-local) is the
@@ -155,7 +155,7 @@ None of this is invented here; the parts are canonical, only the assembly is our
   *The Art of Unix Programming*, 2003).
 - **Append-only log plus periodic compaction**, and key sharding, are the log-structured merge-tree
   (O'Neil et al., 1996) and the git object store.
-- POSIX `argv`/`getopt` and robust I/O idioms follow Robbins, *Linux Programming by Example* (2004).
+- POSIX `argv`/`getopt` and the I/O idioms follow Robbins, *Linux Programming by Example* (2004).
 
 ## Testing
 

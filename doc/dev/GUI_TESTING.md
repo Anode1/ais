@@ -25,7 +25,7 @@ Two pages over one `/api` (see `GUI.md`), driven by ONE driver because their
 element ids are deliberately identical. Which layer covers what, and how to run
 each: `../../tests/README.md`.
 
-`tests/gui/cdp.c` is a Chrome DevTools Protocol client in C99 -- no chromedriver,
+`tests/gui/cdp.c` is a Chrome DevTools Protocol client in C99: no chromedriver,
 no Puppeteer, no dependency beyond libc and POSIX sockets. It speaks the same
 wire protocol those tools do. `cdptest.c` uses it to navigate, focus, type, press
 Enter and read the live DOM back. `AIS_CDP_DEBUG=1` traces the frames.
@@ -49,7 +49,7 @@ test: the page's async loaders painted into `#out` **after** their `await`, so a
 response that landed once the user had moved on repainted the old view over the
 new one. The fix was a `viewGen` counter each loader captures before its fetch
 and re-checks after. A flaky UI test is worth reading twice before it is
-rerun -- it was reporting a real race.
+rerun: it was reporting a real race.
 
 ---
 
@@ -59,7 +59,7 @@ Do not conflate them. Analysis is not a widget test, and a widget test is not
 proof that the app works on a device; the three layers are listed in
 `../../tests/README.md`.
 
-Keep logic that can be tested without a device OUT of widget code -- the
+Keep logic that can be tested without a device OUT of widget code: the
 `test/` directory covers `saveOutcomeMessage`, `tagsUpdateMessage` and the like
 because they are plain functions. That is the cheapest layer; use it first.
 
@@ -118,29 +118,29 @@ harness as the renderer-agnostic outer loop.
 The better target anyway: an APK is what users install. Full recipe, because
 every step below cost something to learn.
 
-**Boot headlessly.** `-no-window` is genuinely headless -- no X server involved:
+**Boot headlessly.** `-no-window` is genuinely headless, no X server involved:
 
     $ANDROID_SDK_ROOT/emulator/emulator -avd <name> \
         -no-window -no-audio -no-boot-anim -no-snapshot -gpu swiftshader_indirect
 
 Then wait for `getprop sys.boot_completed` to be `1`; `adb wait-for-device`
-returns long before the system is usable. KVM makes this bearable -- check
+returns long before the system is usable. KVM makes this bearable: check
 `/dev/kvm` is readable (an ACL may grant it even when your groups do not).
 
 **Match the ABI or you will chase a phantom bug.** A `--target-platform` that
 does not match `getprop ro.product.cpu.abi` produces an APK whose
-`libflutter.so` is missing, and the app dies at launch with `UnsatisfiedLinkError`
--- which reads exactly like a product crash. Derive it:
+`libflutter.so` is missing, and the app dies at launch with `UnsatisfiedLinkError`,
+which reads exactly like a product crash. Derive it:
 
     abi=$(adb shell getprop ro.product.cpu.abi | tr -d '\r')   # x86_64 -> android-x64
 
 **Reach the host.** From the emulator, the host is `10.0.2.2`. So a CLI peer
 started on the developer's machine with `ais --sync --serve PORT` is reachable at
-`http://10.0.2.2:PORT` -- which is how one end of the sync can be a normal
+`http://10.0.2.2:PORT`, which is how one end of the sync can be a normal
 `c/ais` process the test fully controls.
 
 **Drive by deep link, not by hunting for buttons.** The app registers
-`ais://sync?host=..&token=..` -- the same link the QR carries -- so the entire
+`ais://sync?host=..&token=..` (the same link the QR carries), so the entire
 scan-to-pair path can be triggered with:
 
     adb shell am start -a android.intent.action.VIEW \
@@ -167,7 +167,7 @@ deciding one.
     adb exec-out screencap -p > /tmp/fail.png
 
 **Be careful whose data you are on.** A device may hold a real index. The layer
-is additive by default -- it merges one proof record and asserts that record
+is additive by default: it merges one proof record and asserts that record
 crossed. `AIS_ANDROID_CLEAR=1` wipes the app's data for a clean-room run, and is
 opt-in for that reason. It also SKIPs unless a device is already attached, so a
 normal `make ut` stays fast; `AIS_ANDROID_BOOT=1` lets it start one.
@@ -177,7 +177,7 @@ normal `make ut` stays fast; `AIS_ANDROID_BOOT=1` lets it start one.
 ## Making a GUI test worth having
 
 - **Prove it can fail.** A test that has never gone red is a claim, not a test.
-  Break the thing on purpose -- feed a wrong token, re-add a buffer you removed --
+  Break the thing on purpose (feed a wrong token, re-add a buffer you removed)
   and confirm the failure, then restore. Two of the layers here were tuned only
   because a deliberate regression walked straight past the first version.
 - **Wire it into `tests/run.sh` the day you write it.** The Flutter sync harness

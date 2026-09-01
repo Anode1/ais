@@ -37,17 +37,17 @@ Likewise `## The data is bounded by a human life`, not `..., not by Moore's
 law`; `## What is new here`, not `..., and what is not`. The second clause is
 the argument, and the argument goes in the body.
 
-## Cut the decorative contrast
+## Cut the contrast
 
-`X, not Y` is the strongest habit in this tree and most of it is earned. A wrong
-key returning nothing *rather than something plausible* is the product. A
-Gatekeeper warning being a new-and-unsigned notice *and not a malware finding*
-is what the reader needs to hear. Keep those.
-
-What to cut is the half that only flatters the first half: an index of pointers
-*and not another silo to fill*, three sentences after the same paragraph already
-said it. Or `measured, not asserted` in front of a table that is visibly a
-measurement.
+`X, not Y` was the strongest habit in this tree. State the thing once. A
+negation stays only where the boundary is the information the reader needs: a
+Gatekeeper warning is a new-and-unsigned notice, not a malware finding; a wrong
+key returns nothing rather than something plausible; a fingerprint is a fast
+checksum, not a cryptographic one. Even then, prefer its own sentence over a
+balanced tail. Cut every half that only flatters the first half: an index of
+pointers *and not another silo to fill*, or `measured, not asserted` in front of
+a table that is visibly a measurement, or a bolded rule name that carries its
+rejected alternative when the body already explains it.
 
 ## One home per fact
 

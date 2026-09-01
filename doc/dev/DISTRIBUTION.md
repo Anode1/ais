@@ -34,10 +34,10 @@ and packaging work that is planned rather than done, is in
 One engine (the CLI is the contract) with thin front-ends over the embed FFI
 seam (`embed.c`), none needing a runtime:
 
-- **web** (`ais --serve`, `c/serve.c`) -- the universal GUI, on every platform.
-- **Flutter** (`app/flutter`) -- the mobile track.
-- **native Win32** (`win32/ais-gui.c`) -- niche/legacy, the Windows native window.
-- **browser PWA/WASM** -- a planned future track (below).
+- **web** (`ais --serve`, `c/serve.c`): the universal GUI, on every platform.
+- **Flutter** (`app/flutter`): the mobile track.
+- **native Win32** (`win32/ais-gui.c`): niche/legacy, the Windows native window.
+- **browser PWA/WASM**: a planned future track (below).
 
 What we keep maintaining: `c/` (the one engine), those front-ends, and one
 installer + one archive per platform. Front-end label/layout conventions are in

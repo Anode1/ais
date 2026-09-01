@@ -25,7 +25,7 @@ the memory-safety class of bug.
 
 ## How that safety is obtained without a rewrite
 
-That class is caught here, not ignored:
+That class is caught here:
 
 - Development is **test-driven**: the regression suite (engine unit, CLI
   black-box, and browser UI render) is written test-first and gates every commit
@@ -53,15 +53,15 @@ passwords and private pointers, so the code guarding those secrets should be cod
 its owner can inspect, byte for byte, in a language that is universally legible.
 A rewrite would replace "I verified it" with "the compiler says so", and the
 `unsafe` blocks an engine still needs (for mmap, raw I/O, and the FFI seam) are
-harder to audit than the equivalent C, not easier. For a tool you own and trust
+harder to audit than the equivalent C. For a tool you own and trust
 with secrets, staying legible beats a promise you cannot read.
 
 ## When to revisit
 
-This is a decision, not dogma. If AIS ever takes untrusted network input at
-scale, or a security posture demands provable memory safety, revisit it. The port
+Revisit the decision if AIS ever takes untrusted network input at
+scale, or a security posture demands provable memory safety. The port
 would be clean: the engine is a C-ABI library behind a stable seam (`embed.h`)
 and the on-disk formats are contracts, so a memory-safe engine would be a library
-swap, not a rewrite of the whole app. A proof of concept lives in
+swap. A proof of concept lives in
 `../../tests/poc-rust-merge/`. Until that need is real, C plus sanitizers is the
 better trade.

@@ -42,7 +42,7 @@ page's footer at install time.
     make ut                    # both, plus the GUI layer if its deps are present
 
 `codeut` and `cliut` need no network, no display and no fixtures beyond the tree;
-they are safe in a clean chroot. `make ut` additionally tries the GUI tests, which
+they are safe in a clean chroot. `make ut` also tries the GUI tests, which
 need a browser or Flutter, so prefer the two specific targets in a package build.
 
 Sanitizer runs (`make codeut-asan`, `make codeut-ubsan`) exist and are used in CI,

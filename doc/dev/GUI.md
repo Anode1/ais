@@ -1,8 +1,8 @@
 # GUI conventions (web, Flutter, native desktop)
 
 > This file is what the surfaces must LOOK like. How to drive and test them
-> without a human clicking -- headless browser, Flutter by deep link and
-> keyboard, a real APK on an emulator -- is `doc/dev/GUI_TESTING.md`.
+> without a human clicking (headless browser, Flutter by deep link and
+> keyboard, a real APK on an emulator) is `doc/dev/GUI_TESTING.md`.
 
 One product across surfaces: the same vocabulary and order on the web GUI (`c/serve.c`),
 the PWA (`app/index.html` + `app/app.css`, served when `$AIS_WEB` points at `app/`),
@@ -12,7 +12,7 @@ THERE ARE TWO WEB PAGES, and forgetting the second one is how it drifts. `c/serv
 carries an embedded page (the default) and `app/` is a separate installable PWA over the
 same `/api`. They fell out of step badly once: the PWA ended up unable to render a
 document or a secret at all, printing `aisdoc:`/`aisc:` base64 as body text, with no way
-to encrypt or reveal -- while the embedded page did all three. A feature added to one and
+to encrypt or reveal, while the embedded page did all three. A feature added to one and
 not the other is a bug. The element ids and function names are deliberately IDENTICAL
 across the two so ONE driver (`tests/gui/cdptest.c`) runs against both; keep them that
 way, and `tests/gui/ui.sh` renders both.
@@ -38,6 +38,18 @@ Change a label in one, change it in all three.
 - **Web (`serve.c`) and the PWA (`app/`):** same, bottom nav + Add FAB.
 - **Desktop (Win32):** search box + a **Search** button on top; the three views as a row of
   tabs/buttons; Add as a normal button (NOT a phone-style bottom bar).
+
+## Untag vs delete-under (the wording, LOCKED)
+
+`--untag KEY` and `--del-under KEY` are one keystroke apart and opposite in
+consequence, so every surface states the difference in the same words rather
+than relying on the command name: the safe one names the TAG, the destructive
+one names the RECORDS and their count, and the destructive one lists what it
+would take before asking and points at the safe one. On the web pages the pair
+sits on each tag row (`/api/untag`, `/api/del-under`); the destructive path also
+requires the tag name to be typed, because it destroys records that are not on
+screen, while the safe one runs a 5s undo window instead of a modal (nothing
+reaches the engine until it lapses).
 
 ## Reference shots
 

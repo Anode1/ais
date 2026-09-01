@@ -1,4 +1,4 @@
-# AGENTS.md -- how to develop AIS (for humans and AI agents)
+# AGENTS.md: how to develop AIS (for humans and AI agents)
 
 AIS is a plain-text associative index in C99. This is the operating manual for
 working on it. Read it, then `doc/dev/STYLE.md` and `doc/dev/LAYOUT.md`.
@@ -9,33 +9,33 @@ which test cannot see, and which defects are knowingly unfixed and why.
 
 ## The contract (read first)
 
-- **`doc/dev/STYLE.md`** -- coding ideology: stack/streaming (avoid the heap), one
+- **`doc/dev/STYLE.md`**: coding ideology: stack/streaming (avoid the heap), one
   concept per `.c/.h`, error handling, idioms, lineage. Non-negotiable. Before adding
   any `malloc` to the core, check it against STYLE.md's sanctioned-heap list ("The only
   heap the core sanctions"); the record path allocates nothing.
-- **`doc/dev/LAYOUT.md`** -- on-disk format, module map, algorithms, CLI, build order.
-- **`doc/dev/PROSE.md`** -- how the documents are written: what the bold means, what
-  the titles may say, and which of the `X, not Y` contrasts are load-bearing.
-- **`doc/dev/LOCKING.md`** -- reader/writer lock model and `next_id` correctness.
-- **`doc/dev/FORMAT_V2.md`** -- the decided `--dump`/`--import` grammar
+- **`doc/dev/LAYOUT.md`**: on-disk format, module map, algorithms, CLI, build order.
+- **`doc/dev/PROSE.md`**: how the documents are written: what the bold means, what
+  the titles may say, and when a negation earns its place.
+- **`doc/dev/LOCKING.md`**: reader/writer lock model and `next_id` correctness.
+- **`doc/dev/FORMAT_V2.md`**: the decided `--dump`/`--import` grammar
   (`KEY... -v VALUE`), why ids leave that surface and stay everywhere else, and
   the order of work. Read before touching feed.c's parsing or ais_dump.
-- **`c/ais.h`** -- the public API. The engine implements it; the tests test it.
+- **`c/ais.h`**: the public API. The engine implements it; the tests test it.
 
-These four are the contract. Do not change behavior without changing them first.
+These are the contract. Do not change behavior without changing them first.
 
-Not the contract, but read it before writing any GUI test: **`doc/dev/GUI_TESTING.md`**
--- how to drive a front-end automatically (headless browser, Flutter by deep link
+Not the contract, but read it before writing any GUI test: **`doc/dev/GUI_TESTING.md`**,
+how to drive a front-end automatically (headless browser, Flutter by deep link
 and keyboard, a real APK on an emulator). Every trap in it was paid for once
 already.
 
 ## Build and test
 
     make        # build ./c/ais            (run from repo root; delegates to c/)
-    make codeut # engine tests (c/tests.c, in-process) -- the fast inner loop
+    make codeut # engine tests (c/tests.c, in-process): the fast inner loop
     make cliut  # CLI black-box (tests/cli.sh: the binary through the shell)
-    make uiut   # web GUI (tests/gui: --serve HTTP api + page in headless Chrome) -- SKIPs absent
-    make ut     # EVERYTHING: codeut + cliut + uiut + wrappers, each PASS/FAIL/SKIP -- run before commit
+    make uiut   # web GUI (tests/gui: --serve HTTP api + page in headless Chrome); SKIPs absent
+    make ut     # EVERYTHING: codeut + cliut + uiut + wrappers, each PASS/FAIL/SKIP; run before commit
     make codeut-asan / codeut-ubsan   # the engine tests under AddressSanitizer / UBSan
     make hooks  # enable the pre-push hook (runs codeut-asan + codeut-ubsan before a push)
     make clean
@@ -70,8 +70,8 @@ They stay out of the default build: 2-3x slower and not universally available, s
 `make` and `make ut` stay portable. The rest of the release procedure is in
 `doc/dev/VERSIONING.md`.
 
-**Never open a window on the real display.** Anything that can show one -- the
-Flutter desktop build, the win32 GUI under wine, a browser -- runs on a virtual X
+**Never open a window on the real display.** Anything that can show one (the
+Flutter desktop build, the win32 GUI under wine, a browser) runs on a virtual X
 server. A shell here inherits `DISPLAY=:0` and `WAYLAND_DISPLAY`, each command is
 a fresh shell so exports do not persist, and GTK prefers Wayland, so overriding
 `DISPLAY` alone still lands on the developer's screen. Neutralise both, inline,
@@ -92,12 +92,12 @@ the file. That recipe and every other way to drive a front-end are in
 index, never the repo's own.
 
 The text store is the source of truth; the index (`idx/`, `tomb`, `next_id`) is
-rebuildable from it and disposable. That is not a slogan: `tests/cli.sh` deletes
+rebuildable from it and disposable. `tests/cli.sh` proves it: it deletes
 `idx/` and `off` outright, compacts, and asserts every record still recalls.
 
 Two identity rules the whole engine rests on, both now pinned by tests:
 
-- **A value names ONE record.** Every write path enforces it -- `put` resolves an
+- **A value names ONE record.** Every write path enforces it: `put` resolves an
   existing record by value, `ais_merge_addval` by content hash, `ais_set_value`
   and `ais_add` refuse a value another record holds. Two records sharing a value
   make a peer collapse them, and a later delete of either takes both.
@@ -112,8 +112,7 @@ Two identity rules the whole engine rests on, both now pinned by tests:
 binary prints are CLAIMS, and they go stale exactly like a README.** When you
 change behaviour, they move with the code; when you audit, they are in scope.
 
-This is not a style note, it is the single highest-yield instruction we have
-measured. A defect where the Makefile promised to honour your `CFLAGS` and had
+This is the single highest-yield instruction we have measured. A defect where the Makefile promised to honour your `CFLAGS` and had
 stopped doing so was found by 3 of 3 agents told this sentence and 0 of 19 agents
 not told it (Fisher p = 0.0006). It also beat four-agent fleets that lacked the
 sentence, at a quarter of the cost, so it is worth more than any team arrangement
@@ -135,7 +134,7 @@ Tests are the objective gate. Never trust output you have not verified.
    `ais.h` / `doc/dev/LAYOUT.md` / `doc/dev/STYLE.md` first, so there is one agreed spec.
 2. **Implement** against the contract, in `STYLE.md`'s idiom (one concept per
    file, modules return codes, only the CLI `die()`s; the rationale is there).
-3. **Test.** Add or extend tests in `c/tests.c` -- linear, inline, ONE comment per
+3. **Test.** Add or extend tests in `c/tests.c`: linear, inline, ONE comment per
    test saying what it checks. Cover the new behavior and its edges.
 4. **Verify.** `make codeut` green; no warnings under `-std=c99 -Wall -Wextra` (a
    warning is a defect, per `STYLE.md`).
@@ -144,15 +143,15 @@ Red -> green -> refactor. Every change keeps the whole suite green (regression).
 
 ## Working with AI agents (native orchestration, no plugins)
 
-Developed with Claude Code's built-in orchestration -- nothing to install:
+Developed with Claude Code's built-in orchestration, nothing to install:
 
 - Spawn focused **subagents** for independent work (explore the legacy code,
   implement a module, write tests). A separate **tester** agent with a fresh
   context writing the tests is preferred: independent eyes catch the
   implementer's assumptions.
 - The **integrator** (the main session) locks the contract and runs `make ut`.
-- For a large structured job, a deterministic multi-agent workflow can fan out;
-  for ordinary work, one subagent plus the test gate is enough.
+- For a large structured job, a deterministic multi-agent workflow can run many
+  agents at once; for ordinary work, one subagent plus the test gate is enough.
 - A `PostToolUse` hook auto-runs `make codeut` after edits to `c/` (see `.claude/`).
 
 Keep orchestration minimal: the model + native subagents + the test gate. Resist
@@ -163,7 +162,7 @@ building agent infrastructure that itself needs maintaining.
     c/         the engine (C99), one concept per file; the module map and the
                on-disk format are in doc/dev/LAYOUT.md
     c/crypto/  the secret-store encryption module (ais_crypto + WHY/README)
-    c/attic/   the pre-rewrite v0 prototype -- reference only, not built
+    c/attic/   the pre-rewrite v0 prototype: reference only, not built
     doc/       the public docs; README.md's "Learn more" table is their index
     doc/dev/   the developer notes; doc/dev/README.md lists them and says which
                to read first

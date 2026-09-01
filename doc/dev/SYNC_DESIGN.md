@@ -4,13 +4,13 @@ Settled design for multi-device sync (home <-> phone, no server), so it is not
 re-litigated. Some is implemented today, most is planned; implement to this
 spec. See LAYOUT.md (format), BNF.txt (grammar).
 
-## Identity -- a resource IS its value (the natural key)
+## Identity: a resource IS its value (the natural key)
 - Dedup is by EXACT value; the numeric id is a device-local surrogate, never shared.
 - URL/URI/inline text: same string = same resource (keys merge); different string
   = different resource. NO normalization (a query param can mean a different
   page). [implemented]
 - Blob (`--doc`): identified by OCCURRENCE, not content. Each doc is its own
-  resource, like a note in a notes app -- duplicates are intentional and kept,
+  resource, like a note in a notes app: duplicates are intentional and kept,
   NEVER content-deduped into one record. Name = `<local timestamp>~<8 hex random>`
   plus the extension, so two devices never alias two different documents and a
   replicated one keeps its name. [implemented]
@@ -22,11 +22,11 @@ spec. See LAYOUT.md (format), BNF.txt (grammar).
   single exception to "never content-deduped", and the two cases are
   indistinguishable anyway. The residue of a pre-existing clash is one duplicate
   record per device, which no wire verb can retract. [implemented]
-- Known seam (accepted): identity follows STORAGE, not intent -- inline values
+- Known seam (accepted): identity follows STORAGE, not intent: inline values
   dedup (URL-like), blobs do not (post-like). So "intentional duplicate" is a
   blob-only concept. Fine for current usage.
 
-## Keys -- a mergeable patch language
+## Keys: a mergeable patch language
 - `+key` binds (implicit default); `-key` unbinds (explicit, and it PROPAGATES).
 - A put/import line is an idempotent keyset PATCH: apply the +'s and -'s.
 - effective keys = bound minus unbound.
@@ -36,7 +36,7 @@ spec. See LAYOUT.md (format), BNF.txt (grammar).
   key that literally starts with `-`). A detach propagates today as a `K|` line;
   the general `+/-` patch line remains planned.
 
-## Delete -- a tombstone, kept for the life of the index
+## Delete: a tombstone, kept for the life of the index
 - Delete is delete. There is no trash and no restore: `--del ID` and
   `--del-under KEY` confirm first, then remove the record. The GUI's 5s undo
   window is the only reprieve, and nothing reaches the engine until it lapses.
@@ -53,7 +53,7 @@ spec. See LAYOUT.md (format), BNF.txt (grammar).
   deleted secret is gone at once while a deleted plain record stays readable in
   `store` until `--compact`.
 
-## Sync -- bidirectional export/import
+## Sync: bidirectional export/import
 - Merge = `--export` one side, `--import` the other, both ways; two-way
   convergence in one round is the `--sync` verb. The shipped interchange is the
   `A|`/`D|` merge stream (record-level, tombstone-union, timestamp
@@ -67,14 +67,14 @@ spec. See LAYOUT.md (format), BNF.txt (grammar).
   (value-aware). Never trust git's textual merge of `store`, it id-collides.
 - Idempotent and resumable: a partial/interrupted sync just re-runs to converge.
 
-## Sharing -- give someone your index (bootstrap)
+## Sharing: give someone your index (bootstrap)
 - An index is names, not secrets: it stores values (hosts, paths, URLs, commands),
-  never credentials -- like a shared `.ssh/config` where each user keeps their own
+  never credentials, like a shared `.ssh/config` where each user keeps their own
   keys. So an index is safe to hand over or commit to a repo. [principle]
 - Ready-to-use: ship the built index directory; the receiver queries it in place,
-  `ais -f ./.ais KEY...`, no import -- a checked-in config. Filter first (dump only
+  `ais -f ./.ais KEY...`, no import: a checked-in config. Filter first (dump only
   the records meant to be shared) so nothing private travels.
-- Seed-and-own: hand over a portable dump and they make it their first version --
+- Seed-and-own: hand over a portable dump and they make it their first version:
       ais --dump | sed 's/^[0-9]*|//'  >  shared   # donor: strip the local ids
       ais -f ./.ais --import           <  shared   # receiver: into a fresh index
   From there each side diverges and the Sync merge above reconciles both ways:

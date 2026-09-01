@@ -5,7 +5,7 @@ engine shipped inside the app with nobody noticing.
 
 | What | Where | Breaks when |
 | --- | --- | --- |
-| The release | git tag (`v0.3.9`) | — |
+| The release | git tag (`v0.3.9`) | never |
 | The library ABI | `AIS_VERSION` / `ais_version()` | the FFI changes |
 | The on-disk format | `AIS_FORMAT_VERSION`, `INDEX/version` | a store line changes shape |
 | The sync wire | `AIS_SYNC_PROTO`, `AIS_FRAME_VER` | a verb or a frame changes |
@@ -28,7 +28,7 @@ demands of `versionCode`. `pubspec.yaml` keeps a version line as a FALLBACK for
 a bare `flutter run`; it is not the source of truth and will drift if trusted.
 
 **DECIDED (v0.3.10): `versionCode` is `git rev-list --count HEAD`.** The first
-release under this rule uploaded from the `v0.3.10` tag, in the 240s -- run
+release under this rule uploaded from the `v0.3.10` tag, in the 240s; run
 `tool/version.sh` at the tag for the exact number rather than trusting a figure
 written down here, since every commit moves it. Play never accepts a
 versionCode at or below one already uploaded, so this is one-way: every number
@@ -38,7 +38,7 @@ counter) is no longer available. Always build a release with the flags:
     flutter build appbundle --release $(sh tool/version.sh)
 
 A flagless `flutter build` silently uses pubspec's fallback, which is a SMALLER
-number than any real upload and will be rejected by Play -- or, worse, accepted
+number than any real upload and will be rejected by Play, or, worse, accepted
 into a track you did not mean. Treat a release built without the flags as
 unusable rather than trying to reconcile it.
 
@@ -59,9 +59,9 @@ a fortnight earlier. Nothing in the product could have told them.
 
 Two defences, and both are wanted:
 
-- **The build dependency** — the Flutter bundle must not be able to link a stale
+- **The build dependency**: the Flutter bundle must not be able to link a stale
   `libais.so` in the first place. This is the real fix.
-- **The runtime check** — the app reads `ais_version()` and shows it. This is the
+- **The runtime check**: the app reads `ais_version()` and shows it. This is the
   backstop, because it fires for people who run the app rather than build it.
 
 The Dart binding looks the symbol up **lazily, inside the method, in a
@@ -77,7 +77,7 @@ refuses an index newer than it understands, loudly, rather than misreading it,
 and stamps an older one forward.
 
 Data outlives code, so this number moves only when the canonical store line
-changes shape — not when the library or the release moves. It is currently 4
+changes shape, not when the library or the release moves. It is currently 4
 (v1 had no `ts`, v2 added a local `ts`, v3 made it UTC with a trailing `Z`, v4
 added the per-record clocks `mts`/`sts`/`katt` that decide what a delete means).
 Blob names carrying a random tag did NOT move it: the store line keeps its shape,
@@ -88,7 +88,7 @@ Two things follow that are easy to get wrong:
 
 - The stamp is applied **on open**, so the moment one binary touches a shared
   index directory, older binaries are locked out of it. That only bites a shared
-  directory — no sync path transports `INDEX/version` — but it means "upgrade one
+  directory (no sync path transports `INDEX/version`), but it means "upgrade one
   device to try it" is not safe for a Syncthing'd index.
 - Anything that changes the *encoding* of a field, not just its meaning, is a
   format change even if the line still has four parts. Appending a counter to the
@@ -105,7 +105,7 @@ Two things follow that are easy to get wrong:
 bundle frame. A mismatch fails loudly with "update both", which is the correct
 shape: a sync that silently does less than asked is worse than one that refuses.
 
-For the merge STREAM there is no version byte — extensibility comes from
+For the merge STREAM there is no version byte: extensibility comes from
 `--import` refusing verbs it does not know (see `MERGE.md`). That refusal is a
 prerequisite for ever adding one, and it is newer than the peers in the field, so
 a new verb may only be WRITTEN a full release after the refusing build has
