@@ -425,13 +425,14 @@ async function edSave() {
   setView(view);
 }
 
+var lastTagN = 0;                       // the tag half of the last search; openSheet reads it
 async function recall() {
   var q = $('q').value.trim(); if (!q) return;
   var t0 = performance.now(), g = gen;
   var oo = $('anyk') && $('anyk').checked ? '&or=1' : '';
   var t = await (await fetch('/api/get?keys=' + encodeURIComponent(q) + oo)).text();
   if (g != gen) return;                 // the view moved on: drop it
-  var tagN = render(t, q, performance.now() - t0);
+  var tagN = lastTagN = render(t, q, performance.now() - t0);
   await findAppend(g, tagN);
   if (g != gen) return;
   // tags matched nothing but values did: the value section stands alone
@@ -467,7 +468,9 @@ async function findAppend(g, tagN) {
     r.appendChild(rowActions(id, v));
     o.appendChild(r); added++;
   });
-  if (added && !tagN) $('count').textContent = added + ' result' + (added == 1 ? '' : 's');
+  if (added) $('count').textContent = tagN
+    ? tagN + ' result' + (tagN == 1 ? '' : 's') + ' + ' + added + ' in the value'
+    : added + ' result' + (added == 1 ? '' : 's');
 }
 
 // timeline: id|ts|keys|value (value may contain '|', so split off the first 3)
@@ -653,7 +656,10 @@ function openSheet(){
   $('vksuggest').innerHTML = '';
   $('enc').checked = false; $('pp').value = ''; $('pp').hidden = true;
   $('pp2').value = ''; $('pp2').hidden = true; $('ppnote').hidden = true;
-  $('sheet').hidden = false; $('v').focus();
+  $('sheet').hidden = false;
+  // a prefilled tag the search did not match would be saved unseen (focus sits
+  // on the value); land on the tag field instead so the user meets it
+  ($('vk').value && !lastTagN ? $('vk') : $('v')).focus();
 }
 function closeSheet(){ $('sheet').hidden = true; $('v').value = ''; $('pp').value = ''; $('pp2').value = ''; }
 

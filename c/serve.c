@@ -326,8 +326,8 @@ static const char PAGE[] =
 /* Value-ranked second half (both pages, mirrored): after the tag matches, ask
  * /api/find for records whose VALUE holds the trimmed query and append the
  * ones not already listed (deduped by id) under one separator row. The OR chip
- * governs only the tag half. TAGN is what that half listed: when it is 0 and
- * the value half answers, the count line is the value half's. */
+ * governs only the tag half. TAGN is what that half listed; when the value
+ * half adds rows the count line names both ("2 results + 1 in the value"). */
 "async function findAppend(g,tagN){var o=$('out'),qraw=$('q').value.trim();if(!qraw||$('vsep'))return;"
 "var t=await(await fetch('/api/find?q='+encodeURIComponent(qraw))).text();"
 "if(g!=viewGen)return;"                                  /* the view moved on: drop it */
@@ -341,7 +341,7 @@ static const char PAGE[] =
 "var r=document.createElement('div');r.className='hit';r.dataset.id=id;"
 "(v.indexOf('aisc:')==0?fillSecret(r,v):v.indexOf('aisdoc:')==0?fillDoc(r,v):fillVal(r,v));if(notHere(v))r.appendChild(awayBadge());"
 "r.appendChild(rowActions(id,v));o.appendChild(r);added++});"
-"if(added&&!tagN)$('count').textContent=added+' result'+(added==1?'':'s')}"
+"if(added)$('count').textContent=tagN?tagN+' result'+(tagN==1?'':'s')+' + '+added+' in the value':added+' result'+(added==1?'':'s')}"
 /* per-row edit (attach/detach keys by id) and delete; both refresh the view */
 "function rowActions(id,v){var d=document.createElement('div');d.className='act';"
 "var m=document.createElement('button');m.className='actbtn';m.textContent='\\u22EE';m.title='more';m.style.fontSize='1.2rem';"
@@ -507,7 +507,9 @@ static const char PAGE[] =
 "else{$('out').innerHTML='<div class=empty><p>Type tags, then Search.</p>'+addCTA+'</div>';$('out').className='';$('count').textContent=''}}"
 "else if(v=='timeline')loadTimeline();else loadTags()}"
 "function openSheet(){$('vk').value=$('q').value.trim();$('vksuggest').innerHTML='';$('enc').checked=false;$('pp').value='';$('pp').hidden=true;"
-"$('pp2').value='';$('pp2').hidden=true;$('ppnote').hidden=true;$('sheet').hidden=false;$('v').focus()}"
+/* a prefilled tag the search did not match would be saved unseen (focus sits
+ * on the value); land on the tag field instead so the user meets it */
+"$('pp2').value='';$('pp2').hidden=true;$('ppnote').hidden=true;$('sheet').hidden=false;($('vk').value&&!rcN?$('vk'):$('v')).focus()}"
 "function closeSheet(){$('sheet').hidden=true;$('v').value='';$('pp').value='';$('pp2').value=''}"
 "async function save(){var v=$('v').value.trim();if(!v)return;var k=normkeys($('vk').value);"
 "var enc=$('enc').checked,pp=$('pp').value,pp2=$('pp2').value;"
@@ -1083,10 +1085,16 @@ static int tag_sink(const char *key, long count, void *vp)
     return 0;
 }
 
+/* the hardening headers ride on a 404 too: an unsniffable, unframable reply
+ * on every route, not only the ones that exist */
 static void not_found(int fd)
 {
     static const char nf[] =
-        "HTTP/1.0 404 Not Found\r\nConnection: close\r\n\r\nnot found\n";
+        "HTTP/1.0 404 Not Found\r\nContent-Type: text/plain\r\n"
+        "X-Content-Type-Options: nosniff\r\n"
+        "X-Frame-Options: DENY\r\n"
+        "Content-Security-Policy: default-src 'none'\r\n"
+        "Connection: close\r\n\r\nnot found\n";
     write_all(fd, nf, sizeof(nf) - 1);
 }
 

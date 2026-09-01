@@ -394,6 +394,15 @@ int main(int argc, char **argv) {
         "<document.getElementById('out').innerText.indexOf('plumber Mario')", 3000) == 0);
     ok("no tag matched, so no rows precede the separator", cdp_wait_bool(c,
         "document.getElementById('out').querySelectorAll('.hit').length===1", 3000) == 0);
+    ok("the count line is the value half's", cdp_wait_bool(c,
+        "document.getElementById('count').textContent.indexOf('1 result')>=0", 3000) == 0);
+    /* the Add sheet meets its prefill: the searched word matched no tag, so
+     * saving would file it under an unseen junk tag -- focus lands on the
+     * tag field, not the value */
+    cdp_eval_bool(c, "(function(){openSheet();return true})()", &(int){0});
+    ok("an unmatched prefilled tag gets the focus", cdp_wait_bool(c,
+        "document.activeElement&&document.activeElement.id==='vk'", 3000) == 0);
+    cdp_eval_bool(c, "(function(){closeSheet();return true})()", &(int){0});
     cdp_eval_bool(c, "(function(){document.getElementById('q').value='PLUMBER';"
                      "setView('recall');return true})()", &(int){0});
     ok("and the value match is case-insensitive", cdp_wait_bool(c,
@@ -413,6 +422,13 @@ int main(int argc, char **argv) {
         "return t.indexOf('best gelato in rome')>t.indexOf('matched in the value')})()", 3000) == 0);
     ok("the both-ways record is not duplicated", cdp_wait_bool(c,
         "document.getElementById('out').innerText.split('dorsoduro').length===2", 3000) == 0);
+    ok("the count names both halves", cdp_wait_bool(c,
+        "document.getElementById('count').textContent"
+        ".indexOf('1 result + 1 in the value')>=0", 3000) == 0);
+    cdp_eval_bool(c, "(function(){openSheet();return true})()", &(int){0});
+    ok("a tag-matched prefill keeps focus on the value", cdp_wait_bool(c,
+        "document.activeElement&&document.activeElement.id==='v'", 3000) == 0);
+    cdp_eval_bool(c, "(function(){closeSheet();return true})()", &(int){0});
 
     /* (c) tag autocomplete under the search field: typing a prefix of an
      * existing tag offers a chip; tapping it completes the token (plus a

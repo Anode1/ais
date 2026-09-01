@@ -6363,6 +6363,13 @@ static void test_serve_host_and_headers(void)
           && strstr(resp, "X-Frame-Options: DENY") != NULL
           && strstr(resp, "Content-Security-Policy:") != NULL,
           "serve: hardening headers on an API reply");
+    CHECK(http_txn(port, "GET /nope HTTP/1.0\r\nHost: 127.0.0.1\r\n\r\n",
+                   resp, sizeof resp) == 0
+          && strstr(resp, "404") != NULL
+          && strstr(resp, "X-Content-Type-Options: nosniff") != NULL
+          && strstr(resp, "X-Frame-Options: DENY") != NULL
+          && strstr(resp, "Content-Security-Policy:") != NULL,
+          "serve: hardening headers ride the 404 too");
     CHECK(http_txn(port, "GET / HTTP/1.0\r\nHost: localhost\r\n\r\n",
                    resp, sizeof resp) == 0
           && strstr(resp, "200 OK") != NULL
