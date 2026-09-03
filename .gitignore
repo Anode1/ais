@@ -80,3 +80,6 @@ err.log
 
 # asciinema recordings: scripts/demo.sh regenerates them, only the GIF is kept
 *.cast
+
+# private material beside the work, never published
+PRIVATE/
