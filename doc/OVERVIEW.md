@@ -29,4 +29,4 @@ first implemented as shell scripts (**2005**, `legacy/ais-scripts/`). Early C an
 ran on Berkeley DB / Sleepycat (**2005-2007**) before Lucene; the Java/Lucene web app was
 running by **2007** and published (after a delay) in **2009** (`legacy/ais/`). Re-engineered
 from scratch in ANSI C (**2026**, `c/`).
-Full trail in the deposited, citable record: [doi.org/10.5281/zenodo.20647048](https://doi.org/10.5281/zenodo.20647048).
+Full trail in the deposited, citable record: [doi.org/10.5281/zenodo.20647047](https://doi.org/10.5281/zenodo.20647047).
