@@ -116,14 +116,14 @@ different networks, or for continuous background syncing, use Syncthing below.
     #    Android phone:    "Syncthing-Fork" from F-Droid or Play (the maintained app)
 
     # 2. Pair the two devices (one time)
-    #    Open each device's Syncthing web UI (computer: http://127.0.0.1:8384).
-    #    Phone: Actions -> Show ID (a QR code). Computer: Add Remote Device, then scan or
-    #    paste the ID. Accept the prompt on the other device. They can now see each other.
+    #    Computer: open http://127.0.0.1:8384, Actions -> Show ID (a QR code).
+    #    Phone: Add Device, scan that code. Accept the prompt on the computer.
+    #    They can now see each other.
 
-    # 3. Share the index folder
-    #    Computer: Add Folder, point it at your index (for example ~/.ais), give it a
-    #    Folder ID like "ais-index", and on the Sharing tab tick the phone. On the phone,
-    #    accept the offered folder and choose where it lands (the AIS app's index dir).
+    # 3. Share the index folder (computer to computer; a phone is the section below)
+    #    Add Folder, point it at your index (for example ~/.ais), give it a Folder ID
+    #    like "ais-index", and on the Sharing tab tick the other computer. There,
+    #    accept the offered folder and land it on that computer's index directory.
 
     # 4. Never sync the per-device files
     #    In that folder's settings, under Ignore Patterns, add these three lines
@@ -135,6 +135,24 @@ different networks, or for continuous background syncing, use Syncthing below.
     syncfolder
 
 Done. An edit on one device now appears on the other within seconds on the same network.
+
+### The phone: a kept copy, not a shared index
+
+Android keeps apps out of each other's storage, so the AIS app cannot read a
+Syncthing folder and steps 3 and 4 do not apply to a phone. What works:
+
+    # 1. Pair as above; make a folder on the phone (say Documents/ais) and share it
+    #    with the computer in Syncthing.
+    # 2. In the app: Sync > Keep a copy in a folder, pick that folder. The app writes
+    #    ais-backup.aisb there after every change; Syncthing carries it over.
+    # 3. Computer, whenever you want it up to date: ais --serve, then
+    #    Sync > Import from a file, choose that ais-backup.aisb. Records merge.
+    # 4. Computer to phone: Sync > Export to a file into the same folder, then on
+    #    the phone Sync > Import from a file.
+
+The copy is also the phone's backup: it survives uninstalling the app (see
+[`USING.txt`](USING.txt)). The import on the computer is by hand, and only the
+GUI reads an .aisb file; the CLI's `--import` takes text records.
 
 ## Sync through a shared folder (`--sync-folder`)
 
