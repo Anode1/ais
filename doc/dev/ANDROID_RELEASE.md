@@ -101,6 +101,11 @@ invisible to this process and counts for nothing.
   `doc/RELEASE_NOTES.md` as the release notes, Next, then Save and publish (older
   consoles: Review release, Start rollout). The previous build stays Active until
   the new one rolls out; testers get the update from Play within hours.
+- Publishing puts the release into review ("Changes in review"), which on a closed
+  track takes hours to a couple of days. If the track then shows **Start full
+  rollout**, the release went out at a percentage and only that share of testers
+  gets it: press it. A staged rollout buys nothing on a track of 100 testers, and
+  the tester who asked for a fix may be in the share that never receives it.
 - Add the testers' Google-account emails (or a Google Group) and send them the
   opt-in link; each accepts and installs AIS from Play.
 - Keep at least 20 opted in for 14 straight days. An opt-out drops the count and
