@@ -102,6 +102,9 @@ Both licences should be listed if your distro records them per package.
 
 ## Releases and verification
 
+What each release changed is in [`../RELEASE_NOTES.md`](../RELEASE_NOTES.md), and
+the tag's entry there is the release body on GitHub.
+
 Tags are `vMAJOR.MINOR.PATCH` (see `doc/dev/VERSIONING.md`). Release artifacts are
 built by GitHub Actions from the tag, and each ships a matching `.sha256`:
 

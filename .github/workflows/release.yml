@@ -165,9 +165,27 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v4   # doc/RELEASE_NOTES.md, and tags for the fallback
+        with:
+          fetch-depth: 0
+
       - uses: actions/download-artifact@v4
         with:
           path: artifacts          # each artifact lands in artifacts/<name>/
+
+      # The release body is this tag's entry in doc/RELEASE_NOTES.md (direct commits
+      # to main never appear in GitHub's own notes, which list merged PRs only).
+      # A tag without an entry still publishes, with the commit subjects instead.
+      - name: release notes for this tag
+        run: |
+          tag=${GITHUB_REF_NAME}
+          awk -v t="$tag" '$0 ~ "^## "t" "{f=1;next} /^## /{if(f)exit} f' doc/RELEASE_NOTES.md > notes.md
+          if [ ! -s notes.md ]; then
+            echo "no entry for $tag in doc/RELEASE_NOTES.md; using commit subjects" >&2
+            prev=$(git describe --tags --abbrev=0 "$tag^" 2>/dev/null || true)
+            git log --format='- %s' --no-merges ${prev:+$prev..}$tag > notes.md
+          fi
+          cat notes.md
 
       - name: assemble release files
         run: |
@@ -181,4 +199,5 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: dist/*
-          generate_release_notes: true
+          body_path: notes.md
+          generate_release_notes: true   # appended: the Full Changelog link
