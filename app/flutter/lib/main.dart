@@ -18,6 +18,7 @@ import 'ais_ffi.dart';
 import 'record_rows.dart';
 import 'add_validation.dart';
 import 'survival.dart';
+import 'foldermirror.dart';
 import 'version.dart';
 
 void main() async {
@@ -187,15 +188,20 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
   bool _syncBusy = false;
   // Folder auto-sync (a Syncthing / cloud folder). Path remembered per-index in
   // <dir>/syncfolder. A pass runs on open, after a save/delete, and on "Sync now":
-  // no background polling. Empty = off.
+  // no background polling. Empty = off. On Android it is a content:// tree the
+  // engine cannot opendir(), so a pass mirrors it into <dir>/foldmirror first
+  // (foldermirror.dart, MainActivity's mirrorTreeIn) and streams our own bundle
+  // back with exportToTree.
   String _syncFolder = '';
   String _syncFolderSaid = '';   // the last folder-sync problem reported, to not repeat it
+  bool _folderPassBusy = false;  // a mirror pass awaits the platform; one at a time
+  bool _folderPassAgain = false; // a pass asked for while one ran: run once more after
 
   // Uninstall survival (Android): a SAF folder the user picked; a bundle copy
   // of the whole index is kept there so it outlives the app. The tree URI is
   // remembered per-index in <dir>/backuptree; '' = off. The C engine cannot
   // POSIX-open SAF trees, so the copy moves over the ais/backup channel
-  // (MainActivity streams it in and out), not through folder sync.
+  // (MainActivity streams it in and out).
   String _backupTree = '';
   bool _backupSaid = false;  // a failed refresh is reported once per session
   bool _backupDirty = false; // the index changed since the last copy refresh
@@ -922,7 +928,7 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
                   // I5: a versioning cloud keeps old plaintext copies, which can
                   // defeat tombstones (a delete reappears); Syncthing does not.
                   ? 'Best with Syncthing. A versioning cloud (e.g. Dropbox) may keep deleted items.'
-                  : _syncFolder),
+                  : folderLabel(_syncFolder)),
               onTap: () => Navigator.pop(ctx, 'folder'),
             ),
             if (_syncFolder.isNotEmpty)
@@ -1226,30 +1232,66 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
   }
 
   // Pick a shared folder and run the first pass. The folder is REMEMBERED ONLY IF
-  // THAT PASS WORKS: on Android a SAF pick usually lands on shared storage this app
-  // cannot opendir(), and a remembered unreadable folder is re-reported at every
-  // launch.
+  // THAT PASS WORKS, so a remembered folder that cannot be read is never
+  // re-reported at every launch. Android's picker returns a SAF tree (a persisted
+  // grant, like the keep-a-copy folder); the pass mirrors it.
   Future<void> _pickSyncFolder() async {
     if (_ais == null || _syncBlocks()) return;
     final messenger = ScaffoldMessenger.of(context);
     String? dir;
     try {
-      dir = await getDirectoryPath();
+      dir = Platform.isAndroid
+          ? await _backupChannel.invokeMethod<String>('pickBackupTree')
+          : await getDirectoryPath();
     } catch (_) {
       dir = null;
     }
     if (!mounted) return;
     if (dir == null || dir.isEmpty) return;   // cancelled, or no picker on this platform
-    _tryFolder(dir, messenger);
+    await _tryFolder(dir, messenger);
+  }
+
+  // One folder pass, returning the engine's code (0 synced; see syncFolderProblem).
+  // A path goes straight to the engine. A tree is mirrored: peer bundles in,
+  // prune to what the tree holds, the engine's pass on the mirror, our own
+  // bundle out. -4 when the tree cannot be listed (grant revoked, folder gone),
+  // -6 when the merge applied but our bundle could not be written back.
+  Future<int> _folderPass(String folder, {bool force = false}) async {
+    final eng = _ais;
+    if (eng == null) return -1;
+    if (!isTreeUri(folder)) return eng.syncFolderCode(folder, force: force);
+    final mirror = Directory('$_dir/foldmirror');
+    List<Object?>? names;
+    try {
+      names = await _backupChannel.invokeMethod<List<Object?>>(
+          'mirrorTreeIn', {'tree': folder, 'dest': mirror.path});
+    } catch (_) {
+      names = null;
+    }
+    if (names == null) return -4;
+    pruneMirror(mirror, names.whereType<String>().toSet());
+    final code = eng.syncFolderCode(mirror.path, force: force);
+    if (code != 0) return code;
+    final own = ownBundleName(_dir);
+    if (own == null) return -6;
+    bool ok;
+    try {
+      ok = await _backupChannel.invokeMethod<bool>('exportToTree',
+              {'tree': folder, 'src': '${mirror.path}/$own', 'name': own}) ==
+          true;
+    } catch (_) {
+      ok = false;
+    }
+    return ok ? 0 : -6;
   }
 
   // Run one pass against DIR and keep it only on success, so neither the picker
   // nor the "Sync anyway" override can leave a folder set that does not work.
   // FORCE accepts a folder that is merely empty (a replaced stick, a cleared share).
-  void _tryFolder(String dir, ScaffoldMessengerState messenger,
-      {bool force = false}) {
+  Future<void> _tryFolder(String dir, ScaffoldMessengerState messenger,
+      {bool force = false}) async {
     if (_ais == null) return;
-    final code = _ais!.syncFolderCode(dir, force: force);
+    final code = await _folderPass(dir, force: force);
     final problem = AisEngine.syncFolderProblem(code);
     if (!mounted) return;
     if (problem == null) {
@@ -1258,7 +1300,7 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
       _syncFolderSaid = '';
       _lastSync = DateTime.now();
       _saveLastSync();
-      messenger.showSnackBar(SnackBar(content: Text('Syncing with $dir')));
+      messenger.showSnackBar(SnackBar(content: Text('Syncing with ${folderLabel(dir)}')));
       _setView(_view);
       return;
     }
@@ -1288,12 +1330,29 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
     return true;
   }
 
-  // One folder-sync pass (fast, local file I/O). Refreshes the view on a merge.
-  // Skipped while a LAN sync holds the handle (avoids the same cross-isolate race).
-  void _runFolderSync({bool silent = true}) {
+  // One folder-sync pass (local file I/O; on Android the mirror copy awaits the
+  // platform). Refreshes the view on a merge. Skipped while a LAN sync holds the
+  // handle (avoids the same cross-isolate race). A pass asked for while one is
+  // in flight runs once after it, so the save that asked is not left unpushed.
+  Future<void> _runFolderSync({bool silent = true}) async {
     if (_ais == null || _syncFolder.isEmpty || _syncBusy) return;
+    if (_folderPassBusy) {
+      _folderPassAgain = true;
+      return;
+    }
+    _folderPassBusy = true;
     final before = _ais!.countLive();
-    final code = _ais!.syncFolderCode(_syncFolder);
+    int code;
+    try {
+      code = await _folderPass(_syncFolder);
+    } finally {
+      _folderPassBusy = false;
+    }
+    if (_folderPassAgain) {
+      _folderPassAgain = false;
+      _runFolderSync(silent: true);
+    }
+    if (_ais == null) return;
     final problem = AisEngine.syncFolderProblem(code);
     if (problem == null) {
       // Clear on ANY success, so the same problem is reported again if it returns.

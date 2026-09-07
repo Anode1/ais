@@ -136,23 +136,28 @@ different networks, or for continuous background syncing, use Syncthing below.
 
 Done. An edit on one device now appears on the other within seconds on the same network.
 
-### The phone: a kept copy, not a shared index
+### The phone
 
-Android keeps apps out of each other's storage, so the AIS app cannot read a
-Syncthing folder and steps 3 and 4 do not apply to a phone. What works:
+Android keeps apps out of each other's storage, so steps 3 and 4 do not apply to
+a phone: the app never shares its index directory. It syncs through a shared
+folder instead, the same protocol as `--sync-folder` below.
 
     # 1. Pair as above; make a folder on the phone (say Documents/ais) and share it
     #    with the computer in Syncthing.
-    # 2. In the app: Sync > Keep a copy in a folder, pick that folder. The app writes
-    #    ais-backup.aisb there after every change; Syncthing carries it over.
-    # 3. Computer, whenever you want it up to date: ais --serve, then
-    #    Sync > Import from a file, choose that ais-backup.aisb. Records merge.
-    # 4. Computer to phone: Sync > Export to a file into the same folder, then on
-    #    the phone Sync > Import from a file.
+    # 2. In the app: Sync > Set a sync folder, pick that folder. A pass runs at
+    #    once, then at every open and after every change.
+    # 3. Computer: ais --sync-folder /path/to/that/folder, by hand or from a timer.
 
-The copy is also the phone's backup: it survives uninstalling the app (see
-[`USING.txt`](USING.txt)). The import on the computer is by hand, and only the
-GUI reads an .aisb file; the CLI's `--import` takes text records.
+Inside the app the folder is a storage grant, not a path, so each pass copies
+the peers' bundles into a private mirror the engine can read, runs the ordinary
+pass there, and writes the phone's own bundle back out. A folder that cannot be
+listed any more (the grant revoked, the folder deleted) is reported as
+unreadable, and a folder the app could not use is never remembered.
+
+Sync > Keep a copy in a folder is a different thing: one file, `ais-backup.aisb`,
+the whole index, refreshed after every change, for surviving an uninstall (see
+[`USING.txt`](USING.txt)). It can land in the same Syncthing folder; the folder
+pass ignores it, and Sync > Import from a file on a computer reads it.
 
 ## Sync through a shared folder (`--sync-folder`)
 

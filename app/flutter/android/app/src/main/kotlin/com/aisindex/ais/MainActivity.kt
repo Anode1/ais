@@ -126,9 +126,55 @@ class MainActivity : FlutterActivity() {
                             runOnUiThread { result.success(ok) }
                         }.start()
                     }
+                    // Folder sync over a tree: copy every peer device bundle
+                    // (<16 hex>.aisb) into DEST, a private dir the engine can
+                    // opendir(); Dart prunes DEST to the returned names, runs the
+                    // engine's pass there, and exportToTree's our own bundle back.
+                    // Null = the tree cannot be listed (permission revoked, gone).
+                    "mirrorTreeIn" -> {
+                        val tree = call.argument<String>("tree")
+                        val dest = call.argument<String>("dest")
+                        if (tree == null || dest == null) {
+                            result.success(null); return@setMethodCallHandler
+                        }
+                        Thread {
+                            val names = try { mirrorBundlesIn(Uri.parse(tree), File(dest)) }
+                                        catch (_: Exception) { null }
+                            runOnUiThread { result.success(names) }
+                        }.start()
+                    }
                     else -> result.notImplemented()
                 }
             }
+    }
+
+    private val deviceBundle = Regex("^[0-9a-f]{16}\\.aisb$")
+
+    // Every device bundle in TREE, copied into DEST (created if needed) under
+    // its own name, via a temp file and rename so a torn copy is never seen
+    // as a bundle. Returns the names copied; throws if the tree cannot be read.
+    private fun mirrorBundlesIn(tree: Uri, dest: File): List<String> {
+        dest.mkdirs()
+        val children = DocumentsContract.buildChildDocumentsUriUsingTree(
+            tree, DocumentsContract.getTreeDocumentId(tree))
+        val names = ArrayList<String>()
+        val c = contentResolver.query(children, arrayOf(
+            DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+            DocumentsContract.Document.COLUMN_DISPLAY_NAME), null, null, null)
+            ?: throw IllegalStateException("tree not listable")
+        c.use {
+            while (it.moveToNext()) {
+                val id = it.getString(0) ?: continue
+                val n = it.getString(1) ?: continue
+                if (!deviceBundle.matches(n)) continue
+                val doc = DocumentsContract.buildDocumentUriUsingTree(tree, id)
+                val input = contentResolver.openInputStream(doc) ?: continue
+                val tmp = File(dest, "$n.part")
+                input.use { i -> tmp.outputStream().use { i.copyTo(it) } }
+                if (tmp.renameTo(File(dest, n))) names.add(n) else tmp.delete()
+            }
+        }
+        return names
     }
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
