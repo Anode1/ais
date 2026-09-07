@@ -95,6 +95,12 @@ What Google counts is installs **through Play**, so the GitHub `.apk` is
 invisible to this process and counts for nothing.
 
 - Testing > Closed testing: create a track, upload the `.aab`.
+- An upload alone is a draft. In the App bundle explorer it shows as Inactive
+  until a release on the track carries it: on the track, Create new release (or
+  open the draft), add the bundle, paste the tag's entry from
+  `doc/RELEASE_NOTES.md` as the release notes, Next, then Save and publish (older
+  consoles: Review release, Start rollout). The previous build stays Active until
+  the new one rolls out; testers get the update from Play within hours.
 - Add the testers' Google-account emails (or a Google Group) and send them the
   opt-in link; each accepts and installs AIS from Play.
 - Keep at least 20 opted in for 14 straight days. An opt-out drops the count and
