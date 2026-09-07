@@ -1,13 +1,22 @@
 # Syncing your AIS index across devices (no cloud)
 
 AIS keeps everything as plain files in one index folder, so syncing needs no cloud account.
-There are two no-cloud paths, and you can use both:
+Every way to move an index between devices, and where each one exists:
 
-- **Built-in one-shot LAN sync** (below): `ais --export --serve` on one device, `ais --import`
-  on the other. Encrypted, nothing to install, good for an occasional copy or merge.
-- **Syncthing** for continuous, automatic background syncing: peer-to-peer over your own
-  network (or an encrypted relay when the devices are apart), open source, on Android and
-  Linux, Windows, macOS.
+| Channel | Where | Direction | Note |
+|---|---|---|---|
+| Sync by code (Sync > Host / Join; `--sync`) | CLI, web GUI, Android | two-way, one round | Built in, encrypted, same Wi-Fi. The phone scans the code with its camera. |
+| One-way LAN (`--export --serve` / `--import <url>`) | CLI | one-way | The older form of the same exchange. |
+| A file (Sync > Export / Import to a file) | web GUI, Android | either way, by hand | One `.aisb` file, the whole index. The CLI does not read it: its `--import` takes text records. |
+| A shared folder (Sync > Set a sync folder; `--sync-folder`) | CLI, web GUI, Android | two-way, at every open and change | The set-and-forget path. Syncthing or a mounted drive carries the folder. |
+| Keep a copy in a folder / Restore from a folder | Android | copy out, restore back | Survives an uninstall. Not a sync. |
+| Text (`--dump` / `--import < FILE`) | CLI | either way, by hand | Records only, no documents. |
+
+Syncthing is a separate program, not part of AIS: install it on each device and it keeps
+a chosen folder identical on all of them, in the background, over your own network or an
+encrypted relay when the devices are apart. Open source, on Android, Linux, Windows, macOS.
+AIS's own sync by code is not Syncthing: it needs nothing installed, and runs when you
+press Host and scan.
 
 ## What an index holds (so you know what matters)
 
@@ -31,6 +40,8 @@ There are two no-cloud paths, and you can use both:
                 (a second device would start syncing to the first one's path)
     syncid      per-device identity; it is copied by a whole-folder sync, which
                 is why a cloned identity heals itself on the next folder pass
+    foldmirror/ Android only: the app's private mirror of its sync folder,
+                rebuilt at every pass
 
 **Update every device before sharing one index folder between them.** `mts`, `sts`
 and `katt` decide what a delete means, and an AIS older than 0.3.15 does not know
@@ -96,11 +107,35 @@ and token as a QR that encodes a link:
 
 On the phone, scan that with the ordinary camera app. The phone recognizes the link, opens
 AIS, and AIS asks you to confirm the sync (a link can come from anywhere, and syncing shares
-this device's records) before it joins. The app bundles no QR scanner: your phone's own
+this device's records) before it joins. The host waits five minutes for the join, then the
+code expires; press Host again for a fresh one. The app bundles no QR scanner: your phone's own
 camera does the reading, and AIS just registers the `ais://` link. If you would rather not
 scan, Join still accepts the address and token typed by hand, and the address
 may be a NAME as well as a number, so `http://mylaptop.local:8766` works wherever
 that name resolves (mDNS, your router's DHCP names, `/etc/hosts`).
+
+#### From Windows (WSL)
+
+The Linux build runs under the Windows Subsystem for Linux (see the README's Download
+section). Hosting a sync from there has one catch: by default WSL2 sits behind its own
+virtual network, so the address AIS puts in the code is WSL's internal one, and the phone
+cannot reach it. Either of these fixes it:
+
+    # A. Windows 11: give WSL the laptop's real address. In %USERPROFILE%\.wslconfig:
+    [wsl2]
+    networkingMode=mirrored
+    #    then `wsl --shutdown` once. The code now works as on Linux.
+
+    # B. Any Windows: forward the port to WSL (an Administrator PowerShell; the WSL
+    #    address changes at each WSL restart, so repeat the first two lines then).
+    $ip = (wsl hostname -I).Trim().Split(' ')[0]
+    netsh interface portproxy add v4tov4 listenport=8766 listenaddress=0.0.0.0 connectport=8766 connectaddress=$ip
+    netsh advfirewall firewall add rule name="ais sync" dir=in action=allow protocol=TCP localport=8766
+    #    The code still carries the WSL address, so do not scan it: on the phone use
+    #    Join, type the laptop's Windows address (ipconfig: IPv4 Address) with :8766,
+    #    and the token shown beside the code.
+
+WSL1 shares the Windows network directly and needs neither.
 
 This carries both the records (values, keys, deletions) and the `doc` blob FILES, so a
 synced document opens on the peer. If two devices independently saved different documents

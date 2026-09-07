@@ -64,7 +64,7 @@ The latest stable build for every platform. The link below always points at the 
 
 - **Android**: install `ais-<tag>-android.apk` from the release page (you will have to allow installing from your browser, once). `…-android.aab` beside it is the Play Store upload format; it is not installable by hand, so take the `.apk`.
 - **macOS / Linux**: unzip the `…-<os>-<arch>.zip`, then `./ais --serve` opens the GUI in your browser (or use the `ais` CLI; add it to your PATH to use it anywhere).
-- **Windows**: _no Windows build is published at the moment_ while the desktop GUI is reworked, so there is nothing to download on that line yet. Build from source (below), or run the Android app, or reach a machine on your LAN that is running `ais --serve`.
+- **Windows**: _no native Windows build is published at the moment_ while the desktop GUI is reworked. The `…-linux-x86_64.zip` runs under the Windows Subsystem for Linux (WSL): unzip it there and `./ais --serve` serves the GUI, which opens in your Windows browser (if nothing opens, go to `http://127.0.0.1:8765`). Syncing a phone by QR code from inside WSL needs one network setting; see [`doc/SYNC.md`](doc/SYNC.md#from-windows-wsl). Or build from source (below), or run the Android app.
 
 The desktop binaries are not code-signed, so the first run is flagged as an unrecognized download (macOS Gatekeeper "could not verify"). That is a new-and-unsigned notice, not a malware finding: on macOS run `xattr -dr com.apple.quarantine .` in the unzipped folder. A copy you build yourself is never flagged. The Android package **is** signed, with the project's own upload key.
 
