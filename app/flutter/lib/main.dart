@@ -2393,13 +2393,6 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
     });
   }
 
-  Widget _deleteBg(ColorScheme cs) => Container(
-        color: cs.error,
-        alignment: Alignment.centerRight,
-        padding: const EdgeInsets.only(right: 24),
-        child: Icon(Icons.delete, color: cs.onError),
-      );
-
   // The empty / first-run state; its button opens the same Add sheet as the FAB.
   // Scrollable: with the restore action it can outgrow a short viewport
   // (a phone in landscape, the soft keyboard up).
@@ -2851,12 +2844,8 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
     final v = hit.value;
     final isSecret = v.startsWith('aisc:');
     final away = _notHere(v);
-    return Dismissible(
+    return ListTile(
       key: ValueKey(hit.id),
-      direction: DismissDirection.endToStart,
-      background: _deleteBg(cs),
-      onDismissed: (_) => _deferDelete(hit.id),
-      child: ListTile(
       // Primary path: tap the row for its detail/edit page.
       onTap: () => _openDetail(hit.id, v),
       visualDensity: const VisualDensity(vertical: -1),
@@ -2929,7 +2918,6 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
             ],
           ),
         ],
-      ),
       ),
     );
   }
@@ -3073,12 +3061,8 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
         ));
       }
       final time = (dt != null && r.ts.contains('T')) ? '${p2(dt.hour)}:${p2(dt.minute)} · ' : '';
-      items.add(Dismissible(
+      items.add(ListTile(
         key: ValueKey(r.id),
-        direction: DismissDirection.endToStart,
-        background: _deleteBg(cs),
-        onDismissed: (_) => _deferDelete(r.id),
-        child: ListTile(
         // Tap opens the detail/edit page; carry the ts so it can show the save time.
         onTap: () => _openDetail(r.id, r.value, ts: r.ts),
         visualDensity: const VisualDensity(vertical: -1),
@@ -3133,7 +3117,6 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
             const PopupMenuItem(value: 'delete', child: Text('Delete')),
           ],
         ),
-      ),
       ));
     }
     if (_tlMore) {
