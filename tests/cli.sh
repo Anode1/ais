@@ -1657,6 +1657,69 @@ ok      "mcp: an invented date version is not agreed to"   '"protocolVersion":"2
 mout=$(mcp '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}')
 ok      "mcp: a published revision is answered as asked"   '"protocolVersion":"2024-11-05"' "$mout"
 
+# A key the reply names is a key the store kept, or the save is refused. The
+# engine folds '/', '\', '|', space, control bytes and a leading '.' to '_', and
+# reads a leading '-' as a detach that files nothing.
+mout=$(mcprw '{"jsonrpc":"2.0","id":40,"method":"tools/call","params":{"name":"save","arguments":{"value":"dash value","keys":["-foo"]}}}')
+ok      "mcp: a key starting with - is refused"            "cannot begin with '-'" "$mout"
+ok      "mcp: and it is a tool error"                      '"isError":true' "$mout"
+okempty "mcp: and nothing was stored under it"             "$("$AIS" -f "$MI" --find 'dash value' 2>/dev/null)"
+mout=$(mcprw '{"jsonrpc":"2.0","id":41,"method":"tools/call","params":{"name":"save","arguments":{"value":"slash value","keys":["a/b"]}}}')
+ok      "mcp: a key holding a slash is refused"            "would file that key under another name" "$mout"
+mout=$(mcprw '{"jsonrpc":"2.0","id":42,"method":"tools/call","params":{"name":"save","arguments":{"value":"dot value","keys":[".hidden"]}}}')
+ok      "mcp: a key starting with a dot is refused"        "would file that key under another name" "$mout"
+mout=$(mcprw '{"jsonrpc":"2.0","id":43,"method":"tools/call","params":{"name":"save","arguments":{"value":"del value","keys":["ab"]}}}')
+ok      "mcp: a key holding 0x7F is refused"               "would file that key under another name" "$mout"
+mout=$(mcp '{"jsonrpc":"2.0","id":44,"method":"tools/call","params":{"name":"tags","arguments":{"limit":1000}}}')
+okempty "mcp: and the index never spelled one a_b"         "$(printf '%s' "$mout" | grep -o 'a_b')"
+okempty "mcp: nor turned the leading dot into _hidden"     "$(printf '%s' "$mout" | grep -o '_hidden')"
+
+# A tab inside an array element is a byte the store folds, so it is refused; the
+# one-string form is documented as blank-separated and still splits on one.
+mout=$(mcprw '{"jsonrpc":"2.0","id":45,"method":"tools/call","params":{"name":"save","arguments":{"value":"tab in element","keys":["a\tb"]}}}')
+ok      "mcp: a tab inside an array element is refused"    "would file that key under another name" "$mout"
+mout=$(mcprw '{"jsonrpc":"2.0","id":46,"method":"tools/call","params":{"name":"save","arguments":{"value":"tab in string","keys":"tabone\ttabtwo"}}}')
+ok      "mcp: a tab in the one-string form still splits"   "under tabone tabtwo" "$mout"
+
+# A put that adds no key added no key.
+mout=$(mcprw '{"jsonrpc":"2.0","id":47,"method":"tools/call","params":{"name":"save","arguments":{"value":"held value","keys":["held"]}}}')
+ok      "mcp: a value the index lacks is a new record"     "saved as record" "$mout"
+mout=$(mcprw '{"jsonrpc":"2.0","id":48,"method":"tools/call","params":{"name":"save","arguments":{"value":"held value","keys":["held"]}}}')
+ok      "mcp: saving it again under the same key adds none" "nothing added" "$mout"
+mout=$(mcprw '{"jsonrpc":"2.0","id":49,"method":"tools/call","params":{"name":"save","arguments":{"value":"held value","keys":["held","kept"]}}}')
+ok      "mcp: one new key among them is still an add"      "to existing record" "$mout"
+mout=$(mcprw '{"jsonrpc":"2.0","id":50,"method":"tools/call","params":{"name":"save","arguments":{"value":"held value","keys":["held"]}}}')
+ok      "mcp: a subset of the keys it has adds nothing"    "nothing added" "$mout"
+ok      "mcp: and the reply still names every key it has"  "under held kept" "$mout"
+
+# A message this reader cannot hold is not a message the client got wrong.
+mdeep=$(awk 'BEGIN{for(i=0;i<300;i++)printf "[";for(i=0;i<300;i++)printf "]"}')
+mout=$(mcp "{\"jsonrpc\":\"2.0\",\"id\":51,\"method\":\"tools/call\",\"params\":{\"name\":\"recall\",\"arguments\":{\"keys\":$mdeep}}}")
+ok      "mcp: a request past the node table is -32600"     '"code":-32600' "$mout"
+ok      "mcp: and says how many values it can hold"        "more than 256 values" "$mout"
+
+# JSON-RPC forbids answering a response: two servers answering each other's
+# errors never stop.
+okempty "mcp: a client's result draws no reply"            "$(mcp '{"jsonrpc":"2.0","id":99,"result":{}}')"
+okempty "mcp: nor does a client's error"                   "$(mcp '{"jsonrpc":"2.0","id":98,"error":{"code":-1,"message":"x"}}')"
+
+# The client resolves the index path from ITS directory, not the server's.
+MR=$(mktemp -d "${TMPDIR:-/tmp}/ais_mcp.XXXXXX") || exit 2
+"$AIS" -f "$MR/rel" --init >/dev/null
+mout=$(cd "$MR" && printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}' \
+       | "$AIS" -f ./rel --mcp 2>/dev/null)
+ok      "mcp: a relative -f is reported absolute"          "This index is at /" "$mout"
+okempty "mcp: not as the dot path the server was given"    "$(printf '%s' "$mout" | grep -o 'is at ./rel')"
+rm -rf "$MR"
+
+# The caps and the shape of keys belong in the schema, not only in refusals.
+mout=$(mcprw '{"jsonrpc":"2.0","id":52,"method":"tools/list"}')
+jsonok  "mcp: tools/list still parses with them"           "$mout"
+ok      "mcp: the keys schema says one element is one key" "one element is one key" "$mout"
+ok      "mcp: and that a single string is taken too"       "a single string with blanks" "$mout"
+ok      "mcp: and states the 64-key cap"                   "at most 64" "$mout"
+ok      "mcp: and save states the 255-byte key cap"        "a key is at most 255 bytes" "$mout"
+
 mrc=0
 "$AIS" -f "$MI" --mcp bogus >/dev/null 2>&1 || mrc=$?
 okeq    "mcp: an operand other than rw is a usage error"   "2" "$mrc"

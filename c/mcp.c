@@ -21,6 +21,9 @@
  * value goes out as the store holds it except for the two a model may not have
  * (secret.h ciphertext, and a document path that resolves outside the index).
  */
+#define _DEFAULT_SOURCE            /* realpath: the index path, absolute */
+#define _POSIX_C_SOURCE 200809L
+
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -60,7 +63,9 @@ typedef struct {
     int   kid, sib;   /* first child, next sibling; -1 = none */
 } jnode;
 
-typedef struct { jnode v[MCP_NODES]; int n; } jdoc;
+/* FULL tells the two ways jparse fails apart: a message this reader cannot
+ * hold is well-formed JSON the client should shorten, not a parse error. */
+typedef struct { jnode v[MCP_NODES]; int n, full; } jdoc;
 
 static void jskip(char **p)
 {
@@ -72,8 +77,10 @@ static int jnew(jdoc *d, int type)
 {
     jnode *v;
 
-    if (d->n >= MCP_NODES)
-        return -1;                       /* a request deeper than we will read */
+    if (d->n >= MCP_NODES) {
+        d->full = 1;                     /* a request deeper than we will read */
+        return -1;
+    }
     v = &d->v[d->n];
     v->type = (char)type; v->isint = 0; v->key = NULL; v->str = NULL;
     v->num = 0; v->val = 0; v->kid = -1; v->sib = -1;
@@ -531,40 +538,52 @@ static void out_row(ais *a, char *line)
 
 /* Split S on blanks in place, appending each word to KV. Spelled out rather
  * than strtok_r, which needs a feature macro on some systems: this file should
- * compile with nothing but C99. Returns how many words were added. */
-static int split_keys(char *s, char *kv[], int max)
+ * compile with nothing but C99. TABS splits on a tab as well as a space: the
+ * one-string form of "keys" is documented as blank-separated and does, an array
+ * element does not, so a tab inside an element reaches key_ok and is refused by
+ * name instead of quietly becoming two keys. Returns how many words were
+ * added. */
+static int split_keys(char *s, char *kv[], int max, int tabs)
 {
     int n = 0;
 
     for (;;) {
-        while (*s == ' ' || *s == '\t')
+        while (*s == ' ' || (tabs && *s == '\t'))
             s++;
         if (*s == '\0' || n >= max)
             return n;
         kv[n++] = s;
-        while (*s != '\0' && *s != ' ' && *s != '\t')
+        while (*s != '\0' && *s != ' ' && !(tabs && *s == '\t'))
             s++;
         if (*s != '\0')
             *s++ = '\0';
     }
 }
 
-/* The engine folds '|' and control bytes in a key to '_', so a key holding one
- * is stored under a different name than the one asked for, and it refuses a key
- * past AIS_KEY_NAME_MAX, which is longer than a posting file may be named. This
- * server must not name a key it did not store: it refuses instead. Returns 1
- * when the key is storable, 0 for a byte the store folds, -1 for the length. */
+enum { KEYS_TOOMANY = -1, KEYS_BADCHAR = -2, KEYS_TOOLONG = -3, KEYS_DETACH = -4 };
+
+/* Would the index file this key under the name it was given? key_encode (key.c)
+ * folds ' ', '|', '/', '\\', every byte below 0x20, 0x7F and a LEADING '.' to
+ * '_'; the token walk in ais.c reads a leading '-' as a detach and files nothing
+ * at all; and a key past AIS_KEY_NAME_MAX cannot be a posting's filename. This
+ * server must not name a key it did not store, so each of those is refused
+ * rather than stored under another spelling. Returns 0 when the key is storable,
+ * else the KEYS_ code that says why. Case is not here: folding it is the
+ * documented behaviour and recall folds to match. */
 static int key_ok(const char *k)
 {
     const unsigned char *u = (const unsigned char *)k;
 
+    if (u[0] == '-' && u[1] != '\0')
+        return KEYS_DETACH;
+    if (u[0] == '.')
+        return KEYS_BADCHAR;
     for (; *u != '\0'; u++)
-        if (*u == '|' || *u < 0x20)
-            return 0;
-    return (strlen(k) > AIS_KEY_NAME_MAX) ? -1 : 1;
+        if (*u == ' ' || *u == '|' || *u == '/' || *u == '\\' ||
+            *u < 0x20 || *u == 0x7F)
+            return KEYS_BADCHAR;
+    return (strlen(k) > AIS_KEY_NAME_MAX) ? KEYS_TOOLONG : 0;
 }
-
-enum { KEYS_TOOMANY = -1, KEYS_BADCHAR = -2, KEYS_TOOLONG = -3 };
 
 /* KEYS may arrive as an array of strings or as one space-separated string;
  * either way the words are the keys. The strings point into the request line,
@@ -580,18 +599,18 @@ static int keys_arg(const jdoc *d, int node, char *kv[], const char **bad)
     if (node < 0)
         return 0;
     if (d->v[node].type == JSTR)
-        n = split_keys(d->v[node].str, kv, max);
+        n = split_keys(d->v[node].str, kv, max, 1);
     else if (d->v[node].type == JARR)
         for (i = d->v[node].kid; i >= 0 && n < max; i = d->v[i].sib)
             if (d->v[i].type == JSTR)
-                n += split_keys(d->v[i].str, kv + n, max - n);
+                n += split_keys(d->v[i].str, kv + n, max - n, 0);
     if (n > AIS_KEYS_MAX)
         return KEYS_TOOMANY;
     for (i = 0; i < n; i++) {
         int k = key_ok(kv[i]);
-        if (k != 1) {
+        if (k != 0) {
             *bad = kv[i];
-            return (k < 0) ? KEYS_TOOLONG : KEYS_BADCHAR;
+            return k;
         }
     }
     return n;
@@ -600,7 +619,7 @@ static int keys_arg(const jdoc *d, int node, char *kv[], const char **bad)
 /* Answer what keys_arg refused. Returns 1 when it answered, 0 when N is a count. */
 static int keys_refused(int n, const char *bad, const struct req *q)
 {
-    char msg[160];
+    char msg[256];
 
     if (n == KEYS_TOOMANY) {
         snprintf(msg, sizeof msg, "at most %d keys in one call", AIS_KEYS_MAX);
@@ -609,8 +628,16 @@ static int keys_refused(int n, const char *bad, const struct req *q)
     }
     if (n == KEYS_BADCHAR) {
         snprintf(msg, sizeof msg,
-                 "a key cannot hold a newline, a tab, '|' or any other control byte: %s",
+                 "the index would file that key under another name: a key cannot hold "
+                 "'/', '\\', '|', a tab or any other control byte, or begin with '.': %.60s",
                  bad);
+        text_reply(q, msg, 1);
+        return 1;
+    }
+    if (n == KEYS_DETACH) {
+        snprintf(msg, sizeof msg,
+                 "a key cannot begin with '-': ais reads that as detaching the key, and "
+                 "files nothing under it: %.60s", bad);
         text_reply(q, msg, 1);
         return 1;
     }
@@ -844,6 +871,31 @@ static int on_keys(long id, const char *ts, const char *keys, const char *value,
     return -1;                                        /* one row is the whole answer */
 }
 
+/* Is this value already filed under every key asked for? An AND-recall of those
+ * keys that returns this very value answers yes, and then the put ahead will add
+ * nothing: a reply saying it added keys would name a change the store did not
+ * make. Asked before the put, since afterwards the record holds the union and
+ * the two cases look identical. */
+struct heldsink { ais *a; const char *value; size_t len; int found; };
+
+static int on_held_value(long id, const char *value, void *vp)
+{
+    struct heldsink *h = vp;
+
+    (void)id;
+    if (strlen(value) == h->len && memcmp(value, h->value, h->len) == 0)
+        h->found = 1;
+    return h->found ? -1 : 0;
+}
+
+static int on_held_id(long id, void *vp)
+{
+    struct heldsink *h = vp;
+
+    ais_record(h->a, id, on_held_value, h);
+    return h->found ? -1 : 0;
+}
+
 /* The document a multi-line save just made: the record's "blobs/" value. */
 struct blobsink { char *buf; size_t sz; int got; };
 
@@ -869,6 +921,7 @@ static AIS_NOINLINE void tool_save(ais *a, const jdoc *d, int args, const struct
     char *kv[AIS_KEYS_MAX + 1];
     struct keysink ks;
     struct blobsink bs;
+    struct heldsink hs;
     char msg[96];
     size_t len = 0, n;
     int nkeys, i, existing;
@@ -924,6 +977,8 @@ static AIS_NOINLINE void tool_save(ais *a, const jdoc *d, int args, const struct
         len += klen;
     }
     keys[len] = '\0';
+    hs.a = a; hs.value = value; hs.len = n; hs.found = 0;
+    ais_get_page(a, kv, nkeys, AIS_AND, 0, 0, on_held_id, &hs);
     /* A value names ONE record, so a put of a value already stored ADDS the keys
      * to the record holding it. The id it comes back with is then below the id
      * the next new record would take, which is how the two are told apart
@@ -940,13 +995,18 @@ static AIS_NOINLINE void tool_save(ais *a, const jdoc *d, int args, const struct
         ais_record(a, id, on_blob, &bs);   /* multi-line: the engine wrote a document */
     ks.id = id; ks.buf = all; ks.sz = sizeof all; ks.got = 0;
     if (existing)
-        ais_timeline(a, id + 1, 1, NULL, NULL, on_keys, &ks);
+        ais_timeline(a, id + 1, 1, NULL, NULL, on_keys, &ks);   /* the keys it holds now */
 
     /* Name the keys back. The user said "file it under work ssh", the model may
      * have heard "work", and this line is the only place that difference shows
      * before the record is lost to the wrong word. */
     text_open(q);
-    if (existing) {
+    if (existing && hs.found) {
+        snprintf(msg, sizeof msg, "record %ld already holds this value under ", id);
+        jout(msg);
+        jout(ks.got ? all : keys);
+        jout("; nothing added");
+    } else if (existing) {
         snprintf(msg, sizeof msg, " to existing record %ld, now under ", id);
         jout("added ");
         jout(keys);
@@ -1030,7 +1090,9 @@ static const char TOOLS[] =
     "given above; one that does not resolve inside that directory comes back withheld. "
     "An encrypted value is never handed over: it reads 'aisc: (encrypted, hidden)'."
     "\",\"inputSchema\":{\"type\":\"object\",\"properties\":{"
-    "\"keys\":{\"type\":\"array\",\"items\":{\"type\":\"string\"},\"description\":\"the keys to look under\"},"
+    "\"keys\":{\"type\":\"array\",\"items\":{\"type\":\"string\"},\"description\":\"the keys to "
+    "look under: one element is one key, and a single string with blanks between the keys is "
+    "taken too; at most 64\"},"
     "\"match\":{\"type\":\"string\",\"enum\":[\"all\",\"any\"],\"description\":\"all = intersection (default), any = union\"},"
     "\"limit\":{\"type\":\"integer\",\"description\":\"maximum rows, a whole number from "
     "1 to 1000 (default 200)\"}},"
@@ -1075,7 +1137,9 @@ static const char TOOL_SAVE[] =
     "\",\"inputSchema\":{\"type\":\"object\",\"properties\":{"
     "\"value\":{\"type\":\"string\",\"description\":\"what to store\"},"
     "\"keys\":{\"type\":\"array\",\"items\":{\"type\":\"string\"},"
-    "\"description\":\"the keys to file it under, the user's own words\"}},"
+    "\"description\":\"the keys to file it under, the user's own words: one element is one "
+    "key, and a single string with blanks between the keys is taken too; at most 64, and a key "
+    "is at most 255 bytes\"}},"
     "\"required\":[\"value\",\"keys\"]}}";
 
 /* ---- dispatch ----------------------------------------------------------- */
@@ -1104,9 +1168,16 @@ static void handle(ais *a, int allow_write, char *line)
     int root, args;
 
     d.n = 0;
+    d.full = 0;
     root = jparse(&d, &p);
     if (root < 0) {
-        reply_error(NULL, -32700, "parse error");
+        if (d.full) {
+            char msg[64];
+            snprintf(msg, sizeof msg, "request too large: more than %d values", MCP_NODES);
+            reply_error(NULL, -32600, msg);
+        } else {
+            reply_error(NULL, -32700, "parse error");
+        }
         return;
     }
     jskip(&p);
@@ -1133,6 +1204,11 @@ static void handle(ais *a, int allow_write, char *line)
     }
     method = jtext(&d, jget(&d, root, "method"));
     if (method == NULL) {
+        /* A result or an error member and no method is the client's RESPONSE to
+         * something. JSON-RPC forbids answering one, and a server that answers
+         * it anyway trades errors with the client for as long as both are up. */
+        if (jget(&d, root, "result") >= 0 || jget(&d, root, "error") >= 0)
+            return;
         if (q.has_id)
             reply_error(&q, -32600, "invalid request");
         return;
@@ -1153,10 +1229,16 @@ static void handle(ais *a, int allow_write, char *line)
         jout(INSTR_RECALL);
         /* Which index, in words. A repo-local .ais/ and the personal ~/.ais are
          * the same protocol, and an agent that cannot tell them apart reports a
-         * project's notes as the user's own memory. */
-        jout("\n\nThis index is at ");
-        jout(a->dir);
-        jout(".");
+         * project's notes as the user's own memory. Resolved first: the client
+         * runs in its own directory, where a relative -f names nothing.
+         * (realpath's contract is a PATH_MAX buffer; AIS_PATH_MAX is PATH_MAX
+         * here, and the guard keeps that from drifting.) */
+        {
+            char real[AIS_PATH_MAX];
+            jout("\n\nThis index is at ");
+            jout((AIS_PATH_MAX >= 4096 && realpath(a->dir, real) != NULL) ? real : a->dir);
+            jout(".");
+        }
         fputs("\"}", stdout);
         reply_end();
         return;
