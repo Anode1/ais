@@ -1,95 +1,8 @@
-# The `--mcp` tool server
+# `--mcp`: the implementation
 
-`ais --mcp` serves the Model Context Protocol on stdin and stdout, so an agent
-reaches the index the way it already reaches every other local tool. It is a
-front end like the web GUI and the phone app: same engine, same index, no state
-of its own.
-
-What it buys is the difference between recall and search. An agent that greps a
-tree to find something the user already filed pays that cost on every question;
-a key lookup returns the matching rows and nothing else. The measurement is in
-the README: 24,500 tokens against 2,900, and 40 of 40 answers exact.
-
-## Wiring it into a client
-
-Claude Code:
-
-    claude mcp add ais -- ais --mcp
-
-Anything else that reads the usual JSON (Claude Desktop, Cursor, Zed, Windsurf):
-
-    { "mcpServers": { "ais": { "command": "ais", "args": ["--mcp"] } } }
-
-The index is resolved exactly as it is for every other command: the nearest
-`.ais/` at or above the working directory, then the current named index, then
-`~/.ais`. To pin one, pass it: `"args": ["-f", "/home/you/.ais", "--mcp"]`. A
-per-repository index (`ais --init`) gives an agent a memory that lives with the
-code, in plain text a reviewer can read.
-
-## The tools
-
-| Tool | Arguments | Answers |
-| --- | --- | --- |
-| `recall` | `keys`, `match` (`all`, the default, or `any`), `limit` | `id\|value` per line |
-| `find` | `text`, `limit` | `id\|value` per line, values containing TEXT (any case) |
-| `tags` | `limit` | `count\|key` per line, busiest first |
-| `timeline` | `count` (`limit` is taken too) | `id\|timestamp\|keys\|value` per line, newest first |
-| `save` | `value`, `keys`, both required | `saved as record N under KEYS`; present only with `rw` |
-
-`keys` is declared in the schema as an array of strings, which is what a model
-generates. One space-separated string is accepted too, for anything hand-rolled.
-
-Rows are the shapes the CLI prints, because that is the contract every other
-front end follows. Two answers are words rather than rows, because a model reads
-an empty block as a broken tool and calls again: nothing matched is `no match`,
-and a reply that hit its `limit` ends with `(stopped at the limit; there may be
-more)` so a page is not reported as the whole index. `tags` on an empty index
-says `the index has no keys yet`.
-
-`save` refuses a value with no keys. A record filed under nothing cannot be
-recalled by any key, ever, so the refusal names what to do instead: ask the user
-which keys, several separated by spaces. The reply names the keys back, which is
-the only place a misheard key shows before the record is lost to it.
-
-## In conversation
-
-Nobody types a tool call. People say "save this", "add it to my memory", "what
-did I file under venice", and the model decides what that means. MCP has a place
-for exactly this, the `instructions` string in the initialize reply, and the
-server fills it: when to call save rather than answer from its own memory, that
-recall comes before find, and that an empty answer is an answer.
-
-The rule it spends most words on: the keys are the user's. If they did not name
-any ("save this"), the model asks which keys to file it under, several separated
-by spaces, and suggests what the index already uses rather than inventing a
-vocabulary. A model that files someone's things under the average of everyone's
-words has built the thing this index exists not to be.
-
-The instructions live in `INSTRUCTIONS[]` at the top of `c/mcp.c`, next to the
-tool descriptions, because together they are the whole interface a model sees.
-Two things are appended at connect time: in a read-only session, that there is no
-save tool and how to turn one on, since a model told to call a tool it cannot see
-will claim it saved something; and the path of the index actually opened, because
-a repo-local `.ais/` and the personal `~/.ais` speak the same protocol and an
-agent that cannot tell them apart reports a project's notes as the user's own
-memory.
-
-The tool descriptions are written out as JSON and printed unescaped, so a
-literal `"` inside one would break the whole `tools/list` reply. Quote examples
-with single quotes, as the file already does for `'id|value'` and `'blobs/'`.
-
-## What it will not do
-
-Writes are off unless the operand says `rw`. An agent gets recall by default and
-has to be handed the write bit deliberately.
-
-There is no delete, no re-tag, no edit, at any setting. Those are the operations
-whose damage a person cannot see happening, and the CLI is two keystrokes away.
-
-An encrypted value stays the opaque `aisc:` marker in every reply. Decryption
-prompts for a passphrase at a terminal, so there is no unlocked vault behind this
-server and nothing for an agent to drain. A document's value is its `blobs/`
-path: a real file on the same disk, which the agent can read if it should.
+What the server is for, how to wire it into a client, and what it refuses to do
+are in [`../MCP.md`](../MCP.md), which is the page a user lands on. This file is
+the inside: the wire, the reader, and the three lists that have to stay in step.
 
 ## How it is built
 
@@ -129,6 +42,29 @@ Two builds exclude the file by name, because a phone has no stdin to serve:
 `ais_engine.podspec` (iOS) and `app/flutter/src/CMakeLists.txt` (Android and the
 Linux desktop runner). Both already exclude `main.c` and `tests.c`; keep the
 three lists in step when a front end file is added.
+
+## The text a model reads
+
+`INSTRUCTIONS[]` and the tool descriptions at the top of `c/mcp.c` are the whole
+interface a model sees, so they are written for a reader. The user-facing half of
+that is in [`../MCP.md`](../MCP.md); three mechanics belong here.
+
+The tool descriptions are printed unescaped, straight from the constant, so a
+literal `"` inside one breaks the entire `tools/list` reply while `initialize`
+still parses: a client then connects, reports healthy, and has no tools. Quote
+examples with single quotes, as the file does for `'id|value'` and `'blobs/'`.
+`INSTRUCTIONS[]` is safe from this because it goes out through `jout()`.
+
+Two things are appended to the instructions at connect time. In a read-only
+session, that there is no save tool and that `ais --mcp rw` turns one on, since a
+model told to call a tool it cannot see will claim it saved something. And the
+path of the index actually opened, because a repo-local `.ais/` and the personal
+`~/.ais` speak the same protocol, and an agent that cannot tell them apart
+reports a project's notes as the user's own memory.
+
+`save` requires keys in its schema as well as in its prose. The schema is what a
+model generates against, so prose alone loses: with `"required":["value"]` a
+keyless save succeeded and made a record that no key can ever recall.
 
 ## Testing it
 

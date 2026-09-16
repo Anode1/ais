@@ -6,7 +6,7 @@ An index in plain text on your own disk, with apps for the phone, the browser an
 
 One engine, thin front-ends. The CLI is the contract; the web GUI (`ais --serve`), the Flutter mobile app and a native Win32 wrapper sit over it, and the engine depends on none of them. C, no database, no runtime to install.
 
-It also saves tokens, which is not obvious: this is not an AI product, but if you work with a coding agent, letting it recall from your index costs a fraction of letting it grep and read your tree again. Measured, with every answer exact; [the numbers are below](#for-coding-agents-recall-instead-of-searching-again).
+If you work with a coding agent, point it at your index instead of letting it grep your tree: 2,900 tokens a question against 24,500, and 40 of 40 answers exact. [The measurement, and how to reproduce it](#give-an-agent-your-index-recall-instead-of-searching-again).
 
 Because it is plain text, it outlives its own tools: your index survives decades of archiving, still opens in fifty years, and exports into anything, no lock-in. Keeping data readable that long is computing's unsolved *digital dark age*, where file formats and the apps that open them die faster than the data. Plain text, readable since the 1960s on any machine with no special program, is the oldest and safest answer.
 
@@ -50,15 +50,62 @@ It is deliberately minimal and not the main interface. `ais --serve` is one thin
 **Is this not just a bookmark manager / recoll / org-mode?**
 It overlaps all three and copies none. Not a bookmark manager: it saves *anything* under *any* keys, not URLs in a browser. Not full-text (recoll): it indexes the keys you choose, not document bodies. Not org-mode: no single tree, no app lock-in, no markup to learn, just keys with set algebra (AND / OR) over plain files. The distinctive part is that the index *is your bias*, kept unaveraged and portable.
 
+**Why not embeddings or a vector database?**
+An embedding places your note near the average meaning of its words, which is the averaging this index exists to avoid. Recall here is exact: the keys you chose, intersected. A wrong key returns nothing instead of the three nearest neighbours, so an agent gets an answer it can trust or no answer at all, with no index to rebuild, no model to pin, and no similarity threshold to tune. Embedding search is the better tool when you do not know what you filed; keys are the better tool when you do.
+
 **Does it replace my photo library or files?**
 No, it points *into* them. For files, photos and pages ais is an index of pointers, not a store of copies: a photo stays in Immich, a file on disk, a page at its URL. You save the *reference* under your own keys and recall it by association; the silo keeps the bytes. It does not compete with Immich or the filesystem, it sits across them as the one associative layer that remembers where a thing is and why it mattered. (Secrets are the one exception: those it stores inline, encrypted, see below.)
 
 **Can it hold passwords? Is it a password manager?**
 Yes. A secret is stored encrypted inline (`-e`), so a login lives right next to the context it belongs to, and two things set it apart from a built-in manager. It is **cross-platform**: Apple Keychain and Google Password Manager are locked to one ecosystem, while ais is the same plain-text index on Windows, macOS, Linux, Android and the CLI, so your secrets travel with you. And it is **agent-safe**: decryption is interactive (a passphrase you supply at a terminal or in the app), so an agent reading your index sees an opaque `aisc:` marker, not the secret, with no master key or unlocked vault to drain. What it is *not* is a bulk web-login manager: no autofill, no generation, no shared vaults, so for hundreds of site logins a dedicated cross-platform manager is still more convenient. See [`about.txt`](doc/about.txt).
 
+## Give an agent your index: recall instead of searching again
+
+An agent that greps and reads to find something you already saved pays that cost on every question. Recall by key costs one line, and it is exact: a wrong key returns nothing rather than something plausible.
+
+The measurement: eight questions, five repeats each, one agent run both ways over the same corpus.
+
+<p align="center">
+  <img src="screenshots/agent-tokens.png" width="78%" alt="File search: 24,500 tokens mean, sometimes wrong. Recall: 2,900 tokens, of which 68 are the answer, 40 of 40 exact. At the terminal: no model at all.">
+</p>
+
+| | file search (grep + read) | recall by key |
+|---|---|---|
+| answered correctly | 31 of 40 | **40 of 40** |
+| tokens per question, mean | 24,500 | 2,900 |
+| of that, the retrieval payload | 4,744 | **68** |
+
+Four times fewer tokens at the median and nine at the mean, and 69x less content dragged into the context window. Run `ais` yourself at the terminal and the cost is zero, because no model is involved.
+
+The harness is in [`experiment/`](experiment/), and the deposited run reproduces with no API key:
+
+```sh
+cd experiment && python3 analyze.py --csv results_repeats_sanitized.csv
+```
+
+The shipped harness runs the method over a public photo-library corpus; the headline numbers come from the same method over a private 100k-line code project.
+
+Wiring it up takes one line, and any agent that speaks MCP can use it:
+
+```sh
+claude mcp add ais -- ais --mcp        # or: {"mcpServers":{"ais":{"command":"ais","args":["--mcp"]}}}
+```
+
+That serves `recall`, `find`, `tags` and `timeline` over stdin/stdout. It is read-only, `ais --mcp rw` adds saving, and there is no delete at any setting. An encrypted value stays the opaque `aisc:` marker, since decryption prompts a person for a passphrase. Run `ais --init` in a repository first and the index lives with the code, so what the agent files there is yours to read in plain text. The full picture is in [`doc/MCP.md`](doc/MCP.md).
+
+In Claude Code a skill is the other way in: [`.claude/skills/ais/SKILL.md`](.claude/skills/ais/SKILL.md), copied into your own project's `.claude/skills/`. Why keys beat search is in [`about.txt`](doc/about.txt), and [above](#why).
+
 ## Download
 
-The latest stable build for every platform. The link below always points at the current release, never an old one:
+On Linux or macOS, one line puts the current release on your PATH:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/Anode1/ais/main/scripts/install.sh | sh
+```
+
+It downloads the build for your OS and CPU, checks it against the published `.sha256`, and installs into `~/.local` (`PREFIX=/usr/local` to put it elsewhere). It compiles nothing and needs no root. Read [`scripts/install.sh`](scripts/install.sh) first if you would rather not pipe a script to a shell.
+
+Or take the files by hand. The link below always points at the current release, never an old one:
 
 > **<https://github.com/Anode1/ais/releases/latest>**
 
@@ -97,6 +144,7 @@ make                 # build ./ais
 | [`doc/USING.txt`](doc/USING.txt) | How to use it, GUI on every OS (plain steps, no jargon). |
 | [`doc/about.txt`](doc/about.txt) | What ais is, and what it is not. |
 | [`doc/command_line.txt`](doc/command_line.txt) | Every command and option, the full `ais --help`. |
+| [`doc/MCP.md`](doc/MCP.md) | Give an agent your index: the `ais --mcp` tool server, what it can and cannot do. |
 | [`doc/SYNC.md`](doc/SYNC.md) | Sync your index between devices: encrypted LAN sync (`--sync`), or through a shared folder a tool like Syncthing keeps in sync (`--sync-folder`). |
 | [`doc/OVERVIEW.md`](doc/OVERVIEW.md) | Why it is built this way, and where it came from. |
 | [`doc/ROADMAP.md`](doc/ROADMAP.md) | What's planned, what is knowingly unfixed, and where to help. |
@@ -104,40 +152,6 @@ make                 # build ./ais
 | [`AGENTS.md`](AGENTS.md) | How to develop it: the contract, the build, the test loop. |
 | [`doc/dev/README.md`](doc/dev/README.md) | Every other developer note, indexed: sync, front ends, packaging, releases. |
 | `man ais` | Full command reference. |
-
-## For coding agents: recall instead of searching again
-
-An agent that greps and reads to find something you already saved pays that cost on every question. Recall by key costs one line, and it is exact: a wrong key returns nothing rather than something plausible.
-
-The measurement: eight questions, five repeats each, one agent run both ways over the same corpus.
-
-<p align="center">
-  <img src="screenshots/agent-tokens.png" width="78%" alt="File search: 24,500 tokens mean, sometimes wrong. Recall: 2,900 tokens, of which 68 are the answer, 40 of 40 exact. At the terminal: no model at all.">
-</p>
-
-| | file search (grep + read) | recall by key |
-|---|---|---|
-| tokens per question, mean | 24,500 | 2,900 |
-| of that, the retrieval payload | 4,744 | **68** |
-| answered correctly | 31 of 40 | **40 of 40** |
-
-Four times fewer tokens at the median and nine at the mean, and 69x less content dragged into the context window. Run `ais` yourself at the terminal and the cost is zero, because no model is involved.
-
-The harness is in [`experiment/`](experiment/), and the deposited run reproduces with no API key:
-
-```sh
-cd experiment && python3 analyze.py --csv results_repeats_sanitized.csv
-```
-
-The skill itself is [`.claude/skills/ais/SKILL.md`](.claude/skills/ais/SKILL.md). Copy it into your own project's `.claude/skills/` to give your agent the same. The argument behind the numbers is in [`foundation.md`](doc/foundation.md).
-
-Any agent that speaks MCP reaches the same index as a tool, with no skill to copy:
-
-```sh
-claude mcp add ais -- ais --mcp        # or: {"mcpServers":{"ais":{"command":"ais","args":["--mcp"]}}}
-```
-
-That serves `recall`, `find`, `tags` and `timeline` over stdin/stdout. It is read-only: `ais --mcp rw` adds saving, there is no delete at any setting, and an encrypted value stays the opaque `aisc:` marker, since decryption prompts a person for a passphrase. Run `ais --init` in a repository first and the agent's memory lives with the code, in plain text a reviewer can read. Details in [`dev/MCP.md`](doc/dev/MCP.md).
 
 ## See also
 
