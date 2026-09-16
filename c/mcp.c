@@ -1,9 +1,10 @@
 /* mcp.c -- MCP server over stdin/stdout. See mcp.h.
  *
- * Self-contained on purpose: it calls the engine's public API and nothing else
- * in this directory, so adding or removing this file changes nothing but
- * main.c's dispatch. The mobile builds exclude it by name (ais_engine.podspec,
- * app/flutter/src/CMakeLists.txt): a phone has no stdin to serve.
+ * Self-contained on purpose: it calls the engine's public API (ais.h, doc.h,
+ * find.h, secret.h) and no front end, so adding or removing this file changes
+ * nothing but main.c's dispatch. The mobile builds exclude it by name
+ * (ais_engine.podspec, app/flutter/src/CMakeLists.txt): a phone has no stdin
+ * to serve.
  *
  * stdout carries protocol and nothing else, so diagnostics go to stderr.
  *
@@ -12,8 +13,14 @@
  * record, and the reply is never assembled anywhere. The price is that a reply
  * cannot be retracted once it has started, so everything that can fail (the
  * arguments, a temporary file) is settled before the first byte goes out.
+ *
+ * The reader is on a client's side of the trust line and the writer is on a
+ * model's, so both refuse rather than repair: a request that is not one
+ * well-formed JSON-RPC object gets an error with the right code, an argument
+ * outside a tool's schema is a tool error naming what the tool takes, and a
+ * value goes out as the store holds it except for the two a model may not have
+ * (secret.h ciphertext, and a document path that resolves outside the index).
  */
-#include <limits.h>
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -22,11 +29,16 @@
 #include "ais.h"
 #include "doc.h"       /* ais_put_value: one record, blob-backed if multi-line */
 #include "find.h"      /* ais_find: the content search behind the find tool    */
+#include "secret.h"    /* secret_is_marked: ciphertext never reaches a model    */
 #include "mcp.h"
 
 #define MCP_REQ_MAX   AIS_LINE_MAX  /* one request line; longer is refused     */
 #define MCP_NODES     256           /* JSON values in one request              */
-#define MCP_ROWS_DEF  200           /* rows a tool returns when none is asked  */
+#define MCP_ROWS_MAX  1000          /* the largest row budget a tool accepts    */
+#define MCP_RECALL_DEF 200          /* rows each tool returns when none is asked */
+#define MCP_TAGS_DEF   200
+#define MCP_FIND_DEF   50
+#define MCP_TL_DEF     20
 #define MCP_PROTOCOL  "2025-06-18"  /* answered unless the client names a known */
                                     /* revision: 2024-11-05, 2025-03-26, this   */
 
@@ -291,11 +303,6 @@ static const char *jtext(const jdoc *d, int i)
     return (i >= 0 && d->v[i].type == JSTR) ? d->v[i].str : NULL;
 }
 
-static long jint(const jdoc *d, int i, long dflt)
-{
-    return (i >= 0 && d->v[i].type == JNUM) ? d->v[i].val : dflt;
-}
-
 /* ---- writing JSON ------------------------------------------------------- */
 
 /* S as the BODY of a JSON string: the escapes RFC 8259 demands and no others,
@@ -417,20 +424,41 @@ static void text_reply(const struct req *q, const char *msg, int is_error)
  * Each streams "one row per line" in the shape the CLI prints, because that is
  * the contract every other front end already follows. */
 
-struct sink { ais *a; long left; long rows; };
+/* WANT rows are emitted; MORE records that one more arrived, which is the only
+ * way to tell a page from the whole answer. Every tool therefore asks the engine
+ * for WANT + 1. */
+struct sink { ais *a; long want, rows; int more; };
+
+/* One stored value as a model may see it. Ciphertext never enters a model's
+ * context, and a "blobs/" value that does not resolve to a file inside the index
+ * is a path that escapes it, so the path itself is withheld. The stored value is
+ * unchanged and find still matches on it: only this text differs. */
+static void out_value(ais *a, const char *value)
+{
+    char path[AIS_PATH_MAX];
+
+    if (secret_is_marked(value))
+        jout(AIS_SECRET_PREFIX " (encrypted, hidden)");
+    else if (strncmp(value, "blobs/", 6) == 0 &&
+             !ais_doc_is_blob(a, value, path, sizeof path))
+        jout("[document path withheld: escapes the index]");
+    else
+        jout(value);
+}
 
 static int on_value(long id, const char *value, void *vp)
 {
     struct sink *s = vp;
     char idbuf[32];
 
-    if (s->left <= 0)
-        return -1;                               /* the caller's row budget */
+    if (s->rows >= s->want) {
+        s->more = 1;                   /* the row past the budget: seen, not sent */
+        return -1;
+    }
     snprintf(idbuf, sizeof idbuf, "%ld|", id);
     jout(idbuf);
-    jout(value);
+    out_value(s->a, value);
     jout("\n");
-    s->left--;
     s->rows++;
     return 0;
 }
@@ -440,7 +468,7 @@ static int on_id(long id, void *vp)
     struct sink *s = vp;
 
     ais_record(s->a, id, on_value, s);
-    return (s->left <= 0) ? -1 : 0;
+    return s->more ? -1 : 0;
 }
 
 static int on_tag(const char *key, long count, void *vp)
@@ -448,13 +476,14 @@ static int on_tag(const char *key, long count, void *vp)
     struct sink *s = vp;
     char cbuf[32];
 
-    if (s->left <= 0)
+    if (s->rows >= s->want) {
+        s->more = 1;
         return -1;
+    }
     snprintf(cbuf, sizeof cbuf, "%ld|", count);
     jout(cbuf);
     jout(key);
     jout("\n");
-    s->left--;
     s->rows++;
     return 0;
 }
@@ -464,17 +493,40 @@ static int on_tl(long id, const char *ts, const char *keys, const char *value, v
     struct sink *s = vp;
     char idbuf[32];
 
-    if (s->left <= 0)
+    if (s->rows >= s->want) {
+        s->more = 1;
         return -1;
+    }
     snprintf(idbuf, sizeof idbuf, "%ld|", id);
     jout(idbuf);
     jout(ts);   jout("|");
     jout(keys); jout("|");
-    jout(value);
+    out_value(s->a, value);
     jout("\n");
-    s->left--;
     s->rows++;
     return 0;
+}
+
+/* One "id|value" line as ais_find printed it, with the value put through
+ * out_value. A line with no '|' goes out as it came. */
+static void out_row(ais *a, char *line)
+{
+    size_t n = strlen(line);
+    char *v;
+
+    while (n > 0 && line[n - 1] == '\n')
+        line[--n] = '\0';
+    v = strchr(line, '|');
+    if (v == NULL) {
+        jout(line);
+        jout("\n");
+        return;
+    }
+    *v++ = '\0';
+    jout(line);
+    jout("|");
+    out_value(a, v);
+    jout("\n");
 }
 
 /* Split S on blanks in place, appending each word to KV. Spelled out rather
@@ -497,84 +549,211 @@ static int split_keys(char *s, char *kv[], int max)
     }
 }
 
+/* The engine folds '|' and control bytes in a key to '_', so a key holding one
+ * is stored under a different name than the one asked for. This server must not
+ * name a key it did not store: it refuses instead. */
+static int key_ok(const char *k)
+{
+    const unsigned char *u = (const unsigned char *)k;
+
+    for (; *u != '\0'; u++)
+        if (*u == '|' || *u < 0x20)
+            return 0;
+    return 1;
+}
+
+enum { KEYS_TOOMANY = -1, KEYS_BADCHAR = -2 };
+
 /* KEYS may arrive as an array of strings or as one space-separated string;
  * either way the words are the keys. The strings point into the request line,
- * which is ours to cut up. Returns how many keys landed in KV. */
-static int keys_arg(const jdoc *d, int node, char *kv[], int max)
+ * which is ours to cut up. KV holds AIS_KEYS_MAX + 1 entries, so the first key
+ * past the cap is seen rather than dropped. Returns how many keys landed in KV,
+ * KEYS_TOOMANY past the cap, or KEYS_BADCHAR with *BAD naming the key the store
+ * cannot hold. */
+static int keys_arg(const jdoc *d, int node, char *kv[], const char **bad)
 {
-    int n = 0, i;
+    int max = AIS_KEYS_MAX + 1, n = 0, i;
 
+    *bad = NULL;
     if (node < 0)
         return 0;
     if (d->v[node].type == JSTR)
-        return split_keys(d->v[node].str, kv, max);
-    if (d->v[node].type != JARR)
-        return 0;
-    for (i = d->v[node].kid; i >= 0 && n < max; i = d->v[i].sib)
-        if (d->v[i].type == JSTR)
-            n += split_keys(d->v[i].str, kv + n, max - n);
+        n = split_keys(d->v[node].str, kv, max);
+    else if (d->v[node].type == JARR)
+        for (i = d->v[node].kid; i >= 0 && n < max; i = d->v[i].sib)
+            if (d->v[i].type == JSTR)
+                n += split_keys(d->v[i].str, kv + n, max - n);
+    if (n > AIS_KEYS_MAX)
+        return KEYS_TOOMANY;
+    for (i = 0; i < n; i++)
+        if (!key_ok(kv[i])) {
+            *bad = kv[i];
+            return KEYS_BADCHAR;
+        }
     return n;
 }
 
-/* A row budget from the arguments. Out of int range it would reach ais_get_page
- * as a wrapped value, and 0 there means UNBOUNDED: the opposite of a limit. */
-static long rows_arg(const jdoc *d, int args, const char *name)
+/* Answer what keys_arg refused. Returns 1 when it answered, 0 when N is a count. */
+static int keys_refused(int n, const char *bad, const struct req *q)
 {
-    long n = jint(d, jget(d, args, name), MCP_ROWS_DEF);
+    char msg[160];
 
-    if (n <= 0)
-        return MCP_ROWS_DEF;
-    return (n > INT_MAX) ? INT_MAX : n;
+    if (n == KEYS_TOOMANY) {
+        snprintf(msg, sizeof msg, "at most %d keys in one call", AIS_KEYS_MAX);
+        text_reply(q, msg, 1);
+        return 1;
+    }
+    if (n == KEYS_BADCHAR) {
+        snprintf(msg, sizeof msg,
+                 "a key cannot hold a newline, a tab, '|' or any other control byte: %s",
+                 bad);
+        text_reply(q, msg, 1);
+        return 1;
+    }
+    return 0;
 }
 
-static void sink_init(struct sink *s, ais *a, long left)
+/* Is WORD one of LIST's blank-separated words? */
+static int word_in(const char *list, const char *word)
 {
-    s->a = a; s->left = left; s->rows = 0;
+    const char *r = list;
+    size_t n = strlen(word);
+
+    while (*r != '\0') {
+        while (*r == ' ')
+            r++;
+        if (strncmp(r, word, n) == 0 && (r[n] == ' ' || r[n] == '\0'))
+            return 1;
+        while (*r != '\0' && *r != ' ')
+            r++;
+    }
+    return 0;
 }
 
-/* An empty result is a fact, not a failure: say so in words, or a model reads
- * an empty block as a broken tool and tries again. A spent budget is the other
- * half of the same problem: unmarked, a page reads as the whole index. */
-static void rows_done(const struct sink *s)
+/* Refuse an argument the tool does not have. Ignored, an invented name reads as
+ * a filter that was applied: timeline with a "since" nobody implements answers
+ * with the whole index and looks filtered. ACCEPTED is the tool's schema, in the
+ * same words. Returns 0, or -1 having answered Q. */
+static int args_ok(const jdoc *d, int args, const struct req *q,
+                   const char *tool, const char *accepted)
+{
+    char msg[200];
+    int i;
+
+    if (args < 0 || d->v[args].type != JOBJ)
+        return 0;
+    for (i = d->v[args].kid; i >= 0; i = d->v[i].sib) {
+        if (d->v[i].key == NULL || word_in(accepted, d->v[i].key))
+            continue;
+        snprintf(msg, sizeof msg, "%s has no argument %s; it takes %s",
+                 tool, d->v[i].key, accepted);
+        text_reply(q, msg, 1);
+        return -1;
+    }
+    return 0;
+}
+
+/* A row budget from the arguments: a JSON integer from 1 to MCP_ROWS_MAX, or
+ * DFLT when the argument is absent. Nothing is clamped. 0 once meant the
+ * default and 1e3 meant 1, and a model cannot tell a rewritten limit from the
+ * one it asked for. Returns 0 and fills OUT, or -1 having answered Q. */
+static int rows_arg(const jdoc *d, int args, const char *name, long dflt,
+                    const struct req *q, long *out)
+{
+    int i = jget(d, args, name);
+    char msg[128];
+
+    *out = dflt;
+    if (i < 0)
+        return 0;
+    if (d->v[i].type == JNUM && d->v[i].isint &&
+        d->v[i].val >= 1 && d->v[i].val <= MCP_ROWS_MAX) {
+        *out = d->v[i].val;
+        return 0;
+    }
+    snprintf(msg, sizeof msg, "%s must be a whole number from 1 to %d, written as a number",
+             name, MCP_ROWS_MAX);
+    text_reply(q, msg, 1);
+    return -1;
+}
+
+static void sink_init(struct sink *s, ais *a, long want)
+{
+    s->a = a; s->want = want; s->rows = 0; s->more = 0;
+}
+
+/* An empty result is a fact, not a failure: say so in words (EMPTY), or a model
+ * reads an empty block as a broken tool and tries again. A spent budget is the
+ * other half of the same problem: unmarked, a page reads as the whole index. */
+static void rows_done(const struct sink *s, const char *empty)
 {
     if (s->rows == 0)
-        jout("no match");
-    else if (s->left == 0)
+        jout(empty);
+    else if (s->more)
         jout("(stopped at the limit; there may be more)\n");
 }
 
 static void tool_recall(ais *a, const jdoc *d, int args, const struct req *q)
 {
-    char *kv[AIS_KEYS_MAX];
-    const char *match;
+    char *kv[AIS_KEYS_MAX + 1];
+    const char *match, *bad;
+    ais_mode mode = AIS_AND;
+    char msg[160];
     struct sink s;
-    int nkeys;
+    long want;
+    int nkeys, mi;
 
-    nkeys = keys_arg(d, jget(d, args, "keys"), kv, AIS_KEYS_MAX);
+    if (args_ok(d, args, q, "recall", "keys match limit") != 0)
+        return;
+    nkeys = keys_arg(d, jget(d, args, "keys"), kv, &bad);
+    if (keys_refused(nkeys, bad, q))
+        return;
     if (nkeys == 0) {
         text_reply(q, "recall needs at least one key", 1);
         return;
     }
-    match = jtext(d, jget(d, args, "match"));
-    sink_init(&s, a, rows_arg(d, args, "limit"));
+    mi = jget(d, args, "match");
+    if (mi >= 0) {
+        match = jtext(d, mi);
+        if (match == NULL) {
+            text_reply(q, "match must be the string all or any", 1);
+            return;
+        }
+        if (strcmp(match, "all") != 0 && strcmp(match, "any") != 0) {
+            snprintf(msg, sizeof msg,
+                     "match %s is neither all (records under every key) nor any (under any of them)",
+                     match);
+            text_reply(q, msg, 1);
+            return;
+        }
+        if (strcmp(match, "any") == 0)
+            mode = AIS_OR;
+    }
+    if (rows_arg(d, args, "limit", MCP_RECALL_DEF, q, &want) != 0)
+        return;
+    sink_init(&s, a, want);
     text_open(q);
-    ais_get_page(a, kv, nkeys, (match != NULL && strcmp(match, "any") == 0) ? AIS_OR : AIS_AND,
-                 0, (int)s.left, on_id, &s);
-    rows_done(&s);
+    ais_get_page(a, kv, nkeys, mode, 0, (int)(want + 1), on_id, &s);
+    rows_done(&s, "no match");
     text_close(0);
 }
 
-static void tool_find(ais *a, const jdoc *d, int args, const struct req *q)
+static AIS_NOINLINE void tool_find(ais *a, const jdoc *d, int args, const struct req *q)
 {
     const char *text = jtext(d, jget(d, args, "text"));
-    char line[AIS_LINE_MAX];
-    long left, want;
+    char line[AIS_LINE_MAX + 40];   /* a whole "id|value" line, never a fragment */
+    long want, rows = 0;
+    int more = 0;
     FILE *tmp;
 
+    if (args_ok(d, args, q, "find", "text limit") != 0)
+        return;
     if (text == NULL || *text == '\0') {
         text_reply(q, "find needs text", 1);
         return;
     }
+    if (rows_arg(d, args, "limit", MCP_FIND_DEF, q, &want) != 0)
+        return;
     /* ais_find prints to a stream, so it lands in a temporary one and is
      * escaped back out: opened BEFORE the reply, since a failure here still
      * has somewhere to go. */
@@ -583,18 +762,20 @@ static void tool_find(ais *a, const jdoc *d, int args, const struct req *q)
         text_reply(q, "find: no temporary file", 1);
         return;
     }
-    want = rows_arg(d, args, "limit");
-    left = want;
     ais_find(a, text, tmp);
     rewind(tmp);
     text_open(q);
-    while (left > 0 && fgets(line, sizeof line, tmp) != NULL) {
-        jout(line);
-        left--;
+    while (fgets(line, sizeof line, tmp) != NULL) {
+        if (rows >= want) {
+            more = 1;
+            break;
+        }
+        out_row(a, line);
+        rows++;
     }
-    if (left == want)
+    if (rows == 0)
         jout("no match");
-    else if (left == 0)
+    else if (more)
         jout("(stopped at the limit; there may be more)\n");
     text_close(0);
     fclose(tmp);
@@ -603,48 +784,118 @@ static void tool_find(ais *a, const jdoc *d, int args, const struct req *q)
 static void tool_tags(ais *a, const jdoc *d, int args, const struct req *q)
 {
     struct sink s;
+    long want;
 
-    sink_init(&s, a, rows_arg(d, args, "limit"));
+    if (args_ok(d, args, q, "tags", "limit") != 0)
+        return;
+    if (rows_arg(d, args, "limit", MCP_TAGS_DEF, q, &want) != 0)
+        return;
+    sink_init(&s, a, want);
     text_open(q);
-    ais_tags_page(a, 0, NULL, (int)s.left, on_tag, &s);
-    if (s.rows == 0)
-        jout("the index has no keys yet");
+    ais_tags_page(a, 0, NULL, (int)(want + 1), on_tag, &s);
+    rows_done(&s, "the index has no keys yet");
     text_close(0);
 }
 
 static void tool_timeline(ais *a, const jdoc *d, int args, const struct req *q)
 {
     struct sink s;
+    long want;
 
-    /* Named count here and limit on every other tool. Take either, rather than
-     * handing back 200 rows to a model that guessed the wrong word. */
-    sink_init(&s, a, rows_arg(d, args,
-                              jget(d, args, "count") >= 0 ? "count" : "limit"));
+    if (args_ok(d, args, q, "timeline", "count limit") != 0)
+        return;
+    /* Named count here and limit on every other tool. Both are in the schema and
+     * both are taken, rather than handing back a default to a model that guessed
+     * the wrong word. */
+    if (rows_arg(d, args, jget(d, args, "count") >= 0 ? "count" : "limit",
+                 MCP_TL_DEF, q, &want) != 0)
+        return;
+    sink_init(&s, a, want);
     text_open(q);
-    ais_timeline(a, 0, (int)s.left, NULL, NULL, on_tl, &s);
-    rows_done(&s);
+    ais_timeline(a, 0, (int)(want + 1), NULL, NULL, on_tl, &s);
+    /* Timeline has no filter to miss with: nothing back means nothing is here. */
+    rows_done(&s, "the index is empty");
     text_close(0);
 }
 
-static void tool_save(ais *a, const jdoc *d, int args, const struct req *q, int allow_write)
+/* The keys a record carries after the save, so the reply can name them: the
+ * newest timeline row below ID + 1 is ID itself. */
+struct keysink { long id; char *buf; size_t sz; int got; };
+
+static int on_keys(long id, const char *ts, const char *keys, const char *value, void *vp)
 {
-    const char *value = jtext(d, jget(d, args, "value"));
+    struct keysink *k = vp;
+
+    (void)ts; (void)value;
+    if (id == k->id) {
+        snprintf(k->buf, k->sz, "%s", keys);
+        k->got = 1;
+    }
+    return -1;                                        /* one row is the whole answer */
+}
+
+/* The document a multi-line save just made: the record's "blobs/" value. */
+struct blobsink { char *buf; size_t sz; int got; };
+
+static int on_blob(long id, const char *value, void *vp)
+{
+    struct blobsink *b = vp;
+
+    (void)id;
+    if (!b->got && strncmp(value, "blobs/", 6) == 0) {
+        snprintf(b->buf, b->sz, "%s", value);
+        b->got = 1;
+    }
+    return 0;
+}
+
+static AIS_NOINLINE void tool_save(ais *a, const jdoc *d, int args, const struct req *q,
+                                   int allow_write)
+{
+    const char *value = jtext(d, jget(d, args, "value")), *bad;
     char keys[AIS_LINE_MAX];
-    char *kv[AIS_KEYS_MAX];
-    char msg[64];
-    size_t len = 0;
-    int nkeys, i;
-    long id;
+    char all[AIS_KEYS_MAX * (AIS_KEY_MAX + 1)];
+    char blob[AIS_PATH_MAX];
+    char *kv[AIS_KEYS_MAX + 1];
+    struct keysink ks;
+    struct blobsink bs;
+    char msg[96];
+    size_t len = 0, n;
+    int nkeys, i, existing;
+    long id, before;
 
     if (!allow_write) {
         text_reply(q, "this index is read-only: restart the server as 'ais --mcp rw' to save", 1);
         return;
     }
+    if (args_ok(d, args, q, "save", "value keys") != 0)
+        return;
     if (value == NULL || *value == '\0') {
         text_reply(q, "save needs a value", 1);
         return;
     }
-    nkeys = keys_arg(d, jget(d, args, "keys"), kv, AIS_KEYS_MAX);
+    /* ais_put_value trims trailing blanks and refuses what is left of a value
+     * that was nothing else, with a -1 and no word for it. Say the word here: a
+     * lone CR reaching the model as "save failed" is a failure it cannot act on. */
+    n = strlen(value);
+    while (n > 0 && (value[n - 1] == '\n' || value[n - 1] == '\r' ||
+                     value[n - 1] == ' '  || value[n - 1] == '\t'))
+        n--;
+    if (n == 0) {
+        text_reply(q, "save needs a value with something in it: this one is blank space only", 1);
+        return;
+    }
+    /* Both prefixes are the index writing to itself: the secret marker and the
+     * document path. A model that could plant either could make a value the
+     * front ends read as a file of ais's own making. */
+    if (strncmp(value, AIS_SECRET_PREFIX, sizeof AIS_SECRET_PREFIX - 1) == 0 ||
+        strncmp(value, "blobs/", 6) == 0) {
+        text_reply(q, "reserved prefix; ais writes these itself", 1);
+        return;
+    }
+    nkeys = keys_arg(d, jget(d, args, "keys"), kv, &bad);
+    if (keys_refused(nkeys, bad, q))
+        return;
     if (nkeys == 0) {
         /* A record filed under nothing cannot be recalled by any key, ever.
          * Refusing here teaches at the moment the model is about to get it
@@ -654,27 +905,53 @@ static void tool_save(ais *a, const jdoc *d, int args, const struct req *q, int 
         return;
     }
     for (i = 0; i < nkeys; i++) {
-        size_t n = strlen(kv[i]);
-        if (len + n + 2 > sizeof keys)
+        size_t klen = strlen(kv[i]);
+        if (len + klen + 2 > sizeof keys)
             break;                                  /* keep what fits, as a put does */
         if (len > 0)
             keys[len++] = ' ';
-        memcpy(keys + len, kv[i], n);
-        len += n;
+        memcpy(keys + len, kv[i], klen);
+        len += klen;
     }
     keys[len] = '\0';
+    /* A value names ONE record, so a put of a value already stored ADDS the keys
+     * to the record holding it. The id it comes back with is then below the id
+     * the next new record would take, which is how the two are told apart
+     * without a second pass over the store. */
+    before = a->next_id;
     id = ais_put_value(a, keys, value);
     if (id < 0) {
-        text_reply(q, "save failed", 1);
+        text_reply(q, "save failed: the index refused this value", 1);
         return;
     }
+    existing = (id < before);
+    bs.buf = blob; bs.sz = sizeof blob; bs.got = 0;
+    if (strchr(value, '\n') != NULL)
+        ais_record(a, id, on_blob, &bs);   /* multi-line: the engine wrote a document */
+    ks.id = id; ks.buf = all; ks.sz = sizeof all; ks.got = 0;
+    if (existing)
+        ais_timeline(a, id + 1, 1, NULL, NULL, on_keys, &ks);
+
     /* Name the keys back. The user said "file it under work ssh", the model may
      * have heard "work", and this line is the only place that difference shows
      * before the record is lost to the wrong word. */
-    snprintf(msg, sizeof msg, "saved as record %ld under ", id);
     text_open(q);
-    jout(msg);
-    jout(keys);
+    if (existing) {
+        snprintf(msg, sizeof msg, " to existing record %ld, now under ", id);
+        jout("added ");
+        jout(keys);
+        jout(msg);
+        jout(ks.got ? all : keys);
+    } else {
+        snprintf(msg, sizeof msg, "saved as record %ld under ", id);
+        jout(msg);
+        jout(keys);
+    }
+    if (bs.got) {
+        jout(" as document ");
+        jout(blob);
+        jout(" (find does not search inside documents)");
+    }
     text_close(0);
 }
 
@@ -731,32 +1008,37 @@ static const char TOOLS[] =
     "Two keys under match all return only records filed under BOTH, so try match any before "
     "reporting that they have nothing. "
     "A value starting with 'blobs/' is a document file, named relative to the index directory "
-    "given above. A value starting with 'aisc:' is an encrypted secret and stays opaque here."
+    "given above; one that does not resolve inside that directory comes back withheld. "
+    "An encrypted value is never handed over: it reads 'aisc: (encrypted, hidden)'."
     "\",\"inputSchema\":{\"type\":\"object\",\"properties\":{"
     "\"keys\":{\"type\":\"array\",\"items\":{\"type\":\"string\"},\"description\":\"the keys to look under\"},"
     "\"match\":{\"type\":\"string\",\"enum\":[\"all\",\"any\"],\"description\":\"all = intersection (default), any = union\"},"
-    "\"limit\":{\"type\":\"integer\",\"description\":\"maximum rows (default 200)\"}},"
+    "\"limit\":{\"type\":\"integer\",\"description\":\"maximum rows, a whole number from "
+    "1 to 1000 (default 200)\"}},"
     "\"required\":[\"keys\"]}},"
 "{\"name\":\"find\",\"description\":\""
     "Search the stored values themselves for a substring, case-insensitive. "
     "Use when the user's key is unknown; recall by key is cheaper and exact. "
-    "A document's stored value is its filename, so this does not read inside 'blobs/' files. "
+    "A document's stored value is its filename, so this does not read inside 'blobs/' files, "
+    "and an encrypted value matches on its ciphertext but reads 'aisc: (encrypted, hidden)'. "
     "Returns one 'id|value' per line."
     "\",\"inputSchema\":{\"type\":\"object\",\"properties\":{"
     "\"text\":{\"type\":\"string\",\"description\":\"substring to look for\"},"
-    "\"limit\":{\"type\":\"integer\",\"description\":\"maximum rows (default 200)\"}},"
+    "\"limit\":{\"type\":\"integer\",\"description\":\"maximum rows, a whole number from "
+    "1 to 1000 (default 50)\"}},"
     "\"required\":[\"text\"]}},"
 "{\"name\":\"tags\",\"description\":\""
     "List the keys this index actually uses, busiest first, as 'count|key' per line. "
     "The cheapest way to learn the user's vocabulary before recalling."
     "\",\"inputSchema\":{\"type\":\"object\",\"properties\":{"
-    "\"limit\":{\"type\":\"integer\",\"description\":\"maximum keys (default 200)\"}}}},"
+    "\"limit\":{\"type\":\"integer\",\"description\":\"maximum keys, a whole number from "
+    "1 to 1000 (default 200)\"}}}},"
 "{\"name\":\"timeline\",\"description\":\""
     "The most recently saved records, newest first, as 'id|timestamp|keys|value' per line. "
     "Answers 'what did I save lately', and is the only reply that shows a record's keys."
     "\",\"inputSchema\":{\"type\":\"object\",\"properties\":{"
-    "\"count\":{\"type\":\"integer\",\"description\":\"how many records (default 200; "
-    "limit means the same)\"}}}}";
+    "\"count\":{\"type\":\"integer\",\"description\":\"how many records, a whole number "
+    "from 1 to 1000 (default 20)\"}}}}";
 
 static const char TOOL_SAVE[] =
 ",{\"name\":\"save\",\"description\":\""
