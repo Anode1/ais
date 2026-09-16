@@ -966,33 +966,44 @@ static AIS_NOINLINE void tool_save(ais *a, const jdoc *d, int args, const struct
  * a vocabulary on their behalf files their things under the average of
  * everyone's words, which is the thing this index exists not to be. When they
  * have not said what to file something under, ASK. */
-static const char INSTRUCTIONS[] =
+static const char INSTR_INDEX[] =
     "ais is this person's own associative index: things they filed under their own words, "
     "on their own disk, in plain text.\n"
-    "\n"
+    "\n";
+
+static const char INSTR_SAVE[] =
     "When they say save, keep, remember, note, add to memory, add to the index or put it in "
     "ais, call save. If they named the keys ('save this under work ssh'), those words are the "
     "keys. If they did not, ASK which keys to file it under, say that several are separated by "
     "spaces, and offer what tags already lists. Do not invent a vocabulary for them, and do not "
     "file anything under a key they did not choose. Ask for as many keys as they want to give: "
-    "each one is another way back to it.\n"
+    "each one is another way back to it.";
+
+/* Read-only is the default, and it takes the save paragraph's PLACE. Appended
+ * instead, it left the model told to call save and then told there is no save,
+ * and a model reading both will either claim it saved something or reach for a
+ * file of its own. */
+static const char INSTR_NOSAVE[] =
+    "This server is read-only and has no save tool. When they say save, keep, remember, note, "
+    "add to memory or put it in ais, tell them it was started without saving and that "
+    "restarting it as 'ais --mcp rw' turns it on. Do not offer to remember it yourself.";
+
+static const char INSTR_RECALL[] =
+    "\n"
     "\n"
     "When they ask what they saved, or name words that sound like their own filing ('what do I "
     "have on venice', 'my ssh tunnel' is recall with the keys ssh tunnel), call recall first. "
     "Call find only when recall answers nothing: recall is an exact lookup on their keys, find "
-    "is a substring search of the values. For 'what did I save lately' call timeline, which is "
-    "also the only reply that shows a record's keys.\n"
+    "is a substring search of the values. Two keys under match all return only records filed "
+    "under BOTH, so try match any before reporting that they have nothing. For 'what did I save "
+    "lately' call timeline with a small count. It counts back from the newest and has no date "
+    "filter, so a question about a particular week means asking for enough records and reading "
+    "the timestamps. It is also the only reply that shows a record's keys.\n"
     "\n"
-    "Recall is exact, not fuzzy. Nothing back means nothing is filed under those keys, which is "
-    "an answer rather than a failure: say so, and offer to search the values or list the keys, "
-    "instead of guessing at near misses. Keys fold case, so there is no point retrying one in "
-    "another case.";
-
-/* Read-only is the default, and a model told to call a tool that is not in the
- * list will either claim it saved something or reach for a file of its own. */
-static const char INSTRUCTIONS_RO[] =
-    "\n\nThis server is read-only and has no save tool. If they ask to save something, say "
-    "it was started without saving, and that 'ais --mcp rw' turns it on.";
+    "Recall is exact, not fuzzy. Before giving that answer, retry with match any, then call tags "
+    "to see the words they use, which are often a singular or a short form of the word you tried. "
+    "Then say plainly that nothing is filed under those keys, and offer to search the values "
+    "with find.";
 
 /* ---- the tool list ------------------------------------------------------
  * Written out rather than generated: the descriptions are what a model reads
@@ -1005,8 +1016,6 @@ static const char TOOLS[] =
     "Returns one 'id|value' per line. "
     "Keys are the user's vocabulary, not a fixed namespace: call tags first if you do not know them, "
     "and keys fold case. A wrong key returns nothing rather than something plausible. "
-    "Two keys under match all return only records filed under BOTH, so try match any before "
-    "reporting that they have nothing. "
     "A value starting with 'blobs/' is a document file, named relative to the index directory "
     "given above; one that does not resolve inside that directory comes back withheld. "
     "An encrypted value is never handed over: it reads 'aisc: (encrypted, hidden)'."
@@ -1029,7 +1038,9 @@ static const char TOOLS[] =
     "\"required\":[\"text\"]}},"
 "{\"name\":\"tags\",\"description\":\""
     "List the keys this index actually uses, busiest first, as 'count|key' per line. "
-    "The cheapest way to learn the user's vocabulary before recalling."
+    "The cheapest way to learn the user's vocabulary before recalling. "
+    "The default 200 is the busiest 200 and a large index has more: raise limit before "
+    "concluding a key is absent."
     "\",\"inputSchema\":{\"type\":\"object\",\"properties\":{"
     "\"limit\":{\"type\":\"integer\",\"description\":\"maximum keys, a whole number from "
     "1 to 1000 (default 200)\"}}}},"
@@ -1038,13 +1049,17 @@ static const char TOOLS[] =
     "Answers 'what did I save lately', and is the only reply that shows a record's keys."
     "\",\"inputSchema\":{\"type\":\"object\",\"properties\":{"
     "\"count\":{\"type\":\"integer\",\"description\":\"how many records, a whole number "
-    "from 1 to 1000 (default 20)\"}}}}";
+    "from 1 to 1000 (default 20)\"},"
+    "\"limit\":{\"type\":\"integer\",\"description\":\"the same as count; either name "
+    "is taken\"}}}}";
 
 static const char TOOL_SAVE[] =
 ",{\"name\":\"save\",\"description\":\""
     "File a value under keys, so it can be recalled by those keys later. This is what "
     "'save this', 'remember this', 'add it to my memory' and 'put it in ais' mean. "
-    "Save a reference (a link, a path, a command, a short note), not a document body. "
+    "Save a reference (a link, a path, a command, a short note) on one line. A value "
+    "containing a newline is written to a file inside the index and the record's value becomes "
+    "that file's path, so recall returns the path and find cannot search the text. "
     "If the user did not name the keys, ASK which keys to file it under, several separated "
     "by spaces, offering what tags already lists. Never invent a vocabulary for them."
     "\",\"inputSchema\":{\"type\":\"object\",\"properties\":{"
@@ -1123,9 +1138,9 @@ static void handle(ais *a, int allow_write, char *line)
               stdout);
         jout(ais_version());
         fputs("\"},\"instructions\":\"", stdout);
-        jout(INSTRUCTIONS);
-        if (!allow_write)
-            jout(INSTRUCTIONS_RO);
+        jout(INSTR_INDEX);
+        jout(allow_write ? INSTR_SAVE : INSTR_NOSAVE);
+        jout(INSTR_RECALL);
         /* Which index, in words. A repo-local .ais/ and the personal ~/.ais are
          * the same protocol, and an agent that cannot tell them apart reports a
          * project's notes as the user's own memory. */
