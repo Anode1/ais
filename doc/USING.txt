@@ -9,7 +9,8 @@ keywords. Think of a private search box over your own stuff.
 OPEN IT
 -------
 
-  Windows   Double-click  ais-web.bat
+  Windows   Run the Linux build under WSL and type  ais --serve  there; the
+            page opens in your Windows browser (README, Download)
   macOS     Double-click  ais-web.command
             (the first time: right-click it, choose Open, and confirm once)
   Linux     Double-click  ais-web.desktop , or type  ais --serve  in a terminal
@@ -35,7 +36,7 @@ The everyday actions are recall and add; you can also fix or remove an item.
   remove    actions. "Edit value" rewrites the item's text in place; the item
             keeps its place in the timeline and its keywords, and the change
             reaches your other devices the same way. "Edit tags" adds or
-            removes keywords on that one item -- type a keyword to add it, or
+            removes keywords on that one item: type a keyword to add it, or
             -keyword  to remove it; the item itself stays. "Delete" removes
             the whole item.
 
@@ -65,7 +66,7 @@ exact location. They are yours: read them, copy them, or delete them (BACKING
 UP, below). Nothing is ever uploaded anywhere.
 
 
-AIS writes no log when all is well -- that is the rule. If it hits a real error
+AIS writes no log when all is well: that is the rule. If it hits a real error
 it leaves a single file (Windows GUI: %LOCALAPPDATA%\AIS\ais-error.log); its
 mere existence means a genuine problem, not a typo, so send it along. On Linux
 and macOS, run AIS from a terminal to see any error.

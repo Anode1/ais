@@ -5,8 +5,8 @@ buffers, no heap in the data path (the `keys` listing is the one bounded malloc;
 see ais.c). Peak memory is a function of these sizes, never of the data.
 
 Sizes (compile-time, c/common.h)
-  AIS_LINE_MAX   65536   one store line "id|ts|keys|value" -- so a single VALUE,
-                         or the whole keys field, maxes near 64 KB.
+  AIS_LINE_MAX   65536   one store line "id|ts|keys|value": a single VALUE, or
+                         the whole keys field, maxes near 64 KB.
   AIS_KEY_MAX      512   buffer for one encoded key (also config keys and other
                          encoded names that never become a filename).
   AIS_KEY_NAME_MAX 255   the longest key that can be FILED: a posting is the file
@@ -19,19 +19,22 @@ Sizes (compile-time, c/common.h)
   AIS_PATH_MAX    4096   any built path (dir + "idx/" + prefix + key).
   AIS_OFF_WIDTH     12   "off" entry = 11-digit (offset+1): the store is capped
                          near 90 GB before offsets overflow (raise to lift it).
+  AIS_TL_MAX     10000   records in one --timeline page (default 500); a larger
+                         N is cut to it, and a front end pages for older ones.
 
 Value rules
   - A value is ONE line: no newline, and no '|' (the reserved field delimiter).
   - Multi-line or large text -> `ais --doc` (saved as a blob file under blobs/;
     only its relative path is stored as the value).
-  - `find` searches VALUES only, not blob CONTENT -- blobs are recalled by keys.
+  - `find` searches VALUES only, not blob CONTENT: blobs are recalled by keys.
 
 Keys
   - At most AIS_KEY_NAME_MAX (255) bytes: the key is the posting's filename.
     An index written before that was enforced may hold a longer one; --compact
     skips it with a warning and the record keeps its other keys.
-  - Encoded = lowercase + whitespace -> '_'. Case-folding is ASCII-only, so a
-    non-ASCII key (Cyrillic, etc.) must already be lowercase. UTF-8 is stored
+  - Encoded = lowercase; whitespace, control bytes, `|`, `/` and `\` -> '_'.
+    Case-folding is ASCII-only, so a non-ASCII key (Cyrillic, etc.) must already
+    be lowercase. UTF-8 is stored
     byte-transparently. The shard prefix is the first CHARACTER (two characters
     for an ASCII key), never a partial UTF-8 sequence: a truncated one is not a
     legal filename on APFS, so on macOS and iOS the posting could not be written
@@ -51,12 +54,12 @@ Concurrency / scale
     (a pre-"off" index falls back to a scan until you compact).
 
 Files (in the index directory)
-  store is the source of truth. idx/ off multi are DERIVED -- delete any of
+  store is the source of truth. idx/ off multi are DERIVED: delete any of
   them and `compact` rebuilds it. blobs/ holds documents and is REAL DATA (not
   rebuildable). tomb, ktomb, katt and edits are REAL DATA too: they are the
   record of what was DELETED, detached, re-attached and EDITED, and nothing can
   rebuild them from the store, because a deleted record is not in the store.
-  Removing tomb resurrects everything ever deleted -- and the next sync pushes
+  Removing tomb resurrects everything ever deleted, and the next sync pushes
   those records back to every other device; removing edits lets a stale copy of
   an edited value, arriving from a backup, put the old text back. next_id is the
   id counter; lock is the writer flock. edits grows by one line per in-place

@@ -120,5 +120,6 @@ That is the address given to the app stores, so it is the one to check.
 For questions about this policy or the app, open an issue at the project
 repository: https://github.com/Anode1/ais
 
-AIS is free and open-source software (GPLv2). Its full source, including every
-line of data handling described above, is publicly auditable at the repository.
+AIS is free and open-source software: new code under your choice of GNU GPL v2
+or later or MIT. Its full source, including every line of data handling described
+above, is publicly auditable at the repository.

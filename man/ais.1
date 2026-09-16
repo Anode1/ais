@@ -1,4 +1,4 @@
-.TH AIS 1 "August 2026" "ais @VERSION@" "User Commands"
+.TH AIS 1 "September 2026" "ais @VERSION@" "User Commands"
 .SH NAME
 ais \- associative index: save values under keys, get them back by keys
 .SH SYNOPSIS
@@ -136,11 +136,11 @@ marker. On a later recall at a terminal,
 detects the marker, prompts for the passphrase, and writes the cleartext to
 .IR /dev/tty ;
 when output is piped or redirected the marker is passed through opaque, so
-.BR \-\-dump ", " \-\-find ", and sync carry it unchanged. No " \-d " flag is needed \(em"
+.BR \-\-dump ", " \-\-find ", and sync carry it unchanged. No " \-d " flag is needed:"
 decryption is automatic and interactive-only. With
 .B \-\-doc
 the whole document is encrypted to a blob file
-.RI ( blobs/<ts>.aisc )
+.RI ( blobs/<timestamp>~<8 " hex>" .aisc )
 and the record stores an
 .B aisc:@<path>
 reference; deleting such a record
@@ -151,7 +151,7 @@ best-effort shreds the blob. Requires the crypto module
 .TP
 .BR \-y ", " \-\-yes
 Assume yes for
-.BR \-\-del / \-\-del-under / \-\-untag / \-\-compact
+.BR \-\-del / \-\-del-under / \-\-untag / \-\-compact / \-\-dedupe-docs
 (no prompt). With
 .B \-\-sync-folder
 it also accepts a remembered folder that now holds no device bundles (see there).
@@ -226,7 +226,7 @@ A detached key is hidden at once and removed from the store by
 Delete record ID.
 .TP
 .B \-\-del-under \fIKEY\fR
-Delete every record filed under KEY. The RECORDS go, not just the tag \(em and
+Delete every record filed under KEY. The RECORDS go, not just the tag, and
 each disappears from every other key it is filed under too. Before asking, it
 lists what would be destroyed and points at
 .B \-\-untag
@@ -253,25 +253,25 @@ Only with
 Also forget WHAT was deleted: each deletion keeps working on this device, but
 stops being something another device can be told about, and stops being something
 anyone holding your files could test a guess against. Sync your other devices
-first \(em one that has not seen these deletions can send those records back.
+first: one that has not seen these deletions can send those records back.
 .TP
 .B \-\-untag \fIKEY\fR
 Remove the tag KEY, keeping every record: each keeps its id, its value and its
 other keys, and simply stops being filed under KEY. This is what people usually
-mean by "delete a key". Reversible \(em re-attaching the key restores it \(em and
+mean by "delete a key". Reversible: re-attaching the key restores it, and
 it propagates to synced peers. A record whose only key was KEY stays in the
 index, reachable by
 .BR \-\-find " and " \-\-timeline .
 .TP
 .B \-\-doc \fIKEY ...\fR
 Save standard input as a document: write it to
-.I <index>/blobs/<timestamp>.txt
+.I <index>/blobs/<timestamp>~<8 hex>.txt
 and save that relative path as a value under the keys. For multi-line or large
 text. Blobs are named by local time, so
 .I ls blobs/
 lists your documents in chronological order. Deleting the record deletes that
 file: the index wrote it, so the index takes it away. A value that merely names
-a file of yours elsewhere on disk, or a URL, is only a reference \(em deleting
+a file of yours elsewhere on disk, or a URL, is only a reference, and deleting
 the record never touches what it points at.
 .TP
 .B \-\-dump
@@ -300,7 +300,8 @@ Print counts of records, keys, and deleted records.
 .B \-\-timeline \fR[\fIN\fR]
 The
 .I N
-most recent records, newest first (default 500); a GUI pages through older ones on demand.
+most recent records, newest first (default 500, at most 10000 in one page); a
+GUI pages through older ones on demand.
 .TP
 .B \-\-tags
 Every key with how many records use it, busiest first.
@@ -313,14 +314,17 @@ to drop those too.
 .TP
 .B \-\-import \fR[\fIURL\fR]
 With no argument, read
-.IR keys | value
+.I KEY ... \-v VALUE
 lines (or an
 .B \-\-export
-merge stream) from standard input and merge each (blank lines and #-comments are
-skipped; a
+merge stream) from standard input and merge each. A pre-v2
+.IR keys | value
+line still reads, with a warning naming the current grammar. Blank lines and
+#-comments are skipped; a
 .B \-\-dump
 line reads back as a plain record, links and documents travel only by
-.BR \-\-export ). Given a
+.BR \-\-export .
+Given a
 .I URL
 .RB ( http://HOST:PORT ,
 from a peer's
@@ -333,9 +337,9 @@ token or any tampering is rejected before anything is merged.
 .B \-\-import-interactively
 Like
 .BR \-\-import ,
-but confirm each
+but confirm each record first: it is shown as
 .IR keys | value
-record first: it is shown and a
+and a
 .RB [ y / N ]
 answer is read from the terminal
 .RI ( /dev/tty ,
@@ -348,12 +352,12 @@ takes the record;
 the default and a bare Enter, skips it. Records arrive on standard input and the
 answers on the terminal, so the two streams stay separate. For adopting selected
 records from another person's shared index, or a curated
-.IR keys | value
+.I KEY ... \-v VALUE
 file (project knowledge across a workspace), without pulling in everything:
 .RS
 .PP
 .nf
-ais \-f OTHER \-\-dump | sed 's/^[0-9]*|//' | ais \-\-import-interactively
+ais \-f OTHER \-\-dump | ais \-\-import-interactively
 ais \-\-import-interactively < project-knowledge.txt
 .fi
 .RE
@@ -379,8 +383,8 @@ Trashed notes are skipped. A .zip is refused: extract it first.
 Two-way LAN sync. This form hosts one peer (prints a URL, a one-time token, and a QR); the
 other device joins with
 .B \-\-sync \fIURL\fR \-\-token \fITOKEN\fR\fR.
-Both converge in one round \(em a tombstone-union, timestamp last-writer-wins merge, blobs
-included \(em unlike the one-shot
+Both converge in one round, a tombstone-union, timestamp last-writer-wins merge
+with blobs included, unlike the one-shot
 .B \-\-export \-\-serve
 copy.
 .TP
@@ -575,14 +579,22 @@ Real data, not rebuildable.
 When a key was attached to a record that already existed, so a re-attach can
 out-rank an earlier detach. Real data, not rebuildable.
 .TP
-.I blobs/<timestamp>.txt
+.I edits
+In-place value edits: one line per edit, carrying the replacement text, so the
+edit reaches every device. Real data, not rebuildable.
+.TP
+.I version
+The on-disk format version.
+.TP
+.I blobs/<timestamp>~<8 hex>.txt
 Documents saved by
 .B \-\-doc
 (\fB.aisc\fR when encrypted; real data, not rebuildable).
 .PP
 Only
 .IR idx/ ,
-.I off
+.IR off ,
+.I multi
 and
 .I next_id
 are rebuildable from

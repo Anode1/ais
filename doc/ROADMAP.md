@@ -15,7 +15,7 @@ Help is welcome: open an issue to claim a piece.
 - **Documents as blobs** (`--doc`): a multi-line value is stored out-of-line under
   `blobs/` and recalled as its content.
 - **Encrypted secrets** (`-e`): store a password or token encrypted inline (an opaque
-  `aisc:` value; single-file ChaCha20-Poly1305 via monocypher in `c/crypto/`). Recall
+  `aisc:` value; single-file XChaCha20-Poly1305 via monocypher in `c/crypto/`). Recall
   decrypts interactively; secrets are never emitted in plaintext by `--dump`.
 - **Built-in LAN sync** (`c/sync.c`): one-way encrypted transfer (`--export --serve` /
   `--import <url> --token`) and two-way device sync (`--sync --serve` / `--sync <url>

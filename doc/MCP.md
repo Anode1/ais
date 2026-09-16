@@ -43,9 +43,10 @@ you opened it in that directory on purpose.
 
 `ais --init` in a repository gives that project its own index. What an agent
 files there sits beside the code as plain text, readable in a diff, and separate
-from your personal index. The server names the index it opened, in the
-instructions it hands the client on connect, because a repo-local `.ais/` and
-your personal `~/.ais` speak the same protocol and otherwise look alike.
+from your personal index. The server names the index it opened, by its absolute
+path, in the instructions it hands the client on connect, because a repo-local
+`.ais/` and your personal `~/.ais` speak the same protocol and otherwise look
+alike.
 
 ## The tools
 
@@ -62,19 +63,20 @@ number past 1000 is a tool error naming the range: nothing is clamped, because a
 model cannot tell a rewritten limit from the one it asked for. An argument no
 tool has is refused naming the ones it takes, since an invented `since` on
 `timeline` would otherwise be answered with the whole index and read as filtered.
-`match` is `all` or `any` and nothing else.
+`match` is `all` or `any` and nothing else. Keys fold case over ASCII only, in
+recall as in find, so `café` and `CAFÉ` are two different keys.
 
 ## What comes back
 
 Rows are `id|value`, the shape recall prints at the terminal; `timeline` adds
-the id that `ais --timeline` omits and joins its fields with `|`. An empty
-result is words rather than an empty block, because a model reads an empty
-block as a broken tool: `no match` from
-`recall` and `find`, `the index has no keys yet` from `tags`, `the index is
-empty` from `timeline`, which are three different facts. A reply that spent its
-budget ends with `(stopped at the limit; there may be more)`, and every tool
-marks it, and only when one more row exists, so a page is never read as the whole
-index.
+the id that `ais --timeline` omits and joins its fields with `|`. A document
+record comes back as its `blobs/` path, where recall at the terminal prints the
+body itself. An empty result is words rather than an empty block, because a
+model reads an empty block as a broken tool: `no match` from `recall` and
+`find`, `the index has no keys yet` from `tags`, `the index is empty` from
+`timeline`, which are three different facts. A reply that spent its budget ends
+with `(stopped at the limit; there may be more)`, and every tool marks it, and
+only when one more row exists, so a page is never read as the whole index.
 
 ## The keys stay yours
 
@@ -105,21 +107,36 @@ restarting as `ais --mcp rw` turns one on.
 There is no delete, no re-tag, no edit, at any setting. Those are the operations
 whose damage you cannot see happening, and the CLI is two keystrokes away.
 
-`save` itself refuses five things:
+`save` itself refuses seven things, each in the words the model gets back:
 
-| Refused | Because |
+| The refusal | Because |
 | --- | --- |
-| no keys | a record filed under nothing cannot be recalled by any key, ever |
-| a blank value | a lone space or newline would file an empty record |
-| a value starting with `aisc:` or `blobs/` | both prefixes are the index writing to itself, a secret marker and a document path, and a model that could plant either could make a value the front ends read as a file of ais's own making |
-| a key holding `\|`, a tab, a newline or any other control byte | the store is line-oriented and the key column is one line of it |
-| more than 64 keys in one call | the engine's width for one record |
+| `save needs at least one key: ask which keys to file it under, several separated by spaces, and offer the keys tags already lists` | a record filed under nothing cannot be recalled by any key, ever |
+| `save needs a value with something in it: this one is blank space only` | blanks are trimmed, and what is left of such a value is nothing |
+| `reserved prefix; ais writes these itself` | a value starting with `aisc:` or `blobs/` is the index writing to itself, a secret marker and a document path, and a model that could plant either could make a value the front ends read as a file of ais's own making |
+| `the index would file that key under another name: a key cannot hold '/', '\', '\|', a tab or any other control byte, or begin with '.': KEY` | the key is both a field of a line-oriented store and the name of its posting file, so the index would have to file it under another spelling |
+| `a key cannot begin with '-': ais reads that as detaching the key, and files nothing under it: KEY` | the CLI's token walk reads a leading `-` as a detach, so that key would file nothing at all |
+| `a key is at most 255 bytes; that one is 256: KEY` | the key is the posting's filename, and 255 is POSIX `NAME_MAX` |
+| `at most 64 keys in one call` | the engine's width for one record |
 
-Two saves succeed in a shape worth knowing. A value the index already holds is
-not stored twice: the keys are added to the record that holds it, and the reply
-says `added KEYS to existing record N, now under ALLKEYS`. A value with a newline
-in it becomes a document file, and the reply names it, `as document blobs/NAME
-(find does not search inside documents)`.
+Keys arrive as an array or as one string with blanks between them, and blanks
+split either way, so a space inside an array element makes two keys rather than
+a refusal.
+
+A request line is at most 65,535 bytes. A longer one is dropped whole and
+answered `request too large` with `"id": null`, since the id was never read, so
+a document past roughly 64 KB is filed with `ais --doc` at the terminal rather
+than through `save`.
+
+Three saves succeed in a shape worth knowing. A one-line value the index already
+holds is not stored twice: the keys are added to the record that holds it, and
+the reply says `added KEYS to existing record N, now under ALLKEYS`. A value
+already filed under exactly those keys adds nothing, and the reply says so:
+`record N already holds this value under KEYS; nothing added`. A value with a
+newline in it becomes a document file, and the reply names it, `as document
+blobs/NAME (find does not search inside documents)`; that file is written afresh
+each time, so saving the same three lines twice leaves two records and two
+identical documents.
 
 ## What a model never sees
 
@@ -132,8 +149,11 @@ agent to drain.
 A value that names a file is a path, and the agent can read that file if it
 should. A `--doc` body sits at `blobs/...` under the index directory the
 instructions named; anything else you indexed is the path you gave. A `blobs/`
-value that does not resolve inside the index is a path that escapes it, and comes
-back as `[document path withheld: escapes the index]`.
+value the index would not have written is withheld: the shape it accepts is
+`blobs/` and exactly one more name, which is not `.` or `..` and carries no
+further `/`, no `\` and no control byte. Anything else comes back as `[document
+path withheld: escapes the index]`, whether or not it would have resolved
+inside, and the row keeps its id.
 
 ## What it is not
 

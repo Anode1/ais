@@ -24,6 +24,8 @@ is hashed: every file is plain text, readable, greppable, repairable by hand.
       foldsync        DEVICE-LOCAL: shared folders this device has synced with, one
                       absolute path per line (never synced, never exported)
       syncfolder      DEVICE-LOCAL: the folder the GUI syncs with (written by the app)
+      syncid          DEVICE-LOCAL: this device's sync identity, "id nonce seq"
+                      (never synced, never exported)
       blobs/<ts>~<tag>.txt   documents saved by `doc` (real data; not rebuildable)
       lock            writers' advisory flock (per op; reads lock-free)
 
@@ -406,22 +408,22 @@ Stream `store` dropping tombstoned ids into `store.new`; rebuild `idx/`, `off`
 rename atomically; clear `tomb`; recompute `next_id`. Bounded buffers throughout.
 
 ### import: the editable batch format (inverse of dump)
-`ais --import` reads `keys|value` lines from stdin and `put`s each, the inverse
-of `ais --dump` (drop the leading `id|`), so an index round-trips:
-`ais --dump | sed 's/^[0-9]*|//' | ais --import`. Blank lines and `#`-comments are
-skipped (the file stays hand-editable); idempotent re-import changes nothing.
+`ais --import` reads `KEY... -v VALUE` lines from stdin and `put`s each, the
+inverse of `ais --dump`, so an index round-trips: `ais --dump | ais --import`. A
+pre-v2 `keys|value` line still reads, with a warning naming the current grammar.
+Blank lines and `#`-comments are skipped (the file stays hand-editable);
+idempotent re-import changes nothing.
 Lines that share keys recall together.
 
 ### import-interactively: pick records as they go by
 `ais --import-interactively` is `--import` with a per-record `[y/N]` gate: each
-`keys|value` line is shown and only taken on `y` (`N`, the default and a bare
-Enter, skips). It reads the same `keys|value` lines as `--import` from stdin and
+line read is shown as `keys | value` and only taken on `y` (`N`, the default and
+a bare Enter, skips). It reads the same lines as `--import` from stdin and
 takes the answers from `/dev/tty` (or `$AIS_TTY`), so the two streams stay
 separate exactly as `-i` keeps values and keys apart. To review another index,
-strip the `id|` from its dump just as `--import` expects:
-`ais -f OTHER --dump | sed 's/^[0-9]*|//' | ais --import-interactively`; or sip a
-shared `keys|value` file directly. For adopting bits of someone else's shared
-index without polluting your own; merging your OWN indexes across devices is the
+pipe its dump in: `ais -f OTHER --dump | ais --import-interactively`; or sip a
+shared `KEY... -v VALUE` file directly. For adopting bits of someone else's
+shared index without polluting your own; merging your OWN indexes across devices is the
 bulk `--dump | --import` instead.
 
 ### doc, blobs/: large or multi-line values
@@ -437,7 +439,7 @@ deleted again on the next sync; lose `katt` and a tag put back on is removed aga
 the peer that removed it); only
 `idx/`, `off`, `multi` and `next_id` can be rebuilt from `store`.
 `find` searches the path, not the blob's contents (tags-only). `ais --where`
-prints the index dir so a front-end can resolve `blobs/<timestamp>.txt`.
+prints the index dir so a front-end can resolve that relative path.
 
 ### --mcp and the index nobody named
 
@@ -471,10 +473,30 @@ writers serialize without colliding on an id, and a long-lived reader
                    ascending id stream (uses key.c for placement)
     merge.c/.h     the k-way streaming merge (AND/OR) over sorted id streams
     compact.c/.h   tombstones + compaction
+    find.c/.h      substring search over values (ASCII case folding, streaming)
+    stats.c/.h     live records, keys and tombstones, counted in one pass
+    doc.c/.h       a multi-line value as a blob file under blobs/, and the one
+                   containment predicate every join goes through
+    secret.c/.h    the aisc: marker: detection, the reveal policy, encrypt/decrypt
+                   (the crypto itself is crypto/ais_crypto.*)
+    b64.c/.h       base64, so an encrypted file image is one printable store line
     ais.c/.h       the public facade composing the above (ais.h is the API)
+    locate.c/.h    which index directory to use: -f, a walked-up .ais/, the current
+                   named index, home, plus the named-index registry in ~/.ais/config
+    feed.c/.h      bulk feeding values in (the CLI put aspect), export and import
+                   of the merge stream
+    import.c/.h    importers for files other programs wrote: browser bookmarks,
+                   a Google Keep takeout
+    sync.c/.h      LAN sync transport: seal a merge stream under a one-time token,
+                   host it, join a peer, and this device's syncid
+    serve.c/.h     the localhost web GUI: HTTP/1.0 on 127.0.0.1, embedded page,
+                   endpoints that call the engine directly
+    mcp.c/.h       MCP over stdin/stdout for an agent: its own JSON reader, the
+                   tool text a model reads, and calls into ais.h only
     embed.c/.h     in-process FFI seam (ais_embed_*) for Flutter / native hosts
     help.c/.h      usage_short / usage_long
     log.c/.h       die() (CLI fatal: stderr + exit) + debug() (runtime -d gated trace)
+    win.c/.h       native Windows (MinGW-w64) shims, empty on POSIX
     main.c         CLI / getopt_long dispatch (recall is the default; -v/-k, --commands)
     tests.c        the test bundle (linear, inline, one comment per test)
 

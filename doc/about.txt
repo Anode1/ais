@@ -7,13 +7,13 @@ Models average everyone. Keep what's only yours.
 WHAT IT IS
 
   An extension of your associative memory. A memo that stays with you and stays
-  yours, bringing things back the way your mind does -- by association. You file
+  yours, bringing things back the way your mind does, by association. You file
   anything (a link, a file, a note, a document) under one or more keys, and
   recall it by those keys. Underneath, it is an index.
 
   A working memex. In 1945 Vannevar Bush imagined the "memex," a personal device
   that extends memory by association; he never built it. AIS is one, on the
-  durable, private side of that idea -- plain text you own, that no service can
+  durable, private side of that idea: plain text you own, that no service can
   read. The idea is Bush's and widely prior; AIS's contribution is the
   implementation (see PROVENANCE below).
 
@@ -61,7 +61,8 @@ WHAT IT IS
   still using everything around it as context. There is no unlocked vault to
   drain, and no master key: each secret is its own blob, opened one at a time, by
   you. `ais --mcp` is that agent's door: it hands the index to an MCP client as
-  read-only tools, and the marker is what it emits for a secret (doc/MCP.md).
+  tools that read, and save only if you start it with `rw`, and the marker is
+  what it emits for a secret (doc/MCP.md).
 
 WHAT IT IS NOT
 

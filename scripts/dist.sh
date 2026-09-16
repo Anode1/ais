@@ -82,7 +82,7 @@ CLI:   ./ais --help             (e.g.  ./ais venice italy ;  alias is='ais' for 
 New?   open USING.txt for a one-minute guide.
 
 Your data is plain text you can find, back up, edit, or delete.
-Run  ./ais --where  for its exact path (default: ~/.local/share/ais).
+Run  ./ais --where  for its exact path (default: ~/.ais).
 EOF
     if [ "$pretty" = macos ]; then
         cat >> "$stage/README.txt" <<EOF
