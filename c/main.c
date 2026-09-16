@@ -61,6 +61,7 @@ struct get_ctx {
     long matched;       /* ids seen: zero matches exits 1, like grep         */
     int  printed_any;   /* per-id: did ais_record emit at least one value?   */
     int  reveal;        /* interactive recall at a tty: reveal "aisc:" secrets */
+    int  reveal_failed; /* a secret was asked for and not given (wrong pass) */
 };
 
 static int print_value(long id, const char *value, void *vp)
@@ -69,7 +70,12 @@ static int print_value(long id, const char *value, void *vp)
     char path[AIS_PATH_MAX];
     FILE *f;
     if (g->reveal && secret_is_marked(value)) {
-        secret_reveal(id, value, g->a->dir);   /* decrypt-dialog to /dev/tty, not stdout */
+        /* decrypt-dialog to /dev/tty, not stdout. A wrong passphrase (or a blob
+         * that will not open) is nothing done, and `ais --help` says nothing
+         * done exits non-zero: the recall printed no secret, so a script that
+         * checked the status would otherwise have read success. */
+        if (secret_reveal(id, value, g->a->dir) != 0)
+            g->reveal_failed = 1;
     } else if (ais_doc_is_blob(g->a, value, path, sizeof path)
                && (f = fopen(path, "rb")) != NULL) {
         char buf[8192];                         /* a document blob: cat its CONTENT, not the path */
@@ -328,15 +334,21 @@ static int print_index(const char *name, const char *path, void *vp)
 }
 
 /* Returns how many records matched: the caller exits 1 on zero, like grep. */
-static long do_get(ais *a, char *const keys[], int nkeys, ais_mode mode)
+/* Returns the number of records matched; *REVEAL_FAILED (when non-NULL) is set
+ * if a secret was asked for at the terminal and not given. */
+static long do_get(ais *a, char *const keys[], int nkeys, ais_mode mode,
+                   int *reveal_failed)
 {
     struct get_ctx g;
     g.a = a;
     g.matched = 0;
     g.printed_any = 0;
     g.reveal = secret_reveal_context();    /* only an interactive recall reveals secrets */
+    g.reveal_failed = 0;
     if (ais_get(a, keys, nkeys, mode, on_id, &g) < 0)
         die("get failed");
+    if (reveal_failed != NULL)
+        *reveal_failed = g.reveal_failed;
     return g.matched;
 }
 
@@ -1172,11 +1184,16 @@ int main(int argc, char **argv)
         for (tok = strtok_r(keys, " ", &save); tok != NULL && nk < AIS_KEYS_MAX;
              tok = strtok_r(NULL, " ", &save))
             kv[nk++] = tok;
+        int rfail = 0;
         if (nk == 0) { usage_short(stderr); ais_close(&a); return 2; }
-        if (do_get(&a, kv, nk, mode) == 0) {
+        if (do_get(&a, kv, nk, mode, &rfail) == 0) {
             hint_command_word(kv[0]);   /* `ais dump` was probably `ais --dump` */
             ais_close(&a);
             return 1;                   /* no match, like grep */
+        }
+        if (rfail) {                    /* matched, but a secret stayed sealed */
+            ais_close(&a);
+            return 1;
         }
     }
 

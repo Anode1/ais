@@ -316,6 +316,67 @@ static void test_key_too_long(void)
     scratch_rm(dir);
 }
 
+/* A timeline row carries the WHOLE stored value. The fallback path, taken the
+ * moment a key attach drops "off", kept a 2048-byte copy of each row instead of
+ * re-reading the line, so a 3000-byte value came back cut and unmarked from
+ * --timeline and from the MCP timeline tool while recall, find and --dump
+ * returned all of it, and --compact appeared to repair the data. */
+struct tl_len { long id; size_t len; int rows; };
+
+static int tl_len_cb(long id, const char *ts, const char *keys,
+                     const char *value, void *vp)
+{
+    struct tl_len *t = vp;
+    (void)ts; (void)keys;
+    t->rows++;
+    if (id == t->id)
+        t->len = strlen(value);
+    return 0;
+}
+
+static void test_timeline_long_value(void)
+{
+    ais a;
+    const char *dir = "/tmp/ais_ut_tlbig";
+    static char big[3001];
+    char offpath[AIS_PATH_MAX];
+    struct tl_len t;
+    long id;
+
+    memset(big, 'x', 3000);
+    big[3000] = '\0';
+    scratch_rm(dir);
+    CHECK(ais_open(&a, dir) == 0, "tlbig: scratch index opens");
+    id = ais_put(&a, "big", big);
+    CHECK(id > 0, "tlbig: a 3000-byte value is stored");
+    CHECK(ais_put(&a, "s", "short") > 0, "tlbig: and a second, short record");
+
+    t.id = id; t.len = 0; t.rows = 0;
+    CHECK(ais_timeline(&a, 0, 5, "", "", tl_len_cb, &t) == 0, "tlbig: the timeline runs");
+    CHECK(t.rows == 2, "tlbig: both records are on it");
+    CHECK(t.len == 3000, "tlbig: the seek path returns the whole value");
+
+    /* An attach rewrites the store lines in place, which is what drops "off". */
+    CHECK(ais_update(&a, 2, "extra") == 0, "tlbig: --update attaches a key");
+    t.len = 0; t.rows = 0;
+    CHECK(ais_timeline(&a, 0, 5, "", "", tl_len_cb, &t) == 0, "tlbig: it runs after the attach");
+    CHECK(t.rows == 2, "tlbig: still both records");
+    CHECK(t.len == 3000, "tlbig: and still the whole value");
+    ais_close(&a);
+
+    /* With "off" gone the fallback is the only path there is: pin it directly,
+     * so the test keeps its meaning if an attach ever stops dropping "off". */
+    snprintf(offpath, sizeof offpath, "%s/off", dir);
+    remove(offpath);
+    CHECK(ais_open(&a, dir) == 0, "tlbig: the index reopens without 'off'");
+    t.len = 0; t.rows = 0;
+    CHECK(ais_timeline(&a, 0, 5, "", "", tl_len_cb, &t) == 0, "tlbig: the fallback runs");
+    CHECK(t.rows == 2, "tlbig: the fallback sees both records");
+    CHECK(t.len == 3000, "tlbig: the fallback returns the whole value too");
+    ais_close(&a);
+    scratch_rm(dir);
+}
+
 /* ---- key prefix: first one or two encoded chars (navigable shard) ---- */
 static void test_key_prefix(void)
 {
@@ -6843,6 +6904,7 @@ int main(void)
     test_key_encode();
     test_key_prefix();
     test_key_too_long();
+    test_timeline_long_value();
     printf("put:\n");
     test_put_monotonic();
     test_put_idempotent();

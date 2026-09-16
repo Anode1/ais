@@ -2090,7 +2090,6 @@ void ais_dump(ais *a, FILE *out)
  * back to a bounded scan -- correct, not scalable. */
 #define AIS_TL_DEFAULT  500    /* page size when COUNT <= 0                      */
 #define AIS_TL_MAX    10000    /* hard cap on one page (bounds the fallback heap)*/
-#define AIS_TL_VAL_MAX 2048    /* value snippet held per row in the fallback     */
 
 /* Forward a record to the caller's cb -- hiding ktomb-detached keys, and only if
  * its date falls in the [from,to] range. Counts the rows actually emitted, so
@@ -2165,12 +2164,19 @@ static int tl_seek_one(long id, const char *ts, const char *keys,
 }
 
 /* --- fallback (no usable "off"): one bounded scan keeping the COUNT highest
- * live ids below BOUND, one row per id, emitted id-descending. --------------- */
+ * live ids below BOUND, one row per id, emitted id-descending. ---------------
+ *
+ * The scan keeps each row's ID AND OFFSET, never its text, and reads the line
+ * back through store_record_at when it is time to emit it. Holding the value
+ * instead meant holding it TRUNCATED: a 2048-byte snippet per row, so a 3000-byte
+ * value came back cut and unmarked from --timeline (and from the MCP timeline
+ * tool) while recall, find and --dump returned all of it. Any key attach or
+ * detach drops the "off" accelerator and sends the read down this path, so it
+ * was a normal thing to hit and `--compact` appeared to "fix" the data. Two longs
+ * a row also bound the page at 160 KB instead of 26 MB. */
 struct tl_entry {
     long id;
-    char ts[AIS_TS_MAX];
-    char keys[AIS_KEY_MAX];
-    char value[AIS_TL_VAL_MAX];
+    long off;                 /* where the line starts, for store_record_at */
 };
 
 struct tl_scan_ctx {
@@ -2181,12 +2187,13 @@ struct tl_scan_ctx {
     const char      *from, *to;   /* date range, "" = open                      */
 };
 
-static int tl_scan_collect(long id, const char *ts, const char *keys,
+static int tl_scan_collect(long id, long off, const char *ts, const char *keys,
                            const char *value, void *vp)
 {
     struct tl_scan_ctx *s = vp;
     int i, slot, t;
 
+    (void)keys; (void)value;             /* re-read at emit time, never held */
     if (id >= s->bound)
         return 0;
     if (!tl_in_range(ts, s->from, s->to))
@@ -2211,9 +2218,7 @@ static int tl_scan_collect(long id, const char *ts, const char *keys,
             return 0;
     }
     s->top[slot].id = id;
-    snprintf(s->top[slot].ts,    sizeof(s->top[slot].ts),    "%s", ts);
-    snprintf(s->top[slot].keys,  sizeof(s->top[slot].keys),  "%s", keys);
-    snprintf(s->top[slot].value, sizeof(s->top[slot].value), "%s", value);
+    s->top[slot].off = off;
     return 0;
 }
 
@@ -2237,14 +2242,21 @@ static int tl_scan(ais *a, long before_id, int count, struct tl_emit *e)
     s.top = malloc((size_t)count * sizeof(s.top[0]));
     if (s.top == NULL)
         return -1;
-    if (store_each_record(a, tl_scan_collect, &s) < 0) {
+    if (store_each_record_off(a, tl_scan_collect, &s) < 0) {
         free(s.top);
         return -1;
     }
     qsort(s.top, (size_t)s.n, sizeof(s.top[0]), tl_id_desc);
     for (i = 0; i < s.n; i++) {
-        rc = tl_emit_one(s.top[i].id, s.top[i].ts, s.top[i].keys, s.top[i].value, e);
-        if (rc != 0)
+        int served = store_record_at(a, s.top[i].id, s.top[i].off, tl_emit_one, e);
+        if (served < 0) { rc = -1; break; }
+        if (served == 0) {               /* the store moved under us: scan for it */
+            struct tl_seek k;
+            k.e = e;
+            k.id = s.top[i].id;
+            if (store_each_record(a, tl_seek_one, &k) < -1) { rc = -1; break; }
+        }
+        if (e->emitted >= count)
             break;
     }
     free(s.top);

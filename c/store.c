@@ -522,11 +522,12 @@ int store_find_value(const ais *a, const char *value, long *out_id)
     return rc;
 }
 
-int store_each_record(const ais *a, store_rec_cb cb, void *ctx)
+int store_each_record_off(const ais *a, store_off_cb cb, void *ctx)
 {
     char path[AIS_PATH_MAX];
     char line[AIS_LINE_MAX];
     FILE *fp;
+    long off = 0;
     int rc = 0;
 
     if (store_path(a, "store", path, sizeof(path)) != 0)
@@ -536,16 +537,37 @@ int store_each_record(const ais *a, store_rec_cb cb, void *ctx)
         return (errno == ENOENT) ? 0 : -1;
 
     while (fgets(line, sizeof(line), fp) != NULL) {
-        long id;
+        long id, here = off;
         char *ts, *keys, *val;
+        off += (long)strlen(line);
         if (store_parse(line, &id, &ts, &keys, &val) != 0)
             continue;
-        rc = cb(id, ts, keys, val, ctx);
+        rc = cb(id, here, ts, keys, val, ctx);
         if (rc != 0)
             break;
     }
     fclose(fp);
     return rc;
+}
+
+/* store_each_record in store_off_cb shape: one scan loop, two signatures. */
+struct each_rec { store_rec_cb cb; void *ctx; };
+
+static int each_rec_cb(long id, long off, const char *ts, const char *keys,
+                       const char *value, void *vp)
+{
+    struct each_rec *e = vp;
+    (void)off;
+    return e->cb(id, ts, keys, value, e->ctx);
+}
+
+int store_each_record(const ais *a, store_rec_cb cb, void *ctx)
+{
+    struct each_rec e;
+
+    e.cb = cb;
+    e.ctx = ctx;
+    return store_each_record_off(a, each_rec_cb, &e);
 }
 
 long store_recover_next_id(const ais *a)

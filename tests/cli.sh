@@ -911,35 +911,63 @@ rm -rf "$AL"
 #     the same path twice is idempotent. --default writes the REAL ~/.ais/config
 #     (home is the OS account dir, not a redirectable env var), so this section
 #     snapshots it and restores it on exit.
+#
+#     Two suites running at once (two worktrees, a CI matrix) each snapshotted
+#     that file and each restored over the other: one run ended with `index = 1`
+#     plus 47 bytes of another run's line, and the user's home index shadowed. So
+#     the snapshot, the tests and the restore are one critical section, held
+#     under flock until this process exits, because the restore runs in the EXIT
+#     trap. Where flock is absent (it is Linux's) the section runs as before.
 CFG="$HOME/.ais/config"
-# A run killed with SIGKILL restores nothing, so clear a leftover redirect first.
-# Only a line naming a /tmp directory that no longer exists is removed.
-if [ -f "$CFG" ]; then
-    stale=$(sed -n 's/^index = \(\/tmp\/.*\)$/\1/p' "$CFG")
-    if [ -n "$stale" ] && [ ! -d "$stale" ]; then
-        # `|| true`: grep exits 1 when it filters EVERY line, the case repaired here.
-        grep -vF "index = $stale" "$CFG" > "$CFG.clean" || true
-        mv "$CFG.clean" "$CFG"
-        echo "  note cleared a stale index redirect left by a killed run: $stale"
+SKIP_DEFAULT=no
+if command -v flock >/dev/null 2>&1; then
+    mkdir -p "$HOME/.ais" 2>/dev/null
+    if exec 9>"$HOME/.ais/.config.test.lock" 2>/dev/null && flock -w 120 9 2>/dev/null; then
+        :                       # held to exit: the restore is inside the section
+    else
+        echo "  note another suite still holds ~/.ais/.config.test.lock -- skipping --default"
+        SKIP_DEFAULT=yes
     fi
 fi
-CFGBAK="$DIR/config.orig"; HADCFG=no
-[ -f "$CFG" ] && { cp "$CFG" "$CFGBAK"; HADCFG=yes; }
-restore_cfg() { if [ "$HADCFG" = yes ]; then cp "$CFGBAK" "$CFG"; else rm -f "$CFG"; fi; }
-# Restore BEFORE removing $DIR -- CFGBAK lives inside it -- and on a signal too,
-# or a killed run leaves the real config pointing at a temp dir this suite deletes.
-trap 'restore_cfg; rm -rf "$DIR"' EXIT
-trap 'restore_cfg; rm -rf "$DIR"; exit 130' INT
-trap 'restore_cfg; rm -rf "$DIR"; exit 143' TERM HUP
+# Never write over a config that is already damaged, and never snapshot one whose
+# saved path is not plain printable ASCII: restoring it would put the garbage
+# back. Skip the section instead and say so.
+if [ "$SKIP_DEFAULT" = no ] && [ -f "$CFG" ] &&
+   LC_ALL=C grep -q '^index = .*[^ -~]' "$CFG" 2>/dev/null; then
+    echo "  note $CFG holds a non-printable 'index =' line -- skipping --default"
+    SKIP_DEFAULT=yes
+fi
 
-TGT="$DIR/saved-default"
-"$AIS" --default "$TGT" >/dev/null                              # save (process A)
-okeq "default: a new process reads back the saved path" "$TGT" "$("$AIS" --default)"
-okeq "default: --where resolves to the saved index"     "$TGT" "$(cd "$DIR" && "$AIS" --where)"
-"$AIS" --default "$TGT" >/dev/null                              # save again
-okeq "default: saving the same path twice is idempotent" "$TGT" "$("$AIS" --default)"
-"$AIS" --default '' >/dev/null                                  # clear
-ok   "default: clearing falls back to the built-in default" "no saved default" "$("$AIS" --default)"
+if [ "$SKIP_DEFAULT" = no ]; then
+    # A run killed with SIGKILL restores nothing, so clear a leftover redirect first.
+    # Only a line naming a /tmp directory that no longer exists is removed.
+    if [ -f "$CFG" ]; then
+        stale=$(sed -n 's/^index = \(\/tmp\/.*\)$/\1/p' "$CFG")
+        if [ -n "$stale" ] && [ ! -d "$stale" ]; then
+            # `|| true`: grep exits 1 when it filters EVERY line, the case repaired here.
+            grep -vF "index = $stale" "$CFG" > "$CFG.clean" || true
+            mv "$CFG.clean" "$CFG"
+            echo "  note cleared a stale index redirect left by a killed run: $stale"
+        fi
+    fi
+    CFGBAK="$DIR/config.orig"; HADCFG=no
+    [ -f "$CFG" ] && { cp "$CFG" "$CFGBAK"; HADCFG=yes; }
+    restore_cfg() { if [ "$HADCFG" = yes ]; then cp "$CFGBAK" "$CFG"; else rm -f "$CFG"; fi; }
+    # Restore BEFORE removing $DIR -- CFGBAK lives inside it -- and on a signal too,
+    # or a killed run leaves the real config pointing at a temp dir this suite deletes.
+    trap 'restore_cfg; rm -rf "$DIR"' EXIT
+    trap 'restore_cfg; rm -rf "$DIR"; exit 130' INT
+    trap 'restore_cfg; rm -rf "$DIR"; exit 143' TERM HUP
+
+    TGT="$DIR/saved-default"
+    "$AIS" --default "$TGT" >/dev/null                              # save (process A)
+    okeq "default: a new process reads back the saved path" "$TGT" "$("$AIS" --default)"
+    okeq "default: --where resolves to the saved index"     "$TGT" "$(cd "$DIR" && "$AIS" --where)"
+    "$AIS" --default "$TGT" >/dev/null                              # save again
+    okeq "default: saving the same path twice is idempotent" "$TGT" "$("$AIS" --default)"
+    "$AIS" --default '' >/dev/null                                  # clear
+    ok   "default: clearing falls back to the built-in default" "no saved default" "$("$AIS" --default)"
+fi
 
 # 18. --export streams the merge format --import consumes: a pipe merges A into B.
 EA=$(mktemp -d "${TMPDIR:-/tmp}/ais_exp_a.XXXXXX") || exit 2
@@ -1833,6 +1861,32 @@ ok      "keylen: MCP save names the cap"                "at most 255 bytes" "$mo
 ok      "keylen: and marks it a tool error"             '"isError":true' "$mout"
 okempty "keylen: nothing was stored"                    "$("$AIS" -f "$KL" --find 'agent value' 2>/dev/null)"
 rm -rf "$KL"
+
+# ---- a timeline row carries the whole value -------------------------------
+# A key attach rewrites the store lines and drops "off", which sends the read
+# down the fallback path. That path held a 2048-byte copy of each row, so a
+# 3000-byte value came back cut and unmarked, here and in the MCP timeline tool,
+# while recall, find and --dump returned all of it.
+TL=$(mktemp -d "${TMPDIR:-/tmp}/ais_tlbig.XXXXXX") || exit 2
+BIG3000=$(awk 'BEGIN{while(i++<3000)printf "x"}')
+"$AIS" -f "$TL" -v "$BIG3000" big >/dev/null
+"$AIS" -f "$TL" -v short s >/dev/null
+okeq    "tlbig: recall returns all 3000 bytes"           "3000" \
+        "$("$AIS" -f "$TL" big | sed 's/^[0-9]*|//' | awk '{print length($0)}')"
+okeq    "tlbig: so does the timeline before any attach"  "3000" \
+        "$("$AIS" -f "$TL" --timeline 5 | awk -F'\t' '$2=="big"{print length($3)}')"
+"$AIS" -f "$TL" --update 2 extra >/dev/null
+okeq    "tlbig: and after an --update drops the index"   "3000" \
+        "$("$AIS" -f "$TL" --timeline 5 | awk -F'\t' '$2=="big"{print length($3)}')"
+rm -f "$TL/off"
+okeq    "tlbig: and with 'off' gone altogether"          "3000" \
+        "$("$AIS" -f "$TL" --timeline 5 | awk -F'\t' '$2=="big"{print length($3)}')"
+mout=$(printf '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"timeline","arguments":{"count":5}}}\n' \
+       | "$AIS" -f "$TL" --mcp 2>/dev/null)
+jsonok  "tlbig: the MCP timeline reply is valid JSON"    "$mout"
+okeq    "tlbig: and carries all 3000 bytes"              "3000" \
+        "$(printf '%s' "$mout" | grep -o 'x\{2900,\}' | awk '{print length($0)}')"
+rm -rf "$TL"
 
 echo "---- $pass passed, $fail failed"
 [ "$fail" -eq 0 ]

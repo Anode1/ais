@@ -89,6 +89,16 @@ typedef int (*store_rec_cb)(long id, const char *ts, const char *keys,
  * code, or -1 on error. */
 int store_each_record(const ais *a, store_rec_cb cb, void *ctx);
 
+/* As store_rec_cb, plus OFF: the byte offset of the line in the store. A caller
+ * that wants the record back later keeps the offset and re-reads it with
+ * store_record_at, instead of holding a copy of the value. */
+typedef int (*store_off_cb)(long id, long off, const char *ts, const char *keys,
+                            const char *value, void *ctx);
+
+/* store_each_record, reporting each line's offset. store_each_record is a thin
+ * wrapper over this one, so there is a single scan loop. */
+int store_each_record_off(const ais *a, store_off_cb cb, void *ctx);
+
 /* Recompute next_id = max(id in store) + 1 by one streaming pass. Returns the
  * value (>= 1) on success, -1 on error. */
 long store_recover_next_id(const ais *a);
