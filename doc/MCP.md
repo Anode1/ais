@@ -66,8 +66,10 @@ tool has is refused naming the ones it takes, since an invented `since` on
 
 ## What comes back
 
-Rows are the shapes the CLI prints. An empty result is words rather than an empty
-block, because a model reads an empty block as a broken tool: `no match` from
+Rows are `id|value`, the shape recall prints at the terminal; `timeline` adds
+the id that `ais --timeline` omits and joins its fields with `|`. An empty
+result is words rather than an empty block, because a model reads an empty
+block as a broken tool: `no match` from
 `recall` and `find`, `the index has no keys yet` from `tags`, `the index is
 empty` from `timeline`, which are three different facts. A reply that spent its
 budget ends with `(stopped at the limit; there may be more)`, and every tool

@@ -1,9 +1,9 @@
 /* mcp.h -- the Model Context Protocol front end: ais as a tool server for an
  * agent, over stdin/stdout.
  *
- * MCP is what Claude Code, Claude Desktop, Cursor, Zed and the rest speak to a
- * local tool, so this is the same engine the CLI drives, reached the way an
- * agent already knows how to reach things. Recall by key is a lookup: an agent
+ * MCP is what an agent client speaks to a local tool (Claude Code is the one
+ * the tests exercise), so this is the same engine the CLI drives, reached the
+ * way an agent already knows how to reach things. Recall by key is a lookup: an agent
  * that asks for what the user filed pays one round trip instead of grepping a
  * tree into its context window.
  */
