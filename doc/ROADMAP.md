@@ -100,7 +100,7 @@ repo cannot yet show. Paid signing is not planned. The wiring stays in place;
 reapply once the project has visible adoption. Until a build is signed, verify a
 download by its SHA-256 or build from source (see the README).
 
-## Known gaps, as of v0.3.26
+## Known gaps, as of v0.3.28
 
 Four things are open, and this is the list to work from: the release chores that
 remain, coverage nobody has, a test that cannot see, and defects left on purpose
@@ -111,10 +111,10 @@ with the reason for each.
 A tag publishes ten artifacts. Reaching the two stores is manual, and only one
 of them has ever received a build:
 
-- Upload `ais-v0.3.26-android.aab` to the Play Console as a new release on the
+- Upload `ais-v0.3.28-android.aab` to the Play Console as a new release on the
   closed test track, following [`dev/ANDROID_RELEASE.md`](dev/ANDROID_RELEASE.md).
-  The listing is done and the closed test is running on build 450 (0.3.26), so
-  every later build is another upload by hand. Take the
+  The listing is done and a production release with build 477 (0.3.27) went
+  to review on 2026-09-15, so every later build is another upload by hand. Take the
   screenshots from `screenshots/play/`, not the ones beside them: Play requires
   24-bit PNG with no alpha and refuses a side more than twice the other, and the
   plain captures fail both.

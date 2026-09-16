@@ -8,13 +8,19 @@ Before tagging, run `scripts/release-notes.sh vX.Y.Z`: it prepends the commit
 subjects since the previous tag, then edit them down to what a user needs to
 know. The old entries below the two newest are the raw subjects.
 
-## next (unreleased)
+## v0.3.28 (2026-09-16)
 
 - `ais --mcp` serves the index to a coding agent as MCP tools over stdin and stdout: recall, find, tags and timeline, read-only unless started as `ais --mcp rw`, which adds save. There is no delete and no edit at any setting, an encrypted value goes out as a fixed marker, and one line wires it up: `claude mcp add ais -- ais --mcp`. See doc/MCP.md.
 - `--mcp` will not serve a `.ais/` found by walking up from the working directory, because a repository you cloned can ship one. It serves the home index, the current named index, or what `-f` names, and on a walked-up index it prints one line naming `-f` and exits 2. A project index is named in the client's configuration: `claude mcp add ais -- ais -f /abs/path/.ais --mcp`.
 - Fixed: a stored value of the form `aisc:@../path` could make a delete zero-fill and unlink a file outside the index. Such a value could arrive through `--import`, from a sync peer, or from an agent's save. One containment predicate now guards every join of a value onto a directory, and a value that fails it is a plain reference that nothing is written to or removed at.
 - A key is a filename, so one over 255 bytes is refused at every write (the CLI, `--import`, sync and the MCP save tool) before anything is stored, since a posting that cannot be opened would leave the record under no tag. `--compact` skips such a key in an older index with a warning instead of failing, and the record keeps its other keys.
 - Android: swipe-to-delete is gone, because the back gesture owns both screen edges; Delete stays in the row menu.
+- Fixed: after any key attach (`--update`, a re-save adding keys) a value came back from `--timeline` cut at 2,047 bytes with no mark, in the CLI, the GUI and the MCP tool, until the next `--compact`. Timeline rows now carry the whole value.
+- Fixed: a symlink placed under `blobs/` was followed by recall, `--export`, sync and delete. A blob is opened only if it is a regular file.
+- Fixed: a store line over 65,535 bytes was read as two records, and `--compact` wrote the ghost into the store. Such a line is now one corrupt line, skipped with a warning naming its byte offset.
+- Fixed: the web GUI's index switch (`POST /api/store`) persisted any body it was sent into `~/.ais/config`. The path must now be absolute, hold no control bytes, and be a directory or a new name beside an existing one.
+- The MCP tools refuse rather than repair: a `limit` outside 1 to 1000, an argument no tool has, a `match` other than `all` or `any`, a key the store would respell, and an id of the wrong JSON type each get an error naming the rule. A save that adds nothing says so.
+- A wrong passphrase on an encrypted recall exits 1. A put whose store line was written but whose postings failed says so and names `--compact`.
 - One-line install for Linux and macOS: `scripts/install.sh` fetches the release for your OS and CPU, checks it against the published `.sha256`, and installs into `~/.local` with no root and nothing compiled.
 
 ## v0.3.27 (2026-09-06)
