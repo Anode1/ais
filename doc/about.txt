@@ -60,7 +60,8 @@ WHAT IT IS
   AI agent reading your index sees an opaque `aisc:` marker, not the secret, while
   still using everything around it as context. There is no unlocked vault to
   drain, and no master key: each secret is its own blob, opened one at a time, by
-  you.
+  you. `ais --mcp` is that agent's door: it hands the index to an MCP client as
+  read-only tools, and the marker is what it emits for a secret (doc/MCP.md).
 
 WHAT IT IS NOT
 

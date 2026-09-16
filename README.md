@@ -6,7 +6,7 @@ An index in plain text on your own disk, with apps for the phone, the browser an
 
 One engine, thin front-ends. The CLI is the contract; the web GUI (`ais --serve`), the Flutter mobile app and a native Win32 wrapper sit over it, and the engine depends on none of them. C, no database, no runtime to install.
 
-If you work with a coding agent, point it at your index instead of letting it grep your tree: 2,900 tokens a question against 24,500, and 40 of 40 answers exact. [The measurement, and how to reproduce it](#give-an-agent-your-index-recall-instead-of-searching-again).
+A coding agent can call `ais` the way it calls grep, except that it recalls what you filed instead of searching for it again: one line of config, 2,900 tokens a question against 24,500, and 40 of 40 answers exact. [The measurement, and how to reproduce it](#give-an-agent-your-index).
 
 Because it is plain text, it outlives its own tools: your index survives decades of archiving, still opens in fifty years, and exports into anything, no lock-in. Keeping data readable that long is computing's unsolved *digital dark age*, where file formats and the apps that open them die faster than the data. Plain text, readable since the 1960s on any machine with no special program, is the oldest and safest answer.
 
@@ -59,14 +59,24 @@ No, it points *into* them. For files, photos and pages ais is an index of pointe
 **Can it hold passwords? Is it a password manager?**
 Yes. A secret is stored encrypted inline (`-e`), so a login lives right next to the context it belongs to, and two things set it apart from a built-in manager. It is **cross-platform**: Apple Keychain and Google Password Manager are locked to one ecosystem, while ais is the same plain-text index on Windows, macOS, Linux, Android and the CLI, so your secrets travel with you. And it is **agent-safe**: decryption is interactive (a passphrase you supply at a terminal or in the app), so an agent reading your index sees an opaque `aisc:` marker, not the secret, with no master key or unlocked vault to drain. What it is *not* is a bulk web-login manager: no autofill, no generation, no shared vaults, so for hundreds of site logins a dedicated cross-platform manager is still more convenient. See [`about.txt`](doc/about.txt).
 
-## Give an agent your index: recall instead of searching again
+## Give an agent your index
 
 An agent that greps and reads to find something you already saved pays that cost on every question. Recall by key costs one line, and it is exact: a wrong key returns nothing rather than something plausible.
 
-The measurement: eight questions, five repeats each, one agent run both ways over the same corpus.
+One line wires it into a client:
+
+```sh
+claude mcp add ais -- ais --mcp        # or: {"mcpServers":{"ais":{"command":"ais","args":["--mcp"]}}}
+```
+
+That serves `recall`, `find`, `tags` and `timeline` over stdin/stdout. It is read-only, `ais --mcp rw` adds saving, and there is no delete or edit at any setting. Encrypted values stay opaque. It opens your home index, the current named index, or the one `-f` names, and refuses a `.ais/` it merely found by walking up, because a clone can ship one: a project index is served by naming it, `claude mcp add ais -- ais -f /abs/path/of/project/.ais --mcp`, and that line in the client's configuration is the permission. The full picture is in [`doc/MCP.md`](doc/MCP.md).
+
+A skill is the other door, for an agent that already has a shell: [`.claude/skills/ais/SKILL.md`](.claude/skills/ais/SKILL.md), copied into your own project's `.claude/skills/`. It drives the CLI, so it can edit and delete records, which the server cannot at any setting.
+
+The measurement: eight questions, five repeats each, `claude-sonnet-4-6` run both ways over the same corpus, the recall arm answering from the recalled row alone. The index reached the agent as CLI tools, which is the same lookup `ais --mcp` serves over a pipe.
 
 <p align="center">
-  <img src="screenshots/agent-tokens.png" width="78%" alt="File search: 24,500 tokens mean, sometimes wrong. Recall: 2,900 tokens, of which 68 are the answer, 40 of 40 exact. At the terminal: no model at all.">
+  <img src="screenshots/agent-tokens.png" width="78%" alt="Tokens a question, file search against recall by key, with the retrieval payload inside each bar, and no model at all at the terminal.">
 </p>
 
 | | file search (grep + read) | recall by key |
@@ -85,15 +95,7 @@ cd experiment && python3 analyze.py --csv results_repeats_sanitized.csv
 
 The shipped harness runs the method over a public photo-library corpus; the headline numbers come from the same method over a private 100k-line code project.
 
-Wiring it up takes one line, and any agent that speaks MCP can use it:
-
-```sh
-claude mcp add ais -- ais --mcp        # or: {"mcpServers":{"ais":{"command":"ais","args":["--mcp"]}}}
-```
-
-That serves `recall`, `find`, `tags` and `timeline` over stdin/stdout. It is read-only, `ais --mcp rw` adds saving, and there is no delete at any setting. An encrypted value stays the opaque `aisc:` marker, since decryption prompts a person for a passphrase. Run `ais --init` in a repository first and the index lives with the code, so what the agent files there is yours to read in plain text. A project index is served by naming it, `claude mcp add ais -- ais -f /abs/path/of/project/.ais --mcp`: `--mcp` refuses a `.ais/` it merely found by walking up, because a clone can ship one. The full picture is in [`doc/MCP.md`](doc/MCP.md).
-
-In Claude Code a skill is the other way in: [`.claude/skills/ais/SKILL.md`](.claude/skills/ais/SKILL.md), copied into your own project's `.claude/skills/`. Why keys beat search is in [`about.txt`](doc/about.txt), and [above](#why).
+Why keys beat search is in [`about.txt`](doc/about.txt), and [above](#why).
 
 ## Download
 
@@ -144,7 +146,7 @@ make                 # build ./ais
 | [`doc/USING.txt`](doc/USING.txt) | How to use it, GUI on every OS (plain steps, no jargon). |
 | [`doc/about.txt`](doc/about.txt) | What ais is, and what it is not. |
 | [`doc/command_line.txt`](doc/command_line.txt) | Every command and option, the full `ais --help`. |
-| [`doc/MCP.md`](doc/MCP.md) | Give an agent your index: the `ais --mcp` tool server, what it can and cannot do. |
+| [`doc/MCP.md`](doc/MCP.md) | The `ais --mcp` agent tool: wiring it into a client, which index it opens, what it refuses. |
 | [`doc/SYNC.md`](doc/SYNC.md) | Sync your index between devices: encrypted LAN sync (`--sync`), or through a shared folder a tool like Syncthing keeps in sync (`--sync-folder`). |
 | [`doc/OVERVIEW.md`](doc/OVERVIEW.md) | Why it is built this way, and where it came from. |
 | [`doc/ROADMAP.md`](doc/ROADMAP.md) | What's planned, what is knowingly unfixed, and where to help. |

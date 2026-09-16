@@ -476,8 +476,8 @@ outside 1..65535 is refused (exit 2), here and on
 .TP
 .B \-\-mcp \fR[\fBrw\fR]
 Serve the Model Context Protocol on standard input and output, so an agent
-(Claude, Cursor, Zed and anything else that speaks MCP) can recall from the
-index as a tool. The tools are
+(Claude Code, or any client that reads the usual JSON; only Claude Code is
+exercised by the tests) can recall from the index as a tool. The tools are
 .BR recall " (by key, intersection or union), " find " (substring of the stored"
 values),
 .B tags
@@ -491,8 +491,8 @@ is given, which adds the
 .B save
 tool. An encrypted value stays the opaque
 .B aisc:
-marker either way: decryption is interactive, so there is no key for an agent to
-take.
+marker either way: cleartext appears only at a terminal, never on a pipe, and
+this server is a pipe.
 .IP
 One index is not served: the
 .I .ais

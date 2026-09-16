@@ -5,7 +5,7 @@ description: Recall or store short references (links, paths, notes, facts, comma
 
 # AIS: recall and store by keyword
 
-AIS is a local, plain-text associative index. You file references (a URL, a path, a version, a short note, a command) under one or more keys, and recall them by those keys with set algebra. Retrieval is a deterministic lookup and intersection on the user's own machine: exact, private, no cloud round-trip, and the model spends no tokens searching (it receives only the extracted slice).
+AIS is a local, plain-text associative index. You file references (a URL, a path, a version, a short note, a command) under one or more keys, and recall them by those keys with set algebra. Retrieval is a deterministic lookup and intersection on the user's own machine: exact, private, no cloud round-trip, and only the matching rows enter the context window.
 
 ## When to use
 - The user wants to retrieve something they previously filed, named by keyword(s) rather than by location: a link, a path, a note, a fact, a command, anything in their index. Recall is by association, not by folder, and the keys are the user's own (and their project's), never a fixed namespace.
@@ -14,8 +14,11 @@ AIS is a local, plain-text associative index. You file references (a URL, a path
 Do not assume which keys exist. If unsure, list them first (see Conventions); the vocabulary belongs to the user, not to this skill.
 
 ## Prerequisites
-- The `ais` binary on PATH (build from https://github.com/Anode1/ais).
+- The `ais` binary on PATH (`curl -fsSL https://raw.githubusercontent.com/Anode1/ais/main/scripts/install.sh | sh`, or build from https://github.com/Anode1/ais).
 - An index: AIS uses the nearest `.ais/` directory (git-style), else `~/.ais`. If none exists, `ais --init` creates one in the current directory.
+
+## The other door
+`ais --mcp` serves the same index to an MCP client as tools, for an agent with no shell. It is read-only unless started as `ais --mcp rw`, and has no edit and no delete at any setting, both of which this skill has because it drives the CLI. It will not serve a `.ais/` found by walking up: a project index is named in the client's config, `ais -f /abs/path/.ais --mcp`. See doc/MCP.md.
 
 ## Recall
 - AND (records under ALL keys): `ais <key> <key> ...`   e.g. `ais <keyA> <keyB>`

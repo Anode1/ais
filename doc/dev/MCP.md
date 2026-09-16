@@ -28,7 +28,17 @@ framing off by one message.
 An id goes back as the bytes that arrived, never re-rendered from a `long`, so
 `1.5` and an id past `LONG_MAX` come back as themselves. `"id": null` is a
 request under JSON-RPC and is answered; an absent id is a notification and is
-not.
+not. An id of object, array or boolean type is `-32600`, while `+5` and `007`
+are `-32700`, because JSON has no such numbers and the reader stops at the
+parse. A top-level array is `-32600` naming the one-object-per-line rule, since
+well-formed JSON in the wrong shape is not a parse fault. A missing or wrong
+`jsonrpc` is `-32600` and does carry the id, which was read before the check.
+
+`initialize` echoes the protocol version the client asked for when it is one of
+the three published revisions (`2024-11-05`, `2025-03-26`, `2025-06-18`), whose
+tool surface is the same here, and otherwise answers with `MCP_PROTOCOL`. A
+string that merely looks like a date is not a revision: echoing it would agree
+to a protocol nobody has written.
 
 Values reach the reply as the store holds them, and the store holds whatever the
 CLI, `--import` or sync were given, which need not be UTF-8. JSON must be, and a
@@ -45,27 +55,35 @@ three lists in step when a front end file is added.
 
 ## The text a model reads
 
-`INSTRUCTIONS[]` and the tool descriptions at the top of `c/mcp.c` are the whole
-interface a model sees, so they are written for a reader. The user-facing half of
-that is in [`../MCP.md`](../MCP.md); three mechanics belong here.
+The `INSTR_*` constants and the tool descriptions near the end of `c/mcp.c` are
+the whole interface a model sees, so they are written for a reader. The
+user-facing half of that is in [`../MCP.md`](../MCP.md); the mechanics belong
+here.
 
 The tool descriptions are printed unescaped, straight from the constant, so a
 literal `"` inside one breaks the entire `tools/list` reply while `initialize`
 still parses: a client then connects, reports healthy, and has no tools. Quote
 examples with single quotes, as the file does for `'id|value'` and `'blobs/'`.
-`INSTRUCTIONS[]` is safe from this because it goes out through `jout()`.
+The instructions escape properly, because they go out through `jout()`.
 
-Two things are appended to the instructions at connect time. In a read-only
-session, that there is no save tool and that `ais --mcp rw` turns one on, since a
-model told to call a tool it cannot see will claim it saved something. And the
-path of the index actually opened, because a repo-local `.ais/` and the personal
-`~/.ais` speak the same protocol, and an agent that cannot tell them apart
-reports a project's notes as the user's own memory.
+The instructions are assembled from three constants at connect time, and the
+middle one is a choice, not an addition: `INSTR_SAVE` under `rw`, `INSTR_NOSAVE`
+otherwise. Appending the read-only notice instead left the model told to call
+save and then told there is no save, and a model reading both either claims it
+saved something or reaches for a file of its own. The path of the index actually
+opened is then appended, for the reason the code comment gives.
 
 Which index gets served is decided before any of this, in main.c: `ais_locate_how`
 reports which precedence step chose the path, and step 2, a `.ais` found by
 walking up, is refused there (LAYOUT.md, "--mcp and the index nobody named").
 `ais_mcp` is handed an open index and a write bit and knows nothing about it.
+
+Three guards live in the tool layer rather than in the engine, because each one
+exists to keep a model from being misled by its own reply: `args_ok` refuses an
+argument no tool has, `rows_arg` refuses a limit outside 1 to 1000 instead of
+clamping it, and `out_value` replaces a secret's ciphertext and a `blobs/` path
+that fails `ais_blob_rel_ok` with fixed markers. The store keeps the real value
+in every case, which is why `find` still matches text a reply will not show.
 
 `save` requires keys in its schema as well as in its prose. The schema is what a
 model generates against, so prose alone loses: with `"required":["value"]` a
@@ -82,4 +100,7 @@ thirty green assertions. By hand:
     printf '%s\n' \
       '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18"}}' \
       '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"tags","arguments":{}}}' \
-      | ais --mcp
+      | ais -f /tmp/scratch/.ais --mcp
+
+Name the index with `-f`: in a directory at or under a `.ais/`, the server exits
+2 instead of serving it.
