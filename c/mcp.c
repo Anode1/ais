@@ -27,7 +27,8 @@
 #define MCP_REQ_MAX   AIS_LINE_MAX  /* one request line; longer is refused     */
 #define MCP_NODES     256           /* JSON values in one request              */
 #define MCP_ROWS_DEF  200           /* rows a tool returns when none is asked  */
-#define MCP_PROTOCOL  "2025-06-18"  /* answered when the client names none     */
+#define MCP_PROTOCOL  "2025-06-18"  /* answered unless the client names a known */
+                                    /* revision: 2024-11-05, 2025-03-26, this   */
 
 /* ---- reading JSON -------------------------------------------------------
  * Enough of RFC 8259 to read one JSON-RPC request. Strings are unescaped IN
@@ -39,6 +40,7 @@ enum { JNONE = 0, JOBJ, JARR, JSTR, JNUM, JLIT };
 
 typedef struct {
     char  type;
+    char  isint;      /* JNUM: the token has no fraction and no exponent */
     char *key;        /* member name, when the parent is an object */
     char *str;        /* JSTR: the unescaped text; JNUM: the raw token */
     long  num;        /* JNUM: the raw token's length */
@@ -61,7 +63,7 @@ static int jnew(jdoc *d, int type)
     if (d->n >= MCP_NODES)
         return -1;                       /* a request deeper than we will read */
     v = &d->v[d->n];
-    v->type = (char)type; v->key = NULL; v->str = NULL;
+    v->type = (char)type; v->isint = 0; v->key = NULL; v->str = NULL;
     v->num = 0; v->val = 0; v->kid = -1; v->sib = -1;
     return d->n++;
 }
@@ -228,19 +230,42 @@ static int jparse(jdoc *d, char **p)
         return -1;
     }
     default: {
-        char *start = *p, *end;
-        long n = strtol(*p, &end, 10);
-        if (end == *p) return -1;
+        char *start = *p, *end = *p;
+        int frac = 0;
+
+        /* RFC 8259's number, not strtol's: strtol reads '+5' and '007', which
+         * are not JSON, and an id echoed back as the bytes that arrived would
+         * then make the reply unparseable. A token that fails the grammar is a
+         * parse error for the whole message. */
+        if (*end == '-')
+            end++;
+        if (*end == '0')
+            end++;
+        else if (*end >= '1' && *end <= '9')
+            while (*end >= '0' && *end <= '9') end++;
+        else
+            return -1;
+        if (*end == '.') {
+            end++;
+            if (*end < '0' || *end > '9') return -1;
+            while (*end >= '0' && *end <= '9') end++;
+            frac = 1;
+        }
+        if (*end == 'e' || *end == 'E') {
+            end++;
+            if (*end == '+' || *end == '-') end++;
+            if (*end < '0' || *end > '9') return -1;
+            while (*end >= '0' && *end <= '9') end++;
+            frac = 1;
+        }
         me = jnew(d, JNUM);
         if (me < 0) return -1;
-        /* A fraction or exponent is legal JSON and means nothing to any field
-         * here; step over it so the rest of the message still reads. */
-        while (*end == '.' || *end == 'e' || *end == 'E' || *end == '+' ||
-               *end == '-' || (*end >= '0' && *end <= '9'))
-            end++;
-        /* Two readings, both wanted: the integer for a limit, and the token
-         * itself for an id, which goes back unchanged whatever it was. */
-        d->v[me].val = n;
+        /* Three readings, all wanted: the integer for a limit, whether it IS an
+         * integer, and the token itself for an id, which goes back unchanged
+         * whatever it was. A token past LONG_MAX saturates here and is refused
+         * wherever a number has a range. */
+        d->v[me].val = strtol(start, NULL, 10);
+        d->v[me].isint = (char)!frac;
         d->v[me].str = start;
         d->v[me].num = (long)(end - start);
         *p = end;
@@ -318,14 +343,15 @@ static void jout(const char *s)
  * past LONG_MAX both have to come back as themselves.
  * ID_S is the text (for a string) or the raw token (for a number); NULL with
  * HAS_ID set is the literal null, which JSON-RPC calls a request, not a
- * notification. */
-struct req { int has_id, id_str; const char *id_s; size_t id_raw; };
+ * notification. BAD is an id of any other type: answered with id null, since
+ * echoing an object or an array back would be a second invalid request. */
+struct req { int has_id, id_str, bad; const char *id_s; size_t id_raw; };
 
 static void req_id(const jdoc *d, int root, struct req *q)
 {
     int i = jget(d, root, "id");
 
-    q->has_id = 0; q->id_str = 0; q->id_s = NULL; q->id_raw = 0;
+    q->has_id = 0; q->id_str = 0; q->bad = 0; q->id_s = NULL; q->id_raw = 0;
     if (i < 0)
         return;                                   /* no id at all: a notification */
     if (d->v[i].type == JSTR) {
@@ -334,6 +360,8 @@ static void req_id(const jdoc *d, int root, struct req *q)
         q->has_id = 1; q->id_s = d->v[i].str; q->id_raw = (size_t)d->v[i].num;
     } else if (d->v[i].type == JLIT && d->v[i].str == NULL) {
         q->has_id = 1;                            /* id: null, answered with null */
+    } else {
+        q->bad = 1;                    /* an object, an array or true/false */
     }
 }
 
@@ -745,25 +773,24 @@ static const char TOOL_SAVE[] =
 
 /* ---- dispatch ----------------------------------------------------------- */
 
-/* Answer with the version the client asked for when it looks like one of the
- * spec's dated revisions, since the tool surface here has been the same across
- * all of them; otherwise name ours and let the client decide. */
+/* Answer with the version the client asked for when it is one of the spec's
+ * published revisions, since the tool surface here is the same across all
+ * three; otherwise name ours and let the client decide. A version that merely
+ * LOOKS like a date is not one: echoing it back agrees to a protocol nobody
+ * has written. */
 static void say_protocol(const char *want)
 {
+    static const char *const known[] = { "2024-11-05", "2025-03-26", "2025-06-18" };
     int i;
 
-    if (want != NULL && strlen(want) == 10 && want[4] == '-' && want[7] == '-') {
-        for (i = 0; i < 10; i++)
-            if (i != 4 && i != 7 && (want[i] < '0' || want[i] > '9'))
-                break;
-        if (i == 10) { jout(want); return; }
-    }
+    for (i = 0; want != NULL && i < 3; i++)
+        if (strcmp(want, known[i]) == 0) { jout(want); return; }
     jout(MCP_PROTOCOL);
 }
 
 static void handle(ais *a, int allow_write, char *line)
 {
-    const char *method, *tool;
+    const char *method, *tool, *ver;
     struct req q;
     jdoc d;
     char *p = line;
@@ -771,11 +798,32 @@ static void handle(ais *a, int allow_write, char *line)
 
     d.n = 0;
     root = jparse(&d, &p);
-    if (root < 0 || d.v[root].type != JOBJ) {
+    if (root < 0) {
         reply_error(NULL, -32700, "parse error");
         return;
     }
+    jskip(&p);
+    if (*p != '\0') {                  /* a second value after the root object */
+        reply_error(NULL, -32700, "parse error");
+        return;
+    }
+    if (d.v[root].type != JOBJ) {
+        /* A batch is a top-level array: well-formed JSON, so the fault is the
+         * shape and not the parse. This transport carries one request object
+         * per line and answers with id null, having read no id. */
+        reply_error(NULL, -32600, "invalid request: one request object per line, no batch");
+        return;
+    }
     req_id(&d, root, &q);
+    if (q.bad) {
+        reply_error(NULL, -32600, "invalid request: id must be a string, a number or null");
+        return;
+    }
+    ver = jtext(&d, jget(&d, root, "jsonrpc"));
+    if (ver == NULL || strcmp(ver, "2.0") != 0) {
+        reply_error(&q, -32600, "invalid request: jsonrpc must be 2.0");
+        return;
+    }
     method = jtext(&d, jget(&d, root, "method"));
     if (method == NULL) {
         if (q.has_id)

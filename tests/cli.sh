@@ -1540,6 +1540,35 @@ ok      "mcp: a spent budget says there may be more"       "stopped at the limit
 mout=$(mcp '{"jsonrpc":"2.0","id":13,"method":"tools/call","params":{"name":"recall","arguments":{"keys":["venice"],"limit":4294967296}}}')
 okempty "mcp: a limit past INT_MAX is not unbounded"       "$(printf '%s' "$mout" | grep -o 'stopped at the limit')"
 
+# A client that gets no reply waits forever, so every fault has to answer.
+mout=$(mcp '{"jsonrpc":"2.0","id":{"a":1},"method":"ping"}')
+ok      "mcp: an object id is refused, not ignored"        '"code":-32600' "$mout"
+ok      "mcp: and the refusal carries id null"             '"id":null' "$mout"
+mout=$(mcp '{"jsonrpc":"2.0","id":[1],"method":"ping"}')
+ok      "mcp: an array id is refused too"                  '"code":-32600' "$mout"
+mout=$(mcp '{"jsonrpc":"2.0","id":true,"method":"ping"}')
+ok      "mcp: a boolean id is refused too"                 '"code":-32600' "$mout"
+mout=$(mcp '{"jsonrpc":"2.0","id":+5,"method":"ping"}')
+ok      "mcp: id +5 is not a JSON number"                  '"code":-32700' "$mout"
+jsonok  "mcp: and the refusal of it still parses"          "$mout"
+mout=$(mcp '{"jsonrpc":"2.0","id":007,"method":"ping"}')
+ok      "mcp: id 007 is not a JSON number either"          '"code":-32700' "$mout"
+jsonok  "mcp: and that refusal parses as well"             "$mout"
+mout=$(mcp '[{"jsonrpc":"2.0","id":1,"method":"ping"}]')
+ok      "mcp: a batch is well-formed JSON, so -32600"      '"code":-32600' "$mout"
+ok      "mcp: and it says one object per line"             'no batch' "$mout"
+mout=$(mcp '{"jsonrpc":"2.0","id":1,"method":"ping"} junk')
+ok      "mcp: bytes after the root object are -32700"      '"code":-32700' "$mout"
+mout=$(mcp '{"id":1,"method":"ping"}')
+ok      "mcp: a missing jsonrpc is -32600"                 '"code":-32600' "$mout"
+ok      "mcp: and the id still comes back"                 '"id":1' "$mout"
+mout=$(mcp '{"jsonrpc":"1.0","id":1,"method":"ping"}')
+ok      "mcp: jsonrpc 1.0 is -32600"                       '"code":-32600' "$mout"
+mout=$(mcp '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"9999-99-99"}}')
+ok      "mcp: an invented date version is not agreed to"   '"protocolVersion":"2025-06-18"' "$mout"
+mout=$(mcp '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}')
+ok      "mcp: a published revision is answered as asked"   '"protocolVersion":"2024-11-05"' "$mout"
+
 mrc=0
 "$AIS" -f "$MI" --mcp bogus >/dev/null 2>&1 || mrc=$?
 okeq    "mcp: an operand other than rw is a usage error"   "2" "$mrc"
