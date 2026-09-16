@@ -1720,6 +1720,41 @@ ok      "mcp: and that a single string is taken too"       "a single string with
 ok      "mcp: and states the 64-key cap"                   "at most 64" "$mout"
 ok      "mcp: and save states the 255-byte key cap"        "a key is at most 255 bytes" "$mout"
 
+# An element carrying no key, dropped, turns a match all over two keys into one
+# over one, and the extra records read as the caller's own answer.
+mout=$(mcp '{"jsonrpc":"2.0","id":53,"method":"tools/call","params":{"name":"recall","arguments":{"keys":["venice",""]}}}')
+ok      "mcp: an empty element is refused, not dropped"    "empty or non-string element" "$mout"
+mout=$(mcp '{"jsonrpc":"2.0","id":54,"method":"tools/call","params":{"name":"recall","arguments":{"keys":["venice",null]}}}')
+ok      "mcp: a null element is refused too"               "empty or non-string element" "$mout"
+okempty "mcp: and no record came back beside it"           "$(printf '%s' "$mout" | grep -o 'example.org')"
+mout=$(mcprw '{"jsonrpc":"2.0","id":55,"method":"tools/call","params":{"name":"save","arguments":{"value":"null element","keys":["venice",null]}}}')
+ok      "mcp: save refuses that element as well"           "empty or non-string element" "$mout"
+okempty "mcp: and stored nothing under the good key"       "$("$AIS" -f "$MI" --find 'null element' 2>/dev/null)"
+
+# Keys of the wrong type are named as such, not reported as keys not given.
+mout=$(mcp '{"jsonrpc":"2.0","id":56,"method":"tools/call","params":{"name":"recall","arguments":{"keys":[123]}}}')
+ok      "mcp: a number in keys names the type wanted"      "keys must be an array of strings" "$mout"
+mout=$(mcp '{"jsonrpc":"2.0","id":57,"method":"tools/call","params":{"name":"recall","arguments":{"keys":123}}}')
+ok      "mcp: and so does a keys that is not a list"       "keys must be an array of strings" "$mout"
+mout=$(mcp '{"jsonrpc":"2.0","id":58,"method":"tools/call","params":{"name":"recall","arguments":{"keys":[]}}}')
+ok      "mcp: an empty list is still no key given"         "needs at least one key" "$mout"
+
+# count and limit are one argument under two names, so two numbers is a request
+# with no answer.
+mout=$(mcp '{"jsonrpc":"2.0","id":59,"method":"tools/call","params":{"name":"timeline","arguments":{"count":5,"limit":2}}}')
+ok      "mcp: count and limit disagreeing is refused"      "timeline takes count or limit, not both" "$mout"
+mout=$(mcp '{"jsonrpc":"2.0","id":60,"method":"tools/call","params":{"name":"timeline","arguments":{"count":2,"limit":2}}}')
+okempty "mcp: the same number under both names is fine"    "$(printf '%s' "$mout" | grep -o 'isError')"
+
+# The fold is ASCII, and a request line has a size the client meets first.
+mout=$(mcprw '{"jsonrpc":"2.0","id":61,"method":"tools/list"}')
+ok      "mcp: recall says the fold is ASCII only"          "keys fold ASCII case" "$mout"
+ok      "mcp: save says the same"                          "Keys fold ASCII case" "$mout"
+ok      "mcp: and save names the request line's size"      "at most 65535 bytes" "$mout"
+ok      "mcp: and where a bigger document goes instead"    "ais --doc" "$mout"
+mout=$(mcprw '{"jsonrpc":"2.0","id":62,"method":"initialize","params":{}}')
+ok      "mcp: the instructions say the fold is ASCII"      "Keys fold ASCII case" "$mout"
+
 mrc=0
 "$AIS" -f "$MI" --mcp bogus >/dev/null 2>&1 || mrc=$?
 okeq    "mcp: an operand other than rw is a usage error"   "2" "$mrc"
