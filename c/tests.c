@@ -377,6 +377,153 @@ static void test_timeline_long_value(void)
     scratch_rm(dir);
 }
 
+/* ais_blob_rel_ok proves a value names ONE file under blobs/, not what that name
+ * is. A symlink planted there (a whole-folder sync carries one verbatim) made
+ * the value a read of any file the user can read: --export streamed the target
+ * to every peer, recall printed it, and a delete zero-filled it. */
+static void test_blob_symlink(void)
+{
+    ais a;
+    const char *dir = "/tmp/ais_ut_symblob";
+    char blobs[AIS_PATH_MAX], link[AIS_PATH_MAX], target[AIS_PATH_MAX];
+    char cmd[AIS_PATH_MAX * 2], line[AIS_LINE_MAX];
+    char *body;
+    size_t blen = 0;
+    FILE *f;
+    long got;
+
+    scratch_rm(dir);
+    CHECK(ais_open(&a, dir) == 0, "symblob: scratch index opens");
+    snprintf(blobs, sizeof blobs, "%s/blobs", dir);
+    mkdir(blobs, 0777);
+    snprintf(target, sizeof target, "%s/secret.txt", dir);
+    f = fopen(target, "wb");
+    CHECK(f != NULL, "symblob: a file beside the index");
+    if (f != NULL) { fputs("TOP-SECRET-FILE-CONTENTS\n", f); fclose(f); }
+    snprintf(link, sizeof link, "%s/leak.txt", blobs);
+    snprintf(cmd, sizeof cmd, "ln -s '%s' '%s'", target, link);
+    CHECK(system(cmd) == 0, "symblob: a symlink is planted under blobs/");
+
+    CHECK(ais_put(&a, "leakkey", "blobs/leak.txt") > 0, "symblob: a record points at it");
+    body = ais_doc_read(&a, "blobs/leak.txt", &blen);
+    CHECK(body == NULL, "symblob: ais_doc_read will not read through it");
+    free(body);
+    got = ais_doc_display(&a, "blobs/leak.txt", line, sizeof line);
+    CHECK(got < 0 && strstr(line, "TOP-SECRET") == NULL,
+          "symblob: nor does the display path");
+
+    /* The export must not carry the target's bytes to a peer. */
+    {
+        char exp[AIS_PATH_MAX];
+        snprintf(exp, sizeof exp, "%s/export.txt", dir);
+        f = fopen(exp, "wb");
+        CHECK(f != NULL, "symblob: export file opens");
+        if (f != NULL) { feed_export(&a, f); fclose(f); }
+        f = fopen(exp, "rb");
+        got = 0;
+        if (f != NULL) {
+            while (fgets(line, sizeof line, f) != NULL)
+                if (strstr(line, "TOP-SECRET-FILE-CONTENTS") != NULL)
+                    got = 1;
+            fclose(f);
+        }
+        CHECK(got == 0, "symblob: --export does not stream the target");
+    }
+
+    /* And a shred must not zero-fill through it. */
+    {
+        char vlink[AIS_PATH_MAX], victim[AIS_PATH_MAX];
+        snprintf(victim, sizeof victim, "%s/victim.txt", dir);
+        f = fopen(victim, "wb");
+        if (f != NULL) { fputs("VICTIM-BYTES", f); fclose(f); }
+        snprintf(vlink, sizeof vlink, "%s/planted.aisc", blobs);
+        snprintf(cmd, sizeof cmd, "ln -s '%s' '%s'", victim, vlink);
+        CHECK(system(cmd) == 0, "symblob: a second symlink, for the shred");
+        secret_shred_blob(dir, "aisc:@blobs/planted.aisc");
+        f = fopen(victim, "rb");
+        line[0] = '\0';
+        if (f != NULL) { if (fgets(line, sizeof line, f) == NULL) line[0] = '\0'; fclose(f); }
+        CHECK(strcmp(line, "VICTIM-BYTES") == 0,
+              "symblob: the shred left the target's bytes alone");
+    }
+    ais_close(&a);
+    scratch_rm(dir);
+}
+
+/* A store line longer than AIS_LINE_MAX used to be read as TWO records: the
+ * tail parsed as a live record the file never held, and --compact wrote it in. */
+static void test_store_overlong_line(void)
+{
+    ais a;
+    const char *dir = "/tmp/ais_ut_longline";
+    char path[AIS_PATH_MAX];
+    struct idvec v = { {0}, 0 };
+    struct valvec vv;
+    char *kv[1];
+    FILE *f;
+    long i;
+
+    scratch_rm(dir);
+    CHECK(ais_open(&a, dir) == 0, "longline: scratch index opens");
+    CHECK(ais_put(&a, "before", "first value") > 0, "longline: a record before it");
+    ais_close(&a);
+
+    /* ONE line of about 70,000 bytes, with a well-formed record line sitting
+     * past the AIS_LINE_MAX cut inside it and no newline before it. fgets
+     * returned the head and then the TAIL, and the tail parsed. */
+    snprintf(path, sizeof path, "%s/store", dir);
+    f = fopen(path, "a");
+    CHECK(f != NULL, "longline: the store is appendable");
+    if (f != NULL) {
+        long head = (long)fprintf(f, "9|2026-01-02T03:04:05Z|padkey|");
+        for (i = head; i < AIS_LINE_MAX - 1; i++)       /* fill exactly to the cut */
+            fputc('p', f);
+        fprintf(f, "777|2026-01-02T03:04:06Z|ghostkey|ghost value\n");
+        fclose(f);
+    }
+
+    CHECK(ais_open(&a, dir) == 0, "longline: the index reopens");
+    kv[0] = (char *)"ghostkey";
+    /* The reader says so, once, naming where the line starts. stderr is captured
+     * by descriptor because the warning comes from inside the engine. */
+    {
+        char errpath[AIS_PATH_MAX], errbuf[512];
+        int saved = dup(STDERR_FILENO), efd;
+        snprintf(errpath, sizeof errpath, "%s/stderr.txt", dir);
+        efd = open(errpath, O_WRONLY | O_CREAT | O_TRUNC, 0600);
+        if (efd >= 0) { dup2(efd, STDERR_FILENO); close(efd); }
+        v.n = 0;
+        ais_get(&a, kv, 1, AIS_AND, collect_id, &v);
+        ais_find(&a, "ghost value", stdout);      /* a reader that scans the store */
+        fflush(stderr);
+        if (saved >= 0) { dup2(saved, STDERR_FILENO); close(saved); }
+        errbuf[0] = '\0';
+        f = fopen(errpath, "rb");
+        if (f != NULL) {
+            size_t got = fread(errbuf, 1, sizeof errbuf - 1, f);
+            errbuf[got] = '\0';
+            fclose(f);
+        }
+        CHECK(strstr(errbuf, "longer than") != NULL && strstr(errbuf, "byte ") != NULL,
+              "longline: the reader warns, naming the byte offset");
+    }
+    CHECK(v.n == 0, "longline: the tail is not a record");
+    CHECK(ais_compact(&a) == 0, "longline: compaction survives the corrupt line");
+    v.n = 0;
+    ais_get(&a, kv, 1, AIS_AND, collect_id, &v);
+    CHECK(v.n == 0, "longline: and did not write the ghost into the store");
+    kv[0] = (char *)"before";
+    v.n = 0;
+    ais_get(&a, kv, 1, AIS_AND, collect_id, &v);
+    CHECK(v.n == 1, "longline: the good record around it survives");
+    vv.n = 0;
+    ais_record(&a, v.ids[0], collect_val, &vv);
+    CHECK(vv.n == 1 && strcmp(vv.vals[0], "first value") == 0,
+          "longline: with its value intact");
+    ais_close(&a);
+    scratch_rm(dir);
+}
+
 /* ---- key prefix: first one or two encoded chars (navigable shard) ---- */
 static void test_key_prefix(void)
 {
@@ -6905,6 +7052,8 @@ int main(void)
     test_key_prefix();
     test_key_too_long();
     test_timeline_long_value();
+    test_blob_symlink();
+    test_store_overlong_line();
     printf("put:\n");
     test_put_monotonic();
     test_put_idempotent();

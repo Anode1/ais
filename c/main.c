@@ -77,7 +77,7 @@ static int print_value(long id, const char *value, void *vp)
         if (secret_reveal(id, value, g->a->dir) != 0)
             g->reveal_failed = 1;
     } else if (ais_doc_is_blob(g->a, value, path, sizeof path)
-               && (f = fopen(path, "rb")) != NULL) {
+               && (f = ais_blob_fopen(path, 0)) != NULL) {
         char buf[8192];                         /* a document blob: cat its CONTENT, not the path */
         size_t r;
         int last = '\n';
@@ -1165,6 +1165,10 @@ int main(int argc, char **argv)
         } else {
             long id = ais_put(&a, full, values[0]);
             int j;
+            if (id == -4)
+                die("the record is saved, but the index could not be written, so no "
+                    "key finds it yet.\n"
+                    "       Run:  ais -f %s --compact   (it files it from the store)", dir);
             if (id < 0) die("put failed");
             for (j = 1; j < nval; j++)            /* extra -v = multi-link */
                 if (ais_add(&a, id, values[j]) != 0) die("add failed");

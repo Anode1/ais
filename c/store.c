@@ -494,6 +494,18 @@ int store_read_line(char *buf, size_t sz, FILE *fp)
     return -1;
 }
 
+/* One over-long store line, named by where it starts. The store is hand-editable
+ * and whole-folder sync copies it verbatim, so a line past AIS_LINE_MAX is a
+ * thing that arrives. Read with fgets it came back as TWO records: a tail that
+ * parsed became a live record the file never held (and --compact then wrote it
+ * into the store), and a tail that did not parse silently truncated the value.
+ * It is one corrupt line, skipped whole. */
+static void store_warn_long(long off)
+{
+    fprintf(stderr, "ais: warning: the store line at byte %ld is longer than %d bytes; "
+                    "skipped as one corrupt line\n", off, AIS_LINE_MAX - 1);
+}
+
 int store_find_value(const ais *a, const char *value, long *out_id)
 {
     char path[AIS_PATH_MAX];
@@ -507,9 +519,13 @@ int store_find_value(const ais *a, const char *value, long *out_id)
     if (fp == NULL)
         return (errno == ENOENT) ? 0 : -1;   /* no store yet -> not found */
 
-    while (fgets(line, sizeof(line), fp) != NULL) {
-        long id;
+    for (;;) {
+        long id, here = ftell(fp);
         char *ts, *keys, *val;
+        int  r = store_read_line(line, sizeof(line), fp);
+        if (r == 0)
+            break;
+        if (r < 0) { store_warn_long(here); continue; }
         if (store_parse(line, &id, &ts, &keys, &val) != 0)
             continue;
         if (strcmp(val, value) == 0) {
@@ -527,7 +543,6 @@ int store_each_record_off(const ais *a, store_off_cb cb, void *ctx)
     char path[AIS_PATH_MAX];
     char line[AIS_LINE_MAX];
     FILE *fp;
-    long off = 0;
     int rc = 0;
 
     if (store_path(a, "store", path, sizeof(path)) != 0)
@@ -536,10 +551,13 @@ int store_each_record_off(const ais *a, store_off_cb cb, void *ctx)
     if (fp == NULL)
         return (errno == ENOENT) ? 0 : -1;
 
-    while (fgets(line, sizeof(line), fp) != NULL) {
-        long id, here = off;
+    for (;;) {
+        long id, here = ftell(fp);
         char *ts, *keys, *val;
-        off += (long)strlen(line);
+        int  r = store_read_line(line, sizeof(line), fp);
+        if (r == 0)
+            break;
+        if (r < 0) { store_warn_long(here); continue; }
         if (store_parse(line, &id, &ts, &keys, &val) != 0)
             continue;
         rc = cb(id, here, ts, keys, val, ctx);
@@ -583,9 +601,13 @@ long store_recover_next_id(const ais *a)
     if (fp == NULL)
         return (errno == ENOENT) ? 1 : -1;   /* empty store -> first id is 1 */
 
-    while (fgets(line, sizeof(line), fp) != NULL) {
-        long id;
+    for (;;) {
+        long id, here = ftell(fp);
         char *ts, *keys, *val;
+        int  r = store_read_line(line, sizeof(line), fp);
+        if (r == 0)
+            break;
+        if (r < 0) { store_warn_long(here); continue; }
         if (store_parse(line, &id, &ts, &keys, &val) != 0)
             continue;
         if (id > maxid)
@@ -715,7 +737,7 @@ int store_value_at(const ais *a, long id, long offset, ais_val_cb cb, void *ctx)
         fclose(fp);
         return 0;
     }
-    if (fgets(line, sizeof(line), fp) == NULL) {
+    if (store_read_line(line, sizeof(line), fp) != 1) {   /* over-long: not a record */
         fclose(fp);
         return 0;
     }
@@ -753,7 +775,7 @@ int store_value_seq(ais *a, long id, ais_val_cb cb, void *ctx)
     else {
         long lid;
         char *ts, *keys, *val;
-        if (fgets(line, sizeof(line), fp) == NULL ||
+        if (store_read_line(line, sizeof(line), fp) != 1 ||
             store_parse(line, &lid, &ts, &keys, &val) != 0 || lid != a->seq_id)
             rewind(fp);
     }
@@ -761,9 +783,14 @@ int store_value_seq(ais *a, long id, ais_val_cb cb, void *ctx)
     for (;;) {
         long pos, lid;
         char *ts, *keys, *val;
+        int r;
         pos = ftell(fp);
-        if (pos < 0 || fgets(line, sizeof(line), fp) == NULL)
+        if (pos < 0)
+            break;
+        r = store_read_line(line, sizeof(line), fp);
+        if (r == 0)
             break;                       /* EOF: miss -> caller falls back */
+        if (r < 0) { store_warn_long(pos); continue; }   /* one corrupt line */
         if (store_parse(line, &lid, &ts, &keys, &val) != 0)
             continue;
         if (lid == id) {
@@ -800,7 +827,7 @@ int store_record_at(const ais *a, long id, long offset, store_rec_cb cb, void *c
         fclose(fp);
         return 0;
     }
-    if (fgets(line, sizeof(line), fp) == NULL) {
+    if (store_read_line(line, sizeof(line), fp) != 1) {   /* over-long: not a record */
         fclose(fp);
         return 0;
     }

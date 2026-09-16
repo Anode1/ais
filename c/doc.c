@@ -7,8 +7,9 @@
  *
  * die()-free: a socket server and a linked library must survive a write error,
  * so every path returns -1 instead of exiting. */
-#define _POSIX_C_SOURCE 200809L     /* mkdir, access */
+#define _POSIX_C_SOURCE 200809L     /* mkdir, access, open */
 #include <errno.h>
+#include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -57,6 +58,44 @@ static void blob_tag(char out[9])
         b[2] = (unsigned char)(m >> 16); b[3] = (unsigned char)(m >> 24);
     }
     snprintf(out, 9, "%02x%02x%02x%02x", b[0], b[1], b[2], b[3]);
+}
+
+FILE *ais_blob_fopen(const char *path, int rw)
+{
+    struct stat st;
+    FILE *f;
+    int fd;
+
+    if (path == NULL)
+        return NULL;
+    if (lstat(path, &st) != 0)
+        return NULL;                       /* absent: the ordinary case, no noise */
+    if (!S_ISREG(st.st_mode)) {
+        fprintf(stderr, "ais: warning: %s is not a regular file; it is not read, "
+                        "written or sent to a peer\n", path);
+        return NULL;
+    }
+#ifdef O_NOFOLLOW
+    fd = open(path, (rw ? O_RDWR : O_RDONLY) | O_NOFOLLOW);
+    if (fd < 0) {                          /* ELOOP: swapped for a symlink just now */
+        if (errno == ELOOP)
+            fprintf(stderr, "ais: warning: %s is a symbolic link; it is not read, "
+                            "written or sent to a peer\n", path);
+        return NULL;
+    }
+    f = fdopen(fd, rw ? "r+b" : "rb");
+    if (f == NULL) { close(fd); return NULL; }
+#else
+    f = fopen(path, rw ? "r+b" : "rb");    /* no O_NOFOLLOW here: the lstat stands */
+    if (f == NULL)
+        return NULL;
+    fd = fileno(f);
+#endif
+    if (fstat(fd, &st) != 0 || !S_ISREG(st.st_mode)) {
+        fclose(f);
+        return NULL;
+    }
+    return f;
 }
 
 int ais_blob_rel_ok(const char *rel)
@@ -127,9 +166,9 @@ static int files_equal(const char *pa, const char *pb)
 
     if (stat(pa, &sa) != 0 || stat(pb, &sb) != 0 || sa.st_size != sb.st_size)
         return 0;
-    fa = fopen(pa, "rb");
+    fa = ais_blob_fopen(pa, 0);            /* PA is under blobs/: never a symlink */
     if (fa == NULL) return 0;
-    fb = fopen(pb, "rb");
+    fb = fopen(pb, "rb");                  /* PB is the temp this process wrote */
     if (fb == NULL) { fclose(fa); return 0; }
     for (;;) {
         size_t na = fread(ba, 1, sizeof ba, fa);
@@ -348,7 +387,7 @@ long ais_doc_display(const ais *a, const char *value, char *out, size_t outsz)
             snprintf(out, outsz, "%s", value);
         return -1;
     }
-    f = fopen(path, "rb");
+    f = ais_blob_fopen(path, 0);
     if (f == NULL) {                       /* absent (e.g. not synced here) */
         snprintf(out, outsz, "%s", value); /* fall back to the path; viewer badges it */
         return -1;
@@ -549,7 +588,7 @@ char *ais_doc_read(const ais *a, const char *value, size_t *len)
         *len = 0;
     if (!ais_doc_is_blob(a, value, path, sizeof path))
         return NULL;
-    f = fopen(path, "rb");
+    f = ais_blob_fopen(path, 0);
     if (f == NULL)
         return NULL;
     if (fseek(f, 0, SEEK_END) != 0 || (sz = ftell(f)) < 0 ||

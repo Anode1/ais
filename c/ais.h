@@ -73,7 +73,9 @@ void ais_close(ais *a);
 /* Put VALUE under one or more whitespace-separated KEYS.
  * Idempotent on VALUE: if VALUE is already stored, its existing record is
  * reused (and any new keys added to it); identical re-puts change nothing.
- * Returns the record id (> 0), or -1 on error. */
+ * Returns the record id (> 0), -1 on error (nothing was written), or -4 when
+ * the record IS in the store but its postings could not be written: it exists,
+ * no key finds it, and `ais --compact` files it. */
 long ais_put(ais *a, const char *keys, const char *value);
 
 /* Like ais_put, but stamp a NEW record with TS (NULL = now), and if the value exists

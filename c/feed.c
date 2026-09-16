@@ -803,10 +803,16 @@ static long import_run(ais *a, FILE *in, ais_blobmap *map, long *skipped)
                 continue;
             }
         }
-        if (ais_put(a, keys, val) < 0) {       /* shared with the sync merge: skip, don't abort */
-            fprintf(stderr, "import: skipped (put failed): %s\n", val);
-            (*skipped)++;
-            continue;
+        {
+            long put = ais_put(a, keys, val);  /* shared with the sync merge: skip, don't abort */
+            if (put == -4) {                   /* stored, but not filed: it is here */
+                fprintf(stderr, "import: stored but not filed under its keys "
+                                "(run ais --compact): %s\n", val);
+            } else if (put < 0) {
+                fprintf(stderr, "import: skipped (put failed): %s\n", val);
+                (*skipped)++;
+                continue;
+            }
         }
         n++;
     }
@@ -1070,7 +1076,9 @@ static int export_blobs_stream(FILE *out, const char *dir, size_t cap,
         }
         if (snprintf(path, sizeof path, "%s/%s", blobsdir, de->d_name) >= (int)sizeof path)
             continue;
-        bf = fopen(path, "rb");
+        /* A symlink under blobs/ would stream the file it points at to every
+         * peer; ais_blob_fopen refuses one and says so. */
+        bf = ais_blob_fopen(path, 0);
         if (bf == NULL)
             continue;
         if (fseek(bf, 0, SEEK_END) != 0 || (sz = ftell(bf)) < 0 ||

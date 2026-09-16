@@ -1888,5 +1888,60 @@ okeq    "tlbig: and carries all 3000 bytes"              "3000" \
         "$(printf '%s' "$mout" | grep -o 'x\{2900,\}' | awk '{print length($0)}')"
 rm -rf "$TL"
 
+# ---- a symlink under blobs/ is not a blob ---------------------------------
+# ais_blob_rel_ok proves the value names ONE file under blobs/, not what that
+# name is. A symlink planted there (whole-folder sync copies one verbatim) made
+# the value a read of any file the user can read: --export streamed the target
+# to every peer, recall printed it, and for an "aisc:@" value --del zero-filled
+# it. Every blob open goes through ais_blob_fopen, which refuses a non-regular
+# file.
+SY=$(mktemp -d "${TMPDIR:-/tmp}/ais_symblob.XXXXXX") || exit 2
+printf 'TOP-SECRET-FILE-CONTENTS\n' > "$SY/secretfile.txt"
+printf 'VICTIM-BYTES-KEEP-THESE\n'  > "$SY/victim.txt"
+"$AIS" -f "$SY/idx" --init >/dev/null
+mkdir -p "$SY/idx/blobs"
+ln -s "$SY/secretfile.txt" "$SY/idx/blobs/leak.txt"
+"$AIS" -f "$SY/idx" -v blobs/leak.txt leakkey >/dev/null
+okempty "symblob: --export does not carry the target's bytes" \
+        "$("$AIS" -f "$SY/idx" --export 2>/dev/null | grep -o TOP-SECRET-FILE-CONTENTS)"
+okempty "symblob: nor does a recall print them"              \
+        "$("$AIS" -f "$SY/idx" leakkey 2>/dev/null | grep -o TOP-SECRET-FILE-CONTENTS)"
+ok      "symblob: and the refusal names the file"            "not a regular file" \
+        "$("$AIS" -f "$SY/idx" leakkey 2>&1 >/dev/null)"
+
+ln -s "$SY/victim.txt" "$SY/idx/blobs/planted.aisc"
+"$AIS" -f "$SY/idx" -v 'aisc:@blobs/planted.aisc' sec >/dev/null
+"$AIS" -f "$SY/idx" --del 2 -y >/dev/null 2>&1
+ok      "symblob: --del does not zero-fill through it"       "VICTIM-BYTES-KEEP-THESE" \
+        "$(cat "$SY/victim.txt")"
+okempty "symblob: the link itself is gone, the target is not" \
+        "$(ls "$SY/idx/blobs/planted.aisc" 2>/dev/null)"
+rm -rf "$SY"
+
+# ---- a store line past AIS_LINE_MAX is one corrupt line, never two records --
+# Read with fgets it came back as a head and a TAIL, and a tail that parsed
+# became a live record the file never held, which --compact then wrote in.
+GH=$(mktemp -d "${TMPDIR:-/tmp}/ais_ghost.XXXXXX") || exit 2
+"$AIS" -f "$GH" -v "first value" before >/dev/null
+awk 'BEGIN{
+       h = "9|2026-01-02T03:04:05Z|padkey|";
+       printf "%s", h;
+       for (i = length(h); i < 65535; i++) printf "p";
+       printf "777|2026-01-02T03:04:06Z|ghostkey|ghost value\n";
+     }' >> "$GH/store"
+okempty "ghostline: the tail of an over-long line is no record" \
+        "$("$AIS" -f "$GH" ghostkey 2>/dev/null)"
+ok      "ghostline: a reader that scans the store warns"     "longer than" \
+        "$("$AIS" -f "$GH" --dump 2>&1 >/dev/null)"
+okempty "ghostline: and --dump does not print the ghost"     \
+        "$("$AIS" -f "$GH" --dump 2>/dev/null | grep -o ghostkey)"
+"$AIS" -f "$GH" --compact -y >/dev/null 2>&1
+okeq    "ghostline: and compaction succeeds"                 "0" "$?"
+okempty "ghostline: it did not write the ghost into the store" \
+        "$("$AIS" -f "$GH" ghostkey 2>/dev/null)"
+ok      "ghostline: the good record around it survives"      "first value" \
+        "$("$AIS" -f "$GH" before)"
+rm -rf "$GH"
+
 echo "---- $pass passed, $fail failed"
 [ "$fail" -eq 0 ]

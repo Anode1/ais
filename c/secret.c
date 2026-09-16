@@ -161,8 +161,12 @@ void secret_shred_blob(const char *index_dir, const char *value)
 
     /* Best-effort overwrite in place, then unlink. The bytes are ciphertext, so
      * the encryption -- not this overwrite -- is the real protection; on flash /
-     * CoW / backed-up storage the overwrite may not reach the physical cells. */
-    f = fopen(path, "r+b");
+     * CoW / backed-up storage the overwrite may not reach the physical cells.
+     *
+     * ais_blob_fopen, not fopen: a symlink planted at this name made the
+     * overwrite zero-fill whatever it pointed at. The remove() below still runs,
+     * because unlinking a symlink takes the link and never the target. */
+    f = ais_blob_fopen(path, 1);
     if (f != NULL) {
         if (fseek(f, 0, SEEK_END) == 0) {
             long n = ftell(f);
@@ -196,9 +200,12 @@ int secret_prompt(const char *prompt, int confirm, char *buf, size_t buf_sz)
 #ifdef SECRET_HAVE_CRYPTO
 /* Read PATH fully into a fresh malloc'd buffer (*len = size); NULL on any error.
  * The caller wipes and frees. Used to load a blob's AIS-CR1 image for reveal. */
+/* PATH is always a blob under <index>/blobs/, so it opens through
+ * ais_blob_fopen: a symlink there would have revealed any file the user can
+ * read to whoever holds the passphrase prompt. */
 static unsigned char *read_whole_file(const char *path, size_t *len)
 {
-    FILE *f = fopen(path, "rb");
+    FILE *f = ais_blob_fopen(path, 0);
     unsigned char *buf;
     long n;
 

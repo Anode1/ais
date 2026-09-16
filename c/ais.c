@@ -536,8 +536,13 @@ long ais_put_at_k_resolved(ais *a, const char *keys, const char *value, const ch
         if (ok && off_append(a, off) != 0)                        { rc = -1; goto out; }  /* keep "off" in lockstep */
     }
     /* 1: store_append above just wrote the line from `clean`, so the mirror
-     * could not change anything -- skip its full-store scan on every new put. */
-    if (ais_post_keys(a, clean, id, attach_ts, 1) != 0) { rc = -1; goto out; }
+     * could not change anything -- skip its full-store scan on every new put.
+     *
+     * -4, not -1: the store line and next_id are already written, so the record
+     * EXISTS and only its postings are missing. A caller told "failed" would
+     * report a record that is there, unfindable by key, and `ais --compact`
+     * rebuilds idx/ from the store lines and files it. */
+    if (ais_post_keys(a, clean, id, attach_ts, 1) != 0) { rc = -4; goto out; }
     debug("put: new id=%ld", id);
     rc = id;
 
@@ -2335,7 +2340,7 @@ static long tag_count_file(const ais *a, const char *path, int dead)
     char buf[8192];
     FILE *fp;
     long n = 0, id = 0;
-    int  indig = 0;
+    int  indig = 0, ndig = 0;
     size_t r;
 
     fp = fopen(path, "r");
@@ -2345,17 +2350,26 @@ static long tag_count_file(const ais *a, const char *path, int dead)
         size_t i;
         for (i = 0; i < r; i++) {
             if (buf[i] >= '0' && buf[i] <= '9') {
-                id = id * 10 + (buf[i] - '0');
-                indig = 1;
+                /* A posting file is plain text anyone can edit, and the id was
+                 * accumulated without a bound: past 19 digits it overflows a
+                 * long, which is undefined. 18 digits hold every id this store
+                 * can reach, so a longer run is a corrupt line that names no
+                 * record: indig goes to -1 and the line is not counted as live. */
+                if (++ndig > 18)
+                    indig = -1;
+                else if (indig >= 0) {
+                    id = id * 10 + (buf[i] - '0');
+                    indig = 1;
+                }
                 continue;
             }
             if (buf[i] != '\n')
                 continue;
             if (!dead)                          /* nothing deleted: just count */
                 n++;
-            else if (indig && tomb_contains(a, id) != 1)
+            else if (indig == 1 && tomb_contains(a, id) != 1)
                 n++;
-            id = 0; indig = 0;
+            id = 0; indig = 0; ndig = 0;
         }
     }
     fclose(fp);
