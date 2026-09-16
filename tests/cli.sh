@@ -1426,10 +1426,20 @@ mout=$(mcp '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVer
 jsonok  "mcp: initialize is valid JSON"                    "$mout"
 ok      "mcp: initialize names the server"                 '"name":"ais"' "$mout"
 ok      "mcp: and says which index it opened"              "$MI" "$mout"
-ok      "mcp: read-only says saving is off"                'read-only' "$mout"
+ok      "mcp: read-only says saving is off"                'read-only and has no save tool' "$mout"
 ok      "mcp: and answers the protocol asked for"          '"protocolVersion":"2025-06-18"' "$mout"
-ok      "mcp: initialize carries the instructions"         'call save' "$mout"
-ok      "mcp: which tell it to ask for the keys"            'ASK which keys' "$mout"
+ok      "mcp: and tells it how to turn saving on"          "restarting it as 'ais --mcp rw'" "$mout"
+ok      "mcp: and not to keep the note itself"             'Do not offer to remember it yourself' "$mout"
+okempty "mcp: read-only never says call save"              "$(printf '%s' "$mout" | grep -o 'call save')"
+mout=$(mcprw '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18"}}')
+ok      "mcp: rw carries the save instructions"            'call save' "$mout"
+ok      "mcp: which tell it to ask for the keys"           'ASK which keys' "$mout"
+okempty "mcp: and rw never says there is no save tool"     "$(printf '%s' "$mout" | grep -o 'no save tool')"
+ok      "mcp: a first miss is not the end of the search"   'retry with match any' "$mout"
+ok      "mcp: tags is where the user's own word is"        'a singular or a short form' "$mout"
+ok      "mcp: timeline is asked for a small count"         'call timeline with a small count' "$mout"
+ok      "mcp: and is not mistaken for a date filter"       'no date filter' "$mout"
+ok      "mcp: match all is explained where it is read"     'filed under BOTH' "$mout"
 mout=$(mcp '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"nonsense"}}')
 ok      "mcp: a nonsense version gets ours, not an echo"   '"protocolVersion":"20' "$mout"
 
@@ -1440,6 +1450,12 @@ ok      "mcp: tools/list offers tags"                      '"name":"tags"' "$mou
 okempty "mcp: read-only hides save"                        "$(printf '%s' "$mout" | grep -o '"name":"save"')"
 mout=$(mcprw '{"jsonrpc":"2.0","id":2,"method":"tools/list"}')
 ok      "mcp: rw offers save"                              '"name":"save"' "$mout"
+
+jsonok  "mcp: tools/list with save is valid JSON"          "$mout"
+okempty "mcp: the match-all sentence is not said twice"    "$(printf '%s' "$mout" | grep -o 'filed under BOTH')"
+ok      "mcp: save says where a multi-line value goes"     'written to a file inside the index' "$mout"
+ok      "mcp: tags says the default is only the busiest"   'raise limit before concluding a key is absent' "$mout"
+ok      "mcp: timeline declares limit as well as count"    '"limit":{"type":"integer","description":"the same as count' "$mout"
 
 mout=$(mcp '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"recall","arguments":{"keys":["venice","italy"]}}}')
 ok      "mcp: recall intersects the keys"                  "example.org/venice" "$mout"
@@ -1539,6 +1555,107 @@ mout=$(mcp '{"jsonrpc":"2.0","id":12,"method":"tools/call","params":{"name":"rec
 ok      "mcp: a spent budget says there may be more"       "stopped at the limit" "$mout"
 mout=$(mcp '{"jsonrpc":"2.0","id":13,"method":"tools/call","params":{"name":"recall","arguments":{"keys":["venice"],"limit":4294967296}}}')
 okempty "mcp: a limit past INT_MAX is not unbounded"       "$(printf '%s' "$mout" | grep -o 'stopped at the limit')"
+
+# A page that is marked one row too early reads as a page that is not there.
+mout=$(mcp '{"jsonrpc":"2.0","id":20,"method":"tools/call","params":{"name":"recall","arguments":{"keys":["venice"],"limit":2}}}')
+okempty "mcp: exactly limit rows is not a page"            "$(printf '%s' "$mout" | grep -o 'stopped at the limit')"
+ok      "mcp: and both rows are there"                     "IMG_1" "$mout"
+mout=$(mcp '{"jsonrpc":"2.0","id":21,"method":"tools/call","params":{"name":"tags","arguments":{"limit":2}}}')
+ok      "mcp: tags says when it stopped at the limit"      "stopped at the limit" "$mout"
+okeq    "mcp: and emits exactly the limit"                 "2" "$(printf '%s' "$mout" | grep -o '|' | wc -l | tr -d ' ')"
+mout=$(mcp '{"jsonrpc":"2.0","id":22,"method":"tools/call","params":{"name":"find","arguments":{"text":"e","limit":1}}}')
+ok      "mcp: find marks a spent budget as well"           "stopped at the limit" "$mout"
+mout=$(mcp '{"jsonrpc":"2.0","id":22,"method":"tools/call","params":{"name":"find","arguments":{"text":"example.org/venice"}}}')
+okempty "mcp: and a single match is not marked as a page"  "$(printf '%s' "$mout" | grep -o 'stopped at the limit')"
+
+# A wrong match, or an argument no tool has, must not read as a filter applied.
+mout=$(mcp '{"jsonrpc":"2.0","id":23,"method":"tools/call","params":{"name":"recall","arguments":{"keys":["venice"],"match":"some"}}}')
+ok      "mcp: match some is refused, not read as all"      '"isError":true' "$mout"
+ok      "mcp: and the refusal names the two choices"       "match some is neither all" "$mout"
+mout=$(mcp '{"jsonrpc":"2.0","id":24,"method":"tools/call","params":{"name":"timeline","arguments":{"since":"2026-09-08"}}}')
+ok      "mcp: an argument no tool has is refused"          "timeline has no argument since" "$mout"
+ok      "mcp: and it lists what timeline does take"        "it takes count limit" "$mout"
+mout=$(mcp '{"jsonrpc":"2.0","id":25,"method":"tools/call","params":{"name":"timeline","arguments":{"limit":2}}}')
+okempty "mcp: timeline still takes limit as count"         "$(printf '%s' "$mout" | grep -o 'isError')"
+
+# A limit is a whole number in range or it is a refusal: nothing is clamped.
+for bad in '1e3' '"10"' '0' '-1' '1001' '1.5'; do
+    mout=$(mcp "{\"jsonrpc\":\"2.0\",\"id\":26,\"method\":\"tools/call\",\"params\":{\"name\":\"recall\",\"arguments\":{\"keys\":[\"venice\"],\"limit\":$bad}}}")
+    ok  "mcp: limit $bad is refused, not rewritten"        "1 to 1000" "$mout"
+done
+
+# A key the store would fold is a key the reply must not promise.
+mout=$(mcp '{"jsonrpc":"2.0","id":27,"method":"tools/call","params":{"name":"recall","arguments":{"keys":["a|b"]}}}')
+ok      "mcp: a key holding a pipe is refused"             "a key cannot hold" "$mout"
+mkeys=$(awk 'BEGIN{for(i=1;i<65;i++)printf "\"k%d\",",i; printf "\"k65\""}')
+mout=$(mcp "{\"jsonrpc\":\"2.0\",\"id\":28,\"method\":\"tools/call\",\"params\":{\"name\":\"recall\",\"arguments\":{\"keys\":[$mkeys]}}}")
+ok      "mcp: past 64 keys is refused, not truncated"      "at most 64 keys" "$mout"
+
+# What save tells the model back has to be what happened.
+mout=$(mcprw '{"jsonrpc":"2.0","id":29,"method":"tools/call","params":{"name":"save","arguments":{"value":"written by the agent","keys":["k2"]}}}')
+ok      "mcp: a value already held gains keys, not a record" "to existing record" "$mout"
+ok      "mcp: and the reply names every key it now has"    "now under k k2" "$mout"
+mout=$(mcprw '{"jsonrpc":"2.0","id":30,"method":"tools/call","params":{"name":"save","arguments":{"value":"first line\nsecond line","keys":["doc"]}}}')
+ok      "mcp: a multi-line save says it made a document"   "as document blobs/" "$mout"
+ok      "mcp: and warns that find cannot read inside it"   "find does not search inside documents" "$mout"
+mout=$(mcprw '{"jsonrpc":"2.0","id":31,"method":"tools/call","params":{"name":"save","arguments":{"value":"\r","keys":["cr"]}}}')
+ok      "mcp: a blank-space value says why it failed"      "blank space only" "$mout"
+ok      "mcp: and it is a tool error"                      '"isError":true' "$mout"
+mout=$(mcprw '{"jsonrpc":"2.0","id":32,"method":"tools/call","params":{"name":"save","arguments":{"value":"aisc:AAAA","keys":["plant"]}}}')
+ok      "mcp: a planted secret marker is refused"          "reserved prefix" "$mout"
+mout=$(mcprw '{"jsonrpc":"2.0","id":33,"method":"tools/call","params":{"name":"save","arguments":{"value":"blobs/x.txt","keys":["plant"]}}}')
+ok      "mcp: a planted document path is refused too"      "reserved prefix" "$mout"
+okempty "mcp: and neither was stored"                      "$("$AIS" -f "$MI" plant 2>/dev/null)"
+
+# Ciphertext never reaches a model, and a document path that leaves the index
+# is withheld rather than handed over.
+"$AIS" -f "$MI" -v 'blobs/../../etc/passwd' escaped >/dev/null
+"$AIS" -f "$MI" -v 'aisc:c2VjcmV0' sec >/dev/null
+mout=$(mcp '{"jsonrpc":"2.0","id":34,"method":"tools/call","params":{"name":"recall","arguments":{"keys":["escaped","sec"],"match":"any"}}}')
+ok      "mcp: a blobs path that escapes is withheld"       "document path withheld" "$mout"
+okempty "mcp: the path itself is not in the reply"         "$(printf '%s' "$mout" | grep -o 'etc/passwd')"
+ok      "mcp: a secret reads as encrypted and hidden"      "encrypted, hidden" "$mout"
+mout=$(mcp '{"jsonrpc":"2.0","id":35,"method":"tools/call","params":{"name":"find","arguments":{"text":"c2VjcmV0"}}}')
+ok      "mcp: find still matches the stored ciphertext"    "encrypted, hidden" "$mout"
+okempty "mcp: but hands none of it back"                   "$(printf '%s' "$mout" | grep -o 'c2VjcmV0')"
+mout=$(mcp '{"jsonrpc":"2.0","id":36,"method":"tools/call","params":{"name":"timeline","arguments":{"count":2}}}')
+ok      "mcp: timeline hides it too"                       "encrypted, hidden" "$mout"
+
+# An empty index is not a missed match, and saying "no match" sends a model
+# hunting for a key that could not exist.
+MI2=$(mktemp -d "${TMPDIR:-/tmp}/ais_mcp.XXXXXX") || exit 2
+mout=$(printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"timeline","arguments":{}}}' | "$AIS" -f "$MI2" --mcp 2>/dev/null)
+ok      "mcp: an empty timeline says the index is empty"   "the index is empty" "$mout"
+rm -rf "$MI2"
+
+# A client that gets no reply waits forever, so every fault has to answer.
+mout=$(mcp '{"jsonrpc":"2.0","id":{"a":1},"method":"ping"}')
+ok      "mcp: an object id is refused, not ignored"        '"code":-32600' "$mout"
+ok      "mcp: and the refusal carries id null"             '"id":null' "$mout"
+mout=$(mcp '{"jsonrpc":"2.0","id":[1],"method":"ping"}')
+ok      "mcp: an array id is refused too"                  '"code":-32600' "$mout"
+mout=$(mcp '{"jsonrpc":"2.0","id":true,"method":"ping"}')
+ok      "mcp: a boolean id is refused too"                 '"code":-32600' "$mout"
+mout=$(mcp '{"jsonrpc":"2.0","id":+5,"method":"ping"}')
+ok      "mcp: id +5 is not a JSON number"                  '"code":-32700' "$mout"
+jsonok  "mcp: and the refusal of it still parses"          "$mout"
+mout=$(mcp '{"jsonrpc":"2.0","id":007,"method":"ping"}')
+ok      "mcp: id 007 is not a JSON number either"          '"code":-32700' "$mout"
+jsonok  "mcp: and that refusal parses as well"             "$mout"
+mout=$(mcp '[{"jsonrpc":"2.0","id":1,"method":"ping"}]')
+ok      "mcp: a batch is well-formed JSON, so -32600"      '"code":-32600' "$mout"
+ok      "mcp: and it says one object per line"             'no batch' "$mout"
+mout=$(mcp '{"jsonrpc":"2.0","id":1,"method":"ping"} junk')
+ok      "mcp: bytes after the root object are -32700"      '"code":-32700' "$mout"
+mout=$(mcp '{"id":1,"method":"ping"}')
+ok      "mcp: a missing jsonrpc is -32600"                 '"code":-32600' "$mout"
+ok      "mcp: and the id still comes back"                 '"id":1' "$mout"
+mout=$(mcp '{"jsonrpc":"1.0","id":1,"method":"ping"}')
+ok      "mcp: jsonrpc 1.0 is -32600"                       '"code":-32600' "$mout"
+mout=$(mcp '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"9999-99-99"}}')
+ok      "mcp: an invented date version is not agreed to"   '"protocolVersion":"2025-06-18"' "$mout"
+mout=$(mcp '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}')
+ok      "mcp: a published revision is answered as asked"   '"protocolVersion":"2024-11-05"' "$mout"
 
 mrc=0
 "$AIS" -f "$MI" --mcp bogus >/dev/null 2>&1 || mrc=$?
