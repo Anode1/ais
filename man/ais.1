@@ -51,7 +51,7 @@ ais \- associative index: save values under keys, get them back by keys
 .B ais
 .RB [ \-f
 .IR DIR ]
-.BR \-\-del | \-\-set | \-\-del-under | \-\-dedupe-docs | \-\-untag | \-\-dump | \-\-keys | \-\-stats | \-\-timeline | \-\-tags | \-\-compact | \-\-export | \-\-import | \-\-import-interactively | \-\-import-bookmarks | \-\-import-keep | \-\-sync | \-\-sync-folder | \-\-where | \-\-project | \-\-switch | \-\-indexes | \-\-forget | \-\-default | \-\-serve | \-\-init
+.BR \-\-del | \-\-set | \-\-del-under | \-\-dedupe-docs | \-\-untag | \-\-dump | \-\-keys | \-\-stats | \-\-timeline | \-\-tags | \-\-compact | \-\-export | \-\-import | \-\-import-interactively | \-\-import-bookmarks | \-\-import-keep | \-\-sync | \-\-sync-folder | \-\-where | \-\-project | \-\-switch | \-\-indexes | \-\-forget | \-\-default | \-\-serve | \-\-mcp | \-\-init
 .RI [ ARG ]
 .SH DESCRIPTION
 .B ais
@@ -473,6 +473,30 @@ A
 .I PORT
 outside 1..65535 is refused (exit 2), here and on
 .BR "\-\-export \-\-serve" " and " "\-\-sync \-\-serve" .
+.TP
+.B \-\-mcp \fR[\fBrw\fR]
+Serve the Model Context Protocol on standard input and output, so an agent
+(Claude, Cursor, Zed and anything else that speaks MCP) can recall from the
+index as a tool. The tools are
+.BR recall " (by key, intersection or union), " find " (substring of the stored"
+values),
+.B tags
+(the index's own vocabulary, busiest first) and
+.BR timeline .
+Recall is a lookup: a wrong key returns nothing rather than something plausible,
+and only the matching rows enter the agent's context.
+The session is READ-ONLY unless the operand
+.B rw
+is given, which adds the
+.B save
+tool. An encrypted value stays the opaque
+.B aisc:
+marker either way: decryption is interactive, so there is no key for an agent to
+take. The index is the one every other command would use, so
+.B \-f
+and a local
+.I .ais
+still decide which.
 .SH EXAMPLES
 .nf
 ais -v ~/photos/IMG_3920.jpg italy venice 2023

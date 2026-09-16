@@ -125,6 +125,8 @@ void usage_long(FILE *out)
 "  ais --serve [PORT]             local web GUI (default port 8765); env AIS_NO_OPEN=1\n"
 "                                 runs it headless (no browser) -- for agent/CI testing\n"
 "                                 (a PORT, here and on --export/--sync --serve, is 1..65535)\n"
+"  ais --mcp [rw]                 serve MCP on stdin/stdout for an agent (Claude, Cursor,\n"
+"                                 Zed ...): recall/find/tags/timeline; 'rw' also allows saving\n"
 "  ais --project [KEY]            show / set / clear ('') the default project key\n"
 "  ais --switch [NAME]            switch the current index; no arg shows it,\n"
 "                                 -c NAME [DIR] creates a new index and switches\n"

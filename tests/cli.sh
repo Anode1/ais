@@ -1393,5 +1393,83 @@ ok      "port: --sync --serve 0 says the range"            "1..65535" "$pout"
 okeq    "port: --sync --serve 0 exits 2"                   "2" "$prc"
 rm -rf "$KI"
 
+# ---- --mcp: the agent tool server -----------------------------------------
+# It is a pipe, so the test is a pipe: feed whole JSON-RPC lines in, read the
+# replies out. One session per case keeps a failure from cascading into the next.
+MI=$(mktemp -d "${TMPDIR:-/tmp}/ais_mcp.XXXXXX") || exit 2
+"$AIS" -f "$MI" -v http://example.org/venice venice italy >/dev/null
+"$AIS" -f "$MI" -v /photos/IMG_1.jpg venice photo >/dev/null
+
+# mcp REQUEST...  -- run one session, echo what came back
+mcp() { printf '%s\n' "$@" | "$AIS" -f "$MI" --mcp 2>&1; }
+mcprw() { printf '%s\n' "$@" | "$AIS" -f "$MI" --mcp rw 2>&1; }
+
+mout=$(mcp '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18"}}')
+ok      "mcp: initialize names the server"                 '"name":"ais"' "$mout"
+ok      "mcp: and answers the protocol asked for"          '"protocolVersion":"2025-06-18"' "$mout"
+ok      "mcp: initialize carries the instructions"         'call save' "$mout"
+ok      "mcp: which tell it to ask for the keys"            'ASK which keys' "$mout"
+mout=$(mcp '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"nonsense"}}')
+ok      "mcp: a nonsense version gets ours, not an echo"   '"protocolVersion":"20' "$mout"
+
+mout=$(mcp '{"jsonrpc":"2.0","id":2,"method":"tools/list"}')
+ok      "mcp: tools/list offers recall"                    '"name":"recall"' "$mout"
+ok      "mcp: tools/list offers tags"                      '"name":"tags"' "$mout"
+okempty "mcp: read-only hides save"                        "$(printf '%s' "$mout" | grep -o '"name":"save"')"
+mout=$(mcprw '{"jsonrpc":"2.0","id":2,"method":"tools/list"}')
+ok      "mcp: rw offers save"                              '"name":"save"' "$mout"
+
+mout=$(mcp '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"recall","arguments":{"keys":["venice","italy"]}}}')
+ok      "mcp: recall intersects the keys"                  "example.org/venice" "$mout"
+okempty "mcp: and leaves the other record out"             "$(printf '%s' "$mout" | grep -o 'IMG_1')"
+mout=$(mcp '{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"recall","arguments":{"keys":"venice italy","match":"any"}}}')
+ok      "mcp: match any unions them"                       "IMG_1" "$mout"
+ok      "mcp: keys as one string split on blanks"          "example.org" "$mout"
+mout=$(mcp '{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"recall","arguments":{"keys":["venice"],"limit":1}}}')
+ok      "mcp: limit 1 returns the first match"             "example.org" "$mout"
+okempty "mcp: and stops before the second"                 "$(printf '%s' "$mout" | grep -o 'IMG_1')"
+mout=$(mcp '{"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"recall","arguments":{"keys":["nothing"]}}}')
+ok      "mcp: an empty result says so in words"            "no match" "$mout"
+mout=$(mcp '{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"recall","arguments":{}}}')
+ok      "mcp: recall with no key is a tool error"          '"isError":true' "$mout"
+
+mout=$(mcp '{"jsonrpc":"2.0","id":8,"method":"tools/call","params":{"name":"find","arguments":{"text":"EXAMPLE"}}}')
+ok      "mcp: find matches regardless of case"             "example.org" "$mout"
+mout=$(mcp '{"jsonrpc":"2.0","id":9,"method":"tools/call","params":{"name":"tags","arguments":{}}}')
+ok      "mcp: tags lists the vocabulary, busiest first"    "2|venice" "$mout"
+mout=$(mcp '{"jsonrpc":"2.0","id":10,"method":"tools/call","params":{"name":"timeline","arguments":{"count":1}}}')
+ok      "mcp: timeline carries keys and a timestamp"       "|venice photo|" "$mout"
+
+# The write bit is the whole security story: it has to be handed over on purpose.
+mout=$(mcp '{"jsonrpc":"2.0","id":11,"method":"tools/call","params":{"name":"save","arguments":{"value":"x","keys":["k"]}}}')
+ok      "mcp: read-only refuses save, readably"            "read-only" "$mout"
+ok      "mcp: and marks it as a tool error"                '"isError":true' "$mout"
+okempty "mcp: nothing was written"                         "$("$AIS" -f "$MI" k 2>/dev/null)"
+mout=$(mcprw '{"jsonrpc":"2.0","id":12,"method":"tools/call","params":{"name":"save","arguments":{"value":"written by the agent","keys":["k"]}}}')
+ok      "mcp: rw saves and names the record"               "saved as record" "$mout"
+ok      "mcp: and the CLI sees it"                         "written by the agent" "$("$AIS" -f "$MI" k)"
+
+# JSON the server must survive: escapes, a bad message, an unknown method.
+mout=$(mcprw '{"jsonrpc":"2.0","id":13,"method":"tools/call","params":{"name":"save","arguments":{"value":"caf\u00e9 \"quoted\" \ud83d\ude00","keys":["esc"]}}}')
+ok      "mcp: \\u escapes and a surrogate pair decode"      "saved as record" "$mout"
+ok      "mcp: the stored value round-trips"                "café" "$("$AIS" -f "$MI" esc)"
+mout=$(mcp '{"jsonrpc":"2.0","id":14,"method":"tools/call","params":{"name":"recall","arguments":{"keys":["esc"]}}}')
+ok      "mcp: a quote comes back escaped, not raw"         '\\"quoted\\"' "$mout"
+mout=$(mcp 'not json at all')
+ok      "mcp: a malformed line is a parse error"           '"code":-32700' "$mout"
+ok      "mcp: with a null id, as JSON-RPC requires"        '"id":null' "$mout"
+mout=$(mcp '{"jsonrpc":"2.0","id":15,"method":"nosuch"}')
+ok      "mcp: an unknown method is -32601"                 '"code":-32601' "$mout"
+mout=$(mcp '{"jsonrpc":"2.0","id":16,"method":"tools/call","params":{"name":"bogus","arguments":{}}}')
+ok      "mcp: an unknown tool is -32602"                   '"code":-32602' "$mout"
+okempty "mcp: a notification draws no reply"               "$(mcp '{"jsonrpc":"2.0","method":"notifications/initialized"}')"
+mout=$(mcp "$(printf '{"jsonrpc":"2.0","id":17,"method":"tools/call","params":{"name":"find","arguments":{"text":"%s"}}}' "$(awk 'BEGIN{while(i++<70000)printf "x"}')")")
+ok      "mcp: an oversized request is refused, not split"  '"code":-32600' "$mout"
+
+mrc=0
+"$AIS" -f "$MI" --mcp bogus >/dev/null 2>&1 || mrc=$?
+okeq    "mcp: an operand other than rw is a usage error"   "2" "$mrc"
+rm -rf "$MI"
+
 echo "---- $pass passed, $fail failed"
 [ "$fail" -eq 0 ]

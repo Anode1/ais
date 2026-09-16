@@ -32,7 +32,7 @@ Pod::Spec.new do |s|
   s.requires_arc = false        # C, not Objective-C
 
   s.source_files  = 'c/*.{c,h}', 'c/crypto/*.{c,h}'
-  # Three files stay out, and the list differs from CMakeLists by the third:
+  # Four files stay out, and the list differs from CMakeLists by the third:
   #   main.c   the CLI's entry point, and tests.c the test suite's. Each carries
   #            a main(), which collides with the app's own.
   #   serve.c  the web GUI's HTTP server, whose only caller is the CLI
@@ -41,7 +41,10 @@ Pod::Spec.new do |s|
   #            browser at the served page. Nothing in the app reaches it, so
   #            this drops a file the app never had a use for rather than
   #            teaching the engine about iOS.
-  s.exclude_files = 'c/main.c', 'c/tests.c', 'c/serve.c'
+  #   mcp.c    the agent tool server, which talks JSON-RPC over the process's
+  #            stdin/stdout. An app has neither, and its only caller is again
+  #            main.c (ais_mcp).
+  s.exclude_files = 'c/main.c', 'c/tests.c', 'c/serve.c', 'c/mcp.c'
 
   # Stamp the engine's version from the git tag, as c/Makefile does for the CLI
   # and CMakeLists.txt for Android and Linux. Without it ais_version() reports

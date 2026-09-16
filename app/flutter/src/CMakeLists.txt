@@ -20,12 +20,14 @@ set(CMAKE_C_STANDARD 99)
 file(GLOB AIS_SRC CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/../../../c/*.c"
                   "${CMAKE_CURRENT_SOURCE_DIR}/../../../c/crypto/*.c")
 # main.c is the CLI's entry point and tests.c is the test suite's. Both carry a
-# main(), and neither belongs in a library. tests.c had been matching the glob
+# main(), and neither belongs in a library. mcp.c joins them for a different
+# reason: it serves an agent over the process's stdin/stdout, which an app does
+# not have, so shipping it would only grow the library. tests.c had been matching the glob
 # and compiling on every build (its .o sat in .cxx/); the shipped .so carried
 # none of it, since the link drops code nothing references, so this costs build
 # time rather than APK size. iOS is where it would have mattered: there these
 # sources link into an EXECUTABLE that already has a main() of its own.
-list(FILTER AIS_SRC EXCLUDE REGEX "/(main|tests)\\.c$")
+list(FILTER AIS_SRC EXCLUDE REGEX "/(main|tests|mcp)\\.c$")
 
 # Target is 'ais_engine' (the Linux runner executable target is already named
 # 'ais'); OUTPUT_NAME keeps the file libais.so, which the Dart FFI opens.

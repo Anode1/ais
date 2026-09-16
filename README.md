@@ -131,6 +131,14 @@ cd experiment && python3 analyze.py --csv results_repeats_sanitized.csv
 
 The skill itself is [`.claude/skills/ais/SKILL.md`](.claude/skills/ais/SKILL.md). Copy it into your own project's `.claude/skills/` to give your agent the same. The argument behind the numbers is in [`foundation.md`](doc/foundation.md).
 
+Any agent that speaks MCP reaches the same index as a tool, with no skill to copy:
+
+```sh
+claude mcp add ais -- ais --mcp        # or: {"mcpServers":{"ais":{"command":"ais","args":["--mcp"]}}}
+```
+
+That serves `recall`, `find`, `tags` and `timeline` over stdin/stdout. It is read-only: `ais --mcp rw` adds saving, there is no delete at any setting, and an encrypted value stays the opaque `aisc:` marker, since decryption prompts a person for a passphrase. Run `ais --init` in a repository first and the agent's memory lives with the code, in plain text a reviewer can read. Details in [`dev/MCP.md`](doc/dev/MCP.md).
+
 ## See also
 
 [agent-recipes](https://github.com/Anode1/agent-recipes) - short prompts for working with coding agents; ais is one of them (store and recall procedures instead of re-deriving them).

@@ -90,6 +90,8 @@ COMMANDS (--word; operands are bare args, values via -v; an ID is the number
   ais --serve [PORT]             local web GUI (default port 8765); env AIS_NO_OPEN=1
                                  runs it headless (no browser) -- for agent/CI testing
                                  (a PORT, here and on --export/--sync --serve, is 1..65535)
+  ais --mcp [rw]                 serve MCP on stdin/stdout for an agent (Claude, Cursor,
+                                 Zed ...): recall/find/tags/timeline; 'rw' also allows saving
   ais --project [KEY]            show / set / clear ('') the default project key
   ais --switch [NAME]            switch the current index; no arg shows it,
                                  -c NAME [DIR] creates a new index and switches

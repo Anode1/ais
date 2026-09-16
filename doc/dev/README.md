@@ -31,6 +31,7 @@ README's "Learn more" table. Start with `../../AGENTS.md`, then `LAYOUT.md` and
 | [GUI.md](GUI.md) | what every surface must look like: vocabulary, layout, the two web pages |
 | [GUI_TESTING.md](GUI_TESTING.md) | how to drive one without a human clicking, and without a window on a real display |
 | [HTTP_API.md](HTTP_API.md) | the `--serve` endpoints both web front ends call |
+| [MCP.md](MCP.md) | the `--mcp` tool server: what an agent can call, what it cannot, and why |
 
 ## Shipping
 

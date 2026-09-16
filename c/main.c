@@ -39,6 +39,7 @@
 #include "find.h"
 #include "import.h"
 #include "locate.h"
+#include "mcp.h"
 #include "serve.h"
 #include "sync.h"
 #include "secret.h"
@@ -416,7 +417,7 @@ enum { OPT_HELP = 1000, OPT_VERSION, OPT_TOKEN, OPT_PURGE,
        CMD_COMPACT, CMD_INIT, CMD_IMPORT, CMD_IMPORTI, CMD_WHERE, CMD_SERVE, CMD_PROJECT,
        CMD_DOC, CMD_TIMELINE, CMD_TAGS, CMD_DEFAULT, CMD_UPDATE, CMD_SET, CMD_UNTAG,
        CMD_SWITCH, CMD_INDEXES, CMD_FORGET, CMD_EXPORT, CMD_SYNC, CMD_SYNCFOLDER,
-       CMD_DEDUPE, CMD_IMPORTBM, CMD_IMPORTKEEP };
+       CMD_DEDUPE, CMD_IMPORTBM, CMD_IMPORTKEEP, CMD_MCP };
 static const struct option longopts[] = {
     { "index",       required_argument, NULL, 'f' },
     { "or",          no_argument,       NULL, 'o' },
@@ -459,6 +460,7 @@ static const struct option longopts[] = {
     { "sync-folder", no_argument,       NULL, CMD_SYNCFOLDER },
     { "where",       no_argument,       NULL, CMD_WHERE },
     { "serve",       no_argument,       NULL, CMD_SERVE },
+    { "mcp",         no_argument,       NULL, CMD_MCP },
     { "token",       required_argument, NULL, OPT_TOKEN },
     { "doc",         no_argument,       NULL, CMD_DOC },
     { NULL, 0, NULL, 0 }
@@ -535,6 +537,7 @@ int main(int argc, char **argv)
         case CMD_DEFAULT: case CMD_UPDATE: case CMD_SET: case CMD_UNTAG:
         case CMD_SWITCH: case CMD_INDEXES: case CMD_FORGET: case CMD_SYNC:
         case CMD_SYNCFOLDER: case CMD_DEDUPE: case CMD_IMPORTBM: case CMD_IMPORTKEEP:
+        case CMD_MCP:
             if (cmd != 0) die("only one command at a time");
             cmd = c;
             break;
@@ -967,6 +970,18 @@ int main(int argc, char **argv)
             if (port < 0) { ais_close(&a); return 2; }
             if (ais_serve(&a, port) != 0)
                 die("serve: cannot bind 127.0.0.1:%d", port);
+            break;
+        }
+        case CMD_MCP: {
+            /* Read-only unless the one operand says otherwise: an agent gets
+             * recall for free and has to be handed the write bit on purpose. */
+            const char *mode = (optind < argc) ? argv[optind] : NULL;
+            if (mode != NULL && strcmp(mode, "rw") != 0) {
+                fprintf(stderr, "ais: --mcp takes no argument, or 'rw' to allow saving\n");
+                ais_close(&a);
+                return 2;                         /* a usage error, as the man page says */
+            }
+            ais_mcp(&a, mode != NULL);
             break;
         }
         case CMD_PROJECT:

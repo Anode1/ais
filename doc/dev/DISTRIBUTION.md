@@ -37,6 +37,8 @@ seam (`embed.c`), none needing a runtime:
 - **web** (`ais --serve`, `c/serve.c`): the universal GUI, on every platform.
 - **Flutter** (`app/flutter`): the mobile track.
 - **native Win32** (`win32/ais-gui.c`): niche/legacy, the Windows native window.
+- **MCP** (`ais --mcp`, `c/mcp.c`): the agent front end, with no GUI at all:
+  an agent calls recall/find/tags/timeline as tools ([`MCP.md`](MCP.md)).
 - **browser PWA/WASM**: a planned future track (below).
 
 What we keep maintaining: `c/` (the one engine), those front-ends, and one
