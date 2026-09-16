@@ -8,6 +8,13 @@ Before tagging, run `scripts/release-notes.sh vX.Y.Z`: it prepends the commit
 subjects since the previous tag, then edit them down to what a user needs to
 know. The old entries below the two newest are the raw subjects.
 
+## next (unreleased)
+
+- `ais --mcp` serves the index to a coding agent as MCP tools over stdin and stdout: recall, find, tags and timeline, read-only unless started as `ais --mcp rw`, which adds save. There is no delete and no edit at any setting, an encrypted value goes out as a fixed marker, and one line wires it up: `claude mcp add ais -- ais --mcp`. See doc/MCP.md.
+- `--mcp` will not serve a `.ais/` found by walking up from the working directory, because a repository you cloned can ship one. It serves the home index, the current named index, or what `-f` names, and on a walked-up index it prints one line naming `-f` and exits 2. A project index is named in the client's configuration: `claude mcp add ais -- ais -f /abs/path/.ais --mcp`.
+- Fixed: a stored value of the form `aisc:@../path` could make a delete zero-fill and unlink a file outside the index. Such a value could arrive through `--import`, from a sync peer, or from an agent's save. One containment predicate now guards every join of a value onto a directory, and a value that fails it is a plain reference that nothing is written to or removed at.
+- One-line install for Linux and macOS: `scripts/install.sh` fetches the release for your OS and CPU, checks it against the published `.sha256`, and installs into `~/.local` with no root and nothing compiled.
+
 ## v0.3.27 (2026-09-06)
 
 - Android: Sync > Set a sync folder works with a folder another app shares (Syncthing, a cloud drive). The app keeps a private mirror of the folder for the engine and writes its own bundle back; a folder it cannot use is never remembered, and a folder that turns up empty is refused with Sync anyway offered.

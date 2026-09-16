@@ -53,19 +53,52 @@ PREFER TYPING? (Linux and macOS)
   ais --del 42                      delete item 42
   ais --help                        the full list of commands
 
+A coding agent can read the same index as a tool: see doc/MCP.md.
+
 
 WHERE YOUR THINGS ARE SAVED
 ---------------------------
 
 Plain text files on your own computer, in your home folder at
 ~/.ais (Windows: %USERPROFILE%\.ais). Type  ais --where  to see the
-exact location. They are yours: copy them, back them up to a USB stick, or
-delete them. Nothing is ever uploaded anywhere.
+exact location. They are yours: read them, copy them, or delete them (BACKING
+UP, below). Nothing is ever uploaded anywhere.
+
 
 AIS writes no log when all is well -- that is the rule. If it hits a real error
 it leaves a single file (Windows GUI: %LOCALAPPDATA%\AIS\ais-error.log); its
 mere existence means a genuine problem, not a typo, so send it along. On Linux
 and macOS, run AIS from a terminal to see any error.
+
+
+BACKING UP
+----------
+
+  Where       Type  ais --where  to print the folder your index is in.
+
+  What        In that folder, "store" and the "blobs" folder hold what you
+              saved. The other files carry deletions and sync bookkeeping, and
+              only some of them can be rebuilt, so copy the whole folder.
+
+  Copy        Copy that folder to a USB stick, another disk, or anywhere else.
+              That copy is a complete backup; put it back in place to restore.
+
+  Or export   One plain-text file instead of a folder:
+
+                  ais --export > memories.ais
+
+              It holds every record and the text of every document you saved
+              with  --doc . To restore it into a fresh index:
+
+                  ais --init -f ~/ais-restored
+                  ais --import -f ~/ais-restored < memories.ais
+
+  Pointers    A link or a file path is a pointer. Backing up the index backs up
+              the pointer, never the web page or the file at the other end;
+              those you back up where they live.
+
+Your home folder ~/.ais also holds "config", the list of your named indexes. It
+is harmless to copy along with the rest.
 
 
 ON A PHONE

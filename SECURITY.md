@@ -61,6 +61,25 @@ being backported. Version scheme and release process are in
   primitives are Monocypher, vendored under `c/crypto/` (see
   [`c/crypto/README.md`](c/crypto/README.md)).
 
+## Handing the index to an agent (`ais --mcp`)
+
+Everything a tool call returns reaches the model the client talks to, and so
+reaches that client's provider. Serve an index whose contents you are willing to
+disclose to it. Four bounds hold whatever the model asks for:
+
+- An encrypted value is never decrypted here. It stays ciphertext in the store
+  and goes out as the fixed marker `aisc: (encrypted, hidden)`.
+- The session is read-only unless it was started as `ais --mcp rw`, which adds
+  `save` and nothing else.
+- There is no delete and no edit at any setting.
+- The index served is the one the client's configuration names, through `-f`,
+  the current named index, or `~/.ais`. A `.ais/` found by walking up from the
+  working directory is refused, so a cloned repository's records cannot become
+  an agent's memory.
+
+A defect in those four is in scope. Wiring and the full tool contract are in
+[`doc/MCP.md`](doc/MCP.md).
+
 ## What this project does to reduce the attack surface
 
 - No network service runs unless you start one (`--serve`, `--sync`), and the web

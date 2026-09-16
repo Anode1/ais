@@ -69,13 +69,14 @@ Design and build order: [dev/SPEECH.md](dev/SPEECH.md).
 
 ### Agent integration on Android
 
-On the desktop an AI agent recalls from AIS by running the `ais` CLI as a tool,
-spending far fewer tokens than re-searching its files (measured in *Compress the
-Access*). On **Android** the same win needs a mobile seam: a way for an on-device
-or connected agent to query the index (a share/intent entry point, or the FFI
-`recall` exposed to a local agent runtime) so mobile agents get the same
-near-zero-token recall the CLI gives today. Wrapper work over the unchanged
-engine; `embed.h`'s `recall` is already the contract.
+On the desktop an AI agent recalls from AIS through `ais --mcp`, or by running
+the `ais` CLI as a tool, spending far fewer tokens than re-searching its files
+(measured in *Compress the Access*). On **Android** the same win needs a mobile
+seam: a way for an on-device or connected agent to query the index (a
+share/intent entry point, or the FFI `recall` exposed to a local agent runtime)
+so mobile agents get the same near-zero-token recall the CLI gives today.
+Wrapper work over the unchanged engine; `embed.h`'s `recall` is already the
+contract.
 
 ### Native macOS app
 

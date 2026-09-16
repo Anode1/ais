@@ -71,6 +71,16 @@ cloud folder you chose. Those files are plain text, like your index. Nothing is
 sent to the developer either way, but anyone who can read that folder can read
 what is in it, so pick a folder only you can reach.
 
+## Using AIS with an AI agent
+
+The `ais --mcp` command lets an AI client on your own computer read your index as
+a tool. What a tool call returns goes to the model that client talks to, and
+therefore to that client's provider, under their policy rather than this one. It
+is off until you add it to that client's configuration, and the index it serves
+is the one that configuration names. Encrypted entries are not decrypted for it:
+they come back as a fixed marker. The server can read, and it can save only if
+you start it with `rw`; it cannot delete or edit anything.
+
 ## Third parties, ads, and tracking
 
 The app contains **no advertising, no third-party analytics, and no tracking
