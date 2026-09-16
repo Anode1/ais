@@ -492,11 +492,20 @@ is given, which adds the
 tool. An encrypted value stays the opaque
 .B aisc:
 marker either way: decryption is interactive, so there is no key for an agent to
-take. The index is the one every other command would use, so
-.B \-f
-and a local
+take.
+.IP
+One index is not served: the
 .I .ais
-still decide which. See
+found by walking up from the working directory. A repository you cloned can ship
+one, and it would become the agent's memory, its records reaching the model as
+tool output. So
+.B \-\-mcp
+serves the home index, the current named index, or whatever
+.B \-f
+names, and on a walked-up index it prints one line naming
+.B \-f
+and exits 2 before serving anything. Naming the index in the client's
+configuration is the permission. See
 .I doc/MCP.md
 for wiring it into a client and what it refuses to do.
 .SH EXAMPLES

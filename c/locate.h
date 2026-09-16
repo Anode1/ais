@@ -24,6 +24,14 @@
 
 int ais_locate(const char *opt, char *out, size_t outsz);
 
+/* ais_locate, and it also reports WHICH step above chose the path in *HOW
+ * (1 -f, 2 a walked-up local .ais, 3 the current named index, 4 home). The
+ * caller needs the step because step 2 is the only one nobody asked for: a
+ * cloned repository that ships .ais/ becomes the index of whatever runs in it,
+ * which is why --mcp refuses to serve that step and asks for -f. HOW may be
+ * NULL. On error *HOW is not meaningful. */
+int ais_locate_how(const char *opt, char *out, size_t outsz, int *how);
+
 /* The built-in "home" index path (~/.ais). 0/-1. */
 int ais_home_path(char *out, size_t outsz);
 

@@ -127,6 +127,7 @@ void usage_long(FILE *out)
 "                                 (a PORT, here and on --export/--sync --serve, is 1..65535)\n"
 "  ais --mcp [rw]                 serve MCP on stdin/stdout for an agent (Claude, Cursor,\n"
 "                                 Zed ...): recall/find/tags/timeline; 'rw' also allows saving\n"
+"                                 a .ais found by walking up is refused: name it with -f\n"
 "  ais --project [KEY]            show / set / clear ('') the default project key\n"
 "  ais --switch [NAME]            switch the current index; no arg shows it,\n"
 "                                 -c NAME [DIR] creates a new index and switches\n"

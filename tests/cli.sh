@@ -1576,5 +1576,36 @@ ok      "blobsec: --doc still stores a blobs/ value"          "blobs/" "$bdoc"
 ok      "blobsec: and the body is readable back"              "line two" "$(cat "$BI/X/$bdoc" 2>&1)"
 rm -rf "$BI"
 
+# ---- --mcp will not serve an index it merely found -------------------------
+# Step 2 of the index precedence is the nearest .ais walking up, so a cloned
+# repository that ships one would become the agent's memory and hand its record
+# values to the model. Naming the index with -f is the permission.
+PJ=$(mktemp -d "${TMPDIR:-/tmp}/ais_mcpproj.XXXXXX") || exit 2
+mkdir -p "$PJ/sub"
+"$AIS" -f "$PJ/.ais" --init >/dev/null
+"$AIS" -f "$PJ/.ais" -v http://example.org/private cloned >/dev/null
+MLIST='{"jsonrpc":"2.0","id":2,"method":"tools/list"}'
+
+# ntools TEXT -- how many tools a tools/list reply offers
+ntools() { printf '%s' "$1" | grep -o '"name":"[a-z]*"' | grep -c .; }
+
+pout=$(cd "$PJ/sub" && printf '%s\n' "$MLIST" | "$AIS" --mcp 2>/dev/null); prc=$?
+okeq    "mcpproj: a walked-up index exits 2"               "2" "$prc"
+okempty "mcpproj: and nothing reaches stdout"              "$pout"
+perr=$(cd "$PJ/sub" && printf '%s\n' "$MLIST" | "$AIS" --mcp 2>&1 >/dev/null)
+ok      "mcpproj: the refusal names -f"                    "pass -f DIR" "$perr"
+ok      "mcpproj: and names the index it declined"         "$PJ/.ais" "$perr"
+
+# Naming the same index serves it, at either setting.
+mout=$(printf '%s\n' "$MLIST" | "$AIS" -f "$PJ/.ais" --mcp 2>/dev/null)
+jsonok  "mcpproj: the named session is valid JSON"         "$mout"
+okeq    "mcpproj: -f serves the four read tools"           "4" "$(ntools "$mout")"
+okeq    "mcpproj: -f rw adds save"                         "5" \
+        "$(ntools "$(printf '%s\n' "$MLIST" | "$AIS" -f "$PJ/.ais" --mcp rw 2>/dev/null)")"
+
+"$AIS" -f "$PJ/.ais" --mcp rw extra >/dev/null 2>&1
+okeq    "mcpproj: a second --mcp operand is a usage error" "2" "$?"
+rm -rf "$PJ"
+
 echo "---- $pass passed, $fail failed"
 [ "$fail" -eq 0 ]

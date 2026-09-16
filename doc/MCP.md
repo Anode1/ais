@@ -30,9 +30,13 @@ itself and talks to it over a pipe.
 
 ## Which index it opens
 
-The one every other `ais` command would use: the nearest `.ais/` at or above the
-working directory, then the current named index, then `~/.ais`. To pin one, say
-so: `"args": ["-f", "/home/you/.ais", "--mcp"]`.
+Your home index `~/.ais`, the current named index, or whatever `-f` names. The
+`.ais/` found by walking up from the working directory is the one index `--mcp`
+will not serve: a repository you cloned can ship one, and it would become the
+agent's memory with its records reaching the model as tool output. Naming the
+index is the permission, so a project index is served by naming it:
+
+    claude mcp add ais -- ais -f /abs/path/of/project/.ais --mcp
 
 `ais --init` in a repository gives that project its own index. What an agent
 files there sits beside the code as plain text, readable in a diff, and separate

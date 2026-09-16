@@ -91,7 +91,7 @@ Wiring it up takes one line, and any agent that speaks MCP can use it:
 claude mcp add ais -- ais --mcp        # or: {"mcpServers":{"ais":{"command":"ais","args":["--mcp"]}}}
 ```
 
-That serves `recall`, `find`, `tags` and `timeline` over stdin/stdout. It is read-only, `ais --mcp rw` adds saving, and there is no delete at any setting. An encrypted value stays the opaque `aisc:` marker, since decryption prompts a person for a passphrase. Run `ais --init` in a repository first and the index lives with the code, so what the agent files there is yours to read in plain text. The full picture is in [`doc/MCP.md`](doc/MCP.md).
+That serves `recall`, `find`, `tags` and `timeline` over stdin/stdout. It is read-only, `ais --mcp rw` adds saving, and there is no delete at any setting. An encrypted value stays the opaque `aisc:` marker, since decryption prompts a person for a passphrase. Run `ais --init` in a repository first and the index lives with the code, so what the agent files there is yours to read in plain text. A project index is served by naming it, `claude mcp add ais -- ais -f /abs/path/of/project/.ais --mcp`: `--mcp` refuses a `.ais/` it merely found by walking up, because a clone can ship one. The full picture is in [`doc/MCP.md`](doc/MCP.md).
 
 In Claude Code a skill is the other way in: [`.claude/skills/ais/SKILL.md`](.claude/skills/ais/SKILL.md), copied into your own project's `.claude/skills/`. Why keys beat search is in [`about.txt`](doc/about.txt), and [above](#why).
 

@@ -432,6 +432,22 @@ the peer that removed it); only
 `find` searches the path, not the blob's contents (tags-only). `ais --where`
 prints the index dir so a front-end can resolve `blobs/<timestamp>.txt`.
 
+### --mcp and the index nobody named
+
+`ais --mcp` hands an index to an agent, so its records reach a model as tool
+output. Step 2 of the location precedence, the nearest `.ais/` at or above the
+working directory, is the one step nobody asked for: a repository you cloned can
+ship a `.ais/`, and running an agent in that checkout would make a stranger's
+records its memory. So `--mcp` serves steps 1, 3 and 4 (`-f`, the current named
+index, home) and refuses step 2, printing one line naming `-f` and exiting 2
+before anything is served. `ais_locate_how` reports the step; main.c holds the
+rule, and `ais_mcp` never learns of it.
+
+Naming the index is the permission, and it is already where permission belongs:
+the client's own configuration line, `ais -f /abs/.ais --mcp`, which the user
+writes and an agent host gates per project. Nothing is stored in the index, on
+purpose, because the index directory is exactly what arrives in a clone.
+
 ### Concurrency
 Reads take no lock; each writer takes an exclusive `flock` on `INDEX/lock` for
 the duration of one mutating op and reloads `next_id` under it, so concurrent

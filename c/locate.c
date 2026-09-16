@@ -395,18 +395,23 @@ int ais_default_set(const char *path)
 
 /* ---- resolution ----------------------------------------------------------- */
 
-int ais_locate(const char *opt, char *out, size_t outsz)
+int ais_locate_how(const char *opt, char *out, size_t outsz, int *how)
 {
     int rc;
 
-    if (opt != NULL && opt[0] != '\0')          /* 1. -f (the only override) */
+    if (how != NULL) *how = 4;
+    if (opt != NULL && opt[0] != '\0') {        /* 1. -f (the only override) */
+        if (how != NULL) *how = 1;
         return put_str(out, outsz, opt);
+    }
 
     rc = find_local(out, outsz);                 /* 2. nearest .ais/ */
     if (rc < 0)
         return -1;
-    if (rc == 1)
+    if (rc == 1) {
+        if (how != NULL) *how = 2;
         return 0;
+    }
 
     {                                            /* 3. current named index */
         char cur[AIS_KEY_MAX];
@@ -418,8 +423,10 @@ int ais_locate(const char *opt, char *out, size_t outsz)
                 rc = ais_index_path(cur, out, outsz);
                 if (rc < 0)
                     return -1;
-                if (rc == 1)
+                if (rc == 1) {
+                    if (how != NULL) *how = 3;
                     return 0;
+                }
                 fprintf(stderr,
                         "ais: current index '%s' is not registered; using home (~/.ais).\n"
                         "     'ais --indexes' to list, 'ais --switch NAME' to fix.\n", cur);
@@ -429,8 +436,10 @@ int ais_locate(const char *opt, char *out, size_t outsz)
             rc = ais_default_get(out, outsz);
             if (rc < 0)
                 return -1;
-            if (rc == 1)
+            if (rc == 1) {
+                if (how != NULL) *how = 3;
                 return 0;
+            }
         }
     }
 
@@ -449,4 +458,9 @@ int ais_locate(const char *opt, char *out, size_t outsz)
         }
         return put_str(out, outsz, def);         /* ais_open creates it on first use */
     }
+}
+
+int ais_locate(const char *opt, char *out, size_t outsz)
+{
+    return ais_locate_how(opt, out, outsz, NULL);
 }

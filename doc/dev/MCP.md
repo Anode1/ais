@@ -62,6 +62,11 @@ path of the index actually opened, because a repo-local `.ais/` and the personal
 `~/.ais` speak the same protocol, and an agent that cannot tell them apart
 reports a project's notes as the user's own memory.
 
+Which index gets served is decided before any of this, in main.c: `ais_locate_how`
+reports which precedence step chose the path, and step 2, a `.ais` found by
+walking up, is refused there (LAYOUT.md, "--mcp and the index nobody named").
+`ais_mcp` is handed an open index and a write bit and knows nothing about it.
+
 `save` requires keys in its schema as well as in its prose. The schema is what a
 model generates against, so prose alone loses: with `"required":["value"]` a
 keyless save succeeded and made a record that no key can ever recall.

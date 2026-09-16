@@ -494,6 +494,7 @@ int main(int argc, char **argv)
     ais_mode mode = AIS_AND;
     int assume_yes = 0, interactive = 0, project_given = 0, create = 0, encrypt = 0;
     int cmd = 0, serve_flag = 0;
+    int index_step = 1;                /* which ais_locate step chose the index */
     /* Which long option spelled the command, from getopt itself: scanning argv
      * for "--del-key" misfires on a KEY named that and misses getopt's own
      * unambiguous abbreviations ("--del-k"). */
@@ -562,13 +563,15 @@ int main(int argc, char **argv)
         return 2;
     }
 
-    /* resolve the index (--init without -f targets a fresh .ais here) */
+    /* resolve the index (--init without -f targets a fresh .ais here), keeping
+     * WHICH precedence step chose it: --mcp refuses step 2, the .ais found by
+     * walking up, and serves only an index the user named. */
     {
         static char resolved[AIS_PATH_MAX];
         if (cmd == CMD_INIT && (dir == NULL || dir[0] == '\0')) {
             snprintf(resolved, sizeof(resolved), ".ais");
             dir = resolved;
-        } else if (ais_locate(dir, resolved, sizeof(resolved)) != 0) {
+        } else if (ais_locate_how(dir, resolved, sizeof(resolved), &index_step) != 0) {
             die("cannot determine an index location (use -f DIR)");
         } else {
             /* -f names an index that must already exist; creating one is
@@ -976,10 +979,20 @@ int main(int argc, char **argv)
             /* Read-only unless the one operand says otherwise: an agent gets
              * recall for free and has to be handed the write bit on purpose. */
             const char *mode = (optind < argc) ? argv[optind] : NULL;
-            if (mode != NULL && strcmp(mode, "rw") != 0) {
+            if (optind + 1 < argc || (mode != NULL && strcmp(mode, "rw") != 0)) {
                 fprintf(stderr, "ais: --mcp takes no argument, or 'rw' to allow saving\n");
                 ais_close(&a);
                 return 2;                         /* a usage error, as the man page says */
+            }
+            /* Step 2 is the index nobody named. A cloned repository that ships
+             * .ais/ would otherwise become the agent's memory, and its record
+             * values would reach the model as tool output. Naming the index in
+             * the client config is the permission, so -f is what serves one. */
+            if (index_step == 2) {
+                fprintf(stderr, "ais: --mcp does not serve an index found by walking up; "
+                                "pass -f DIR to serve the project index at %s\n", dir);
+                ais_close(&a);
+                return 2;
             }
             ais_mcp(&a, mode != NULL);
             break;
