@@ -13,6 +13,7 @@
  * cannot be retracted once it has started, so everything that can fail (the
  * arguments, a temporary file) is settled before the first byte goes out.
  */
+#include <limits.h>
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -39,8 +40,9 @@ enum { JNONE = 0, JOBJ, JARR, JSTR, JNUM, JLIT };
 typedef struct {
     char  type;
     char *key;        /* member name, when the parent is an object */
-    char *str;        /* JSTR: the unescaped text */
-    long  num;        /* JNUM: the integer part; JLIT: 1 for true */
+    char *str;        /* JSTR: the unescaped text; JNUM: the raw token */
+    long  num;        /* JNUM: the raw token's length */
+    long  val;        /* JNUM: the integer part; JLIT: 1 for true */
     int   kid, sib;   /* first child, next sibling; -1 = none */
 } jnode;
 
@@ -60,7 +62,7 @@ static int jnew(jdoc *d, int type)
         return -1;                       /* a request deeper than we will read */
     v = &d->v[d->n];
     v->type = (char)type; v->key = NULL; v->str = NULL;
-    v->num = 0; v->kid = -1; v->sib = -1;
+    v->num = 0; v->val = 0; v->kid = -1; v->sib = -1;
     return d->n++;
 }
 
@@ -144,6 +146,8 @@ static char *jstring(char **p)
                 }
             } else if (cp >= 0xDC00UL && cp <= 0xDFFFUL) {
                 cp = 0xFFFDUL;                            /* lone low surrogate */
+            } else if (cp == 0) {
+                cp = 0xFFFDUL;         /* a real NUL would end the string here */
             }
             w = jutf8(w, cp);
             break;
@@ -214,7 +218,9 @@ static int jparse(jdoc *d, char **p)
             if (strncmp(*p, lit[i], n) == 0) {
                 me = jnew(d, JLIT);
                 if (me < 0) return -1;
-                d->v[me].num = (i == 0);
+                d->v[me].val = (i == 0);
+                if (i != 2)
+                    d->v[me].str = (char *)lit[i];   /* NULL str marks the null */
                 *p += n;
                 return me;
             }
@@ -222,17 +228,21 @@ static int jparse(jdoc *d, char **p)
         return -1;
     }
     default: {
-        char *end;
+        char *start = *p, *end;
         long n = strtol(*p, &end, 10);
         if (end == *p) return -1;
         me = jnew(d, JNUM);
         if (me < 0) return -1;
-        d->v[me].num = n;
-        /* A fraction or exponent is legal JSON and not something any field
-         * here means; step over it so the rest of the message still reads. */
+        /* A fraction or exponent is legal JSON and means nothing to any field
+         * here; step over it so the rest of the message still reads. */
         while (*end == '.' || *end == 'e' || *end == 'E' || *end == '+' ||
                *end == '-' || (*end >= '0' && *end <= '9'))
             end++;
+        /* Two readings, both wanted: the integer for a limit, and the token
+         * itself for an id, which goes back unchanged whatever it was. */
+        d->v[me].val = n;
+        d->v[me].str = start;
+        d->v[me].num = (long)(end - start);
         *p = end;
         return me;
     }
@@ -258,7 +268,7 @@ static const char *jtext(const jdoc *d, int i)
 
 static long jint(const jdoc *d, int i, long dflt)
 {
-    return (i >= 0 && d->v[i].type == JNUM) ? d->v[i].num : dflt;
+    return (i >= 0 && d->v[i].type == JNUM) ? d->v[i].val : dflt;
 }
 
 /* ---- writing JSON ------------------------------------------------------- */
@@ -269,43 +279,70 @@ static void jout(const char *s)
 {
     const unsigned char *u = (const unsigned char *)s;
 
-    for (; *u != '\0'; u++) {
-        switch (*u) {
-        case '"':  fputs("\\\"", stdout); break;
-        case '\\': fputs("\\\\", stdout); break;
-        case '\n': fputs("\\n", stdout);  break;
-        case '\r': fputs("\\r", stdout);  break;
-        case '\t': fputs("\\t", stdout);  break;
-        default:
-            if (*u < 0x20)
-                printf("\\u%04x", (unsigned)*u);
-            else
-                putchar((int)*u);
+    while (*u != '\0') {
+        unsigned char c = *u;
+        int n, i;
+
+        switch (c) {
+        case '"':  fputs("\\\"", stdout); u++; continue;
+        case '\\': fputs("\\\\", stdout); u++; continue;
+        case '\n': fputs("\\n", stdout);  u++; continue;
+        case '\r': fputs("\\r", stdout);  u++; continue;
+        case '\t': fputs("\\t", stdout);  u++; continue;
+        default: break;
         }
+        if (c < 0x20)  { printf("\\u%04x", (unsigned)c); u++; continue; }
+        if (c < 0x80)  { putchar((int)c); u++; continue; }
+        /* A stored value can hold any byte: the CLI, --import and sync take
+         * what they are given, and a Latin-1 paste is one command away. JSON
+         * must be UTF-8, and a client decodes the LINE before parsing it, so
+         * one stray byte would cost the whole reply rather than one row.
+         * Anything malformed goes out as U+FFFD and the rest survives. */
+        n = (c >= 0xF0 && c <= 0xF4) ? 3 : (c >= 0xE0) ? 2 : (c >= 0xC2) ? 1 : -1;
+        for (i = 1; i <= n; i++)
+            if ((u[i] & 0xC0) != 0x80) { n = -1; break; }
+        if (n > 0 && ((c == 0xE0 && u[1] < 0xA0) ||     /* overlong */
+                      (c == 0xED && u[1] > 0x9F) ||     /* a surrogate */
+                      (c == 0xF0 && u[1] < 0x90) ||     /* overlong */
+                      (c == 0xF4 && u[1] > 0x8F)))      /* past U+10FFFF */
+            n = -1;
+        if (n < 0) { fputs("\\ufffd", stdout); u++; continue; }
+        fwrite(u, 1, (size_t)n + 1, stdout);
+        u += n + 1;
     }
 }
 
-/* The request's id, echoed back verbatim: JSON-RPC lets it be a number or a
- * string, and a reply that changes its shape is a reply the client drops. */
-struct req { int has_id, id_str; const char *id_s; long id_n; };
+/* The request's id, echoed back as the bytes that arrived. JSON-RPC lets it be
+ * a number or a string, and a client that cannot match the id it sent drops the
+ * reply and waits, so a number is never re-rendered from a long: 1.5 and an id
+ * past LONG_MAX both have to come back as themselves.
+ * ID_S is the text (for a string) or the raw token (for a number); NULL with
+ * HAS_ID set is the literal null, which JSON-RPC calls a request, not a
+ * notification. */
+struct req { int has_id, id_str; const char *id_s; size_t id_raw; };
 
 static void req_id(const jdoc *d, int root, struct req *q)
 {
     int i = jget(d, root, "id");
 
-    q->has_id = 0; q->id_str = 0; q->id_s = NULL; q->id_n = 0;
+    q->has_id = 0; q->id_str = 0; q->id_s = NULL; q->id_raw = 0;
     if (i < 0)
-        return;                                   /* a notification: no reply */
-    if (d->v[i].type == JSTR)      { q->has_id = 1; q->id_str = 1; q->id_s = d->v[i].str; }
-    else if (d->v[i].type == JNUM) { q->has_id = 1; q->id_n = d->v[i].num; }
+        return;                                   /* no id at all: a notification */
+    if (d->v[i].type == JSTR) {
+        q->has_id = 1; q->id_str = 1; q->id_s = d->v[i].str;
+    } else if (d->v[i].type == JNUM) {
+        q->has_id = 1; q->id_s = d->v[i].str; q->id_raw = (size_t)d->v[i].num;
+    } else if (d->v[i].type == JLIT && d->v[i].str == NULL) {
+        q->has_id = 1;                            /* id: null, answered with null */
+    }
 }
 
 static void reply_head(const struct req *q)
 {
     fputs("{\"jsonrpc\":\"2.0\",\"id\":", stdout);
-    if (q == NULL || !q->has_id)   fputs("null", stdout);
-    else if (q->id_str)            { putchar('"'); jout(q->id_s); putchar('"'); }
-    else                           printf("%ld", q->id_n);
+    if (q == NULL || !q->has_id || q->id_s == NULL) fputs("null", stdout);
+    else if (q->id_str)  { putchar('"'); jout(q->id_s); putchar('"'); }
+    else                 fwrite(q->id_s, 1, q->id_raw, stdout);
 }
 
 static void reply_end(void)
@@ -451,11 +488,15 @@ static int keys_arg(const jdoc *d, int node, char *kv[], int max)
     return n;
 }
 
+/* A row budget from the arguments. Out of int range it would reach ais_get_page
+ * as a wrapped value, and 0 there means UNBOUNDED: the opposite of a limit. */
 static long rows_arg(const jdoc *d, int args, const char *name)
 {
     long n = jint(d, jget(d, args, name), MCP_ROWS_DEF);
 
-    return (n > 0) ? n : MCP_ROWS_DEF;
+    if (n <= 0)
+        return MCP_ROWS_DEF;
+    return (n > INT_MAX) ? INT_MAX : n;
 }
 
 static void sink_init(struct sink *s, ais *a, long left)
@@ -464,11 +505,14 @@ static void sink_init(struct sink *s, ais *a, long left)
 }
 
 /* An empty result is a fact, not a failure: say so in words, or a model reads
- * an empty block as a broken tool and tries again. */
+ * an empty block as a broken tool and tries again. A spent budget is the other
+ * half of the same problem: unmarked, a page reads as the whole index. */
 static void rows_done(const struct sink *s)
 {
     if (s->rows == 0)
         jout("no match");
+    else if (s->left == 0)
+        jout("(stopped at the limit; there may be more)\n");
 }
 
 static void tool_recall(ais *a, const jdoc *d, int args, const struct req *q)
@@ -496,7 +540,7 @@ static void tool_find(ais *a, const jdoc *d, int args, const struct req *q)
 {
     const char *text = jtext(d, jget(d, args, "text"));
     char line[AIS_LINE_MAX];
-    long left;
+    long left, want;
     FILE *tmp;
 
     if (text == NULL || *text == '\0') {
@@ -511,7 +555,8 @@ static void tool_find(ais *a, const jdoc *d, int args, const struct req *q)
         text_reply(q, "find: no temporary file", 1);
         return;
     }
-    left = rows_arg(d, args, "limit");
+    want = rows_arg(d, args, "limit");
+    left = want;
     ais_find(a, text, tmp);
     rewind(tmp);
     text_open(q);
@@ -519,8 +564,10 @@ static void tool_find(ais *a, const jdoc *d, int args, const struct req *q)
         jout(line);
         left--;
     }
-    if (left == rows_arg(d, args, "limit"))
+    if (left == want)
         jout("no match");
+    else if (left == 0)
+        jout("(stopped at the limit; there may be more)\n");
     text_close(0);
     fclose(tmp);
 }
@@ -541,7 +588,10 @@ static void tool_timeline(ais *a, const jdoc *d, int args, const struct req *q)
 {
     struct sink s;
 
-    sink_init(&s, a, rows_arg(d, args, "count"));
+    /* Named count here and limit on every other tool. Take either, rather than
+     * handing back 200 rows to a model that guessed the wrong word. */
+    sink_init(&s, a, rows_arg(d, args,
+                              jget(d, args, "count") >= 0 ? "count" : "limit"));
     text_open(q);
     ais_timeline(a, 0, (int)s.left, NULL, NULL, on_tl, &s);
     rows_done(&s);
@@ -567,6 +617,14 @@ static void tool_save(ais *a, const jdoc *d, int args, const struct req *q, int 
         return;
     }
     nkeys = keys_arg(d, jget(d, args, "keys"), kv, AIS_KEYS_MAX);
+    if (nkeys == 0) {
+        /* A record filed under nothing cannot be recalled by any key, ever.
+         * Refusing here teaches at the moment the model is about to get it
+         * wrong, which is worth more than the same sentence in every session. */
+        text_reply(q, "save needs at least one key: ask which keys to file it under, "
+                      "several separated by spaces, and offer the keys tags already lists", 1);
+        return;
+    }
     for (i = 0; i < nkeys; i++) {
         size_t n = strlen(kv[i]);
         if (len + n + 2 > sizeof keys)
@@ -582,8 +640,14 @@ static void tool_save(ais *a, const jdoc *d, int args, const struct req *q, int 
         text_reply(q, "save failed", 1);
         return;
     }
-    snprintf(msg, sizeof msg, "saved as record %ld", id);
-    text_reply(q, msg, 0);
+    /* Name the keys back. The user said "file it under work ssh", the model may
+     * have heard "work", and this line is the only place that difference shows
+     * before the record is lost to the wrong word. */
+    snprintf(msg, sizeof msg, "saved as record %ld under ", id);
+    text_open(q);
+    jout(msg);
+    jout(keys);
+    text_close(0);
 }
 
 /* ---- what the model is told ---------------------------------------------
@@ -601,27 +665,29 @@ static const char INSTRUCTIONS[] =
     "ais is this person's own associative index: things they filed under their own words, "
     "on their own disk, in plain text.\n"
     "\n"
-    "When they say save, keep, remember, note, add to memory or add to the index, call save. "
-    "If they named the keys (\"save this under work ssh\"), use those words as the keys. "
-    "If they did not, ASK which keys to file it under, and say that several are separated by "
-    "spaces; suggest the closest keys the index already uses, from tags, and let them decide. "
-    "Do not invent a vocabulary for them, and do not file something under a key they did not "
-    "choose. A record can carry as many keys as they like, and more keys make it easier to "
-    "reach later.\n"
+    "When they say save, keep, remember, note, add to memory, add to the index or put it in "
+    "ais, call save. If they named the keys ('save this under work ssh'), those words are the "
+    "keys. If they did not, ASK which keys to file it under, say that several are separated by "
+    "spaces, and offer what tags already lists. Do not invent a vocabulary for them, and do not "
+    "file anything under a key they did not choose. Ask for as many keys as they want to give: "
+    "each one is another way back to it.\n"
     "\n"
-    "When they ask what they saved, or name words that sound like their own filing "
-    "(\"what do I have on venice\", \"my ssh tunnel\"), call recall first. Call find only when "
-    "recall answers nothing: recall is an exact lookup on their keys, find is a substring "
-    "search of the values. Call tags when you need to know what words this index actually "
-    "uses.\n"
+    "When they ask what they saved, or name words that sound like their own filing ('what do I "
+    "have on venice', 'my ssh tunnel' is recall with the keys ssh tunnel), call recall first. "
+    "Call find only when recall answers nothing: recall is an exact lookup on their keys, find "
+    "is a substring search of the values. For 'what did I save lately' call timeline, which is "
+    "also the only reply that shows a record's keys.\n"
     "\n"
-    "Recall is exact, not fuzzy. Nothing back means nothing is filed under those keys, which "
-    "is an answer rather than a failure: say so, and offer to search the values or list the "
-    "keys, instead of guessing at near misses.\n"
-    "\n"
-    "What belongs here is a reference: a link, a path, a command, a version, a short note, the "
-    "thing they would otherwise hunt for twice. The index points at documents rather than "
-    "holding them.";
+    "Recall is exact, not fuzzy. Nothing back means nothing is filed under those keys, which is "
+    "an answer rather than a failure: say so, and offer to search the values or list the keys, "
+    "instead of guessing at near misses. Keys fold case, so there is no point retrying one in "
+    "another case.";
+
+/* Read-only is the default, and a model told to call a tool that is not in the
+ * list will either claim it saved something or reach for a file of its own. */
+static const char INSTRUCTIONS_RO[] =
+    "\n\nThis server is read-only and has no save tool. If they ask to save something, say "
+    "it was started without saving, and that 'ais --mcp rw' turns it on.";
 
 /* ---- the tool list ------------------------------------------------------
  * Written out rather than generated: the descriptions are what a model reads
@@ -629,12 +695,15 @@ static const char INSTRUCTIONS[] =
  * readable place. */
 static const char TOOLS[] =
 "{\"name\":\"recall\",\"description\":\""
-    "Recall what the user filed under their own keys: \"what did I save under X\", "
-    "\"my ssh tunnel\", \"what do I have on venice\". Returns one 'id|value' per line. "
-    "Keys are the user's vocabulary, not a fixed namespace: call tags first if you do not know them. "
-    "A wrong key returns nothing rather than something plausible. "
-    "A value starting with 'blobs/' is a document file inside the index; read it from disk. "
-    "A value starting with 'aisc:' is an encrypted secret and stays opaque here."
+    "Recall what the user filed under their own keys. 'my ssh tunnel' is recall with the keys "
+    "ssh tunnel; 'what do I have on venice' is recall with the key venice. "
+    "Returns one 'id|value' per line. "
+    "Keys are the user's vocabulary, not a fixed namespace: call tags first if you do not know them, "
+    "and keys fold case. A wrong key returns nothing rather than something plausible. "
+    "Two keys under match all return only records filed under BOTH, so try match any before "
+    "reporting that they have nothing. "
+    "A value starting with 'blobs/' is a document file, named relative to the index directory "
+    "given above. A value starting with 'aisc:' is an encrypted secret and stays opaque here."
     "\",\"inputSchema\":{\"type\":\"object\",\"properties\":{"
     "\"keys\":{\"type\":\"array\",\"items\":{\"type\":\"string\"},\"description\":\"the keys to look under\"},"
     "\"match\":{\"type\":\"string\",\"enum\":[\"all\",\"any\"],\"description\":\"all = intersection (default), any = union\"},"
@@ -643,6 +712,7 @@ static const char TOOLS[] =
 "{\"name\":\"find\",\"description\":\""
     "Search the stored values themselves for a substring, case-insensitive. "
     "Use when the user's key is unknown; recall by key is cheaper and exact. "
+    "A document's stored value is its filename, so this does not read inside 'blobs/' files. "
     "Returns one 'id|value' per line."
     "\",\"inputSchema\":{\"type\":\"object\",\"properties\":{"
     "\"text\":{\"type\":\"string\",\"description\":\"substring to look for\"},"
@@ -654,21 +724,24 @@ static const char TOOLS[] =
     "\",\"inputSchema\":{\"type\":\"object\",\"properties\":{"
     "\"limit\":{\"type\":\"integer\",\"description\":\"maximum keys (default 200)\"}}}},"
 "{\"name\":\"timeline\",\"description\":\""
-    "The most recently saved records, newest first, as 'id|timestamp|keys|value' per line."
+    "The most recently saved records, newest first, as 'id|timestamp|keys|value' per line. "
+    "Answers 'what did I save lately', and is the only reply that shows a record's keys."
     "\",\"inputSchema\":{\"type\":\"object\",\"properties\":{"
-    "\"count\":{\"type\":\"integer\",\"description\":\"how many records (default 200)\"}}}}";
+    "\"count\":{\"type\":\"integer\",\"description\":\"how many records (default 200; "
+    "limit means the same)\"}}}}";
 
 static const char TOOL_SAVE[] =
 ",{\"name\":\"save\",\"description\":\""
     "File a value under keys, so it can be recalled by those keys later. This is what "
-    "\"save this\", \"remember this\", \"add it to my memory\" and \"add to the index\" mean. "
+    "'save this', 'remember this', 'add it to my memory' and 'put it in ais' mean. "
     "Save a reference (a link, a path, a command, a short note), not a document body. "
     "If the user did not name the keys, ASK which keys to file it under, several separated "
-    "by spaces, suggesting what the index already uses. Never invent a vocabulary for them."
+    "by spaces, offering what tags already lists. Never invent a vocabulary for them."
     "\",\"inputSchema\":{\"type\":\"object\",\"properties\":{"
     "\"value\":{\"type\":\"string\",\"description\":\"what to store\"},"
-    "\"keys\":{\"type\":\"array\",\"items\":{\"type\":\"string\"},\"description\":\"the keys to file it under\"}},"
-    "\"required\":[\"value\"]}}";
+    "\"keys\":{\"type\":\"array\",\"items\":{\"type\":\"string\"},"
+    "\"description\":\"the keys to file it under, the user's own words\"}},"
+    "\"required\":[\"value\",\"keys\"]}}";
 
 /* ---- dispatch ----------------------------------------------------------- */
 
@@ -721,6 +794,14 @@ static void handle(ais *a, int allow_write, char *line)
         jout(ais_version());
         fputs("\"},\"instructions\":\"", stdout);
         jout(INSTRUCTIONS);
+        if (!allow_write)
+            jout(INSTRUCTIONS_RO);
+        /* Which index, in words. A repo-local .ais/ and the personal ~/.ais are
+         * the same protocol, and an agent that cannot tell them apart reports a
+         * project's notes as the user's own memory. */
+        jout("\n\nThis index is at ");
+        jout(a->dir);
+        jout(".");
         fputs("\"}", stdout);
         reply_end();
         return;
@@ -761,18 +842,31 @@ int ais_mcp(ais *a, int allow_write)
 {
     static char line[MCP_REQ_MAX];
 
-    while (fgets(line, (int)sizeof line, stdin) != NULL) {
-        size_t n = strlen(line);
-        if (n == 0)
-            continue;
-        if (line[n - 1] != '\n' && !feof(stdin)) {
-            int c;
-            while ((c = getchar()) != '\n' && c != EOF)
-                ;                                  /* drop the rest of an oversized line */
-            reply_error(NULL, -32600, "request too large");
+    /* Read byte by byte rather than with fgets, which reports only a pointer:
+     * a NUL inside the line would then end the C string early, and strlen's
+     * answer would send the framing off by one message. Here the true length
+     * is known, so a NUL is seen and the line is refused whole. */
+    for (;;) {
+        size_t n = 0;
+        int c, over = 0, nul = 0;
+
+        while ((c = getchar()) != EOF && c != '\n') {
+            if (c == '\0')
+                nul = 1;
+            if (n + 1 < sizeof line)
+                line[n++] = (char)c;
+            else
+                over = 1;
+        }
+        if (c == EOF && n == 0)
+            return 0;                      /* clean close, or a trailing newline */
+        line[n] = '\0';
+        if (over || nul) {
+            reply_error(NULL, -32600, over ? "request too large"
+                                           : "request holds a NUL byte");
             continue;
         }
-        handle(a, allow_write, line);
+        if (n > 0)
+            handle(a, allow_write, line);  /* a blank line between messages: skip */
     }
-    return 0;
 }

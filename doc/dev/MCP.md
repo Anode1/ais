@@ -30,15 +30,26 @@ code, in plain text a reviewer can read.
 
 | Tool | Arguments | Answers |
 | --- | --- | --- |
-| `recall` | `keys` (array or one space-separated string), `match` (`all`, the default, or `any`), `limit` | `id\|value` per line |
+| `recall` | `keys`, `match` (`all`, the default, or `any`), `limit` | `id\|value` per line |
 | `find` | `text`, `limit` | `id\|value` per line, values containing TEXT (any case) |
 | `tags` | `limit` | `count\|key` per line, busiest first |
-| `timeline` | `count` | `id\|timestamp\|keys\|value` per line, newest first |
-| `save` | `value`, `keys` | `saved as record N`; present only with `rw` |
+| `timeline` | `count` (`limit` is taken too) | `id\|timestamp\|keys\|value` per line, newest first |
+| `save` | `value`, `keys`, both required | `saved as record N under KEYS`; present only with `rw` |
+
+`keys` is declared in the schema as an array of strings, which is what a model
+generates. One space-separated string is accepted too, for anything hand-rolled.
 
 Rows are the shapes the CLI prints, because that is the contract every other
-front end follows. No match is the words `no match`, not an empty block: a model
-reads emptiness as a broken tool and calls again.
+front end follows. Two answers are words rather than rows, because a model reads
+an empty block as a broken tool and calls again: nothing matched is `no match`,
+and a reply that hit its `limit` ends with `(stopped at the limit; there may be
+more)` so a page is not reported as the whole index. `tags` on an empty index
+says `the index has no keys yet`.
+
+`save` refuses a value with no keys. A record filed under nothing cannot be
+recalled by any key, ever, so the refusal names what to do instead: ask the user
+which keys, several separated by spaces. The reply names the keys back, which is
+the only place a misheard key shows before the record is lost to it.
 
 ## In conversation
 
@@ -56,6 +67,16 @@ words has built the thing this index exists not to be.
 
 The instructions live in `INSTRUCTIONS[]` at the top of `c/mcp.c`, next to the
 tool descriptions, because together they are the whole interface a model sees.
+Two things are appended at connect time: in a read-only session, that there is no
+save tool and how to turn one on, since a model told to call a tool it cannot see
+will claim it saved something; and the path of the index actually opened, because
+a repo-local `.ais/` and the personal `~/.ais` speak the same protocol and an
+agent that cannot tell them apart reports a project's notes as the user's own
+memory.
+
+The tool descriptions are written out as JSON and printed unescaped, so a
+literal `"` inside one would break the whole `tools/list` reply. Quote examples
+with single quotes, as the file already does for `'id|value'` and `'blobs/'`.
 
 ## What it will not do
 
@@ -84,9 +105,25 @@ price is that a reply cannot be retracted once it has started, which is why
 everything that can fail is settled before the first byte goes out.
 
 The transport is the MCP stdio one: one JSON-RPC 2.0 message per line. A request
-longer than `AIS_LINE_MAX` is refused with `-32600` and the rest of the line is
-dropped, rather than being parsed in halves. stdout carries protocol and nothing
-else; diagnostics go to stderr.
+longer than `AIS_LINE_MAX`, or one holding a NUL byte, is refused with `-32600`
+and dropped whole rather than parsed in halves. Both answer with `"id": null`,
+since the id was never read, so a client cannot correlate the failure with the
+request it lost. The line is read byte by byte rather than with `fgets`, which
+reports only a pointer: a NUL would then end the C string early and put the
+framing off by one message.
+
+An id goes back as the bytes that arrived, never re-rendered from a `long`, so
+`1.5` and an id past `LONG_MAX` come back as themselves. `"id": null` is a
+request under JSON-RPC and is answered; an absent id is a notification and is
+not.
+
+Values reach the reply as the store holds them, and the store holds whatever the
+CLI, `--import` or sync were given, which need not be UTF-8. JSON must be, and a
+client decodes the whole line before parsing it, so a byte that is not part of a
+well-formed sequence goes out as `\ufffd` and costs one character instead of the
+whole reply.
+
+stdout carries protocol and nothing else; diagnostics go to stderr.
 
 Two builds exclude the file by name, because a phone has no stdin to serve:
 `ais_engine.podspec` (iOS) and `app/flutter/src/CMakeLists.txt` (Android and the
@@ -96,7 +133,10 @@ three lists in step when a front end file is added.
 ## Testing it
 
 The server is a pipe, so a test is a pipe. `tests/cli.sh` drives a real
-handshake and asserts on the replies; by hand:
+handshake and asserts on the replies. Every reply it collects also goes through
+a JSON parser (`jsonok`), which is not decoration: a substring grep cannot see a
+stray quote inside a description, and an unparseable `tools/list` once passed
+thirty green assertions. By hand:
 
     printf '%s\n' \
       '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18"}}' \

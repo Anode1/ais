@@ -1401,11 +1401,32 @@ MI=$(mktemp -d "${TMPDIR:-/tmp}/ais_mcp.XXXXXX") || exit 2
 "$AIS" -f "$MI" -v /photos/IMG_1.jpg venice photo >/dev/null
 
 # mcp REQUEST...  -- run one session, echo what came back
-mcp() { printf '%s\n' "$@" | "$AIS" -f "$MI" --mcp 2>&1; }
-mcprw() { printf '%s\n' "$@" | "$AIS" -f "$MI" --mcp rw 2>&1; }
+mcp() { printf '%s\n' "$@" | "$AIS" -f "$MI" --mcp 2>/dev/null; }
+mcprw() { printf '%s\n' "$@" | "$AIS" -f "$MI" --mcp rw 2>/dev/null; }
+
+# jsonok LABEL TEXT -- pass if EVERY line of TEXT parses as JSON. Substring
+# greps cannot see a stray quote inside a description, which is exactly how an
+# unparseable tools/list once passed 30 green assertions.
+if command -v python3 >/dev/null 2>&1; then HAVE_PY=1; else HAVE_PY=0; fi
+jsonok() {
+    if [ "$HAVE_PY" -ne 1 ]; then echo "  skip $1 (no python3)"; return; fi
+    if printf '%s\n' "$2" | python3 -c '
+import sys, json
+for line in sys.stdin:
+    if line.strip():
+        json.loads(line)
+' 2>/dev/null; then
+        pass=$((pass + 1)); echo "  ok   $1"
+    else
+        fail=$((fail + 1)); echo "  FAIL $1 -- not valid JSON: [$2]"
+    fi
+}
 
 mout=$(mcp '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18"}}')
+jsonok  "mcp: initialize is valid JSON"                    "$mout"
 ok      "mcp: initialize names the server"                 '"name":"ais"' "$mout"
+ok      "mcp: and says which index it opened"              "$MI" "$mout"
+ok      "mcp: read-only says saving is off"                'read-only' "$mout"
 ok      "mcp: and answers the protocol asked for"          '"protocolVersion":"2025-06-18"' "$mout"
 ok      "mcp: initialize carries the instructions"         'call save' "$mout"
 ok      "mcp: which tell it to ask for the keys"            'ASK which keys' "$mout"
@@ -1413,6 +1434,7 @@ mout=$(mcp '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVer
 ok      "mcp: a nonsense version gets ours, not an echo"   '"protocolVersion":"20' "$mout"
 
 mout=$(mcp '{"jsonrpc":"2.0","id":2,"method":"tools/list"}')
+jsonok  "mcp: tools/list is valid JSON"                    "$mout"
 ok      "mcp: tools/list offers recall"                    '"name":"recall"' "$mout"
 ok      "mcp: tools/list offers tags"                      '"name":"tags"' "$mout"
 okempty "mcp: read-only hides save"                        "$(printf '%s' "$mout" | grep -o '"name":"save"')"
@@ -1465,6 +1487,58 @@ ok      "mcp: an unknown tool is -32602"                   '"code":-32602' "$mou
 okempty "mcp: a notification draws no reply"               "$(mcp '{"jsonrpc":"2.0","method":"notifications/initialized"}')"
 mout=$(mcp "$(printf '{"jsonrpc":"2.0","id":17,"method":"tools/call","params":{"name":"find","arguments":{"text":"%s"}}}' "$(awk 'BEGIN{while(i++<70000)printf "x"}')")")
 ok      "mcp: an oversized request is refused, not split"  '"code":-32600' "$mout"
+
+mout=$(mcprw \
+  '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18"}}' \
+  '{"jsonrpc":"2.0","method":"notifications/initialized"}' \
+  '{"jsonrpc":"2.0","id":2,"method":"tools/list"}' \
+  '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"recall","arguments":{"keys":["venice"]}}}' \
+  '{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"tags","arguments":{}}}' \
+  '{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"timeline","arguments":{"count":2}}}' \
+  '{"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"find","arguments":{"text":"photos"}}}')
+jsonok  "mcp: a whole rw session is valid JSON throughout" "$mout"
+okeq    "mcp: six requests, six replies"                   "6" "$(printf '%s\n' "$mout" | grep -c '^{')"
+okempty "mcp: stderr stays empty on the good paths"        "$(printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | "$AIS" -f "$MI" --mcp 2>&1 >/dev/null)"
+
+# The id goes back as the bytes that came in: a client that cannot match it
+# drops the reply and waits forever.
+mout=$(mcp '{"jsonrpc":"2.0","id":"a\"b","method":"ping"}')
+jsonok  "mcp: a string id with a quote survives"           "$mout"
+mout=$(mcp '{"jsonrpc":"2.0","id":12345678901234567890,"method":"ping"}')
+ok      "mcp: an id past LONG_MAX is echoed, not clamped"  '"id":12345678901234567890' "$mout"
+mout=$(mcp '{"jsonrpc":"2.0","id":1.5,"method":"ping"}')
+ok      "mcp: a fractional id is echoed, not truncated"    '"id":1.5' "$mout"
+mout=$(mcp '{"jsonrpc":"2.0","id":null,"method":"ping"}')
+ok      "mcp: id null is a request, and is answered"       '"id":null' "$mout"
+
+# A NUL cannot be carried by a C string, so the line has to be refused whole:
+# reading it with fgets used to drop that request AND the one after it.
+mout=$(printf '\000{"jsonrpc":"2.0","id":7,"method":"ping"}\n{"jsonrpc":"2.0","id":8,"method":"ping"}\n' | "$AIS" -f "$MI" --mcp 2>/dev/null)
+ok      "mcp: a leading NUL is refused, not swallowed"     '"code":-32600' "$mout"
+ok      "mcp: and the next request still answers"          '"id":8' "$mout"
+mout=$(printf '{"jsonrpc":"2.0","id":7,\000"method":"ping"}\n{"jsonrpc":"2.0","id":8,"method":"ping"}\n' | "$AIS" -f "$MI" --mcp 2>/dev/null)
+ok      "mcp: a NUL mid-line does not eat the next line"   '"id":8' "$mout"
+
+# The store takes any byte the CLI is given; JSON must be UTF-8, and one bad
+# byte would cost the whole reply rather than one row.
+"$AIS" -f "$MI" -v "$(printf 'raw \377 byte')" badutf >/dev/null 2>&1
+mout=$(mcp '{"jsonrpc":"2.0","id":9,"method":"tools/call","params":{"name":"recall","arguments":{"keys":["badutf"]}}}')
+jsonok  "mcp: an invalid UTF-8 value still decodes"        "$mout"
+ok      "mcp: the bad byte became a replacement char"      'ufffd' "$mout"
+
+# A record under no key cannot be recalled by any key, ever.
+mout=$(mcprw '{"jsonrpc":"2.0","id":10,"method":"tools/call","params":{"name":"save","arguments":{"value":"orphan"}}}')
+ok      "mcp: a keyless save is refused"                   "needs at least one key" "$mout"
+ok      "mcp: and the refusal teaches the ask"             "separated by spaces" "$mout"
+okempty "mcp: nothing was stored"                          "$("$AIS" -f "$MI" --find orphan 2>/dev/null)"
+mout=$(mcprw '{"jsonrpc":"2.0","id":11,"method":"tools/call","params":{"name":"save","arguments":{"value":"tunnel cmd","keys":["work","ssh"]}}}')
+ok      "mcp: the save reply names the keys back"          "under work ssh" "$mout"
+
+# A page that is not marked as a page gets reported as the whole index.
+mout=$(mcp '{"jsonrpc":"2.0","id":12,"method":"tools/call","params":{"name":"recall","arguments":{"keys":["venice"],"limit":1}}}')
+ok      "mcp: a spent budget says there may be more"       "stopped at the limit" "$mout"
+mout=$(mcp '{"jsonrpc":"2.0","id":13,"method":"tools/call","params":{"name":"recall","arguments":{"keys":["venice"],"limit":4294967296}}}')
+okempty "mcp: a limit past INT_MAX is not unbounded"       "$(printf '%s' "$mout" | grep -o 'stopped at the limit')"
 
 mrc=0
 "$AIS" -f "$MI" --mcp bogus >/dev/null 2>&1 || mrc=$?
