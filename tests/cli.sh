@@ -1545,5 +1545,36 @@ mrc=0
 okeq    "mcp: an operand other than rw is a usage error"   "2" "$mrc"
 rm -rf "$MI"
 
+# ---- a stored value must never become a path outside the index -------------
+# The value is attacker data: it arrives by --import, from a peer's export
+# stream, and from the MCP save tool. "aisc:@../victim.txt" made --del zero-fill
+# and unlink a file beside the index, because the secret module joined whatever
+# followed "aisc:@" onto the index dir.
+BI=$(mktemp -d "${TMPDIR:-/tmp}/ais_blobsec.XXXXXX") || exit 2
+mkdir "$BI/X"
+printf 'SECRET DATA\n' > "$BI/victim.txt"
+"$AIS" -f "$BI/X" --init >/dev/null
+"$AIS" -f "$BI/X" -v 'aisc:@../victim.txt' k >/dev/null
+"$AIS" -f "$BI/X" --del 1 -y >/dev/null 2>&1
+ok      "blobsec: --del of an escaping value spares the file"  "SECRET DATA" "$(cat "$BI/victim.txt" 2>&1)"
+
+printf 'SECRET DATA\n' > "$BI/victim2.txt"
+printf 'k -v aisc:@../victim2.txt\n' | "$AIS" -f "$BI/X" --import >/dev/null 2>&1
+"$AIS" -f "$BI/X" --del 2 -y >/dev/null 2>&1
+ok      "blobsec: the same value through --import is as harmless" "SECRET DATA" "$(cat "$BI/victim2.txt" 2>&1)"
+
+# A blob arriving in a merge stream (B|relpath|size + raw bytes) carries the
+# peer's chosen name, so the name is attacker data too.
+printf 'B|blobs/../evil|5\nEVIL!\nk -v blobs/../evil\n' | "$AIS" -f "$BI/X" --import >/dev/null 2>&1
+okempty "blobsec: a B| relpath climbing out of blobs/ writes nothing" "$(ls "$BI/evil" 2>/dev/null)"
+okempty "blobsec: and nothing lands in the index dir either"          "$(ls "$BI/X/evil" 2>/dev/null)"
+
+# The legitimate path is untouched: a document still round-trips.
+printf 'line one\nline two\n' | "$AIS" -f "$BI/X" --doc note >/dev/null
+bdoc=$("$AIS" -f "$BI/X" --dump | sed -n 's/.* -v \(blobs\/.*\)$/\1/p' | tail -1)
+ok      "blobsec: --doc still stores a blobs/ value"          "blobs/" "$bdoc"
+ok      "blobsec: and the body is readable back"              "line two" "$(cat "$BI/X/$bdoc" 2>&1)"
+rm -rf "$BI"
+
 echo "---- $pass passed, $fail failed"
 [ "$fail" -eq 0 ]

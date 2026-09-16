@@ -164,6 +164,8 @@ static int import_one_blob(const char *dir, const char *relpath,
         unlink(tmp);
         return -1;
     }
+    /* RELPATH is the peer's, so it is attacker data; ais_doc_blob_place refuses
+     * anything ais_blob_rel_ok rejects, and TMP is named here, not by the peer. */
     if (ais_doc_blob_place(dir, relpath, tmp, outrel, sizeof outrel) != 0) {
         unlink(tmp);
         return -1;

@@ -134,7 +134,7 @@ Blob merge is by NAME + CONTENT (blobs are immutable and timestamp-named, so nev
 same name + identical bytes = skip (dedup); same name + different bytes = keep BOTH (the
 incoming file lands as `blobs/<stem>-<seq><ext>`) and the incoming record's value is repointed,
 covering both the plain `blobs/X` and the encrypted `aisc:@blobs/X` value forms. The relpath is
-validated to stay inside `blobs/` (no `/`, no `..`); each blob and the whole payload are capped
+validated to stay inside `blobs/` (`ais_blob_rel_ok`: one name after `blobs/`); each blob and the whole payload are capped
 (`AIS_SYNC_MAX_BLOB` / 64 MiB) on both ends.
 
 ## Two-way in one round (`--sync`, bidir)

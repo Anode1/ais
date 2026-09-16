@@ -233,6 +233,9 @@ static int feed_take_blob(ais *a, const char *rel, long want, FILE *in,
     if (out == NULL || fclose(out) != 0) { unlink(tmp); return -1; }
     if (left != 0)          { unlink(tmp); return -1; }
 
+    /* REL comes off the stream, so it is untrusted: ais_doc_blob_place refuses
+     * anything ais_blob_rel_ok rejects, and the bytes above are consumed either
+     * way so the parser stays in sync. */
     rc = ais_doc_blob_place(a->dir, rel, tmp, outrel, sizeof outrel);
     if (rc != 0) { unlink(tmp); return -1; }
     if (strcmp(outrel, rel) != 0 && map != NULL &&

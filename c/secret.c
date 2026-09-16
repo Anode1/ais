@@ -9,6 +9,7 @@
 #include <unistd.h>
 
 #include "common.h"          /* AIS_LINE_MAX */
+#include "doc.h"             /* ais_blob_rel_ok: an encrypted blob IS a doc blob */
 #include "secret.h"
 #include "b64.h"
 
@@ -39,6 +40,8 @@ const char *secret_blob_relpath(const char *value)
 
     if (!secret_is_marked(value) || value[pfx] != '@')
         return NULL;                             /* inline value, or not a secret */
+    if (!ais_blob_rel_ok(value + pfx + 1))
+        return NULL;                             /* a value may not name a path outside blobs/ */
     return value + pfx + 1;                       /* the relpath after "aisc:@" */
 }
 

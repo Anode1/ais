@@ -344,6 +344,15 @@ user's before ais saw it, and nothing happens to it, ever. The product is an
 index of your things where they are, so destroying one would be the worst bug
 this program could have.
 
+Ownership is decided by ONE predicate, `ais_blob_rel_ok` (doc.h): `blobs/`
+followed by exactly one more name, which is not `.` or `..` and carries no `/`,
+no `\` and no byte below 0x20. Every join of a value or a stream-supplied
+relative path onto a directory goes through it, the encrypted `aisc:@<relpath>`
+form included. A value is attacker data (it arrives by `--import`, from a peer
+and from the MCP save tool), and without the test `aisc:@../victim.txt` made a
+delete zero-fill and unlink a file beside the index. A value that fails it is a
+plain reference: nothing is ever written to it or removed at it.
+
 Three moments dispose of a payload, and every front end needs all three:
 
 - **A local delete**: the front end calls `ais_doc_discard` before tombstoning

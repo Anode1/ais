@@ -11,6 +11,19 @@
 #include <stddef.h>
 #include "ais.h"
 
+/* Is REL a relative path this index may join onto its own directory? True only
+ * for "blobs/" followed by exactly ONE more segment: non-empty, no further '/',
+ * not "." or "..", no '\', no byte below 0x20. Every blob name this engine mints
+ * has that shape (ais_doc_blobname_ext, ais_doc_blob_place), so a legitimate
+ * name always passes and blobs/ never grows a subdirectory.
+ *
+ * A stored value reaches a filesystem join through --import, through a peer's
+ * export stream and through the MCP save tool, so it is attacker data: without
+ * this test "aisc:@../victim.txt" made a delete zero-fill and unlink a file
+ * beside the index. Every join of a value or a stream-supplied relative path
+ * onto a directory goes through it. */
+int  ais_blob_rel_ok(const char *rel);
+
 /* Ensure <index>/blobs/ exists and pick a free, timestamp-named blob path with
  * the given extension (no dot). Fills RELVAL ("blobs/<ts>.<ext>", the stored
  * value) and the absolute BLOBPATH. Returns 0 on success, -1 on error. */

@@ -29,7 +29,11 @@
 int secret_is_marked(const char *value);
 
 /* If VALUE is a BLOB reference (aisc:@<relpath>), return the relpath (a pointer
- * into VALUE); else NULL (an inline value or a non-secret). */
+ * into VALUE); else NULL (an inline value, a non-secret, or a relpath that is
+ * not one name under blobs/, which ais_blob_rel_ok refuses). A value arrives
+ * from an import, a peer and the MCP save tool, so the relpath it carries is
+ * attacker data: reveal and shred both get NULL rather than a path outside the
+ * index. */
 const char *secret_blob_relpath(const char *value);
 
 /* 1 if a plain recall should reveal secrets interactively: stdout is a terminal

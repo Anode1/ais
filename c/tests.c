@@ -2204,8 +2204,9 @@ static void test_secret_blob_relpath(void)
           "blob: 'aisc:@<rel>' yields the relpath after the '@'");
     CHECK(secret_blob_relpath("aisc:QWxhZGRpbg==") == NULL,
           "blob: an inline 'aisc:<base64>' is NOT a blob ref");
-    r = secret_blob_relpath("aisc:@");
-    CHECK(r != NULL && r[0] == '\0', "blob: bare 'aisc:@' is an (empty) blob ref");
+    CHECK(secret_blob_relpath("aisc:@") == NULL, "blob: bare 'aisc:@' names nothing");
+    CHECK(secret_blob_relpath("aisc:@../victim.txt") == NULL,
+          "blob: a value may not name a path outside the index");
     CHECK(secret_blob_relpath("http://x") == NULL, "blob: a URL is not a blob ref");
     CHECK(secret_blob_relpath("aisc") == NULL,     "blob: 'aisc' (no colon) is not a blob ref");
     CHECK(secret_blob_relpath(NULL) == NULL,       "blob: NULL is not a blob ref");
@@ -2213,18 +2214,65 @@ static void test_secret_blob_relpath(void)
 
 static void test_secret_shred(void)
 {
-    FILE *f = fopen("/tmp/ais_ut_blob.aisc", "wb");
+    FILE *f;
+
+    mkdir("/tmp/ais_ut_shred", 0777);
+    mkdir("/tmp/ais_ut_shred/blobs", 0777);
+    f = fopen("/tmp/ais_ut_shred/blobs/ut.aisc", "wb");
     CHECK(f != NULL, "shred: created a fake encrypted blob");
     if (f) { fwrite("ciphertext-bytes", 1, 16, f); fclose(f); }
-    secret_shred_blob("/tmp", "aisc:@ais_ut_blob.aisc");      /* the matching marked value */
-    CHECK(access("/tmp/ais_ut_blob.aisc", F_OK) != 0, "shred: the encrypted blob is removed");
+    secret_shred_blob("/tmp/ais_ut_shred", "aisc:@blobs/ut.aisc");  /* the matching marked value */
+    CHECK(access("/tmp/ais_ut_shred/blobs/ut.aisc", F_OK) != 0,
+          "shred: the encrypted blob is removed");
 
-    f = fopen("/tmp/ais_ut_keep.txt", "wb");
+    f = fopen("/tmp/ais_ut_shred/keep.txt", "wb");
     if (f) { fwrite("keep", 1, 4, f); fclose(f); }
-    secret_shred_blob("/tmp", "http://example.org");          /* not a secret */
-    secret_shred_blob("/tmp", "aisc:QWxh");                   /* inline, not a blob */
-    CHECK(access("/tmp/ais_ut_keep.txt", F_OK) == 0, "shred: a no-op on non-blob values");
-    remove("/tmp/ais_ut_keep.txt");
+    secret_shred_blob("/tmp/ais_ut_shred", "http://example.org");   /* not a secret */
+    secret_shred_blob("/tmp/ais_ut_shred", "aisc:QWxh");            /* inline, not a blob */
+    CHECK(access("/tmp/ais_ut_shred/keep.txt", F_OK) == 0,
+          "shred: a no-op on non-blob values");
+    secret_shred_blob("/tmp/ais_ut_shred", "aisc:@../ais_ut_shred/keep.txt");
+    CHECK(access("/tmp/ais_ut_shred/keep.txt", F_OK) == 0,
+          "shred: a relpath climbing out of blobs/ shreds nothing");
+    remove("/tmp/ais_ut_shred/keep.txt");
+}
+
+/* The containment predicate every value-to-path join goes through. */
+static void test_blob_rel_ok(void)
+{
+    const ais *nul = NULL;
+    char rel[AIS_PATH_MAX], abs[AIS_PATH_MAX];
+    char dir[AIS_PATH_MAX];
+    ais a;
+
+    CHECK(ais_blob_rel_ok("blobs/2026-01-02-030405~a1b2c3d4.txt") == 1,
+          "relok: a minted blob name passes");
+    CHECK(ais_blob_rel_ok("blobs/2026.aisc") == 1, "relok: an older untagged name passes");
+    CHECK(ais_blob_rel_ok("../victim.txt") == 0, "relok: 'aisc:@../x' is not a blob relpath");
+    CHECK(ais_blob_rel_ok("blobs/../x") == 0,    "relok: 'blobs/../x' is refused");
+    CHECK(ais_blob_rel_ok("blobs/") == 0,        "relok: 'blobs/' names no file");
+    CHECK(ais_blob_rel_ok("blobs/a/b") == 0,     "relok: blobs/ has no subdirectory");
+    CHECK(ais_blob_rel_ok("/etc/passwd") == 0,   "relok: an absolute path is refused");
+    CHECK(ais_blob_rel_ok("blobs/..") == 0,      "relok: 'blobs/..' is refused");
+    CHECK(ais_blob_rel_ok("blobs/.") == 0,       "relok: 'blobs/.' is refused");
+    CHECK(ais_blob_rel_ok("blobs/a\\b.txt") == 0, "relok: a backslash segment is refused");
+    CHECK(ais_blob_rel_ok("blobs/a\nb.txt") == 0,  "relok: a control byte is refused");
+    CHECK(ais_blob_rel_ok(NULL) == 0,            "relok: NULL is not a blob relpath");
+    CHECK(ais_doc_is_blob(nul, "blobs/x.txt", abs, sizeof abs) == 0,
+          "relok: no handle, no blob path");
+
+    /* A freshly minted name passes the predicate that guards every join. */
+    snprintf(dir, sizeof dir, "/tmp/ais_ut_relok");
+    scratch_rm(dir);
+    CHECK(ais_open(&a, dir) == 0, "relok: scratch index opens");
+    CHECK(ais_doc_blobname(&a, rel, sizeof rel, abs, sizeof abs) == 0,
+          "relok: a name is minted");
+    CHECK(ais_blob_rel_ok(rel) == 1, "relok: the minted name passes");
+    CHECK(ais_doc_is_blob(&a, rel, abs, sizeof abs) == 1, "relok: and resolves to a path");
+    CHECK(ais_doc_is_blob(&a, "blobs/../x", abs, sizeof abs) == 0,
+          "relok: an escaping value resolves to no path");
+    ais_close(&a);
+    scratch_rm(dir);
 }
 
 #ifdef AIS_UT_HAVE_CRYPTO
@@ -6783,6 +6831,7 @@ int main(void)
     printf("secret blob ref + shred:\n");
     test_secret_blob_relpath();
     test_secret_shred();
+    test_blob_rel_ok();
 #ifdef AIS_UT_HAVE_CRYPTO
     printf("crypto (vendored monocypher):\n");
     test_crypto();

@@ -59,6 +59,23 @@ static void blob_tag(char out[9])
     snprintf(out, 9, "%02x%02x%02x%02x", b[0], b[1], b[2], b[3]);
 }
 
+int ais_blob_rel_ok(const char *rel)
+{
+    const char *seg, *p;
+
+    if (rel == NULL || strncmp(rel, "blobs/", 6) != 0)
+        return 0;
+    seg = rel + 6;
+    if (seg[0] == '\0' || strcmp(seg, ".") == 0 || strcmp(seg, "..") == 0)
+        return 0;
+    for (p = seg; *p != '\0'; p++) {
+        unsigned char c = (unsigned char)*p;
+        if (c == '/' || c == '\\' || c < 0x20)
+            return 0;                      /* a second segment, or an unprintable byte */
+    }
+    return 1;
+}
+
 int ais_doc_blobname_ext(const ais *a, const char *ext, char *relval, size_t rvsz,
                          char *blobpath, size_t bpsz)
 {
@@ -90,6 +107,7 @@ int ais_doc_blobname_ext(const ais *a, const char *ext, char *relval, size_t rvs
             snprintf(relval, rvsz, "blobs/%s~%s.%s", ts, tag, ext);
         else
             snprintf(relval, rvsz, "blobs/%s~%s-%d.%s", ts, tag, seq, ext);
+        /* relval was minted on the line above, so it is ours, not input. */
         if (snprintf(blobpath, bpsz, "%s/%s", a->dir, relval) >= (int)bpsz)
             return -1;
         if (access(blobpath, F_OK) != 0)
@@ -175,16 +193,14 @@ int ais_doc_blob_place(const char *dir, const char *rel, const char *tmppath,
 
     if (dir == NULL || rel == NULL || tmppath == NULL || outrel == NULL)
         return -1;
-    if (strncmp(rel, "blobs/", 6) != 0)
-        return -1;
-    base = rel + 6;
-    if (base[0] == '\0' || strstr(base, "..") != NULL ||
-        strchr(base, '/') != NULL || strchr(base, '\\') != NULL)
+    if (!ais_blob_rel_ok(rel))
         return -1;                                  /* keep the write inside blobs/ */
+    base = rel + 6;
     if (snprintf(blobsdir, sizeof blobsdir, "%s/blobs", dir) >= (int)sizeof blobsdir)
         return -1;
     if (mkdir(blobsdir, 0777) != 0 && errno != EEXIST)
         return -1;
+    /* base passed ais_blob_rel_ok above: one segment, so this stays in blobs/. */
     if (snprintf(target, sizeof target, "%s/%s", blobsdir, base) >= (int)sizeof target)
         return -1;
 
@@ -212,6 +228,7 @@ int ais_doc_blob_place(const char *dir, const char *rel, const char *tmppath,
                          seq, dot ? dot : "");
         if (k >= (int)sizeof cand)
             return -1;
+        /* cand is "blobs/" + base's stem + a hex hash: still one segment. */
         if (snprintf(target, sizeof target, "%s/%s", dir, cand) >= (int)sizeof target)
             return -1;
         if (access(target, F_OK) != 0) {
@@ -288,8 +305,7 @@ static int doc_blob_path(const char *dir, const char *value, char *path, size_t 
 {
     int n;
     if (dir == NULL || value == NULL
-        || strncmp(value, "blobs/", 6) != 0    /* our out-of-line store, not a URL/bookmark */
-        || strstr(value, "..") != NULL)        /* never escape the index dir */
+        || !ais_blob_rel_ok(value))            /* our out-of-line store, inside the index */
         return 0;
     n = snprintf(path, psz, "%s/%s", dir, value);
     return (n > 0 && (size_t)n < psz) ? 1 : 0;
