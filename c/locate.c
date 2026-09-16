@@ -237,8 +237,21 @@ static int config_get(const char *key, char *out, size_t outsz)
     return 0;
 }
 
+/* A setting is one line, "key = value", so a control byte in either half writes
+ * a file that reads back as something else: a newline inside VALUE adds a second
+ * setting nobody asked for. Refuse the write rather than make the file lie. */
+static int config_text_ok(const char *s)
+{
+    const unsigned char *u = (const unsigned char *)s;
+
+    for (; *u != '\0'; u++)
+        if (*u < 0x20 || *u == 0x7F)
+            return 0;
+    return 1;
+}
+
 /* Set KEY = VALUE in ~/.ais/config, preserving every other line. VALUE NULL or
- * empty removes the key. Returns 0/-1. */
+ * empty removes the key. Returns 0/-1, and on -1 nothing is written. */
 static int config_set(const char *key, const char *value)
 {
     char dir[AIS_PATH_MAX], cfg[AIS_PATH_MAX], line[AIS_LINE_MAX], kbuf[AIS_KEY_MAX];
@@ -246,6 +259,10 @@ static int config_set(const char *key, const char *value)
     size_t klen = 0;
     FILE *f;
 
+    if (key == NULL || !config_text_ok(key))
+        return -1;
+    if (value != NULL && !config_text_ok(value))
+        return -1;
     if (home_ais(dir, sizeof dir) != 0)
         return -1;
     if (mkdir_p(dir) != 0)                  /* create ~/.ais if needed */

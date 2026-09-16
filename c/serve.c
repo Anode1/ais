@@ -17,6 +17,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>       /* strncasecmp: case-insensitive HTTP header match */
+#include <sys/stat.h>      /* stat: /api/store checks the path before opening it */
 #ifndef _WIN32
 #include <netinet/in.h>
 #include <sys/socket.h>
@@ -803,6 +804,56 @@ static void serve_load_syncfolder(const ais *a, char *out, size_t osz)
     while (n > 0 && (out[n-1] == '\n' || out[n-1] == '\r' ||
                      out[n-1] == ' '  || out[n-1] == '\t'))
         out[--n] = '\0';
+}
+
+/* Is DIR a path /api/store may hand to ais_open? The body of that POST is a
+ * network request, not a typed path: ais_open CREATES what it is given, and
+ * ais_default_set then persists it into ~/.ais/config as the default index for
+ * every later run from every directory. A fuzzer's garbage body was stored that
+ * way, so the body is checked here first. Returns NULL when the path is usable,
+ * else the one-line reason the client is told. */
+static int store_absolute(const char *p)
+{
+    if (p[0] == '/')
+        return 1;
+#ifdef _WIN32
+    /* A drive path is absolute too, and the native GUI types one. */
+    if (((p[0] >= 'A' && p[0] <= 'Z') || (p[0] >= 'a' && p[0] <= 'z')) &&
+        p[1] == ':' && (p[2] == '/' || p[2] == '\\'))
+        return 1;
+#endif
+    return 0;
+}
+
+static const char *store_path_bad(const char *dir)
+{
+    char parent[AIS_PATH_MAX];
+    const unsigned char *u = (const unsigned char *)dir;
+    struct stat st;
+    size_t n, cut = 0;
+
+    if (!store_absolute(dir))
+        return "the index path must be absolute";
+    for (; *u != '\0'; u++)
+        if (*u < 0x20 || *u == 0x7F)
+            return "the index path holds a control byte";
+    n = strlen(dir);
+    if (n >= AIS_PATH_MAX)
+        return "the index path is too long";
+    if (stat(dir, &st) == 0)
+        return S_ISDIR(st.st_mode) ? NULL : "that path is not a directory";
+    /* Absent is allowed: naming a new directory is how the GUI starts a new
+     * index. Its PARENT has to exist, so a mistyped body makes no tree. */
+    for (n = 0; dir[n] != '\0'; n++)
+        if (dir[n] == '/')
+            cut = n;
+    if (cut == 0)
+        cut = 1;                                  /* "/name": the parent is "/" */
+    memcpy(parent, dir, cut);
+    parent[cut] = '\0';
+    if (stat(parent, &st) != 0 || !S_ISDIR(st.st_mode))
+        return "no such directory to create the index in";
+    return NULL;
 }
 
 /* Every 200 carries the browser hardening headers: nosniff (a text/plain API
@@ -1807,9 +1858,11 @@ static void handle(ais *a, int fd)
         send_head(fd, "text/plain");
         write_all(fd, sf, strlen(sf));
     } else if (strcmp(method, "POST") == 0 && strcmp(path, "/api/store") == 0) {
-        /* switch the active index: the body is the new directory. Reopen it,
+        /* Switch the active index: the body is the new directory, checked by
+         * store_path_bad before anything is opened or persisted. Then reopen it,
          * restoring the old one if it cannot be opened (single-threaded, so the
-         * in-place reopen is safe). localhost only, single user. */
+         * in-place reopen is safe), and record it as the default for next run.
+         * localhost only, single user. */
         char olddir[AIS_PATH_MAX];
         char *nd = body;
         size_t bl;
@@ -1820,6 +1873,14 @@ static void handle(ais *a, int fd)
             nd[--bl] = '\0';
         snprintf(olddir, sizeof(olddir), "%s", a->dir);
         if (nd[0] != '\0' && strcmp(nd, olddir) != 0) {
+            const char *why = store_path_bad(nd);
+            if (why != NULL) {
+                char e[256];
+                int  n = snprintf(e, sizeof e, "HTTP/1.0 400 Bad Request\r\n"
+                                  "Connection: close\r\n\r\n%s\n", why);
+                write_all(fd, e, (size_t)n);
+                return;                        /* accept loop closes fd */
+            }
             ais_close(a);
             if (ais_open(a, nd) != 0) {
                 static const char e[] = "HTTP/1.0 400 Bad Request\r\n"

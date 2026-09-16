@@ -127,6 +127,44 @@ else
   echo "  note python3 absent -- SKIP split-packet regression"
 fi
 
+# --- Regression: /api/store took the body as a directory ---------------------
+# ais_open CREATES what it is handed and ais_default_set then persists it into
+# the REAL ~/.ais/config, so a fuzzer's body once became the user's default
+# index and shadowed his home index from every directory. The body is checked
+# before anything is opened.
+SRVCWD=$(pwd)
+CFGIDX=$(grep '^index ' "$CFG" 2>/dev/null)
+CODE=$(printf 'rel-garbage' | curl -s -o /dev/null -w '%{http_code}' -X POST --data-binary @- "$B/api/store")
+ok "store: a relative body is refused"          "400" "$CODE"
+if [ -d "$SRVCWD/rel-garbage" ]; then
+    fail=$((fail+1)); echo "  FAIL store: it created a directory in the server's cwd"
+    rm -rf "$SRVCWD/rel-garbage"
+else
+    pass=$((pass+1)); echo "  ok   store: and created no directory in the server's cwd"
+fi
+ok "store: and the active index did not move"   "$IDX" "$(curl -s "$B/api/where")"
+if [ "$CFGIDX" = "$(grep '^index ' "$CFG" 2>/dev/null)" ]; then
+    pass=$((pass+1)); echo "  ok   store: and the config's index line is unchanged"
+else
+    fail=$((fail+1)); echo "  FAIL store: it rewrote the config's index line"
+fi
+CODE=$(printf '/tmp/ais-ctl\001x' | curl -s -o /dev/null -w '%{http_code}' -X POST --data-binary @- "$B/api/store")
+ok "store: a control byte in the path is refused" "400" "$CODE"
+CODE=$(printf '/etc/hostname' | curl -s -o /dev/null -w '%{http_code}' -X POST --data-binary @- "$B/api/store")
+ok "store: a path that is not a directory is refused" "400" "$CODE"
+CODE=$(printf '/no-such-parent-dir-here/idx' | curl -s -o /dev/null -w '%{http_code}' -X POST --data-binary @- "$B/api/store")
+ok "store: an absent parent is refused"         "400" "$CODE"
+# What the GUI does must still work: an existing directory, and a new one beside it.
+IDX3=$(mktemp -d); "$AIS" -f "$IDX3" --init >/dev/null 2>&1
+printf '%s' "$IDX3" | curl -s -X POST --data-binary @- "$B/api/store" >/dev/null
+ok "store: an absolute existing directory still switches" "$IDX3" "$(curl -s "$B/api/where")"
+printf '%s' "$IDX3/fresh" | curl -s -X POST --data-binary @- "$B/api/store" >/dev/null
+ok "store: a new directory under an existing parent still starts one" "$IDX3/fresh" \
+   "$(curl -s "$B/api/where")"
+printf '%s' "$IDX" | curl -s -X POST --data-binary @- "$B/api/store" >/dev/null
+ok "store: and it switches back"                "$IDX" "$(curl -s "$B/api/where")"
+rm -rf "$IDX3"
+
 # --- Regression: oversized POST body -> 413, never a truncated silent save ----
 # A body past the ~64KB request buffer must be drained and answered 413, storing
 # nothing; an unread tail RSTs the socket on close. curl-only, no python needed.

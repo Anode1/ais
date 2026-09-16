@@ -2202,6 +2202,9 @@ static void test_index_switch(void)
     CHECK(ais_index_add("work", "/tmp/ais_ut_work") == 0, "register 'work'");
     CHECK(ais_index_add("play", "/tmp/ais_ut_play") == 0, "register 'play'");
     CHECK(ais_index_add("home", "/x") == -1, "'home' is reserved");
+
+    /* A newline inside a value would write a second setting on the next line. */
+    CHECK(ais_default_set("x\ny") == -1, "default: a value holding a newline is refused");
     n = 0; ais_index_list(count_index, &n);
     CHECK(n == 2, "two indexes registered (home not in the list)");
 
