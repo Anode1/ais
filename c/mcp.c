@@ -560,7 +560,8 @@ static int split_keys(char *s, char *kv[], int max, int tabs)
     }
 }
 
-enum { KEYS_TOOMANY = -1, KEYS_BADCHAR = -2, KEYS_TOOLONG = -3, KEYS_DETACH = -4 };
+enum { KEYS_TOOMANY = -1, KEYS_BADCHAR = -2, KEYS_TOOLONG = -3, KEYS_DETACH = -4,
+       KEYS_BADELEM = -5, KEYS_TYPE = -6 };
 
 /* Would the index file this key under the name it was given? key_encode (key.c)
  * folds ' ', '|', '/', '\\', every byte below 0x20, 0x7F and a LEADING '.' to
@@ -589,21 +590,35 @@ static int key_ok(const char *k)
  * either way the words are the keys. The strings point into the request line,
  * which is ours to cut up. KV holds AIS_KEYS_MAX + 1 entries, so the first key
  * past the cap is seen rather than dropped. Returns how many keys landed in KV,
- * KEYS_TOOMANY past the cap, or KEYS_BADCHAR with *BAD naming the key the store
- * cannot hold. */
+ * or the KEYS_ code that says why none did.
+ *
+ * An element that carries no key (null, a number, "", blanks) is refused rather
+ * than skipped: dropping one from ["venice", null] would run a match all over
+ * one key instead of two and answer with records the caller did not ask for. */
 static int keys_arg(const jdoc *d, int node, char *kv[], const char **bad)
 {
-    int max = AIS_KEYS_MAX + 1, n = 0, i;
+    int max = AIS_KEYS_MAX + 1, n = 0, i, badelem = 0;
 
     *bad = NULL;
     if (node < 0)
-        return 0;
-    if (d->v[node].type == JSTR)
+        return 0;                                /* no keys argument at all */
+    if (d->v[node].type == JSTR) {
         n = split_keys(d->v[node].str, kv, max, 1);
-    else if (d->v[node].type == JARR)
-        for (i = d->v[node].kid; i >= 0 && n < max; i = d->v[i].sib)
-            if (d->v[i].type == JSTR)
-                n += split_keys(d->v[i].str, kv + n, max - n, 0);
+    } else if (d->v[node].type == JARR) {
+        for (i = d->v[node].kid; i >= 0 && n < max; i = d->v[i].sib) {
+            int got = (d->v[i].type == JSTR)
+                    ? split_keys(d->v[i].str, kv + n, max - n, 0) : 0;
+            if (got == 0)
+                badelem = 1;
+            n += got;
+        }
+    } else {
+        return KEYS_TYPE;
+    }
+    if (n == 0)
+        return badelem ? KEYS_TYPE : 0;   /* nothing usable at all: name the shape */
+    if (badelem)
+        return KEYS_BADELEM;
     if (n > AIS_KEYS_MAX)
         return KEYS_TOOMANY;
     for (i = 0; i < n; i++) {
@@ -645,6 +660,15 @@ static int keys_refused(int n, const char *bad, const struct req *q)
         snprintf(msg, sizeof msg, "a key is at most %d bytes; that one is %lu: %.40s",
                  AIS_KEY_NAME_MAX, (unsigned long)strlen(bad), bad);
         text_reply(q, msg, 1);
+        return 1;
+    }
+    if (n == KEYS_BADELEM) {
+        text_reply(q, "keys holds an empty or non-string element", 1);
+        return 1;
+    }
+    if (n == KEYS_TYPE) {
+        text_reply(q, "keys must be an array of strings (or one string with blanks "
+                      "between the keys)", 1);
         return 1;
     }
     return 0;
@@ -837,16 +861,28 @@ static void tool_tags(ais *a, const jdoc *d, int args, const struct req *q)
 static void tool_timeline(ais *a, const jdoc *d, int args, const struct req *q)
 {
     struct sink s;
-    long want;
+    long want = MCP_TL_DEF, alt = MCP_TL_DEF;
+    int ci, li;
 
     if (args_ok(d, args, q, "timeline", "count limit") != 0)
         return;
     /* Named count here and limit on every other tool. Both are in the schema and
      * both are taken, rather than handing back a default to a model that guessed
-     * the wrong word. */
-    if (rows_arg(d, args, jget(d, args, "count") >= 0 ? "count" : "limit",
-                 MCP_TL_DEF, q, &want) != 0)
+     * the wrong word. They are ONE argument under two names, so two different
+     * numbers is a request with no answer: obeying either silently discards what
+     * the caller asked for in the other. */
+    ci = jget(d, args, "count");
+    li = jget(d, args, "limit");
+    if (ci >= 0 && rows_arg(d, args, "count", MCP_TL_DEF, q, &want) != 0)
         return;
+    if (li >= 0 && rows_arg(d, args, "limit", MCP_TL_DEF, q, &alt) != 0)
+        return;
+    if (ci >= 0 && li >= 0 && want != alt) {
+        text_reply(q, "timeline takes count or limit, not both", 1);
+        return;
+    }
+    if (ci < 0)
+        want = alt;
     sink_init(&s, a, want);
     text_open(q);
     ais_timeline(a, 0, (int)(want + 1), NULL, NULL, on_tl, &s);
@@ -1073,7 +1109,8 @@ static const char INSTR_RECALL[] =
     "Recall is exact, not fuzzy. Before giving that answer, retry with match any, then call tags "
     "to see the words they use, which are often a singular or a short form of the word you tried. "
     "Then say plainly that nothing is filed under those keys, and offer to search the values "
-    "with find.";
+    "with find. Keys fold ASCII case, so there is no point retrying one in another case, "
+    "unless it has letters outside ASCII, which fold nowhere.";
 
 /* ---- the tool list ------------------------------------------------------
  * Written out rather than generated: the descriptions are what a model reads
@@ -1085,7 +1122,9 @@ static const char TOOLS[] =
     "ssh tunnel; 'what do I have on venice' is recall with the key venice. "
     "Returns one 'id|value' per line. "
     "Keys are the user's vocabulary, not a fixed namespace: call tags first if you do not know them, "
-    "and keys fold case. A wrong key returns nothing rather than something plausible. "
+    "and keys fold ASCII case, so Venice finds venice; nothing else folds, and a key with "
+    "non-ASCII letters matches only as it was filed. "
+    "A wrong key returns nothing rather than something plausible. "
     "A value starting with 'blobs/' is a document file, named relative to the index directory "
     "given above; one that does not resolve inside that directory comes back withheld. "
     "An encrypted value is never handed over: it reads 'aisc: (encrypted, hidden)'."
@@ -1122,8 +1161,8 @@ static const char TOOLS[] =
     "\",\"inputSchema\":{\"type\":\"object\",\"properties\":{"
     "\"count\":{\"type\":\"integer\",\"description\":\"how many records, a whole number "
     "from 1 to 1000 (default 20)\"},"
-    "\"limit\":{\"type\":\"integer\",\"description\":\"the same as count; either name "
-    "is taken\"}}}}";
+    "\"limit\":{\"type\":\"integer\",\"description\":\"the same as count; pass one "
+    "name or the other, never both with different numbers\"}}}}";
 
 static const char TOOL_SAVE[] =
 ",{\"name\":\"save\",\"description\":\""
@@ -1132,8 +1171,11 @@ static const char TOOL_SAVE[] =
     "Save a reference (a link, a path, a command, a short note) on one line. A value "
     "containing a newline is written to a file inside the index and the record's value becomes "
     "that file's path, so recall returns the path and find cannot search the text. "
+    "A request line is at most 65535 bytes, so a document larger than about 64 KB is saved "
+    "with 'ais --doc' at a terminal, not through this tool. "
     "If the user did not name the keys, ASK which keys to file it under, several separated "
-    "by spaces, offering what tags already lists. Never invent a vocabulary for them."
+    "by spaces, offering what tags already lists. Never invent a vocabulary for them. "
+    "Keys fold ASCII case, so a key with non-ASCII letters is filed exactly as it is typed."
     "\",\"inputSchema\":{\"type\":\"object\",\"properties\":{"
     "\"value\":{\"type\":\"string\",\"description\":\"what to store\"},"
     "\"keys\":{\"type\":\"array\",\"items\":{\"type\":\"string\"},"
