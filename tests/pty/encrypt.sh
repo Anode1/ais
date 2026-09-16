@@ -62,6 +62,18 @@ piped=$("$AIS" -f "$W/idx" mysecret 2>/dev/null | cat)
 ok "e: a piped recall stays the opaque aisc: value"      "aisc:"        "$piped"
 no "e: a piped recall does not reveal the secret"        "my-secret-value" "$piped"
 
+# A wrong passphrase reveals nothing, so nothing was done, and `ais --help` says
+# nothing done exits non-zero. It used to print "cannot decrypt" and exit 0, so a
+# script could not tell a revealed secret from a refused one.
+printf 'wrong passphrase\n' > "$W/wrong"
+wo=$("$RUN" "$W/wrong" "$AIS" -f "$W/idx" mysecret 2>&1); wrc=$?
+no "e: a wrong passphrase reveals nothing"               "my-secret-value" "$wo"
+if [ "$wrc" -eq 1 ]; then
+    pass=$((pass+1)); echo "  ok   e: and the recall exits 1"
+else
+    fail=$((fail+1)); echo "  FAIL e: and the recall exits 1 (got $wrc)"
+fi
+
 # THE SECURITY PROPERTY, pinned. With no controlling terminal, -e must fail --
 # it must NOT fall back to $AIS_TTY, which is world-readable in ps and /proc.
 # This is the regression test for a "fix" that would make -e scriptable.

@@ -9,6 +9,7 @@
 #define AIS_DOC_H
 
 #include <stddef.h>
+#include <stdio.h>
 #include "ais.h"
 
 /* Is REL a relative path this index may join onto its own directory? True only
@@ -23,6 +24,21 @@
  * beside the index. Every join of a value or a stream-supplied relative path
  * onto a directory goes through it. */
 int  ais_blob_rel_ok(const char *rel);
+
+/* Open a blob file the INDEX owns, refusing anything that is not a REGULAR
+ * file. RW 0 opens it for reading, non-zero for read and write.
+ *
+ * ais_blob_rel_ok is lexical: it proves the value names one file under blobs/,
+ * not what that name IS. A symlink planted there (whole-folder sync copies one
+ * verbatim, and so can anything else that writes to the index dir) turned the
+ * value into a read of any file the user can read: --export and --sync streamed
+ * the target's contents to every peer, recall printed it, and for an
+ * "aisc:@blobs/..." value a delete zero-filled it. Every blob open, read, shred
+ * and export goes through this. O_NOFOLLOW refuses the symlink atomically where
+ * the platform has it; the lstat is the portable half and also refuses a
+ * directory, a device and a fifo. Returns NULL when the path is absent or is
+ * not a regular file, naming a refused one on stderr. */
+FILE *ais_blob_fopen(const char *path, int rw);
 
 /* Ensure <index>/blobs/ exists and pick a free, timestamp-named blob path with
  * the given extension (no dot). Fills RELVAL ("blobs/<ts>.<ext>", the stored

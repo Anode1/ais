@@ -29,6 +29,14 @@ is hashed: every file is plain text, readable, greppable, repairable by hand.
       blobs/<ts>~<tag>.txt   documents saved by `doc` (real data; not rebuildable)
       lock            writers' advisory flock (per op; reads lock-free)
 
+**A store line longer than `AIS_LINE_MAX` is ONE corrupt line.** The store is
+hand-editable and whole-folder sync copies it verbatim, so an over-long line
+arrives. Read with `fgets` it came back as a head and a tail, and a tail that
+parsed became a live record the file never held, which compaction then wrote
+into the store; a tail that did not parse truncated the value silently. Every
+reader of an untrusted line uses `store_read_line` and skips a `-1` whole,
+warning with the byte offset where the line starts.
+
 ### store: the source of truth (append-only)
 `id|ts|keys|value`. `id` is a positive integer, assigned monotonically. `ts` is
 the save time, written on every put as UTC to the second, `YYYY-MM-DDThh:mm:ssZ`
@@ -355,7 +363,13 @@ this program could have.
 
 Ownership is decided by ONE predicate, `ais_blob_rel_ok` (doc.h): `blobs/`
 followed by exactly one more name, which is not `.` or `..` and carries no `/`,
-no `\` and no byte below 0x20. Every join of a value or a stream-supplied
+no `\` and no byte below 0x20. That test is lexical, so it is only half the
+answer: it proves the value names one file under `blobs/`, not what that name
+IS. A symlink planted there (whole-folder sync copies one verbatim) made the
+value a read of any file the user can read, and `--export` streamed the target
+to every peer. So every blob open, read, shred and export goes through
+`ais_blob_fopen` (doc.h), which refuses anything that is not a regular file:
+`lstat` everywhere, `O_NOFOLLOW` where the platform has it. Every join of a value or a stream-supplied
 relative path onto a directory goes through it, the encrypted `aisc:@<relpath>`
 form included. A value is attacker data (it arrives by `--import`, from a peer
 and from the MCP save tool), and without the test `aisc:@../victim.txt` made a
