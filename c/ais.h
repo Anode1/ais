@@ -140,6 +140,14 @@ int  ais_merge_attach(ais *a, const char *hash, const char *key, const char *ts)
 
 /* One key-attach fact off the wire: the record's content hash, the key, and when
  * the key went on. */
+/* The first key in KEYS (a blank-separated list, "-key" included) that this
+ * index cannot file: one longer than AIS_KEY_NAME_MAX bytes, which no posting
+ * file could be named after. Returns 1, copying that key into BAD (truncated to
+ * BADSZ, always NUL-terminated) and its TRUE length into *BADLEN; 0 when every
+ * key is storable. BAD/BADLEN may be NULL. Every write path refuses such a key
+ * before anything is written; a front end calls this to say WHICH key it was. */
+int ais_keys_too_long(const char *keys, char *bad, size_t badsz, size_t *badlen);
+
 typedef struct { char hash[17]; char key[AIS_KEY_MAX]; char ts[AIS_TS_MAX]; } ais_att_fact;
 
 /* How many attach facts one pass resolves. Smaller than AIS_MERGE_BATCH because a

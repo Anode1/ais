@@ -227,6 +227,95 @@ static void test_key_encode(void)
     CHECK(key_encode("", out, sizeof(out)) == -1, "key_encode empty -> -1");
 }
 
+/* A key becomes a filename, so 255 bytes is the wall. Past it post_append could
+ * not open the posting, the put failed AFTER the store line and next_id were
+ * committed, and every later compaction failed on the same line. */
+static void test_key_too_long(void)
+{
+    ais a;
+    const char *dir = "/tmp/ais_ut_keylen";
+    char k255[AIS_KEY_MAX], k256[AIS_KEY_MAX], bad[41], line[AIS_LINE_MAX];
+    struct idvec v = { {0}, 0 };
+    size_t blen = 0;
+    long next_before, next_after, id;
+    FILE *f;
+
+    memset(k255, 'a', AIS_KEY_NAME_MAX);     k255[AIS_KEY_NAME_MAX] = '\0';
+    memset(k256, 'b', AIS_KEY_NAME_MAX + 1); k256[AIS_KEY_NAME_MAX + 1] = '\0';
+
+    CHECK(ais_keys_too_long(k255, bad, sizeof bad, &blen) == 0,
+          "keylen: 255 bytes is storable");
+    CHECK(ais_keys_too_long(k256, bad, sizeof bad, &blen) == 1 && blen == 256
+              && strlen(bad) == 40,
+          "keylen: 256 is refused, reported at full length, named in 40 bytes");
+    CHECK(ais_keys_too_long("ok -bbb", bad, sizeof bad, &blen) == 0,
+          "keylen: a short detach token passes");
+    CHECK(ais_keys_too_long("short", NULL, 0, NULL) == 0, "keylen: NULL out is fine");
+
+    scratch_rm(dir);
+    CHECK(ais_open(&a, dir) == 0, "keylen: scratch index opens");
+    CHECK(ais_put(&a, k255, "fits") > 0, "keylen: a 255-byte key round-trips");
+    {
+        char *kv[1];
+        kv[0] = k255;
+        v.n = 0;
+        ais_get(&a, kv, 1, AIS_AND, collect_id, &v);
+        CHECK(v.n == 1, "keylen: and recalls under it");
+    }
+
+    next_before = a.next_id;
+    id = ais_put(&a, k256, "refused");
+    CHECK(id < 0, "keylen: a 256-byte key put returns -1");
+    CHECK(a.next_id == next_before, "keylen: next_id did not move");
+    ais_close(&a);
+
+    /* The store on disk must be unchanged too, not merely unindexed. */
+    {
+        char path[AIS_PATH_MAX];
+        long n = 0;
+        snprintf(path, sizeof path, "%s/store", dir);
+        f = fopen(path, "r");
+        CHECK(f != NULL, "keylen: the store is readable");
+        while (f != NULL && fgets(line, sizeof line, f) != NULL) n++;
+        if (f != NULL) fclose(f);
+        CHECK(n == 1, "keylen: exactly the one good line");
+        snprintf(path, sizeof path, "%s/next_id", dir);
+        f = fopen(path, "r");
+        next_after = 0;
+        if (f != NULL) { if (fscanf(f, "%ld", &next_after) != 1) next_after = 0; fclose(f); }
+        CHECK(next_after == next_before, "keylen: the saved next_id did not move");
+    }
+
+    /* An index that ALREADY holds such a line (written before the refusal) must
+     * compact instead of failing forever, and keep its other key. */
+    {
+        char path[AIS_PATH_MAX];
+        snprintf(path, sizeof path, "%s/store", dir);
+        f = fopen(path, "a");
+        CHECK(f != NULL, "keylen: the store is appendable");
+        if (f != NULL) {
+            fprintf(f, "%ld|2026-01-02T03:04:05Z|%s venice|planted\n", next_before, k256);
+            fclose(f);
+        }
+        snprintf(path, sizeof path, "%s/next_id", dir);
+        f = fopen(path, "w");
+        if (f != NULL) { fprintf(f, "%ld\n", next_before + 1); fclose(f); }
+    }
+    CHECK(ais_open(&a, dir) == 0, "keylen: the planted index opens");
+    CHECK(ais_compact(&a) == 0, "keylen: compaction skips the key instead of failing");
+    {
+        char *kv[1];
+        kv[0] = (char *)"venice";
+        v.n = 0;
+        ais_get(&a, kv, 1, AIS_AND, collect_id, &v);
+        CHECK(v.n == 1 && v.ids[0] == next_before,
+              "keylen: the planted record recalls under its other key");
+    }
+    CHECK(ais_compact(&a) == 0, "keylen: and a second compaction still succeeds");
+    ais_close(&a);
+    scratch_rm(dir);
+}
+
 /* ---- key prefix: first one or two encoded chars (navigable shard) ---- */
 static void test_key_prefix(void)
 {
@@ -6753,6 +6842,7 @@ int main(void)
     printf("key:\n");
     test_key_encode();
     test_key_prefix();
+    test_key_too_long();
     printf("put:\n");
     test_put_monotonic();
     test_put_idempotent();

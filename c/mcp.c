@@ -550,8 +550,10 @@ static int split_keys(char *s, char *kv[], int max)
 }
 
 /* The engine folds '|' and control bytes in a key to '_', so a key holding one
- * is stored under a different name than the one asked for. This server must not
- * name a key it did not store: it refuses instead. */
+ * is stored under a different name than the one asked for, and it refuses a key
+ * past AIS_KEY_NAME_MAX, which is longer than a posting file may be named. This
+ * server must not name a key it did not store: it refuses instead. Returns 1
+ * when the key is storable, 0 for a byte the store folds, -1 for the length. */
 static int key_ok(const char *k)
 {
     const unsigned char *u = (const unsigned char *)k;
@@ -559,10 +561,10 @@ static int key_ok(const char *k)
     for (; *u != '\0'; u++)
         if (*u == '|' || *u < 0x20)
             return 0;
-    return 1;
+    return (strlen(k) > AIS_KEY_NAME_MAX) ? -1 : 1;
 }
 
-enum { KEYS_TOOMANY = -1, KEYS_BADCHAR = -2 };
+enum { KEYS_TOOMANY = -1, KEYS_BADCHAR = -2, KEYS_TOOLONG = -3 };
 
 /* KEYS may arrive as an array of strings or as one space-separated string;
  * either way the words are the keys. The strings point into the request line,
@@ -585,11 +587,13 @@ static int keys_arg(const jdoc *d, int node, char *kv[], const char **bad)
                 n += split_keys(d->v[i].str, kv + n, max - n);
     if (n > AIS_KEYS_MAX)
         return KEYS_TOOMANY;
-    for (i = 0; i < n; i++)
-        if (!key_ok(kv[i])) {
+    for (i = 0; i < n; i++) {
+        int k = key_ok(kv[i]);
+        if (k != 1) {
             *bad = kv[i];
-            return KEYS_BADCHAR;
+            return (k < 0) ? KEYS_TOOLONG : KEYS_BADCHAR;
         }
+    }
     return n;
 }
 
@@ -607,6 +611,12 @@ static int keys_refused(int n, const char *bad, const struct req *q)
         snprintf(msg, sizeof msg,
                  "a key cannot hold a newline, a tab, '|' or any other control byte: %s",
                  bad);
+        text_reply(q, msg, 1);
+        return 1;
+    }
+    if (n == KEYS_TOOLONG) {
+        snprintf(msg, sizeof msg, "a key is at most %d bytes; that one is %lu: %.40s",
+                 AIS_KEY_NAME_MAX, (unsigned long)strlen(bad), bad);
         text_reply(q, msg, 1);
         return 1;
     }

@@ -1724,5 +1724,52 @@ okeq    "mcpproj: -f rw adds save"                         "5" \
 okeq    "mcpproj: a second --mcp operand is a usage error" "2" "$?"
 rm -rf "$PJ"
 
+# ---- a key is a filename, so 255 bytes is the wall ------------------------
+# Past it the posting file could not be opened, yet the store line and next_id
+# were already committed: the record lived in the store, in --timeline and in
+# --export, under no tag, and every later --compact failed on the same line.
+KL=$(mktemp -d "${TMPDIR:-/tmp}/ais_keylen.XXXXXX") || exit 2
+K300=$(awk 'BEGIN{while(i++<300)printf "k"}')
+K255=$(awk 'BEGIN{while(i++<255)printf "a"}')
+"$AIS" -f "$KL" -v good venice >/dev/null
+kout=$("$AIS" -f "$KL" -v note "$K300" venice 2>&1); krc=$?
+okeq    "keylen: a 300-byte key is refused"             "1" "$krc"
+ok      "keylen: and the message names the limit"       "the limit is 255" "$kout"
+ok      "keylen: and how long the key was"              "300 bytes" "$kout"
+okeq    "keylen: the store kept its one line"           "1" "$(grep -c . "$KL/store")"
+okeq    "keylen: next_id did not move"                  "2" "$(cat "$KL/next_id")"
+"$AIS" -f "$KL" --compact -y >/dev/null 2>&1
+okeq    "keylen: and compaction still succeeds"         "0" "$?"
+ok      "keylen: a 255-byte key is accepted"            "fits" \
+        "$("$AIS" -f "$KL" -v fits "$K255" >/dev/null 2>&1; "$AIS" -f "$KL" "$K255")"
+
+# The same line arriving by --import is skipped and counted, never half-written.
+KI=$(mktemp -d "${TMPDIR:-/tmp}/ais_keylen_i.XXXXXX") || exit 2
+iout=$(printf '%s venice -v note\ngood -v other\n' "$K300" | "$AIS" -f "$KI" --import 2>&1)
+ok      "keylen: --import skips the long-key line"      "skipped (key too long" "$iout"
+ok      "keylen: and counts it as skipped"              "imported 1, skipped 1" "$iout"
+okeq    "keylen: only the good line was written"        "1" "$(grep -c . "$KI/store")"
+rm -rf "$KI"
+
+# The same, as a peer's A| line: that path spools into a batch, where a refused
+# put would otherwise be dropped without a word.
+KS=$(mktemp -d "${TMPDIR:-/tmp}/ais_keylen_s.XXXXXX") || exit 2
+sout=$(printf 'A|2026-01-02T03:04:05Z|%s venice|note\nA|2026-01-02T03:04:06Z|good|other\n' "$K300" \
+       | "$AIS" -f "$KS" --import 2>&1)
+ok      "keylen: a peer's A| line is skipped too"       "skipped (key too long" "$sout"
+ok      "keylen: and counted, not silently dropped"     "imported 1, skipped 1" "$sout"
+okempty "keylen: it left no record under its other key" "$("$AIS" -f "$KS" venice 2>/dev/null)"
+ok      "keylen: the good line still arrived"           "other" "$("$AIS" -f "$KS" good)"
+rm -rf "$KS"
+
+# The MCP save tool bounds the length too: an agent's key is a filename as well.
+mout=$(printf '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"save","arguments":{"value":"agent value","keys":["%s"]}}}\n' "$K300" \
+       | "$AIS" -f "$KL" --mcp rw 2>/dev/null)
+jsonok  "keylen: the MCP refusal is valid JSON"         "$mout"
+ok      "keylen: MCP save names the cap"                "at most 255 bytes" "$mout"
+ok      "keylen: and marks it a tool error"             '"isError":true' "$mout"
+okempty "keylen: nothing was stored"                    "$("$AIS" -f "$KL" --find 'agent value' 2>/dev/null)"
+rm -rf "$KL"
+
 echo "---- $pass passed, $fail failed"
 [ "$fail" -eq 0 ]

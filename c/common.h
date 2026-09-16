@@ -14,6 +14,16 @@
 #define AIS_LINE_MAX   65536   /* one store line: id|ts|keys|value      */
 #define AIS_PATH_MAX    4096   /* a built path: dir + "/idx/" + p + key */
 #define AIS_KEY_MAX      512   /* one encoded key (a path component)    */
+
+/* The longest key this index can FILE. A posting is the file idx/<p>/<key> and
+ * key_encode maps one byte to one byte, so the name on disk is exactly as long
+ * as the key. 255 is NAME_MAX on every filesystem AIS runs on (ext4, APFS,
+ * NTFS), so a longer key cannot be written as a posting at all: the record
+ * would sit in the store, in --timeline and in --export, under no tag. Refused
+ * at every write instead, and skipped with a warning when an older index is
+ * rebuilt. AIS_KEY_MAX stays the BUFFER size: it also holds config keys and
+ * encoded names that never become a filename. */
+#define AIS_KEY_NAME_MAX 255   /* one key as a filename (POSIX NAME_MAX)  */
 #define AIS_KEYS_MAX      64   /* keys per record / query (merge width) */
 #define AIS_TS_MAX        24   /* a save timestamp "YYYY-MM-DDThh:mm:ss" + slack */
 

@@ -584,6 +584,20 @@ static long import_run(ais *a, FILE *in, ais_blobmap *map, long *skipped)
                     (*skipped)++;
                     continue;
                 }
+                /* A key no posting file could be named after. The put refuses it
+                 * anyway, but a refusal inside the spooled batch is silent, so
+                 * the line is dropped here where the key can be named. */
+                {
+                    char bad[41];
+                    size_t klen = 0;
+                    if (ais_keys_too_long(k, bad, sizeof bad, &klen)) {
+                        fprintf(stderr, "import: skipped (key too long: %lu bytes, the "
+                                        "limit is %d: %s): %.40s\n",
+                                (unsigned long)klen, AIS_KEY_NAME_MAX, bad, v);
+                        (*skipped)++;
+                        continue;
+                    }
+                }
                 ats = ts[0] ? ts : NULL;
                 v = (char *)feed_remap_value(map, v, vbuf, sizeof vbuf);
                 /* A copy stamped before an edit this index knows about is the
@@ -777,6 +791,18 @@ static long import_run(ais *a, FILE *in, ais_blobmap *map, long *skipped)
         }
         /* A keyless record is legal (--untag leaves them) and "-v VALUE" says
          * keyless outright, so there is nothing to disambiguate. */
+        {   /* A key no posting file could be named after: name it, so the line
+             * is not reported as a mystery failure. */
+            char bad[41];
+            size_t klen = 0;
+            if (ais_keys_too_long(keys, bad, sizeof bad, &klen)) {
+                fprintf(stderr, "import: skipped (key too long: %lu bytes, the limit "
+                                "is %d: %s): %s\n",
+                        (unsigned long)klen, AIS_KEY_NAME_MAX, bad, val);
+                (*skipped)++;
+                continue;
+            }
+        }
         if (ais_put(a, keys, val) < 0) {       /* shared with the sync merge: skip, don't abort */
             fprintf(stderr, "import: skipped (put failed): %s\n", val);
             (*skipped)++;

@@ -1350,6 +1350,17 @@ static int compact_line(long id, const char *ts, const char *keys,
     }
     for (tok = strtok_r(keysbuf, " \t", &save); tok != NULL;
          tok = strtok_r(NULL, " \t", &save)) {
+        /* A key too long to be a filename is skipped, not fatal. Writes refuse
+         * one now, but an index written before they did already holds such a
+         * line, and failing here made every later compaction fail too: the one
+         * operation that rebuilds idx/ could never run again. The record keeps
+         * its other keys and stays recallable under them. */
+        if (strlen(tok) > AIS_KEY_NAME_MAX) {
+            fprintf(stderr, "ais: warning: record %ld has a key of %lu bytes, past the "
+                            "%d-byte limit;\n     it is not filed under that key\n",
+                    id, (unsigned long)strlen(tok), AIS_KEY_NAME_MAX);
+            continue;
+        }
         if (post_append(c->a, tok, id) != 0) {
             c->error = 1;
             return -1;

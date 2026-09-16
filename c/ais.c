@@ -165,6 +165,18 @@ static int seek_record(ais *a, struct add_lookup *L)
     return (store_each_record(a, add_seek, L) < -1) ? -1 : 0;
 }
 
+/* Is TOK (LEN bytes) a key this index can file? A posting is the file
+ * idx/<p>/<key> and key_encode maps one byte to one byte, so the name on disk is
+ * exactly LEN bytes; past AIS_KEY_NAME_MAX post_append's fopen fails, the
+ * posting is never written, and the record ends up in the store under no tag. A
+ * detach token ("-key") is measured by the key it names. */
+static int key_tok_ok(const char *tok, size_t len)
+{
+    if (tok[0] == '-' && len > 1)
+        len--;
+    return len <= AIS_KEY_NAME_MAX;
+}
+
 static int keys_next(const char **p, char *tok, size_t toksz)
 {
     const char *s = *p;
@@ -178,9 +190,43 @@ static int keys_next(const char **p, char *tok, size_t toksz)
         return 0;
     if (len >= toksz)
         return -1;                       /* longer than any key can be */
+    if (!key_tok_ok(s, len))
+        return -1;                       /* no posting file could be named after it */
     memcpy(tok, s, len);
     tok[len] = '\0';
     return 1;
+}
+
+int ais_keys_too_long(const char *keys, char *bad, size_t badsz, size_t *badlen)
+{
+    const char *p = keys;
+
+    if (keys == NULL)
+        return 0;
+    while (*p != '\0') {
+        const char *tok;
+        size_t len;
+
+        while (*p == ' ' || *p == '\t')
+            p++;
+        len = strcspn(p, " \t");
+        if (len == 0)
+            break;
+        tok = p;
+        p += len;
+        if (key_tok_ok(tok, len))
+            continue;
+        if (tok[0] == '-' && len > 1) { tok++; len--; }   /* report the key, not the '-' */
+        if (badlen != NULL)
+            *badlen = len;
+        if (bad != NULL && badsz > 0) {
+            size_t n = (len < badsz - 1) ? len : badsz - 1;
+            memcpy(bad, tok, n);
+            bad[n] = '\0';
+        }
+        return 1;
+    }
+    return 0;
 }
 
 static int ais_post_keys(ais *a, const char *keys, long id, const char *attach_ts,
@@ -307,6 +353,8 @@ static int keys_attach_only(const char *keys, char *out, size_t outsz)
             p += len;
             continue;                    /* a detach token: never stored */
         }
+        if (!key_tok_ok(p, len))
+            return -1;                   /* refused HERE, before the store line */
         n = snprintf(out + used, outsz - used, "%s%.*s",
                      used ? " " : "", (int)len, p);
         if (n < 0 || used + (size_t)n >= outsz)

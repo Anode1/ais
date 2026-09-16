@@ -227,6 +227,13 @@ partial UTF-8 sequence): `idx/a/apple`, `idx/日/日本語`. Two BYTES was the r
 until a three-byte character showed what that means: the directory name was half
 a character, which Linux stores happily and APFS refuses, so on macOS and iOS the
 posting was never written and the key recalled nothing.
+Because the key IS the filename and the encoding maps one byte to one byte, a
+key is capped at 255 bytes (`AIS_KEY_NAME_MAX`, POSIX `NAME_MAX`): every write
+path refuses a longer one before the store line is written, since a posting that
+cannot be opened would leave the record in the store, in `--timeline` and in
+`--export`, under no tag. Compaction skips such a key with a warning instead of
+failing, so an index written before the refusal rebuilds rather than failing
+forever.
 The prefix keeps the index human-walkable: `ls idx/a/` shows keys beginning
 with `a`. No hashing: keys are human words, kept as themselves (git shards by a
 hash prefix because its keys are hashes; ours are words). (If a prefix bucket

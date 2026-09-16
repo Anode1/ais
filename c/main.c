@@ -192,6 +192,19 @@ static int collect_keys(char *const argv[], int from, int argc,
     return 0;
 }
 
+/* Refuse a key no posting file could be named after, before the write starts.
+ * The engine refuses it too; this is what names WHICH key and how long, which
+ * only the front end can say. */
+static void check_keys_len(const char *keys)
+{
+    char bad[41];                     /* the first 40 bytes, enough to recognise */
+    size_t len = 0;
+
+    if (ais_keys_too_long(keys, bad, sizeof bad, &len))
+        die("key too long: %lu bytes, the limit is %d: %s",
+            (unsigned long)len, AIS_KEY_NAME_MAX, bad);
+}
+
 /* ---- default project key (prepended to the keys on every write) --------- */
 
 /* Read the persistent default project (INDEX/project), trimmed, into OUT
@@ -775,6 +788,7 @@ int main(int argc, char **argv)
                 die("key list too long");
             if (keys[0] == '\0')
                 die("--update needs at least one key (KEY to add, -KEY to remove)");
+            check_keys_len(keys);
             if (ais_update(&a, id, keys) != 0)
                 /* ais_update fails for several reasons -- unknown or deleted id,
                  * a key that would push the line past AIS_LINE_MAX, IO -- so
@@ -1119,6 +1133,7 @@ int main(int argc, char **argv)
         if (collect_keys(argv, optind, argc, exkeys, nexk, keys, sizeof(keys)) != 0)
             die("key list too long");
         build_keys(project, keys, full, sizeof(full));
+        check_keys_len(full);                     /* before any branch writes */
 
         if (encrypt) {                            /* -e: store one value encrypted */
             if (full[0] == '\0')
