@@ -1453,7 +1453,8 @@ for line in sys.stdin:
 mout=$(mcp '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18"}}')
 jsonok  "mcp: initialize is valid JSON"                    "$mout"
 ok      "mcp: initialize names the server"                 '"name":"ais"' "$mout"
-ok      "mcp: and says which index it opened"              "$MI" "$mout"
+# realpath: macOS puts TMPDIR under a /private symlink and getcwd resolves it.
+ok      "mcp: and says which index it opened"              "$(cd "$MI" && pwd -P)" "$mout"
 ok      "mcp: read-only says saving is off"                'read-only and has no save tool' "$mout"
 ok      "mcp: and answers the protocol asked for"          '"protocolVersion":"2025-06-18"' "$mout"
 ok      "mcp: and tells it how to turn saving on"          "restarting it as 'ais --mcp rw'" "$mout"
@@ -1837,7 +1838,7 @@ okeq    "mcpproj: a walked-up index exits 2"               "2" "$prc"
 okempty "mcpproj: and nothing reaches stdout"              "$pout"
 perr=$(cd "$PJ/sub" && printf '%s\n' "$MLIST" | "$AIS" --mcp 2>&1 >/dev/null)
 ok      "mcpproj: the refusal names -f"                    "pass -f DIR" "$perr"
-ok      "mcpproj: and names the index it declined"         "$PJ/.ais" "$perr"
+ok      "mcpproj: and names the index it declined"         "$(cd "$PJ/.ais" && pwd -P)" "$perr"
 
 # Naming the same index serves it, at either setting.
 mout=$(printf '%s\n' "$MLIST" | "$AIS" -f "$PJ/.ais" --mcp 2>/dev/null)
@@ -1920,7 +1921,7 @@ mout=$(printf '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"t
        | "$AIS" -f "$TL" --mcp 2>/dev/null)
 jsonok  "tlbig: the MCP timeline reply is valid JSON"    "$mout"
 okeq    "tlbig: and carries all 3000 bytes"              "3000" \
-        "$(printf '%s' "$mout" | grep -o 'x\{2900,\}' | awk '{print length($0)}')"
+        "$(printf '%s' "$mout" | awk 'BEGIN{n=0}{t=$0;while(match(t,/x+/)){if(RLENGTH>n)n=RLENGTH;t=substr(t,RSTART+RLENGTH)}}END{print n}')"
 rm -rf "$TL"
 
 # ---- a symlink under blobs/ is not a blob ---------------------------------
