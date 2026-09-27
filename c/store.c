@@ -301,6 +301,7 @@ int store_open(ais *a, const char *dir)
     a->discard_ctx = NULL;
     a->seq_off = -1;                 /* no line resolved yet (store_value_seq) */
     a->seq_id = 0;
+    a->put_created = 0;
 
     n = snprintf(a->dir, sizeof(a->dir), "%s", dir);
     if (n < 0 || (size_t)n >= sizeof(a->dir))

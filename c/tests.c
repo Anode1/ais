@@ -397,6 +397,37 @@ static void test_mcp_key_rule(void)
     scratch_rm(dir);
 }
 
+/* Another writer saves after this server opened the index, so the handle's
+ * next_id is behind. A save of that same value attaches keys to the existing
+ * record, and the reply must say so rather than call it new. */
+static void test_mcp_save_after_another_writer(void)
+{
+    ais a, b;
+    const char *dir = "/tmp/ais_ut_mcpstale";
+    static char out[65536];
+
+    scratch_rm(dir);
+    CHECK(ais_open(&a, dir) == 0, "mcp stale: the server's handle opens");
+    CHECK(ais_open(&b, dir) == 0, "mcp stale: a second writer opens the same index");
+    CHECK(ais_put(&b, "one", "shared-value") > 0, "mcp stale: the second writer saves");
+    CHECK(b.put_created == 1, "mcp stale: and the engine says that put was new");
+    mcp_session(&a, 1,
+        "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":"
+        "{\"name\":\"save\",\"arguments\":{\"value\":\"shared-value\",\"keys\":[\"two\"]}}}\n",
+        out, sizeof out);
+    CHECK(strstr(out, "to existing record 1") != NULL, "mcp stale: the save names the existing record");
+    CHECK(strstr(out, "saved as record") == NULL, "mcp stale: and does not call it new");
+    CHECK(a.put_created == 0, "mcp stale: the engine says that put attached keys");
+    mcp_session(&a, 1,
+        "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/call\",\"params\":"
+        "{\"name\":\"save\",\"arguments\":{\"value\":\"fresh-value\",\"keys\":[\"two\"]}}}\n",
+        out, sizeof out);
+    CHECK(strstr(out, "saved as record 2") != NULL, "mcp stale: a new value is still new");
+    ais_close(&b);
+    ais_close(&a);
+    scratch_rm(dir);
+}
+
 static void test_timeline_long_value(void)
 {
     ais a;
@@ -7119,6 +7150,7 @@ int main(void)
     test_key_too_long();
     test_timeline_long_value();
     test_mcp_key_rule();
+    test_mcp_save_after_another_writer();
     test_blob_symlink();
     test_store_overlong_line();
     printf("put:\n");

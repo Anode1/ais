@@ -961,7 +961,7 @@ static AIS_NOINLINE void tool_save(ais *a, const jdoc *d, int args, const struct
     char msg[96];
     size_t len = 0, n;
     int nkeys, i, existing;
-    long id, before;
+    long id;
 
     if (!allow_write) {
         text_reply(q, "this index is read-only: restart the server as 'ais --mcp rw' to save", 1);
@@ -1019,16 +1019,14 @@ static AIS_NOINLINE void tool_save(ais *a, const jdoc *d, int args, const struct
     hs.a = a; hs.value = value; hs.len = n; hs.found = 0;
     ais_get_page(a, kv, nkeys, AIS_AND, 0, 0, on_held_id, &hs);
     /* A value names ONE record, so a put of a value already stored ADDS the keys
-     * to the record holding it. The id it comes back with is then below the id
-     * the next new record would take, which is how the two are told apart
-     * without a second pass over the store. */
-    before = a->next_id;
+     * to the record holding it. The engine says which under its writer lock; the
+     * handle's next_id cannot, since another agent may have saved since. */
     id = ais_put_value(a, keys, value);
     if (id < 0) {
         text_reply(q, "save failed: the index refused this value", 1);
         return;
     }
-    existing = (id < before);
+    existing = !a->put_created;
     bs.buf = blob; bs.sz = sizeof blob; bs.got = 0;
     if (strchr(value, '\n') != NULL)
         ais_record(a, id, on_blob, &bs);   /* multi-line: the engine wrote a document */

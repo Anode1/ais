@@ -60,6 +60,11 @@ typedef struct ais {
                                * against the store on every use, like an off
                                * entry, so stale is slow, never wrong. */
     long seq_id;              /* the id on that line */
+    int  put_created;         /* 1 when the last put made a new record, 0 when it
+                               * attached keys to one already stored, or failed.
+                               * Decided under the writer lock, so it holds when
+                               * another process has moved next_id since this
+                               * handle last read it. Not persisted. */
 } ais;
 
 /* Open (creating if absent) the INDEX directory `dir`, taking a single-writer

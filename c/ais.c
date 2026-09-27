@@ -401,6 +401,7 @@ long ais_put_at_k(ais *a, const char *keys, const char *value, const char *ts,
 {
     long rc;
 
+    a->put_created = 0;                      /* a lock failure made nothing */
     if (store_wlock(a) != 0)                 /* one writer at a time */
         return -1;
     if (store_load_next_id(a) != 0) {        /* fresh id under the lock */
@@ -419,6 +420,7 @@ long ais_put_at_k_resolved(ais *a, const char *keys, const char *value, const ch
     int found;
     char clean[AIS_LINE_MAX];
 
+    a->put_created = 0;
     /* A save only ATTACHES keys; detaching a key is ais_update's job. Drop "-key". */
     if (keys_attach_only(keys, clean, sizeof clean) != 0)
         return -1;
@@ -544,6 +546,7 @@ long ais_put_at_k_resolved(ais *a, const char *keys, const char *value, const ch
      * rebuilds idx/ from the store lines and files it. */
     if (ais_post_keys(a, clean, id, attach_ts, 1) != 0) { rc = -4; goto out; }
     debug("put: new id=%ld", id);
+    a->put_created = 1;
     rc = id;
 
 out:
