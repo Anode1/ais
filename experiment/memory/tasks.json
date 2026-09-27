@@ -1,0 +1,24 @@
+{
+  "tasks": [
+    {"id": "T1", "prompt": "I am about to tag a release. Which make targets run each test layer, and what runs before a push?"},
+    {"id": "T2", "prompt": "How does ais decide which index directory to open, and what does --mcp do differently?"},
+    {"id": "T3", "prompt": "When one device edits a record and another deletes it while they are apart, what does sync do?"},
+    {"id": "T4", "prompt": "What does the MCP save tool refuse, and why?"},
+    {"id": "T5", "prompt": "How does ais store a multi-line or very long value, and how are those files named?"},
+    {"id": "T6", "prompt": "How fast is ais at a million records, and what made recall fast?"}
+  ],
+  "questions": [
+    {"id": "Q1",  "task": "T1", "q": "Which make target runs the engine tests under AddressSanitizer?", "expect": ["asan"]},
+    {"id": "Q2",  "task": "T1", "q": "How is the git pre-push hook enabled in this repo?", "expect": ["make hooks|hooksPath"]},
+    {"id": "Q3",  "task": "T2", "q": "In what order does ais look for the index directory?", "expect": ["-f", "walk|nearest|\\.ais/", "current|named", "~/\\.ais|home"]},
+    {"id": "Q4",  "task": "T2", "q": "Which index does ais --mcp refuse to serve?", "expect": ["walk|found by walking|nearest"]},
+    {"id": "Q5",  "task": "T3", "q": "If a delete and a re-add carry the same timestamp, which one wins?", "expect": ["delete"]},
+    {"id": "Q6",  "task": "T3", "q": "At what resolution are the timestamps compared in a sync merge?", "expect": ["second"]},
+    {"id": "Q7",  "task": "T4", "q": "What is the longest key the MCP save tool accepts, and why that number?", "expect": ["255", "NAME_MAX|file ?name"]},
+    {"id": "Q8",  "task": "T4", "q": "How many keys can one MCP save carry?", "expect": ["64"]},
+    {"id": "Q9",  "task": "T5", "q": "What happens to a value containing a newline when it is saved?", "expect": ["blob|file", "path"]},
+    {"id": "Q10", "task": "T5", "q": "How is a document file under blobs/ named?", "expect": ["timestamp|time", "random|hex"]},
+    {"id": "Q11", "task": "T6", "q": "How long does recall of a rare key take at a million records?", "expect": ["9 ?ms|0\\.009"]},
+    {"id": "Q12", "task": "T6", "q": "What is the id-to-offset file called, and how many bytes does it spend per id?", "expect": ["\\boff\\b", "12"]}
+  ]
+}

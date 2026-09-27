@@ -102,9 +102,13 @@ be. See [`about.txt`](about.txt) for the argument in full.
 An index named with `-f` belongs to a project or a group, and its keys are that
 group's vocabulary: the people and the agents that file there, of any model, in
 any session. There the agent chooses keys itself, from what `tags` lists: a key
-already in use whenever one fits, a new one only for what none of them names. It
-also saves, unasked, what a later session would otherwise have to work out
-again: a decision and its reason, a command that worked, where a thing is. The
+already in use whenever one fits, a new one only for what none of them names.
+The instructions also tell it to save, unasked, what a later session would
+otherwise have to work out again. Measured, it mostly does not: Sonnet saved
+nothing in six tasks with the server alone, and twice in six with a line in its
+system prompt asking for it. It saved every time the task itself ended with
+"save it" ([`experiment/memory`](../experiment/memory/README.md)). So ask for
+the save, in the task or in the project's agent instructions. The
 bias kept is the group's instead of one person's, and it is still no model's
 average, because every reader recalls by the words the group used.
 

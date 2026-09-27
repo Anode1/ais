@@ -1,0 +1,307 @@
+phase,arm,id,reader,correct,saved,tokens,cost,turns,models,error,result
+write,mem,T1,,,1,63451,0.049505400000000005,6,claude-sonnet-5,,"Saved that summary to ais memory (keys: `makefile`, `make targets`, `tests`, `release`, `pre-push`, `hooks`, `ais project`, `codeut`, `cliut`, `uiut`, `sanitizers`) so future sessions don't need to re-derive it.
+
+For your release: run `make ut` (full suite) plus `make codeut-asan` and `make codeut-ubsan` explicitly before tagging, since the Makefile flags those sanitizer runs as a prerequisite for tagging. If you haven't already, `make hooks` will also wire up the pre-push hook so those sanitizers run automatically on future pushes."
+write,mem,T2,,,1,153278,0.12418620000000002,15,claude-sonnet-5,,"This is the `ais` source tree itself (`c/locate.c`, `c/main.c`). Here's how it works:
+
+**Directory resolution (`ais_locate_how` in `c/locate.c`)**, git-like precedence, no env vars at all:
+1. **`-f DIR`** — the only explicit override.
+2. **Nearest `.ais/`** walking up from cwd (like git finds `.git`), stopping at the home directory (so `~/.ais` is never picked up as a ""local"" one).
+3. **The current named index** — `~/.ais/config` has `current = NAME` → `index.NAME = PATH` (a git-branch-like registry); if no `current` is set, it falls back to the legacy single `index = PATH` line.
+4. **Built-in home**: `~/.ais` (Windows `%USERPROFILE%\.ais`), falling back to the pre-1.0 XDG location if `~/.ais` doesn't exist yet (one-time migration notice).
+
+`ais_locate_how` also reports *which* step fired via `*how`, because that matters for `--mcp`.
+
+**What `--mcp` does differently** (`c/main.c` `CMD_MCP`, ~line 1004):
+- It's read-only by default; the single operand `rw` is required to allow saving.
+- It **refuses to serve step 2** (an index found by walking up the directory tree) and tells the user to pass `-f DIR` instead — the rationale in the code: a cloned repo that happens to ship a `.ais/` directory shouldn't silently become an agent's memory just because the agent was invoked inside it. Naming the index explicitly with `-f` is treated as the permission grant.
+- It computes a `shared` flag (true only when the index was resolved via step 1 `-f`, and isn't secretly just `~/.ais` via realpath comparison) and passes it into `ais_mcp()`, which apparently affects agent-facing behavior (e.g., whether keys are chosen from the existing project vocabulary vs. asking, per the comment) — this is presumably surfaced in `c/mcp.c`, which I haven't inspected in detail.
+
+Want me to save a summary of this to ais memory for future sessions, or look into `c/mcp.c` for how the `shared` flag changes runtime behavior?"
+write,mem,T3,,,1,71020,0.1071134,6,claude-sonnet-5,,"Sync resolves this as an edit-vs-delete conflict using last-write-wins, but compares the record's *effective* time (`max(creation ts, last local edit)`), not just the raw delete timestamp:
+
+- **Edit newer than delete (by content):** if the deleter's delete names a hash that no longer matches (because the record was edited to a new value), the edit isn't touched — the delete simply doesn't resolve to anything, since deletes are content-addressed by hash of the value. The record survives as edited.
+- **Edit-timestamp newer than the delete:** the edited record's export gets its timestamp *raised* one second past the delete's timestamp (`sts`), which is what makes the edit outrank the tombstone when the peer sees it — the record survives, delete is dropped.
+- **Delete newer than the edit, and the deleter has seen the edit** (i.e., it deletes the record by its edited-value hash): the delete wins and the record is removed, exactly as delete-after-add always does.
+- **Ties** (same second): the delete wins — last-write-wins resolution keeps ties sticky toward delete.
+
+So in short: it's not simply ""delete wins"" or ""edit wins"" — it depends on whether the delete was made against the old or the new content, and if against the new content, whichever action is timestamped later (edit-time vs delete-time) wins, with deletes winning ties. This logic lives in `doc/dev/MERGE.md` (see ""Identity = content; conflict = last-write-wins by ts"") in this project's `c/merge.c`/`c/sync.c`."
+write,mem,T4,,,1,10497,0.0086286,1,claude-sonnet-5,,"The MCP `save` tool refuses one specific case: if the value you're saving is **larger than about 64 KB**, it won't accept it through the tool call. That's because a single MCP request line is capped at 65535 bytes. For anything bigger than that, you're expected to save it as a document using `ais --doc` at a terminal instead of going through this tool.
+
+Everything else about `save` is accommodating rather than restrictive — e.g., multi-line values are automatically written to a file inside the index and the record just points to that file's path."
+write,mem,T5,,,2,265058,0.2007864,17,claude-sonnet-5,,Saved a note under keys `ais blobs doc documents multiline storage architecture` for next time.
+write,mem,T6,,,2,70449,0.0682498,9,claude-sonnet-5,,"At 1M records (85 MB store, 4,000 distinct keys), from `doc/performance.txt`:
+
+- **get by rare key** (19 ids): 1.02 s → **9 ms**
+- **get by hot key** (270,360 ids): hours → **2.2 s**
+- compact (build whole index): 7.9 s; find/dump/stats/timeline are I/O-bound single-pass scans (grep/cat-class, ~1-2 s)
+
+**What made recall fast:** originally `ais_record` re-scanned the whole store per matched id — O(matches × store size), which is why a hot key took hours. The fix was an **id→offset index** (`off`, 12 MB for 1M ids, 12 bytes/id), built during `compact` and kept up to date by `put`, with scan-fallback if it's absent or stale. That turns a get into O(matches) direct seeks instead of repeated full-store scans — the single biggest factor in the speedup (rare key: ~113x faster; hot key: hours to 2.2 s)."
+write,mem-bare,T1,,,0,36166,0.0316908,4,claude-sonnet-5,,"Here's the test layer breakdown from the root `Makefile`:
+
+- **`make codeut`** – the C engine's in-process unit tests (`c/tests.c`), the fast inner loop.
+- **`make codeut-asan` / `make codeut-ubsan`** – engine tests under AddressSanitizer / UBSan. Comment says run these before tagging.
+- **`make cliut`** – CLI black-box tests, driving the real binary through the shell (`tests/cli.sh`).
+- **`make uiut`** – web GUI tests: `ais --serve`'s HTTP API, rendered page, and a click-and-assert flow (`tests/gui/serve.sh`, `ui.sh`, `inter.sh`); skips gracefully without curl/cc/Chrome.
+- **`make ut`** – runs the whole suite (codeut + cliut + uiut + build-checks) via `tests/run.sh`, reporting PASS/FAIL/SKIP per layer.
+
+**Before a push:** `make hooks` installs a git pre-push hook (`core.hooksPath -> scripts/hooks`) that runs `codeut-asan` + `codeut-ubsan` automatically, so a memory/UB bug can't reach the remote.
+
+For tagging a release, run `make ut` for the full suite plus `make codeut-asan` and `make codeut-ubsan` explicitly (as the Makefile comment recommends), then `make dist` to build the release bundle."
+write,mem-bare,T2,,,0,56456,0.0632774,7,claude-sonnet-5,,"## Index directory resolution
+
+`ais` picks the index directory by precedence (implemented in `ais_locate`, `c/locate.h`):
+
+1. **`-f DIR`** — explicit override, wins if given.
+2. **Nearest `.ais/`** found by walking up from the current directory (git-style).
+3. **The current named index** from `~/.ais/config` (`current = NAME` → `index.NAME = PATH`), or the legacy `index = PATH` line if no `current` is set.
+4. **The built-in default `~/.ais`** (`%USERPROFILE%\.ais` on Windows) — falling back to a pre-1.0 location if `~/.ais` doesn't exist yet.
+
+A local index is only created explicitly via `ais --init`. Multiple named indexes work like git branches (a registry + a ""current"" pointer in `~/.ais/config`); `--switch` changes current, `--indexes` lists them.
+
+## What `--mcp` does differently
+
+`--mcp` starts the MCP server (agent-facing tools: `recall`, `find`, `tags`, `timeline`, and `save` if run as `ais --mcp rw`) instead of the normal CLI. Two behaviors set it apart:
+
+- **It refuses step 2** of the resolution above — a `.ais/` found by walking up the directory tree. The reasoning (from `c/main.c` and `doc/MCP.md`): a cloned repo could ship a `.ais/` directory, and silently serving it to an agent would turn someone else's checked-in index into the agent's memory, leaking its record values into the model's context without anyone asking for that. In this case `--mcp` prints an error naming `-f` and exits with code 2 rather than serving anything. Serving a project index instead requires explicitly naming it: `ais -f /abs/path/.ais --mcp` (or `... rw` to allow saves), so the permission lives in the client's own MCP config.
+- **Writes are opt-in**: plain `--mcp` is read-only; only `ais --mcp rw` exposes the `save` tool.
+
+By contrast, `ais --serve` (the web GUI) *does* open a walked-up `.ais/`, since that's a case of the user deliberately opening the GUI in that directory themselves."
+write,mem-bare,T3,,,0,66766,0.0898478,6,claude-sonnet-5,,"When one device edits a record and another deletes it while apart, sync resolves it as **last-write-wins by effective time**, comparing the edit's timestamp against the delete's:
+
+- **Edit is newer than the delete** (or ties — ties favor the delete only when exactly equal): the record survives with the edited value on both devices. An edit counts as the record's effective time (`max(creation ts, last local edit)`), not just its original creation time — otherwise re-tagging/editing something another device deleted would silently lose that edit.
+- **Delete is newer than the edit** (and the deleting device has actually seen that edit — i.e., it holds the edited value's hash): the record is deleted everywhere, same as delete-after-add.
+- **Delete targets the *old* (pre-edit) value** it still holds, without having seen the edit: since identity is content-hash-based, that delete's hash doesn't match the edited value, so it names nothing on the device that applied the edit — the record survives there as edited, and the deleting device eventually receives the edit fact and drops its (now moot) tombstone.
+- **Exact tie within the same second**: delete wins (ties are sticky), since timestamps are wall-clock UTC at 1-second resolution.
+
+Source: `doc/dev/MERGE.md` (""Identity = content; conflict = last-write-wins by ts"" and ""A delete newer than the edit still wins, when the deleter has seen the edit"")."
+write,mem-bare,T4,,,0,10505,0.0043879999999999995,1,claude-sonnet-5,,"The MCP `save` tool (from the `ais` server) refuses one specific case: a value that contains a newline can't be saved inline via the tool. According to its description, multi-line content is instead written to a file inside the index, and the record's value becomes that file's path — the actual text isn't stored directly through the tool call.
+
+There's also a related size limit: a request line is capped at 65535 bytes, so anything larger than roughly 64 KB needs to be saved as a document using `ais --doc` at a terminal rather than through this tool.
+
+So in short — it refuses (or redirects) multi-line and oversized content, because the tool's save mechanism is line-oriented and size-bounded; large or multi-line values need file-based storage instead."
+write,mem-bare,T5,,,0,10522,0.0044992,1,claude-sonnet-5,,"A value containing a newline gets written to a file inside the ais index directory (under a `blobs/` subfolder), and the record's stored value becomes that file's path (relative to the index directory) rather than the text itself. So `recall`/`find` on such a record returns the `blobs/...` path, not the content — you'd need to read that file directly to get the text.
+
+Note: values over ~64 KB (the size of a single request) can't be saved this way via the `save` tool at all; the tool description says those need `ais --doc` at a terminal instead.
+
+I don't have visibility into the exact filename scheme (e.g., whether it's a hash, timestamp, or ID-based) since that's internal to the `ais` tool's implementation — I only know what the tool descriptions expose."
+write,mem-bare,T6,,,0,89290,0.0648422,14,claude-sonnet-5,,"At a million records, `ais` recall is fast: a rare key comes back in ~9 ms, and even the hottest key (270,360 matching ids) resolves in ~2.2 s — versus 1.02 s and ""hours"" respectively via full scan.
+
+What made it fast: two indexes built at `compact` and kept up to date by `put`:
+- **Posting lists per key** — 4,000 distinct keys map straight to their matching ids, so recall doesn't scan the whole store looking for key matches.
+- **An id→offset index (`off`)** — 12 MB for 1M ids (12 bytes/id). Originally, `ais_record` re-scanned the entire store for every matched id (O(matches × store size)) — that was the real bottleneck, not the key lookup itself. Once ids map directly to a byte offset, fetching each matched record becomes O(matches) direct seeks instead of repeated full-file scans, turning ""hours"" into ~2.2 s for the hottest key and 1.02 s→9 ms for a rare one.
+
+Everything else (find by substring, dump, stats, timeline) stays a single streaming pass, so it's still grep/cat-class I/O-bound work rather than needing an index. Source: `doc/performance.txt` and `README.md:132` in this repo."
+write,notes,T1,,,,32387,0.028658799999999998,4,claude-sonnet-5,,"Here's the test layout, from the root `Makefile`:
+
+- **`make codeut`** — the C engine tests (fast inner loop, in-process)
+- **`make cliut`** — CLI black-box tests, exercising the real binary via shell (`tests/cli.sh`)
+- **`make uiut`** — web GUI layer: `tests/gui/serve.sh`, `ui.sh`, `inter.sh` (skips without curl/cc/Chrome)
+- **`make ut`** — runs all layers together via `tests/run.sh`, reporting PASS/FAIL/SKIP per layer; this is the one to run before committing
+- **`make codeut-asan`** / **`make codeut-ubsan`** — engine tests under ASan/UBSan; comment explicitly says ""run before tagging"" and it's also the CI backstop in `.github/workflows/sanitizers.yml`
+
+**Before a push:** `make hooks` sets `core.hooksPath` to `scripts/hooks`, which installs a pre-push hook that runs `make codeut-asan` + `make codeut-ubsan` automatically.
+
+For tagging a release, you'd want `make ut` plus the two sanitizer targets (`codeut-asan`, `codeut-ubsan`) since those are called out specifically as pre-tag checks.
+
+I don't see a NOTES.md in this directory yet — want me to create one capturing this Makefile layout for future sessions?"
+write,notes,T2,,,,100088,0.0950542,10,claude-sonnet-5,,"## Index directory selection (`ais_locate_how`, `c/locate.c`)
+
+`ais` picks the index directory using a git-like precedence, stopping at the first match:
+
+1. **`-f DIR`** — explicit override, the *only* one; there's no env var for this.
+2. **Nearest `.ais/`** found by walking up from the CWD, stopping at (and not crossing) the home directory.
+3. **The current named index** from `~/.ais/config`: a `current = NAME` line resolves to `index.NAME = PATH`; if `current` isn't set, it falls back to the legacy single `index = PATH` line.
+4. **The built-in ""home"" index**, `~/.ais` (or `%USERPROFILE%\.ais` on Windows). If that doesn't exist yet but the pre-1.0 legacy location (`$XDG_DATA_HOME/ais` etc.) does, it uses the legacy one with a one-time notice, then tells you to move it or set `--default`.
+
+Each step is recorded (`index_step` in `main.c`) so later logic — specifically `--mcp` — knows *which* rule chose the directory, not just the final path.
+
+## What `--mcp` does differently
+
+`--mcp` (handled in `c/main.c`, `CMD_MCP`) adds a permission check on top of normal resolution:
+
+- **It refuses an index found via step 2** (the ""nearest `.ais/` found by walking up""). Rationale in the code: a cloned repo that happens to ship a `.ais/` directory shouldn't silently become an agent's memory, since its record contents would flow to the model as tool output. If `index_step == 2`, it errors out telling you to pass `-f DIR` explicitly — naming the index in the client config is treated as the actual permission grant.
+- **It's read-only by default**, and only allows writes if you pass the literal operand `rw` (any other operand, or extra operands, is a usage error).
+- **It flags whether the index is ""shared""** (`shared = index_step == 1`, i.e. only when picked via `-f`) — unless that `-f` path resolves (via `realpath`) to the same directory as the home index, in which case it's treated as personal, not shared. This shared/personal distinction gets passed into `ais_mcp()` presumably to influence how it's described to the client.
+
+So functionally: normal commands just resolve the index by walking the four steps; `--mcp` additionally hardens step 2 into a hard error (must use `-f`) and gates write access behind an explicit `rw` argument."
+write,notes,T3,,,,93613,0.1254508,7,claude-sonnet-5,,"Based on `doc/dev/MERGE.md`, sync resolves this as **last-write-wins by effective time**, with a content-hash twist:
+
+- The record's effective time for this comparison is `max(creation ts, last local edit ts)`, not just its raw store timestamp.
+- **Edit newer than the delete** → the edit wins. The record survives and is re-exported at a timestamp one second past the tombstone, which tells the deleting device to drop its tombstone too.
+- **Delete newer than (or in the same second as) the edit** → the delete wins. Ties are sticky and go to the delete.
+- One exception regardless of clock order: if the delete names the *old, pre-edit* value's content hash, and the editing device has already applied the edit (so it holds a different hash now), the delete simply matches nothing there — the record survives as edited. This is content-addressing, not a timestamp race, and only applies when the deleter deleted before ever seeing the edit.
+
+So in short: normally the more recent action wins, but a device that deletes the pre-edit content it still has can never retroactively kill an edit another device already made.
+
+I saved these details plus pointers to the relevant docs (`doc/dev/MERGE.md`, `doc/SYNC.md`) in `NOTES.md` for future reference."
+write,notes,T4,,,,50507,0.0600198,6,claude-sonnet-5,,"Found it in `doc/MCP.md` under ""## What it refuses"" (lines 142–182). Here's the summary:
+
+**Writes and destructive ops in general** (not just `save`):
+- Writes are off by default — an agent gets read-only `recall` unless the server is started with `ais --mcp rw`.
+- There is no delete, no re-tag, no edit at any setting — ""those are the operations whose damage you cannot see happening, and the CLI is two keystrokes away"" if you want them.
+
+**`save` itself refuses seven specific things**, each with a reason:
+
+| Refusal | Why |
+|---|---|
+| No key given | a record filed under nothing can never be recalled |
+| Blank/whitespace-only value | nothing is left to store after trimming |
+| Value starting with `aisc:` or `blobs/` | those are reserved prefixes ais writes itself (secret marker, document path) — a model shouldn't be able to forge either |
+| Key containing `/`, `\`, `\|`, a tab/control byte, or starting with `.` | the key doubles as a posting-file name; those chars/names can't be filed |
+| Key starting with `-` | the CLI reads a leading `-` as ""detach this key,"" so it would silently file nothing |
+| Key over 255 bytes | matches POSIX `NAME_MAX`, the filename limit |
+| More than 64 keys in one call | the engine's per-record width limit |
+
+Two more related limits: a request line over 65,535 bytes is dropped entirely (`request too large`), and row-budget arguments (like `limit`) outside 1–1000 or non-integers are refused rather than silently clamped, ""because a model cannot tell a rewritten limit from the one it asked for.""
+
+The underlying theme: refusals target things a model could get wrong invisibly (unrecoverable records, forged internal markers, silently-broken keys, or destructive edits/deletes) — each error message tells the model exactly what's wrong so it can retry correctly."
+write,notes,T5,,,,62188,0.0966476,6,claude-sonnet-5,,"Found the answer directly in `doc/dev/LAYOUT.md`.
+
+## How ais stores multi-line / large values
+
+A store line is always **one line**, so multi-line or oversized text can't go inline. Instead:
+
+- `ais --doc KEYS` reads a document from stdin and writes it to a **blob file** under `blobs/` inside the index directory.
+- It then `put`s the blob's *relative path* as the value (the store just holds a path like any other value — the engine doesn't know it's special).
+- Encrypted documents (`--doc KEYS -e`) go to a `.aisc` blob instead of `.txt`.
+
+## File naming
+
+```
+blobs/<timestamp>~<8 hex>.txt      (plain)
+blobs/<timestamp>~<8 hex>.aisc     (encrypted)
+```
+
+- `<timestamp>` is **local time**, so `ls blobs/` sorts chronologically.
+- `<8 hex>` is a random tag — it exists so two different *devices* can't mint the same filename for two different documents saved in the same second.
+- If the *same device* saves two docs in the same second, a `-N` suffix is appended to disambiguate.
+
+Notes: `blobs/` is real, non-rebuildable data (unlike `idx/`, `off`, `multi`, `next_id` which are derived). Deleting a record whose value is a `blobs/` path discards that file (via `ais_doc_discard`), since the index owns files it wrote there — but any value pointing elsewhere (URL, external path) is never touched. `find` only searches the path/tags for such records, not the blob's contents."
+write,notes,T6,,,,31362,0.023485399999999997,4,claude-sonnet-5,,"My tools are restricted to this scratchpad directory, and NOTES.md (the only file here) covers merge/sync semantics only — no benchmark numbers or recall implementation details for a million records.
+
+I don't have that information available right now. If you can point me to the relevant doc/benchmark file (e.g., something in `doc/` or a perf test in `c/`) or paste the numbers/code, I can look at it and answer precisely — otherwise I'd just be guessing."
+write,mem-ask,T1,,,1,53730,0.0543352,6,claude-sonnet-5,,"Saved under keys: `ais project`, `makefile`, `make targets`, `test layers`, `release`, `tagging`, `pre-push`, `hooks`, `codeut`, `cliut`, `uiut`.
+
+Summary: `make ut` runs the full committable suite (codeut + cliut + uiut layers); `make codeut-asan`/`make codeut-ubsan` are the sanitizer runs to do explicitly before tagging; the pre-push hook (enabled via `make hooks`) auto-runs those two sanitizer targets on every push once configured."
+write,mem-ask,T2,,,2,101732,0.09290499999999999,9,claude-sonnet-5,,"Saved under keys: `ais`, `mcp`, `index`, `locate`, `config`, `mcp flag`, `index directory`."
+write,mem-ask,T3,,,3,127781,0.13463440000000002,11,claude-sonnet-5,,"Saved under keys: sync, merge, edit, delete, conflict, tombstone, ais."
+write,mem-ask,T4,,,4,33442,0.0230632,3,claude-sonnet-5,,"Saved as record 4 under keys: `ais mcp save limits 64kb doc`.
+
+**Summary:** The `save` tool refuses documents over ~64 KB, since each save request line is capped at 65535 bytes — larger content must instead be saved via `ais --doc` at a terminal. This has been filed in ais memory for future sessions."
+write,mem-ask,T5,,,5,133295,0.0959122,11,claude-sonnet-5,,"Saved as record 5 under keys: `ais`, `doc`, `blobs`, `blob naming`, `multi-line values`."
+write,mem-ask,T6,,,6,246155,0.1986668,27,claude-sonnet-5,,"Saved as record 6 under `ais`, `index`, `performance`, `recall`, `benchmark`, `million`."
+write,notes-ask,T1,,,,90625,0.05824060000000001,8,claude-sonnet-5,,"**Test layers:**
+- `make codeut` — engine unit tests (fast inner loop)
+- `make codeut-asan` / `make codeut-ubsan` — engine tests under ASan/UBSan
+- `make cliut` — CLI black-box tests against the real binary
+- `make uiut` — web GUI layer (HTTP API, rendered page, CDP click tests)
+- `make ut` — runs all of the above via `tests/run.sh`
+
+**Before a push:** if you've run `make hooks` once (sets `core.hooksPath` to `scripts/hooks`), the `pre-push` hook auto-runs `make codeut-asan` + `make codeut-ubsan`. Bypass with `git push --no-verify`.
+
+I've written this, plus a release checklist takeaway, into NOTES.md for future sessions."
+write,notes-ask,T2,,,,126228,0.0997044,12,claude-sonnet-5,,NOTES.md now captures the index-resolution precedence and the `--mcp`-specific refusal/`shared`/read-only logic so a future session doesn't have to re-trace `locate.h` and `main.c` again.
+write,notes-ask,T3,,,,138886,0.14488040000000002,8,claude-sonnet-5,,"## Answer
+
+Sync resolves it with **last-write-wins by timestamp**, content-addressed so no pairing is needed — but the exact mechanics depend on how the ""edit"" was made:
+
+- **In-place value edit** (`ais_set_value`, wire `E|`): the record re-exports at the edit's timestamp. A delete that still names the *pre-edit* content hash matches nothing on the device that applied the edit, so the **record survives, edited**. A delete naming the *current* hash follows plain last-write-wins: newer delete wins, older delete loses, and a **tie (same second) goes to the delete**.
+- **General edit (re-tag/re-save)**: compares `max(creation ts, last local edit)` against the delete's timestamp. If the delete is newer, the record stays deleted. If the edit is newer (or equal), the record is **resurrected** and re-exported at a timestamp raised one second past the delete, specifically so the deleting peer relinquishes its tombstone — but its key set is *replaced*, not merged, with whichever side's version wins (deletion clears tags too). A tie again goes to the delete.
+
+This is all documented in `doc/dev/MERGE.md`, and I've saved the details to `NOTES.md` for next time."
+write,notes-ask,T4,,,,206805,0.2125082,9,claude-sonnet-5,,"Added a section to NOTES.md documenting all of `save`'s refusal cases and reasons, plus the transport-level refusals, so a future session doesn't need to re-read `c/mcp.c` to reconstruct this."
+write,notes-ask,T5,,,,286773,0.23248659999999996,15,claude-sonnet-5,,"## Answer
+
+`ais` keeps its `store` file strictly one line per record (`id|ts|keys|value`). A value that has an interior newline, or is longer than ~65.5KB, doesn't fit that shape, so it's written out-of-line as its own file under `<index>/blobs/` and the store line just holds the relative path (`ais_put_value` in `c/doc.c`).
+
+Filenames: `blobs/<YYYY-MM-DD-HHMMSS>~<8 hex>.<ext>` — local timestamp (so `ls blobs/` sorts chronologically) + `~` + 8 random hex digits minted per-blob (so two devices saving in the same second never collide), extension `.txt` for plain text or `.aisc` for encrypted (`--doc -e`). On a sync clash with different content, it's renamed to `blobs/<stem>~<16-hex content hash><ext>` instead.
+
+I've written the full details (inline-vs-blob threshold, clash resolution, encrypted variant) into `NOTES.md` so a future session doesn't have to re-derive it from `c/doc.c`."
+write,notes-ask,T6,,,,108993,0.096153,10,claude-sonnet-5,,"Added a ""Performance at 1M records"" section to NOTES.md summarizing the benchmarks and the id→offset index fix that made `get` fast."
+read,mem,Q1,haiku,1,,24899,0.0214757,4,claude-haiku-4-5-20251001,,"The make target is **`codeut-asan`**, which runs the engine tests under AddressSanitizer by invoking the `ut-asan` target in the `c` directory. This is documented in the main Makefile at line 48 as ""the engine tests under AddressSanitizer""."
+read,mem,Q2,haiku,1,,35885,0.0288463,6,claude-haiku-4-5-20251001,,"The git pre-push hook is enabled by running `make hooks`, which sets `git config core.hooksPath scripts/hooks` to point to the committed hook scripts. The pre-push script then runs the sanitizers (make codeut-asan and codeut-ubsan) before every push to catch memory and UB bugs."
+read,mem,Q3,haiku,0,,7994,0.0050934,1,claude-haiku-4-5-20251001,,"I don't have documentation about ais's index directory lookup order in the information provided to me. The MCP server instructions I received explain how to use the ais tools, but they don't detail the search priority or order for finding the index directory."
+read,mem,Q4,haiku,0,,8283,0.018383,1,claude-haiku-4-5-20251001,,"Based on the MCP server instructions provided, `ais --mcp` doesn't refuse to serve a specific index—rather, it refuses to serve **write operations**. The server is read-only by default and has no save tool; write operations are only enabled when started with `ais --mcp rw`."
+read,mem,Q5,haiku,1,,45586,0.0329569,4,claude-haiku-4-5-20251001,,"Based on the MERGE.md documentation, **the delete wins**. The document explicitly states (line 118-122):
+
+> RESOLUTION CAVEAT: `ts` is wall-clock UTC at ONE-SECOND resolution, and ties keep the delete. A re-save inside the same second as the delete still loses.
+
+This is part of the last-write-wins conflict resolution strategy for the r-tree merge algorithm—when timestamps are tied, deletions take precedence over re-adds to preserve the user's deletion intent."
+read,mem,Q6,haiku,1,,43853,0.0315004,4,claude-haiku-4-5-20251001,,"Timestamps in a sync merge are compared at **one-second resolution** using wall-clock UTC, where ties keep the delete (a re-save inside the same second as the delete still loses). This resolution works reliably at human timescales but depends on clock synchronization between devices."
+read,mem,Q7,haiku,0,,8043,0.005323400000000001,1,claude-haiku-4-5-20251001,,"There is no save tool available—the ais MCP server was started in read-only mode. To enable saving, you'd need to restart it with `ais --mcp rw`."
+read,mem,Q8,haiku,0,,8071,0.0054844,1,claude-haiku-4-5-20251001,,"I don't have specific information about MCP ""save carry"" or a keys limit for it. This isn't a standard term I'm familiar with in MCP documentation. Could you clarify what you mean by ""save carry""—is it a specific MCP server feature, or something documented elsewhere? If it's something you've researched or saved before, I could search your ais memory for related notes."
+read,mem,Q9,haiku,0,,8081,0.0055224,1,claude-haiku-4-5-20251001,,"The ais MCP server instructions provided don't specify how newlines in values are handled when saving. However, since ais stores values in plain text files on disk, newlines would typically be preserved as-is in the saved value."
+read,mem,Q10,haiku,0,,8311,0.0066814000000000005,1,claude-haiku-4-5-20251001,,"Document files under blobs/ are named as relative paths from the index directory, with values that start with `blobs/` followed by the filename or path. For example, a value might be `blobs/document_name` which resolves to an actual file in the blobs subdirectory of the index."
+read,mem,Q11,haiku,0,,8069,0.0054624,1,claude-haiku-4-5-20251001,,"An exact key lookup (recall) should be essentially instant, typically under a millisecond, since it uses a hash-based lookup that doesn't scale with record count. However, I don't have specific benchmarks for the ais system—this is how any well-implemented key-value index works."
+read,mem,Q12,haiku,1,,122896,0.05922959999999999,10,claude-haiku-4-5-20251001,,"The id-to-offset file is called **""off""**, and it uses **12 bytes per id**: 11 digits for the offset value (plus 1 to distinguish 0 as absent) and a newline character. This is defined as `AIS_OFF_WIDTH` in common.h and supports offsets up to approximately 90 GB."
+read,notes,Q1,haiku,1,,57315,0.025441200000000004,9,claude-haiku-4-5-20251001,,"The make target is **`codeut-asan`**, which runs the engine tests under AddressSanitizer by invoking `$(MAKE) -C c ut-asan`."
+read,notes,Q2,haiku,0,,21443,0.0071015,2,claude-haiku-4-5-20251001,,"The current working directory is not a git repository (as indicated by the system environment), so there is no pre-push hook. If you're asking about a different repository, please provide its path."
+read,notes,Q3,haiku,1,,10658,0.0048276000000000005,1,claude-haiku-4-5-20251001,,"According to the notes, `ais` looks for the index directory in this order: (1) `-f DIR` if explicitly given, (2) nearest `.ais/` walking up from the current directory (git-style), (3) the `current` named index from `~/.ais/config`, or (4) the built-in default `~/.ais`. The `-f` flag is the only way to explicitly override this precedence."
+read,notes,Q4,haiku,1,,10566,0.0043676,1,claude-haiku-4-5-20251001,,"According to the notes, `ais --mcp` refuses to serve an index found by walking up the directory tree from the current working directory (the `.ais/` directory it discovers in a cloned repo). This prevents a cloned repository that ships its own `.ais/` from silently becoming the agent's memory; the user must explicitly pass `-f DIR` to permit it."
+read,notes,Q5,haiku,1,,10506,0.0040526,1,claude-haiku-4-5-20251001,,"According to the NOTES.md, when a delete and a re-add (general edit via re-tag/re-save) carry the same timestamp, **the delete wins**. Ties at the same second-level resolution favor deletion."
+read,notes,Q6,haiku,1,,10533,0.004202600000000001,1,claude-haiku-4-5-20251001,,"Timestamps in sync merge are compared at **1-second resolution** (wall-clock UTC). When timestamps are equal (tie in the same second), deletes are favored to win over edits or resurrections."
+read,notes,Q7,haiku,1,,32676,0.009636500000000001,3,claude-haiku-4-5-20251001,,"The longest key the MCP save tool accepts is **255 bytes** (`AIS_KEY_NAME_MAX`). This limit exists because keys are used as filenames in the filesystem, and 255 bytes is the POSIX `NAME_MAX` limit for filename components."
+read,notes,Q8,haiku,1,,32249,0.0086026,3,claude-haiku-4-5-20251001,,One MCP save can carry a maximum of **64 keys** per record (`AIS_KEYS_MAX` defined in `c/common.h:27`). Any save attempt with more keys is refused with a named error.
+read,notes,Q9,haiku,1,,10696,0.0050116,1,claude-haiku-4-5-20251001,,"Looking at the NOTES.md section on ""Multi-line / long values are stored as blob files, not inline"":
+
+If a value contains an interior newline (a newline with real content after it), it is written to its own file under `<index>/blobs/` with a timestamped filename like `blobs/<YYYY-MM-DD-HHMMSS>~<8 hex>.txt`, and the store line records only the relative path to that blob file instead of the value inline. Otherwise, trailing newlines are trimmed and the value is kept inline in the store."
+read,notes,Q10,haiku,1,,10624,0.0046606,1,claude-haiku-4-5-20251001,,"A blob file is named `blobs/<YYYY-MM-DD-HHMMSS>~<8 hex>.<ext>`, where the timestamp is local time (for chronological sorting), the 8 hex digits are random per blob (to avoid collisions between devices), and the extension is `.txt` for plain documents or `.aisc` for encrypted ones."
+read,notes,Q11,haiku,0,,10467,0.0038666,1,claude-haiku-4-5-20251001,,"According to the NOTES, recalling a rare key (19 ids) at 1 million records takes **9 milliseconds** with the id->offset index optimization. Before the fix was implemented, the same operation took 1.02 seconds due to a full store scan."
+read,notes,Q12,haiku,1,,10512,0.0040706,1,claude-haiku-4-5-20251001,,"The id-to-offset file is called the **""off"" file**, and it uses **12 bytes per id**. There's also a ""multi"" side file for add'd records."
+read,none,Q1,haiku,1,,21869,0.010687,4,claude-haiku-4-5-20251001,,"The make target that runs the engine tests under AddressSanitizer is **`codeut-asan`**. This target is defined in the root Makefile and invokes `ut-asan` from the c/Makefile, which compiles and runs the tests with AddressSanitizer enabled."
+read,none,Q2,haiku,0,,6508,0.0033139,1,claude-haiku-4-5-20251001,,"This is not a git repository, so there are no git hooks enabled. The system indicates this directory is not under version control."
+read,none,Q3,haiku,1,,29593,0.026254,5,claude-haiku-4-5-20251001,,"AIS looks for the index directory in this order: 1) the `-f` option (if provided), 2) the nearest `.ais/` directory at or above the current working directory (git-style), 3) the current named index from `~/.ais/config`, and 4) the built-in default `~/.ais` directory, falling back to the pre-1.0 location if needed."
+read,none,Q4,haiku,1,,38963,0.030991499999999998,6,claude-haiku-4-5-20251001,,"Based on the man page for `ais`, **the `.ais` index found by walking up from the working directory** is the one index that `ais --mcp` refuses to serve. When encountered, it prints an error message naming the `-f` flag and exits with status 2, as this walked-up index would otherwise become the agent's memory and could reach the model as tool output without permission."
+read,none,Q5,haiku,1,,6783,0.0046769,1,claude-haiku-4-5-20251001,,"In systems using timestamp-based conflict resolution, equal timestamps require a tiebreaker rule—typically either the order the operations were received/applied, or a predefined rule like ""delete wins"" or ""add wins"" (and often a unique node/process ID as a final tiebreaker). Without one of these, the outcome is ambiguous."
+read,none,Q6,haiku,1,,30459,0.0281944,5,claude-haiku-4-5-20251001,,"Based on the MERGE.md documentation, timestamps in a sync merge are compared at **one-second resolution** (wall-clock UTC). When timestamps are tied, the delete wins — so a re-save within the same second as a delete will lose, making re-saves reliable at human timescales but unreliable at machine timescales."
+read,none,Q7,haiku,1,,28063,0.0222707,5,claude-haiku-4-5-20251001,,"The longest key the MCP save tool accepts is **255 bytes**, because the key is used as the filename for the posting file in the index, and POSIX's `NAME_MAX` filesystem limit is 255 bytes."
+read,none,Q8,haiku,0,,6698,0.0042729,1,claude-haiku-4-5-20251001,,"I need more context to answer this question. Could you clarify what ""MCP save carry"" refers to? Is this related to:
+
+- A specific codebase or project in your current directory?
+- A particular data structure or system you're working with?
+- Documentation or specification you're reading?
+
+If you have code or files related to this, I can search them to find the answer."
+read,none,Q9,haiku,0,,22958,0.011654399999999999,3,claude-haiku-4-5-20251001,,"Based on the test fixtures in this project, when a value containing a newline is saved (to JSON format), the newline character is escaped as `\n`. For example, the string ""first line\nsecond line"" is stored as the literal JSON escape sequence `\n` rather than an actual line break in the file."
+read,none,Q10,haiku,0,,40839,0.0196664,5,claude-haiku-4-5-20251001,,"Document files under `blobs/` are named with a timestamp and an extension in the format `blobs/<ts>.<ext>` (e.g., `blobs/1234567890.txt` for a plain-text document). The timestamp ensures each blob gets a unique, free filename, and the extension indicates the file type (defaulting to ""txt"" for multi-line values)."
+read,none,Q11,haiku,0,,76460,0.04070660000000001,9,claude-haiku-4-5-20251001,,"Looking at the README and documentation, I can see the answer: **recall of a rare key at a million records takes milliseconds**. This is mentioned in the README (line 74) where it refers to ""an index that answers in milliseconds at a million records,"" and the key insight is that ais uses a streaming k-way merge algorithm for posting lists that maintains bounded memory, so even large results (like 270k hits) can be answered without loading everything into RAM at once."
+read,none,Q12,haiku,1,,97807,0.056770900000000006,9,claude-haiku-4-5-20251001,,"The id-to-offset file is called **`off`**, and it uses **12 bytes per id** (as shown in the performance baseline: ""off 12 MB (id->offset index, 12 B/id)"" for 1,000,000 records)."
+read,mem,Q1,opus,1,,13577,0.0632532,3,claude-opus-5-5,,"From the repo root it's `make codeut-asan` (`Makefile:51`). That target just calls `make -C c ut-asan`, which builds the same unit tests with `-fsanitize=address` and runs them (`c/Makefile:132`)."
+read,mem,Q2,opus,1,,13748,0.0652446,3,claude-opus-5-5,,"You turn it on by running `make hooks`, which sets `core.hooksPath` to the committed `scripts/hooks` directory (`Makefile:60`). After that, `scripts/hooks/pre-push` runs `make codeut-asan` and `codeut-ubsan` before every push; you can skip it once with `git push --no-verify` or turn it off with `git config --unset core.hooksPath`."
+read,mem,Q3,opus,1,,24920,0.0491272,4,claude-opus-5-5,,"ais first uses an explicit `-f DIR` (it reads no environment variable for this), then the nearest `.ais/` at or above the current directory (stopping below home), then the current named index from `~/.ais/config` (or the legacy `index = PATH` line if no `current` is set), and finally the built-in home index `~/.ais`, falling back to the pre-1.0 location if `~/.ais` doesn't exist yet (`c/locate.c:3-10`)."
+read,mem,Q4,opus,1,,41295,0.0588026,6,claude-opus-5-5,,"`ais --mcp` won't serve an index it found by walking up the directory tree to a `.ais` (step 2 of index resolution). That stops a cloned repository that ships its own `.ais/` from quietly becoming the agent's memory, so you have to name the index explicitly with `-f DIR` (`c/main.c:1017`)."
+read,mem,Q5,opus,1,,24158,0.043351,4,claude-opus-5-5,,"The delete wins: timestamps only go down to the second, and a tie goes to the delete, so re-adding in the same second as the delete leaves the record deleted (`doc/dev/MERGE.md:83`, `doc/dev/MERGE.md:118-119`)."
+read,mem,Q6,opus,1,,22964,0.0387676,4,claude-opus-5-5,,"Timestamps are compared at one-second resolution. The `ts` field is wall-clock UTC in whole seconds, so when two timestamps fall in the same second the delete wins over an add, re-save or edit (`doc/dev/MERGE.md:118`)."
+read,mem,Q7,opus,1,,24193,0.0511958,4,claude-opus-5-5,,"The longest key is 255 bytes (`AIS_KEY_NAME_MAX` in `c/common.h:26`). Each key is stored as a filename, `idx/<p>/<key>`, and 255 is the filename limit (NAME_MAX) on ext4, APFS and NTFS, so a longer key couldn't be tagged and every write refuses it. The bigger `AIS_KEY_MAX` of 512 is only the buffer size, and this session's server is read-only, so it has no save tool unless it's restarted with `ais --mcp rw`."
+read,mem,Q8,opus,1,,13594,0.0246352,2,claude-opus-5-5,,"One MCP save can carry at most 64 keys, and each key can be at most 255 bytes. Going over 64 gets the call refused, not cut short (`c/mcp.c:1211`, `doc/MCP.md:162`)."
+read,mem,Q9,opus,1,,25935,0.0648552,4,claude-opus-5-5,,"It can't be stored inline, because a value has to fit on one line. Instead it's saved as a document file under `blobs/`, the record stores only that file's relative path, and the reply names the file. `find` doesn't search inside documents (`doc/MCP.md:177-180`, `doc/limitations.txt:26-28`)."
+read,mem,Q10,opus,1,,13842,0.0284792,3,claude-opus-5-5,,"It's named `blobs/<local timestamp %Y-%m-%d-%H%M%S>~<random hex tag>.<ext>`, where the extension is `.txt` for plain text and `.aisc` for encrypted. An example from your index is `blobs/2026-09-27-101748~0864554c.txt`. According to a note saved in your ais index, a file saved in the same second gets a `-N` suffix, and the record stores only that relative path, not the content."
+read,mem,Q11,opus,1,,20222,0.026455000000000003,3,claude-opus-5-5,,"Recalling a rare key (one that matches 19 records) took about **9 ms** at 1M records. That is the 2026-06-09 baseline in `doc/performance.txt`, run on one desktop core. It stays fast because recall reads only that key's posting list and then jumps to each value using the id-to-offset index, instead of scanning the whole 85 MB store, which takes about 1.7 s."
+read,mem,Q12,opus,1,,30620,0.045953,5,claude-opus-5-5,,"The id-to-offset file is called `off`, and it uses 12 bytes per id: an 11-digit offset plus a newline (`c/common.h:32`). Each entry stores the offset plus one, so 0 can mean ""no entry,"" and at a million records the file comes to about 12 MB."
+read,notes,Q1,opus,1,,20115,0.0655508,2,claude-opus-5-5,,"It's `make codeut-asan` from the top level (`Makefile:51`). That target runs `make -C c ut-asan`, which builds the unit tests with `-fsanitize=address` and runs them (`c/Makefile:132`)."
+read,notes,Q2,opus,1,,20193,0.0664382,2,claude-opus-5-5,,"Run `make hooks`. It runs `git config core.hooksPath scripts/hooks` (`Makefile:60`), which points git at the committed `scripts/hooks/pre-push` script, and that script runs `make codeut-asan` and `make codeut-ubsan` before every push. To skip it for one push, use `git push --no-verify`; to turn it off, run `git config --unset core.hooksPath`."
+read,notes,Q3,opus,1,,9734,0.009503,1,claude-opus-5-5,,"ais looks for the index in this order: an explicit `-f DIR`, then the nearest `.ais/` found by walking up from the current directory (like git does), then the `current` named index in `~/.ais/config` (or the older single `index = PATH` line), and finally the built-in default `~/.ais`. This comes from the project notes about `c/locate.h`; I didn't re-check it against the code this session."
+read,notes,Q4,opus,1,,9719,0.009155,1,claude-opus-5-5,,"`ais --mcp` won't serve an index it found by walking up from the current directory to the nearest `.ais/` (`index_step == 2`). Otherwise a cloned repo that ships its own `.ais/` could quietly become the agent's memory, so to use that index you have to name it with `-f DIR`. This comes from the project notes; I didn't re-check it in `c/main.c` this session."
+read,notes,Q5,opus,1,,9744,0.009583,1,claude-opus-5-5,,"The delete wins: a tie at the same second resolves to the delete, because timestamps are wall-clock UTC at 1-second resolution and there's no logical clock to break the tie. This comes from the project notes summarizing `doc/dev/MERGE.md`; I didn't re-check it against the code in this session."
+read,notes,Q6,opus,1,,9717,0.009079,1,claude-opus-5-5,,"Sync merges compare wall-clock UTC timestamps at **1-second resolution**, with no logical clock. When two changes land in the same second, a delete beats an edit. This is from the project notes summarizing `doc/dev/MERGE.md`; I didn't re-check it against the code this session."
+read,notes,Q7,opus,1,,31318,0.0310418,3,claude-opus-5-5,,"The longest key `save` accepts is 255 bytes (`AIS_KEY_NAME_MAX`, `c/common.h:26`). Each key is stored as a posting file `idx/<p>/<key>`, and the name on disk is exactly as long as the key, so 255 bytes is the most a single filename can hold on ext4, APFS and NTFS (POSIX `NAME_MAX`); a longer key couldn't be written and the record would sit in the store under no tag."
+read,notes,Q8,opus,1,,19505,0.0132462,2,claude-opus-5-5,,"One MCP `save` can carry up to 64 keys (`AIS_KEYS_MAX`, `c/common.h:27`), and it must carry at least one. More than 64 is refused with an error rather than cut down to fit."
+read,notes,Q9,opus,1,,9759,0.009954999999999999,1,claude-opus-5-5,,"If the newline is in the middle of the value, with real content after it, `ais_put_value` (`c/doc.c`) writes the whole value to its own file, `blobs/<YYYY-MM-DD-HHMMSS>~<8hex>.txt`, and the one-line store record holds only that relative path. A newline that only trails the value doesn't count: it's trimmed off and the value is stored inline.
+
+This is from the project notes; I didn't re-check the code this session."
+read,notes,Q10,opus,1,,20085,0.0197702,2,claude-opus-5-5,,"A document file is named `blobs/<YYYY-MM-DD-HHMMSS>~<8 hex>.<ext>`, where the timestamp is the local save time and the 8 hex digits are a random tag generated for each blob. The extension is `.txt` for plain documents or `.aisc` for encrypted ones (`c/doc.c:141-146`); a `-N` suffix is added only if that exact name is already taken."
+read,notes,Q11,opus,1,,9768,0.010147,1,claude-opus-5-5,,"According to the benchmark in `doc/performance.txt`, a `get` on a rare key (19 matching ids) takes about **9 ms** at 1M records, down from 1.02 s before the id→offset index was added. I took that figure from the earlier session notes and didn't re-run the benchmark; `tests/perf/gen.py /tmp/ais_1m 1000000` will reproduce it if you want to check it's still current."
+read,notes,Q12,opus,1,,48522,0.0581488,4,claude-opus-5-5,,"The file is named `off` (it lives at `<index>/off`), and each id takes 12 bytes: an 11-digit (offset+1) value plus a newline. That's `AIS_OFF_WIDTH` in `c/common.h:32`."
+read,none,Q1,opus,1,,9873,0.023276,2,claude-opus-5-5,,"Run `make codeut-asan` from the top level (`Makefile:51`). It calls `make -C c ut-asan`, which builds the unit tests with `-fsanitize=address` and runs them (`c/Makefile:132`)."
+read,none,Q2,opus,1,,10275,0.020765,3,claude-opus-5-5,,"You enable it by running `make hooks`, which runs `git config core.hooksPath scripts/hooks` (`Makefile:60`) so git uses the committed `scripts/hooks/pre-push`, which runs `make codeut-asan` and `codeut-ubsan` before each push. To turn it off again, run `git config --unset core.hooksPath`; to skip it for one push, use `git push --no-verify`."
+read,none,Q3,opus,1,,19787,0.0421186,3,claude-opus-5-5,,"The order is: an explicit `-f DIR`, then the nearest `.ais/` at or above the current directory (but below home), then the current named index from `~/.ais/config` (or the older `index = PATH` line), and finally the built-in `~/.ais`. That last step falls back to the pre-1.0 location if `~/.ais` doesn't exist yet (`c/locate.c:3-10`), and no environment variable changes any of this."
+read,none,Q4,opus,1,,41704,0.06497839999999999,7,claude-opus-5-5,,"`ais --mcp` won't serve a project `.ais` index that it finds by walking up from the working directory, because a cloned repository could ship one and have its records fed to the model. It prints a message telling you to pass `-f DIR` if you really want that index (`c/main.c:1018`, `man/ais.1:505`)."
+read,none,Q5,opus,1,,17922,0.035502599999999995,3,claude-opus-5-5,,"The delete wins. Timestamps are wall-clock UTC with one-second resolution, and ties go to the delete, so a re-add made in the same second as the delete is lost (`doc/dev/MERGE.md:118`)."
+read,none,Q6,opus,1,,24549,0.040312,5,claude-opus-5-5,,"Timestamps (`ts`) are compared as wall-clock UTC at one-second resolution. On a tie the delete wins, so a re-save made in the same second as a delete still loses (`doc/dev/MERGE.md:118`)."
+read,none,Q7,opus,1,,11732,0.0324618,2,claude-opus-5-5,,"The MCP save tool accepts keys of up to 255 bytes (`AIS_KEY_NAME_MAX`, checked in `c/mcp.c:586`). Each key is stored as a posting's filename, and 255 bytes is the POSIX `NAME_MAX` limit for a filename (`doc/limitations.txt:12`, `doc/MCP.md:161`)."
+read,none,Q8,opus,1,,17684,0.035703399999999996,3,claude-opus-5-5,,"One MCP save can carry at most 64 keys, set by `AIS_KEYS_MAX` in `c/common.h:27`. If a call sends more, it's rejected with ""at most 64 keys in one call"" (`c/mcp.c:622-640`)."
+read,none,Q9,opus,1,,27128,0.0494,4,claude-opus-5-5,,"If the value has a newline in the middle, it's saved as a blob-backed document: the content goes into a new blob file, and the record stores that blob's path instead of the text. A single trailing newline doesn't count, so a one-line value stays an ordinary inline record (`c/doc.h:73-77`; edits follow the same rule, `c/doc.h:79-81`)."
+read,none,Q10,opus,1,,17418,0.0331068,3,claude-opus-5-5,,"A document file is named `blobs/<YYYY-MM-DD-HHMMSS>~<random tag>.<ext>`. The timestamp is local time so the files sort chronologically, and the random tag stops two devices from creating the same name. The extension is `.txt` for plain text or `.aisc` for encrypted, and if the name is already taken a `-N` suffix is added before the extension (`c/doc.c:141-148`)."
+read,none,Q11,opus,1,,12162,0.0344606,2,claude-opus-5-5,,"It takes about 9 ms. At 1,000,000 records, looking up a rare key (19 ids) with the id-to-offset index takes 0.009 s, compared with 1.02 s by full scan (`doc/performance.txt:23`)."
+read,none,Q12,opus,1,,30643,0.0503392,5,claude-opus-5-5,,"The id-to-offset file is called `off` (inside the INDEX directory). It uses a fixed 12 bytes per id: an 11-digit value holding offset+1, plus a newline (`AIS_OFF_WIDTH` in `c/common.h:32`)."
