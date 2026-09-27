@@ -1,0 +1,19 @@
+#!/bin/sh
+# ais-mcp: the MCPB bundle's entry point. Runs this machine's ais binary as
+# `ais --mcp`, with the bundle's two settings: AIS_MCP_INDEX (an index to name
+# with -f; empty serves the home index) and AIS_MCP_WRITES (true adds `rw`).
+# A client that leaves a setting unset may pass the placeholder through
+# verbatim, so a value still reading ${...} counts as empty. A folder picker
+# tends to hand over the project, so a folder holding a .ais means that .ais.
+d=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+case "$(uname -s)-$(uname -m)" in
+    Linux-x86_64)              b=linux-x86_64 ;;
+    Linux-aarch64|Linux-arm64) b=linux-arm64 ;;
+    Darwin-arm64)              b=macos-arm64 ;;
+    *) echo "ais-mcp: this bundle has no ais for $(uname -s) $(uname -m)" >&2; exit 1 ;;
+esac
+case "$AIS_MCP_INDEX"  in '${'*) AIS_MCP_INDEX= ;; esac
+[ -n "$AIS_MCP_INDEX" ] && [ -d "$AIS_MCP_INDEX/.ais" ] && AIS_MCP_INDEX=$AIS_MCP_INDEX/.ais
+case "$AIS_MCP_WRITES" in true) set -- --mcp rw ;; *) set -- --mcp ;; esac
+[ -n "$AIS_MCP_INDEX" ] && set -- -f "$AIS_MCP_INDEX" "$@"
+exec "$d/$b/ais" "$@"

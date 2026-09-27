@@ -149,7 +149,8 @@ PARITY (what one front end gained that another already had), DESIGN (what
 changed on screen). `git push --follow-tags`.
 
 **4. What the tag does.** `release.yml` builds and publishes: Linux x86_64 and
-arm64, macOS arm64, each a zip plus `.sha256`, and the Android `.apk` and `.aab`.
+arm64, macOS arm64, each a zip plus `.sha256`, the Android `.apk` and `.aab`, and
+`ais-vX.Y.Z.mcpb`, the MCP Bundle made from those zips by `scripts/mcpb.sh`.
 Both workflows pin Flutter deliberately (currently 3.44.1); raise that pin and
 `android/`'s Gradle wrapper together, never one alone. iOS is not in the release
 matrix and cannot be until the app is signed (issue #1).
@@ -171,4 +172,7 @@ the run rather than assuming: `gh run list --workflow=release.yml`.
 **5. What stays manual.** Uploading the `.aab` to Play (`ANDROID_RELEASE.md`),
 and the AUR: the reference `PKGBUILD` moves with this repo, the copy users
 install lives in the AUR repository and needs the same `pkgver`, `pkgrel=1` and a
-regenerated `.SRCINFO`.
+regenerated `.SRCINFO`. And the official MCP Registry, once the release is up:
+`sh scripts/registry.sh vX.Y.Z > server.json`, then `mcp-publisher login github`
+(as Anode1) and `mcp-publisher publish`. The entry names the `.mcpb` by URL and
+SHA-256, so it is published after the file exists, never before.

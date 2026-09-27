@@ -171,4 +171,5 @@ building agent infrastructure that itself needs maintaining.
     gui/       the double-click launchers that start the web GUI
     win32/     the native Windows GUI (ais-gui.c)
     app/       the Flutter mobile app and the PWA front-end (over the embed FFI seam)
+    mcpb/      the MCP Bundle's manifest and launcher; scripts/mcpb.sh packs it
     legacy/    the 2005 shell + 2009 Java originals

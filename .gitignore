@@ -83,3 +83,5 @@ err.log
 
 # private material beside the work, never published
 PRIVATE/
+# scripts/registry.sh output, remade per release
+server.json

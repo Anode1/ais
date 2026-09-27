@@ -195,6 +195,12 @@ jobs:
           done
           ls -l dist
 
+      # The MCP Bundle: the Linux and macOS binaries above plus a launcher, for
+      # the official MCP Registry and one-click install in Claude Desktop.
+      # scripts/registry.sh makes the registry entry from the published file.
+      - name: MCP bundle
+        run: sh scripts/mcpb.sh "${GITHUB_REF_NAME#v}" dist dist/ais-*-linux-*.zip dist/ais-*-macos-*.zip
+
       - name: publish to GitHub Releases
         uses: softprops/action-gh-release@v2
         with:

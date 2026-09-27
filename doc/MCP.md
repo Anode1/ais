@@ -23,6 +23,11 @@ file:
 { "mcpServers": { "ais": { "command": "ais", "args": ["--mcp"] } } }
 ```
 
+A client that takes MCP Bundles (Claude Desktop on macOS) installs it from the
+release's `ais-vX.Y.Z.mcpb`, which carries the macOS and Linux binaries, so
+nothing goes on the PATH. Its two settings are an index to serve instead of the
+home one and whether to allow saving.
+
 Claude Code is the client the tests exercise. Nothing runs in the background,
 there is no account and no port.
 

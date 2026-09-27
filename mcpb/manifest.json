@@ -1,0 +1,51 @@
+{
+  "manifest_version": "0.3",
+  "name": "ais",
+  "display_name": "ais",
+  "version": "@VERSION@",
+  "description": "Exact recall from a plain-text index you keep, by your own keys.",
+  "long_description": "An agent recalls what you filed by the keys you filed it under, instead of searching for it again. Read-only unless you allow saving; there is no delete or edit at any setting. Encrypted values reach the agent as an opaque marker.",
+  "author": { "name": "Vasili Gavrilov", "url": "https://github.com/Anode1" },
+  "repository": { "type": "git", "url": "https://github.com/Anode1/ais" },
+  "homepage": "https://github.com/Anode1/ais",
+  "documentation": "https://github.com/Anode1/ais/blob/main/doc/MCP.md",
+  "license": "GPL-2.0-or-later OR MIT",
+  "icon": "icon.png",
+  "server": {
+    "type": "binary",
+    "entry_point": "server/ais-mcp",
+    "mcp_config": {
+      "command": "${__dirname}/server/ais-mcp",
+      "args": [],
+      "env": {
+        "AIS_MCP_INDEX": "${user_config.index}",
+        "AIS_MCP_WRITES": "${user_config.writes}"
+      }
+    }
+  },
+  "tools": [
+    { "name": "recall", "description": "Records filed under all (or any) of the given keys" },
+    { "name": "find", "description": "Records whose value contains a text" },
+    { "name": "tags", "description": "The keys in use, busiest first" },
+    { "name": "timeline", "description": "The newest records" },
+    { "name": "save", "description": "File a value under keys; offered only when saving is allowed" }
+  ],
+  "user_config": {
+    "index": {
+      "type": "directory",
+      "title": "Index",
+      "description": "A project's index to serve instead of your home index: the .ais folder, or the folder holding it. Leave empty for ~/.ais.",
+      "required": false
+    },
+    "writes": {
+      "type": "boolean",
+      "title": "Allow saving",
+      "description": "Offer the save tool. Nothing can delete or edit at any setting.",
+      "default": false,
+      "required": false
+    }
+  },
+  "compatibility": {
+    "platforms": ["darwin", "linux"]
+  }
+}
