@@ -115,6 +115,31 @@ Several agents serve one index at once, each client starting its own
 two agents never collide on a record id ([`limitations.txt`](limitations.txt)).
 Across machines, [`--sync-folder`](SYNC.md) carries the index.
 
+The same index lives on laptops (Linux, macOS, Windows) and Android phones, and
+an iPhone app is in progress. What an agent saves on the laptop is on the phone
+after the next sync, and what you save on the phone reaches the agent.
+
+## What the file does not show
+
+The store is a text file you can read, and that makes the engine look like a
+program that appends lines to it. Each row below is a case such a program gets
+wrong; most were bugs found and fixed here, with the history in git and in
+[`dev/MERGE.md`](dev/MERGE.md).
+
+| Case | What ais does |
+| --- | --- |
+| Two agents write at once | an exclusive lock per write, the next record id re-read under it; reads take no lock |
+| A crash mid-rewrite | the new file is written beside the old and renamed over it, so a file is old or new, never half |
+| Recall at a million records | a posting list per key and an id-to-offset index: a rare key in 9 ms (1.02 s by scan), a key on 270,360 records in 2.2 s (hours by scan), [`performance.txt`](performance.txt) |
+| The same value saved twice | one record, the keys merged |
+| Two devices edit and delete while apart | timestamped, content-addressed tombstones: a delete propagates, the merge is order-independent, and re-saving a deleted value restamps it so the old delete does not remove it again |
+| Two devices name a document alike | the name carries a timestamp and a random tag; a clash resolves to a name derived from the body, so every device picks the same one |
+| A damaged line | skipped as one corrupt line, named by its byte offset; the rest reads |
+| Moving it between devices | LAN sync by a code, encrypted with XChaCha20-Poly1305; a shared folder, where no two devices need be online at once |
+
+998 engine tests, 569 CLI tests, and sync, mesh and UI suites on Linux, macOS,
+Windows and Android hold these in place.
+
 ## What it refuses
 
 Writes are off unless you start it as `ais --mcp rw`. An agent gets recall by
