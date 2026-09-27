@@ -7,7 +7,7 @@ Every way to move an index between devices, and where each one exists:
 |---|---|---|---|
 | Sync by code (Sync > Host / Join; `--sync`) | CLI, web GUI, Android | two-way, one round | Built in, encrypted, same Wi-Fi. The phone scans the code with its camera. |
 | One-way LAN (`--export --serve` / `--import <url>`) | CLI | one-way | The older form of the same exchange. |
-| A file (Sync > Export / Import to a file) | web GUI, Android | either way, by hand | One `.aisb` file, the whole index. The CLI does not read it: its `--import` takes text records. |
+| A file (Sync > Export / Import to a file) | web GUI, Android | either way, by hand | One `.aisb` file, the whole index, carried by email, a messenger or a drive ([below](#by-email-or-any-app-that-carries-a-file)). The CLI does not read it: its `--import` takes text records. |
 | A shared folder (Sync > Set a sync folder; `--sync-folder`) | CLI, web GUI, Android | two-way, at every open and change | The set-and-forget path. Syncthing or a mounted drive carries the folder. |
 | Keep a copy in a folder / Restore from a folder | Android | copy out, restore back | Survives an uninstall. Not a sync. |
 | Text (`--dump` / `--import < FILE`) | CLI | either way, by hand | Records only, no documents. |
@@ -233,6 +233,32 @@ Reading a message and acting on it beats a green tick that means nothing:
     cannot read that folder       permissions, or a dead network/cloud mount
     no device bundles in          synced here before, empty now: not mounted/emptied
     cannot write into             read-only or full: others will not see this device
+
+## By email, or any app that carries a file
+
+For devices that share no network and no folder. On the phone, Sync > Export to a
+file writes the whole index as one `.aisb` file and opens the share sheet, so any
+app that takes a file can carry it. On the other device, Import merges it.
+
+    # Phone to computer
+    #   1. Phone: Sync > Export to a file, pick your email app, send it to yourself.
+    #   2. Computer: save the attachment. In the web GUI (ais --serve), Sync > Import,
+    #      and pick the file.
+
+    # Computer to phone
+    #   1. Computer: web GUI, Sync > Export. It downloads ais-export.aisb; attach it
+    #      to an email to yourself.
+    #   2. Phone: save the attachment to the phone (Downloads), then Sync > Import
+    #      from a file, and pick it.
+
+The import is the same merge as a live sync: new records arrive, deletions
+propagate, and importing the same file twice changes nothing. One file carries
+one direction; to bring both devices level, send one each way.
+
+The file is not encrypted. Whoever can read the message can read every record
+and document in it, and a mail server keeps its own copy. Records saved with `-e`
+stay encrypted inside it. Send it only to yourself, and delete the message once
+it is imported if the index holds anything private.
 
 ## Conflicts
 

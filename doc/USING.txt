@@ -121,3 +121,8 @@ protects against losing the phone itself.
 On iOS there is no folder to give yet: use Sync > Export to a file now and
 then, and save it in the Files app or send it somewhere safe. Restore with
 Sync > Import from a file.
+
+The same two entries move an index between a phone and a computer with no
+network or folder in common: export, email the file to yourself, import it
+on the other device. The file is not encrypted. Both directions, step by
+step: doc/SYNC.md, "By email, or any app that carries a file".

@@ -100,6 +100,35 @@ repo cannot yet show. Paid signing is not planned. The wiring stays in place;
 reapply once the project has visible adoption. Until a build is signed, verify a
 download by its SHA-256 or build from source (see the README).
 
+### Sync through any storage
+
+`--sync-folder` over any store two devices can both read and write: a paste
+service, an object bucket, WebDAV, a public cache. The folder protocol already
+fits it: each device writes only its own bundle and reads the others', nothing
+has to be online at once, and the merge is order-independent. What is new is a
+small adapter (list, get, put) under the existing folder pass, and a pairing
+code that carries the store's address and a key, as `ais://sync` carries host
+and token today.
+
+Two rules decided up front. **On storage others can read, bundles are
+encrypted**, always: the XChaCha20-Poly1305 transport the LAN sync already
+uses, keyed from the pairing token or a passphrase. Plain bundles stay an
+option only for storage the user alone can read. **An expired bundle is a
+refusal**: a cache that drops a device's bundle is reported the way
+`--sync-folder` reports a folder with no bundles, so it never reads as a fresh
+start. The store is one the user picks; AIS runs no service of its own (see
+*Not planned*).
+
+### Open a bundle from an attachment
+
+An `.aisb` file already travels by email (Sync > Export to a file opens the
+share sheet; [`SYNC.md`](SYNC.md), "By email, or any app that carries a file").
+On Android, tapping the attachment does not offer AIS, because the manifest
+registers no file intent, so the user saves it to Downloads and imports from
+there. An intent filter for `.aisb` (VIEW and SEND) that routes to the same
+merge, behind the confirmation the `ais://sync` link already shows, removes
+that step.
+
 ## Known gaps, as of v0.3.28
 
 Four things are open, and this is the list to work from: the release chores that
