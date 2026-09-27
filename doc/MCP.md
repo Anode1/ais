@@ -123,8 +123,7 @@ after the next sync, and what you save on the phone reaches the agent.
 
 The store is a text file you can read, and that makes the engine look like a
 program that appends lines to it. Each row below is a case such a program gets
-wrong; most were bugs found and fixed here, with the history in git and in
-[`dev/MERGE.md`](dev/MERGE.md).
+wrong. The merge rules are in [`dev/MERGE.md`](dev/MERGE.md).
 
 | Case | What ais does |
 | --- | --- |
