@@ -1020,7 +1020,20 @@ int main(int argc, char **argv)
                 ais_close(&a);
                 return 2;
             }
-            ais_mcp(&a, mode != NULL);
+            /* An index named with -f is a project's or a group's, so the agent
+             * chooses keys from the ones in use. The home index, the current
+             * named index, and -f naming home are one person's: it asks. */
+            {
+                char home[AIS_PATH_MAX], rh[AIS_PATH_MAX], rd[AIS_PATH_MAX];
+                int shared = index_step == 1;
+                if (AIS_PATH_MAX < 4096)
+                    shared = 0;          /* realpath needs a PATH_MAX buffer */
+                if (shared && ais_home_path(home, sizeof home) == 0 &&
+                    realpath(home, rh) != NULL && realpath(dir, rd) != NULL &&
+                    strcmp(rh, rd) == 0)
+                    shared = 0;
+                ais_mcp(&a, mode != NULL, shared);
+            }
             break;
         }
         case CMD_PROJECT:

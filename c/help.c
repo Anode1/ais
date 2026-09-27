@@ -128,6 +128,7 @@ void usage_long(FILE *out)
 "  ais --mcp [rw]                 serve MCP on stdin/stdout for an agent (Claude Code, or\n"
 "                                 any MCP client): recall/find/tags/timeline; 'rw' adds saving\n"
 "                                 a .ais found by walking up is refused: name it with -f\n"
+"                                 on an -f index the agent picks keys from those in use\n"
 "  ais --project [KEY]            show / set / clear ('') the default project key\n"
 "  ais --switch [NAME]            switch the current index; no arg shows it,\n"
 "                                 -c NAME [DIR] creates a new index and switches\n"

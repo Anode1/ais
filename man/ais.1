@@ -493,7 +493,11 @@ The session is READ-ONLY unless the operand
 .B rw
 is given, which adds the
 .B save
-tool. An encrypted value stays the opaque
+tool. On the home index or the current named index the agent asks the user
+for keys; on an index named with
+.B \-f
+it chooses them from the keys already in use, since that index is a project's
+or a group's. An encrypted value stays the opaque
 .B aisc:
 marker either way: cleartext appears only at a terminal, never on a pipe, and
 this server is a pipe.

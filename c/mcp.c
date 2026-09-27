@@ -948,7 +948,7 @@ static int on_blob(long id, const char *value, void *vp)
 }
 
 static AIS_NOINLINE void tool_save(ais *a, const jdoc *d, int args, const struct req *q,
-                                   int allow_write)
+                                   int allow_write, int shared)
 {
     const char *value = jtext(d, jget(d, args, "value")), *bad;
     char keys[AIS_LINE_MAX];
@@ -999,8 +999,11 @@ static AIS_NOINLINE void tool_save(ais *a, const jdoc *d, int args, const struct
         /* A record filed under nothing cannot be recalled by any key, ever.
          * Refusing here teaches at the moment the model is about to get it
          * wrong, which is worth more than the same sentence in every session. */
-        text_reply(q, "save needs at least one key: ask which keys to file it under, "
-                      "several separated by spaces, and offer the keys tags already lists", 1);
+        text_reply(q, shared
+                      ? "save needs at least one key: choose from the keys tags already lists, "
+                        "several separated by spaces"
+                      : "save needs at least one key: ask which keys to file it under, "
+                        "several separated by spaces, and offer the keys tags already lists", 1);
         return;
     }
     for (i = 0; i < nkeys; i++) {
@@ -1077,6 +1080,17 @@ static const char INSTR_INDEX[] =
     "on their own disk, in plain text.\n"
     "\n";
 
+/* An index named with -f belongs to a project or a group, and its keys are that
+ * group's vocabulary: the people and the agents that file there, of any model,
+ * in any session. Asking for keys would stop an agent from keeping what a later
+ * session needs, so here the agent chooses them. The bias this index preserves
+ * is the group's, so the rule becomes: its words before yours. */
+static const char INSTR_INDEX_SHARED[] =
+    "ais is an associative index kept for a project or a group: things its people and agents "
+    "filed under the group's own words, on disk, in plain text. Whoever reads it next, a person, "
+    "a later session or another model, recalls by those same words.\n"
+    "\n";
+
 static const char INSTR_SAVE[] =
     "When they say save, keep, remember, note, add to memory, add to the index or put it in "
     "ais, call save. If they named the keys ('save this under work ssh'), those words are the "
@@ -1084,6 +1098,15 @@ static const char INSTR_SAVE[] =
     "spaces, and offer what tags already lists. Do not invent a vocabulary for them, and do not "
     "file anything under a key they did not choose. Ask for as many keys as they want to give: "
     "each one is another way back to it.";
+
+static const char INSTR_SAVE_SHARED[] =
+    "When they say save, keep, remember, note, add to memory or put it in ais, call save. Also "
+    "call it for what you learn that a later session would otherwise have to work out again: a "
+    "decision and its reason, a command that worked, where a thing is. If they named the keys, "
+    "those words are the keys. Otherwise choose them from what tags lists: reuse a key already "
+    "in use whenever one fits, spelled as it is there, and add a new key only for what none of "
+    "them names. A key nobody else would think of is a record nobody recalls. Give a record "
+    "several keys, since each is another way back to it, and say which keys you used.";
 
 /* Read-only is the default, and it takes the save paragraph's PLACE. Appended
  * instead, it left the model told to call save and then told there is no save,
@@ -1173,13 +1196,20 @@ static const char TOOL_SAVE[] =
     "that file's path, so recall returns the path and find cannot search the text. "
     "A request line is at most 65535 bytes, so a document larger than about 64 KB is saved "
     "with 'ais --doc' at a terminal, not through this tool. "
+    "Keys fold ASCII case, so a key with non-ASCII letters is filed exactly as it is typed. ";
+
+/* The key rule, one of two, then the schema. */
+static const char TOOL_SAVE_ASK[] =
     "If the user did not name the keys, ASK which keys to file it under, several separated "
-    "by spaces, offering what tags already lists. Never invent a vocabulary for them. "
-    "Keys fold ASCII case, so a key with non-ASCII letters is filed exactly as it is typed."
+    "by spaces, offering what tags already lists. Never invent a vocabulary for them.";
+static const char TOOL_SAVE_REUSE[] =
+    "If the user did not name the keys, choose them from what tags lists, reusing a key "
+    "already in use whenever one fits; add a new key only for what none of them names.";
+static const char TOOL_SAVE_TAIL[] =
     "\",\"inputSchema\":{\"type\":\"object\",\"properties\":{"
     "\"value\":{\"type\":\"string\",\"description\":\"what to store\"},"
     "\"keys\":{\"type\":\"array\",\"items\":{\"type\":\"string\"},"
-    "\"description\":\"the keys to file it under, the user's own words: one element is one "
+    "\"description\":\"the keys to file it under: one element is one "
     "key, and a single string with blanks between the keys is taken too; at most 64, and a key "
     "is at most 255 bytes\"}},"
     "\"required\":[\"value\",\"keys\"]}}";
@@ -1201,7 +1231,7 @@ static void say_protocol(const char *want)
     jout(MCP_PROTOCOL);
 }
 
-static void handle(ais *a, int allow_write, char *line)
+static void handle(ais *a, int allow_write, int shared, char *line)
 {
     const char *method, *tool, *ver;
     struct req q;
@@ -1266,8 +1296,8 @@ static void handle(ais *a, int allow_write, char *line)
               stdout);
         jout(ais_version());
         fputs("\"},\"instructions\":\"", stdout);
-        jout(INSTR_INDEX);
-        jout(allow_write ? INSTR_SAVE : INSTR_NOSAVE);
+        jout(shared ? INSTR_INDEX_SHARED : INSTR_INDEX);
+        jout(!allow_write ? INSTR_NOSAVE : shared ? INSTR_SAVE_SHARED : INSTR_SAVE);
         jout(INSTR_RECALL);
         /* Which index, in words. A repo-local .ais/ and the personal ~/.ais are
          * the same protocol, and an agent that cannot tell them apart reports a
@@ -1295,8 +1325,11 @@ static void handle(ais *a, int allow_write, char *line)
         reply_head(&q);
         fputs(",\"result\":{\"tools\":[", stdout);
         fputs(TOOLS, stdout);
-        if (allow_write)
+        if (allow_write) {
             fputs(TOOL_SAVE, stdout);
+            fputs(shared ? TOOL_SAVE_REUSE : TOOL_SAVE_ASK, stdout);
+            fputs(TOOL_SAVE_TAIL, stdout);
+        }
         fputs("]}", stdout);
         reply_end();
         return;
@@ -1313,11 +1346,11 @@ static void handle(ais *a, int allow_write, char *line)
     else if (strcmp(tool, "find") == 0)            tool_find(a, &d, args, &q);
     else if (strcmp(tool, "tags") == 0)            tool_tags(a, &d, args, &q);
     else if (strcmp(tool, "timeline") == 0)        tool_timeline(a, &d, args, &q);
-    else if (strcmp(tool, "save") == 0)            tool_save(a, &d, args, &q, allow_write);
+    else if (strcmp(tool, "save") == 0)            tool_save(a, &d, args, &q, allow_write, shared);
     else                                           reply_error(&q, -32602, "unknown tool");
 }
 
-int ais_mcp(ais *a, int allow_write)
+int ais_mcp(ais *a, int allow_write, int shared)
 {
     static char line[MCP_REQ_MAX];
 
@@ -1346,6 +1379,6 @@ int ais_mcp(ais *a, int allow_write)
             continue;
         }
         if (n > 0)
-            handle(a, allow_write, line);  /* a blank line between messages: skip */
+            handle(a, allow_write, shared, line);  /* a blank line between messages: skip */
     }
 }

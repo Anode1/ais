@@ -93,6 +93,7 @@ COMMANDS (--word; operands are bare args, values via -v; an ID is the number
   ais --mcp [rw]                 serve MCP on stdin/stdout for an agent (Claude Code, or
                                  any MCP client): recall/find/tags/timeline; 'rw' adds saving
                                  a .ais found by walking up is refused: name it with -f
+                                 on an -f index the agent picks keys from those in use
   ais --project [KEY]            show / set / clear ('') the default project key
   ais --switch [NAME]            switch the current index; no arg shows it,
                                  -c NAME [DIR] creates a new index and switches

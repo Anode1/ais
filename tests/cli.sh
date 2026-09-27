@@ -1462,7 +1462,9 @@ ok      "mcp: and not to keep the note itself"             'Do not offer to reme
 okempty "mcp: read-only never says call save"              "$(printf '%s' "$mout" | grep -o 'call save')"
 mout=$(mcprw '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18"}}')
 ok      "mcp: rw carries the save instructions"            'call save' "$mout"
-ok      "mcp: which tell it to ask for the keys"           'ASK which keys' "$mout"
+ok      "mcp: an -f index is a group's, the agent chooses"  'reuse a key already in use' "$mout"
+ok      "mcp: and it also keeps what a later session needs" 'a later session would otherwise' "$mout"
+okempty "mcp: and is not told to ask for the keys"          "$(printf '%s' "$mout" | grep -o 'ASK which keys')"
 okempty "mcp: and rw never says there is no save tool"     "$(printf '%s' "$mout" | grep -o 'no save tool')"
 ok      "mcp: a first miss is not the end of the search"   'retry with match any' "$mout"
 ok      "mcp: tags is where the user's own word is"        'a singular or a short form' "$mout"
@@ -1479,6 +1481,7 @@ ok      "mcp: tools/list offers tags"                      '"name":"tags"' "$mou
 okempty "mcp: read-only hides save"                        "$(printf '%s' "$mout" | grep -o '"name":"save"')"
 mout=$(mcprw '{"jsonrpc":"2.0","id":2,"method":"tools/list"}')
 ok      "mcp: rw offers save"                              '"name":"save"' "$mout"
+ok      "mcp: save on an -f index reuses the keys in use"  'reusing a key already in use' "$mout"
 
 jsonok  "mcp: tools/list with save is valid JSON"          "$mout"
 okempty "mcp: the match-all sentence is not said twice"    "$(printf '%s' "$mout" | grep -o 'filed under BOTH')"

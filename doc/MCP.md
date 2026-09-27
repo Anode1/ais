@@ -97,6 +97,24 @@ A model that files your things under the words it would have chosen has handed
 you the average of everyone's words, which is the thing this index exists not to
 be. See [`about.txt`](about.txt) for the argument in full.
 
+## A project's or a group's index
+
+An index named with `-f` belongs to a project or a group, and its keys are that
+group's vocabulary: the people and the agents that file there, of any model, in
+any session. There the agent chooses keys itself, from what `tags` lists: a key
+already in use whenever one fits, a new one only for what none of them names. It
+also saves, unasked, what a later session would otherwise have to work out
+again: a decision and its reason, a command that worked, where a thing is. The
+bias kept is the group's instead of one person's, and it is still no model's
+average, because every reader recalls by the words the group used.
+
+`-f` naming the home index is still one person's, and the agent asks.
+
+Several agents serve one index at once, each client starting its own
+`ais --mcp`. Reads take no lock, and writes serialize under an exclusive lock, so
+two agents never collide on a record id ([`limitations.txt`](limitations.txt)).
+Across machines, [`--sync-folder`](SYNC.md) carries the index.
+
 ## What it refuses
 
 Writes are off unless you start it as `ais --mcp rw`. An agent gets recall by

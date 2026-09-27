@@ -15,7 +15,9 @@
 /* Serve MCP on stdin/stdout until the client closes the stream: newline-framed
  * JSON-RPC 2.0, one message per line, which is the MCP stdio transport.
  * ALLOW_WRITE adds the save tool; without it the session cannot change the
- * index at all. Returns 0 on a clean close. */
-int ais_mcp(ais *a, int allow_write);
+ * index at all. SHARED says the index belongs to a project or a group, so
+ * the agent chooses keys from the ones in use instead of asking for them.
+ * Returns 0 on a clean close. */
+int ais_mcp(ais *a, int allow_write, int shared);
 
 #endif /* AIS_MCP_H */

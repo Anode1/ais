@@ -71,6 +71,8 @@ claude mcp add ais -- ais --mcp        # or: {"mcpServers":{"ais":{"command":"ai
 
 That serves `recall`, `find`, `tags` and `timeline` over stdin/stdout. It is read-only, `ais --mcp rw` adds saving, and there is no delete or edit at any setting. Encrypted values stay opaque. It opens your home index, the current named index, or the one `-f` names, and refuses a `.ais/` it merely found by walking up, because a clone can ship one: a project index is served by naming it, `claude mcp add ais -- ais -f /abs/path/of/project/.ais --mcp`, and that line in the client's configuration is the permission. The full picture is in [`doc/MCP.md`](doc/MCP.md).
 
+The same index is memory shared between sessions, between you and an agent, and between agents of different models. On your home index the agent asks you for keys. On a project's or a group's index, named with `-f`, it chooses them from the keys already in use and saves what a later session would otherwise work out again, so the next session, or another model, recalls it by the group's words instead of searching. Several agents serve one index at once: reads take no lock, and writes serialize under an exclusive lock. [Details](doc/MCP.md#a-projects-or-a-groups-index).
+
 A skill is the other door, for an agent that already has a shell: [`.claude/skills/ais/SKILL.md`](.claude/skills/ais/SKILL.md), copied into your own project's `.claude/skills/`. It drives the CLI, so it can edit and delete records, which the server cannot at any setting.
 
 The measurement: eight questions, five repeats each, `claude-sonnet-4-6` run both ways over the same corpus, the recall arm answering from the recalled row alone. The index reached the agent as CLI tools, which is the same lookup `ais --mcp` serves over a pipe.

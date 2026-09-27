@@ -42,6 +42,7 @@
 #include "locate.h"
 #include "secret.h"
 #include "serve.h"     /* ais_serve: the hardening block forks a live server */
+#include "mcp.h"       /* ais_mcp: the key rule the CLI tests cannot reach */
 #include "b64.h"
 
 /* The crypto round-trip test compiles only once Monocypher has been vendored
@@ -332,6 +333,68 @@ static int tl_len_cb(long id, const char *ts, const char *keys,
     if (id == t->id)
         t->len = strlen(value);
     return 0;
+}
+
+/* One MCP session over files: REQ in, the reply read back into OUT. */
+static void mcp_session(ais *a, int shared, const char *req, char *out, size_t outsz)
+{
+    const char *in = "/tmp/ais_ut_mcp.in", *res = "/tmp/ais_ut_mcp.out";
+    FILE *f = fopen(in, "w");
+    int saved, fd;
+    size_t n;
+
+    fputs(req, f);
+    fclose(f);
+    fflush(stdout);
+    saved = dup(STDOUT_FILENO);
+    fd = open(res, O_WRONLY | O_CREAT | O_TRUNC, 0600);
+    dup2(fd, STDOUT_FILENO);
+    close(fd);
+    if (freopen(in, "r", stdin) != NULL)
+        ais_mcp(a, 1, shared);
+    fflush(stdout);
+    dup2(saved, STDOUT_FILENO);
+    close(saved);
+    f = fopen(res, "r");
+    n = f != NULL ? fread(out, 1, outsz - 1, f) : 0;
+    out[n] = '\0';
+    if (f != NULL)
+        fclose(f);
+    remove(in);
+    remove(res);
+}
+
+/* The home index is one person's, so the agent asks for keys; an index named
+ * with -f is a group's, so it chooses from the keys in use. main() picks which;
+ * the shell tests only reach -f, since the home index is the real ~/.ais. */
+static void test_mcp_key_rule(void)
+{
+    ais a;
+    const char *dir = "/tmp/ais_ut_mcpkeys";
+    const char *req =
+        "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{}}\n"
+        "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/list\"}\n"
+        "{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"tools/call\",\"params\":"
+        "{\"name\":\"save\",\"arguments\":{\"value\":\"v\",\"keys\":[]}}}\n";
+    static char out[65536];
+
+    scratch_rm(dir);
+    CHECK(ais_open(&a, dir) == 0, "mcp keys: scratch index opens");
+    mcp_session(&a, 0, req, out, sizeof out);
+    CHECK(strstr(out, "this person's own associative index") != NULL, "mcp keys: home is one person's");
+    CHECK(strstr(out, "ASK which keys") != NULL, "mcp keys: home asks for the keys");
+    CHECK(strstr(out, "Never invent a vocabulary") != NULL, "mcp keys: and the save tool says so");
+    CHECK(strstr(out, "ask which keys to file it under") != NULL, "mcp keys: a keyless save says ask");
+    CHECK(strstr(out, "reusing a key") == NULL, "mcp keys: home never lets the agent choose");
+
+    mcp_session(&a, 1, req, out, sizeof out);
+    CHECK(strstr(out, "kept for a project or a group") != NULL, "mcp keys: -f is a group's");
+    CHECK(strstr(out, "reuse a key already in use") != NULL, "mcp keys: -f reuses keys in use");
+    CHECK(strstr(out, "reusing a key already in use") != NULL, "mcp keys: and the save tool says so");
+    CHECK(strstr(out, "choose from the keys tags already lists") != NULL, "mcp keys: a keyless save says choose");
+    CHECK(strstr(out, "ASK which keys") == NULL, "mcp keys: -f never says ask");
+    ais_close(&a);
+    scratch_rm(dir);
 }
 
 static void test_timeline_long_value(void)
@@ -7055,6 +7118,7 @@ int main(void)
     test_key_prefix();
     test_key_too_long();
     test_timeline_long_value();
+    test_mcp_key_rule();
     test_blob_symlink();
     test_store_overlong_line();
     printf("put:\n");
