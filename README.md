@@ -61,7 +61,7 @@ Yes. A secret is stored encrypted inline (`-e`), so a login lives right next to 
 
 ## Give an agent your index
 
-An agent that greps and reads to find something you already saved pays that cost on every question. Recall by key costs one line, and it is exact: a wrong key returns nothing rather than something plausible.
+For an agent the index works like a cache of earlier extraction: a thing is found once and filed, and a later recall costs one line, where grep repeats the whole search on every question. A miss costs the usual search. Recall is exact: a wrong key returns nothing rather than something plausible.
 
 One line wires it into a client:
 
