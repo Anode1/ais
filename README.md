@@ -75,7 +75,7 @@ The same index is memory shared between sessions, between you and an agent, and 
 
 A skill is the other door, for an agent that already has a shell: [`.claude/skills/ais/SKILL.md`](.claude/skills/ais/SKILL.md), copied into your own project's `.claude/skills/`. It drives the CLI, so it can edit and delete records, which the server cannot at any setting.
 
-The measurement: eight questions, five repeats each, `claude-sonnet-4-6` run both ways over the same corpus, the recall arm answering from the recalled row alone. The index reached the agent as CLI tools, which is the same lookup `ais --mcp` serves over a pipe.
+The measurement: eight questions, five repeats each, `claude-sonnet-4-6` run both ways over the same corpus, the recall arm answering from the recalled row alone. The questions were written by the person who filed the records, so every question matched a key: the table is the cost of a hit, and a question nobody filed under a key costs the usual search. The index reached the agent as CLI tools, which is the same lookup `ais --mcp` serves over a pipe.
 
 <p align="center">
   <img src="screenshots/agent-tokens.png" width="78%" alt="Tokens a question, file search against recall by key, with the retrieval payload inside each bar, and no model at all at the terminal.">
