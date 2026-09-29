@@ -3,7 +3,7 @@
   "name": "ais",
   "display_name": "ais",
   "version": "@VERSION@",
-  "description": "Exact recall from a plain-text index you keep, by your own keys.",
+  "description": "Memory for agents and people: exact recall from a plain-text index, by your own keys.",
   "long_description": "An agent recalls what you filed by the keys you filed it under, instead of searching for it again. Read-only unless you allow saving; there is no delete or edit at any setting. Encrypted values reach the agent as an opaque marker.",
   "author": { "name": "Vasili Gavrilov", "url": "https://github.com/Anode1" },
   "repository": { "type": "git", "url": "https://github.com/Anode1/ais" },

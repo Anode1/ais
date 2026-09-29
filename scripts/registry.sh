@@ -17,7 +17,7 @@ cat <<EOF
   "\$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.Anode1/ais",
   "title": "ais",
-  "description": "Exact recall from a plain-text index you keep, by your own keys.",
+  "description": "Memory for agents and people: exact recall from a plain-text index, by your own keys.",
   "repository": { "url": "https://github.com/Anode1/ais", "source": "github" },
   "version": "$version",
   "packages": [
