@@ -181,9 +181,19 @@ reports instead of gating (see the note in `.github/workflows/flutter.yml`), and
 the Android layers carry the real UI coverage. Fixing it would be worth it: the
 desktop harness needs no device and runs in seconds.
 
-### 4. Three limits are knowingly left
+### 4. Four limits are knowingly left
 
 Each is understood, loses no data, and is left for a stated reason.
+
+- **A capital letter outside ASCII makes a different key.** `key_encode`
+  lowercases ASCII only, so `Рецепт` and `рецепт` are two tags, and voice input
+  capitalises the first word. The English user never meets this. The fix is a
+  fixed fold table (Latin-1, Latin Extended-A, Greek, Cyrillic) in `key.c`,
+  the same table in `find.c`, and a bump to index format v5, because a posting's
+  name on disk changes and an existing index has to re-file its postings once
+  at open. Left until the iOS release is out. The UI itself stays English; a
+  translation is a separate piece of work, wanted only when a request or the
+  install figures name a country.
 
 - **An edit reaches a device that predates v0.3.21 as a second record.** The
   `E|` verb that carries an in-place edit is skipped by an older build, which
