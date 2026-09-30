@@ -189,9 +189,11 @@ Each is understood, loses no data, and is left for a stated reason.
   lowercases ASCII only, so `Рецепт` and `рецепт` are two tags, and voice input
   capitalises the first word. The English user never meets this. The fix is a
   fixed fold table (Latin-1, Latin Extended-A, Greek, Cyrillic) in `key.c`,
-  the same table in `find.c`, and a bump to index format v5, because a posting's
-  name on disk changes and an existing index has to re-file its postings once
-  at open. Left until the iOS release is out. The UI itself stays English; a
+  the same table in `find.c`, and recall reading a posting under both names
+  when they differ, since an index written before the change files `Рецепт`
+  under `idx/Р/`. The store is untouched, the format version stays, an older
+  binary keeps working on the same folder, and `--compact` re-files the old
+  names. Left until the iOS release is out. The UI itself stays English; a
   translation is a separate piece of work, wanted only when a request or the
   install figures name a country.
 
