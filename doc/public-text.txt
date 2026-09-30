@@ -17,48 +17,55 @@ Package name (permanent):
 com.aisindex.ais
 
 Short description (max 80 chars):
-Private keeper for your links, notes, and passwords. On-device, no cloud.
+Save links, notes and passwords under your own tags. Offline, no account.
 
-Full description:
-Your memory extension. AIS is a fast, private index for the things you want to
-find again: links, documents, notes, and passwords, filed under your own
-keywords and recalled by any combination of them.
+Full description (max 4000 chars). The paragraphs are single lines on purpose:
+Play keeps every line break, so text wrapped at 80 columns shows as ragged
+lines in the store.
 
-Everything stays on your device in plain text you can read and export; secrets
-are encrypted. No accounts, no ads, no tracking, no servers, and your data never
-leaves your phone unless you sync it yourself. Optional sync is on-demand and
-peer-to-peer: a one-time transfer directly between your own devices over your
-local network, end to end encrypted.
+AIS keeps the things you want to find again: links, notes, file paths, commands, passwords. You save each one under tags you choose, and find it later by typing those tags.
 
-Built on a small C engine for instant startup and search over very large
-collections, the same engine behind the desktop, web, and command-line versions.
+Examples
+wifi guest: the guest Wi-Fi password
+recipe chicken: a link to the recipe
+passport documents: where the scan is
+tunnel prod ssh: the command you look up every time
 
-- File anything under your own tags, recall by any combination.
-- Plain-text storage you own and can export; encrypted secrets.
-- No accounts, no ads, no tracking, no cloud.
-- On-demand, end-to-end-encrypted LAN sync between your own devices.
-- Fast even at a lifetime of entries.
+Type "recipe" and you get every recipe. Type "recipe chicken" and you get what was saved under both.
 
-Your index is plain text, so it outlives its own tools: it survives decades of
-archiving, it will still open in 50 years, and you can import it into other
-programs whenever you want. No lock-in.
+Private
+Everything stays on the phone. No account, no ads, no tracking, no server, and the app collects no data. Passwords and other secrets are encrypted with a passphrase only you know.
 
-Why that matters: keeping data readable for decades is a genuinely unsolved
-problem in computer science, the "digital dark age", where file formats and the
-apps that open them die faster than the data. Plain text is the oldest, safest
-answer: readable since the 1960s, on any machine, with no special program.
+Yours
+The index is plain text: you can read it, export it, and open it without AIS. Plain text has been readable since the 1960s on any machine, so the index outlives the app. The same index opens on Linux and macOS, in a terminal and in a browser.
+
+Sync and backup, only when you ask
+- Between two of your devices on the same Wi-Fi: one shows a code, the other scans it. The transfer is direct and end-to-end encrypted.
+- Through a folder that Syncthing or a cloud drive carries.
+- Keep a copy in a folder, so the index survives uninstalling the app.
+
+Also
+- Share a link or text to AIS from any other app.
+- A timeline of everything saved, with a date range.
+- A list of every tag you have used.
+- Search inside the saved text when no tag matches.
+- Voice input, recognised on the device.
+- Light and dark theme.
+
+Free and open source (GPL 2 or later, or MIT). Source code, documentation and the desktop versions: https://github.com/Anode1/ais
 
 Graphics:
 - App icon (512x512):      icons/ais-512.png
 - Feature graphic (1024x500): icons/feature-graphic.png
-- Phone screenshots (2-8): screenshots/play/android-*.png
+- Phone screenshots (2-8): screenshots/play/captioned/*.png in their numbered
+  order, or the same four without captions, screenshots/play/android-*.png.
 
-  Take the ones under screenshots/play/, not the ones beside them. Play requires
+  The captures beside screenshots/play/ are not uploadable. Play requires
   "JPEG or 24-bit PNG (no alpha)" and refuses a screenshot whose long side is
   more than twice its short side. The captures are 1080x2400 with an alpha
   channel, so they fail both; the play/ copies are 24-bit, 1200x2400, padded to
-  the app's own surface colour. Regenerate them from the captures rather than
-  editing them by hand (scripts are in the commit that added them).
+  the app's own surface colour. scripts/play-shots.sh builds both sets from the
+  captures and holds the caption text; regenerate, do not edit by hand.
 
 Privacy policy URL:
 https://github.com/Anode1/ais/blob/main/PRIVACY.md
