@@ -130,14 +130,12 @@ Both read the listing from `fastlane/metadata/android/en-US/` in this
 repository (text, icon, feature graphic, screenshots; `scripts/play-shots.sh`
 builds the images).
 
-**IzzyOnDroid** takes the signed APK from the GitHub release, so it lists within
-days and needs no build recipe. Its limits: an OSI licence, no tracker or
-proprietary component, an APK of at most 30 MB on the latest release (the
-arm64-v8a one, 21 MB; the universal one is 55 MB), and a policy that rejects
-"vibe-coded" apps, so expect the reviewer to read the repository. Request:
-an issue at <https://codeberg.org/IzzyOnDroid/repodata/issues> (Codeberg
-account needed), template "App inclusion request", with the repository URL,
-the licence, and the asset name pattern `ais-*-android-arm64-v8a.apk`.
+**IzzyOnDroid** refused the app on 2026-09-30 (request 647 on its Codeberg
+tracker): its AI policy has a threshold on LLM assistance, and the level
+declared truthfully in the request ("Substantial") is above it. Do not re-file;
+the policy, not the app, is the reason. The `…-arm64-v8a.apk` on each release
+stays: Obtainium installs from the release page with no gatekeeper (README,
+Download).
 
 **F-Droid** builds **from source** on their own infrastructure, holding no key of
 ours, so it needs the app and its dependencies to be FOSS (GPLv2 plus Monocypher
