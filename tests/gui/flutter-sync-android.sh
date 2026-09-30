@@ -122,7 +122,11 @@ rc=0
 # AMBIENT state before -- an index someone had emptied made this layer report a
 # product failure -- so ask, and say plainly when the answer is no.
 if [ -z "${AIS_ANDROID_CLEAR:-}" ]; then
-    app_records=$("$ADB" shell run-as "$PKG" cat app_flutter/ais/store 2>/dev/null | grep -c .)
+    # Live records only: a deleted record keeps its line in store and gains one
+    # in tomb, and a phone holding nothing but deleted records has nothing to send.
+    app_lines=$("$ADB" shell run-as "$PKG" cat app_flutter/ais/store 2>/dev/null | grep -c . || true)
+    app_dead=$("$ADB" shell run-as "$PKG" cat app_flutter/ais/tomb 2>/dev/null | grep -c . || true)
+    app_records=$(( ${app_lines:-0} - ${app_dead:-0} ))
     peer_n=$("$root/c/ais" -f "$work/peer" --stats 2>/dev/null | awk '/^records:/{print $2}')
     if [ "${app_records:-0}" -le 1 ]; then
         echo "  note: the phone's index holds nothing of its own; only the"
