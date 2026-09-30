@@ -1,21 +1,27 @@
 #!/bin/sh
-# play-shots.sh: the Play Store screenshots, from the captures in screenshots/.
+# play-shots.sh: the store graphics, from the captures in screenshots/ and icons/.
 #
 # A capture (screenshots/android-NAME.png) is 1080x2400 with alpha, and Play
 # refuses both the alpha and the 2.22 ratio. Two sets come out, each 1200x2400,
 # 24-bit, no alpha:
-#   screenshots/play/android-NAME.png     the capture padded to 1200 wide
-#   screenshots/play/captioned/N-NAME.png a caption on the brand colour above it
+#   screenshots/play/android-NAME.png   the capture padded to 1200 wide
+#   fastlane/metadata/android/en-US/images/phoneScreenshots/N.png
+#                                       a caption on the brand colour above it
+# The icon and the feature graphic are copied beside them, so the fastlane tree
+# (what Play is pasted from and what IzzyOnDroid and F-Droid read) is complete.
 # Needs ImageMagick and Roboto. The captions are the table at the end.
 set -e
 root=$(cd "$(dirname "$0")/.." && pwd)
 cap="$root/screenshots"
 in="$cap/play"
-out="$in/captioned"
+meta="$root/fastlane/metadata/android/en-US/images"
+out="$meta/phoneScreenshots"
 fonts=/usr/share/fonts/truetype/roboto/unhinted/RobotoTTF
 brand='#1A0DAB'
 surface='#FCF8FF'   # the app's light surface, so the pad does not show
 mkdir -p "$out"
+cp "$root/icons/ais-512.png" "$meta/icon.png"
+cp "$root/icons/feature-graphic.png" "$meta/featureGraphic.png"
 
 shot() { # shot N NAME TITLE SUBTITLE
     convert "$cap/android-$2.png" -background "$surface" -alpha remove \
@@ -34,7 +40,7 @@ shot() { # shot N NAME TITLE SUBTITLE
         -font "$fonts/Roboto-Regular.ttf" -pointsize 44 -annotate +0+230 "$4" \
         "$out/.shot.png" -gravity south -compose over -composite \
         -alpha remove -alpha off -type TrueColor -strip \
-        -define png:exclude-chunks=date,time "PNG24:$out/$1-$2.png"
+        -define png:exclude-chunks=date,time "PNG24:$out/$1.png"
     rm -f "$out/.shot.png"
 }
 

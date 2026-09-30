@@ -16,58 +16,25 @@ AIS
 Package name (permanent):
 com.aisindex.ais
 
-Short description (max 80 chars):
-Save links, notes and passwords under your own tags. Offline, no account.
-
-Full description (max 4000 chars): everything between the two marker lines,
-markers excluded. The paragraphs are single lines on purpose: Play keeps every
+Short description, full description and title: the files in
+fastlane/metadata/android/en-US/ (short_description.txt, full_description.txt,
+title.txt), which IzzyOnDroid and F-Droid read from the repository as well.
+Paste from there. The paragraphs are single lines on purpose: Play keeps every
 line break, so text wrapped at 80 columns shows as ragged lines in the store.
 
------ full description begins on the next line -----
-AIS keeps the things you want to find again: links, notes, file paths, commands, passwords. You save each one under tags you choose, and find it later by typing those tags.
+Graphics, in fastlane/metadata/android/en-US/images/:
+- App icon (512x512):         icon.png
+- Feature graphic (1024x500): featureGraphic.png
+- Phone screenshots (2-8):    phoneScreenshots/1.png to 4.png, captioned. The
+  same four without captions are screenshots/play/android-*.png.
 
-Examples
-wifi guest: the guest Wi-Fi password
-recipe chicken: a link to the recipe
-passport documents: where the scan is
-tunnel prod ssh: the command you look up every time
-
-Type "recipe" and you get every recipe. Type "recipe chicken" and you get what was saved under both.
-
-Private
-Everything stays on the phone. No account, no ads, no tracking, no server, and the app collects no data. Passwords and other secrets are encrypted with a passphrase only you know.
-
-Yours
-The index is plain text: you can read it, export it, and open it without AIS. Plain text has been readable since the 1960s on any machine, so the index outlives the app. The same index opens on Linux and macOS, in a terminal and in a browser.
-
-Sync and backup, only when you ask
-- Between two of your devices on the same Wi-Fi: one shows a code, the other scans it. The transfer is direct and end-to-end encrypted.
-- Through a folder that Syncthing or a cloud drive carries.
-- Keep a copy in a folder, so the index survives uninstalling the app.
-
-Also
-- Share a link or text to AIS from any other app.
-- A timeline of everything saved, with a date range.
-- A list of every tag you have used.
-- Search inside the saved text when no tag matches.
-- Voice input, recognised on the device.
-- Light and dark theme.
-
-Free and open source (GPL 2 or later, or MIT). Source code, documentation and the desktop versions: https://github.com/Anode1/ais
------ full description ended on the previous line -----
-
-Graphics:
-- App icon (512x512):      icons/ais-512.png
-- Feature graphic (1024x500): icons/feature-graphic.png
-- Phone screenshots (2-8): screenshots/play/captioned/*.png in their numbered
-  order, or the same four without captions, screenshots/play/android-*.png.
-
-  The captures beside screenshots/play/ are not uploadable. Play requires
-  "JPEG or 24-bit PNG (no alpha)" and refuses a screenshot whose long side is
-  more than twice its short side. The captures are 1080x2400 with an alpha
-  channel, so they fail both; the play/ copies are 24-bit, 1200x2400, padded to
-  the app's own surface colour. scripts/play-shots.sh builds both sets from the
-  captures and holds the caption text; regenerate, do not edit by hand.
+  The captures in screenshots/ are not uploadable. Play requires "JPEG or 24-bit
+  PNG (no alpha)" and refuses a screenshot whose long side is more than twice
+  its short side. The captures are 1080x2400 with an alpha channel, so they fail
+  both; the play/ copies are 24-bit, 1200x2400, padded to the app's own surface
+  colour. scripts/play-shots.sh builds every file under images/ and the play/
+  copies from the captures and icons/, and holds the caption text; regenerate,
+  do not edit by hand.
 
 Privacy policy URL:
 https://github.com/Anode1/ais/blob/main/PRIVACY.md

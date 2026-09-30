@@ -36,9 +36,10 @@ The keystore never enters git, only the CI secret store.
 ## 1. Get a release-signed bundle
 
 **A. Take the one CI built (recommended).** Every tag attaches
-`ais-<tag>-android.apk` (sideload, F-Droid, GitHub) and `ais-<tag>-android.aab`
-(the Play upload format), each with a `.sha256`, signed with the upload key from
-the `ANDROID_*` secrets. Download and go to step 2.
+`ais-<tag>-android.apk` (sideload, GitHub), `ais-<tag>-android-arm64-v8a.apk`
+(IzzyOnDroid, which takes at most 30 MB) and `ais-<tag>-android.aab` (the Play
+upload format), each with a `.sha256`, signed with the upload key from the
+`ANDROID_*` secrets. Download and go to step 2.
 
 **B. Build it locally:**
 
@@ -123,9 +124,22 @@ rejected, and review takes days to weeks. On approval, promote the build to
 Production. The Console's own checklist is the source of truth if any of this has
 moved.
 
-## 6. F-Droid, in parallel
+## 6. IzzyOnDroid and F-Droid, in parallel
 
-F-Droid builds **from source** on their own infrastructure, holding no key of
+Both read the listing from `fastlane/metadata/android/en-US/` in this
+repository (text, icon, feature graphic, screenshots; `scripts/play-shots.sh`
+builds the images).
+
+**IzzyOnDroid** takes the signed APK from the GitHub release, so it lists within
+days and needs no build recipe. Its limits: an OSI licence, no tracker or
+proprietary component, an APK of at most 30 MB on the latest release (the
+arm64-v8a one, 21 MB; the universal one is 55 MB), and a policy that rejects
+"vibe-coded" apps, so expect the reviewer to read the repository. Request:
+an issue at <https://codeberg.org/IzzyOnDroid/repodata/issues> (Codeberg
+account needed), template "App inclusion request", with the repository URL,
+the licence, and the asset name pattern `ais-*-android-arm64-v8a.apk`.
+
+**F-Droid** builds **from source** on their own infrastructure, holding no key of
 ours, so it needs the app and its dependencies to be FOSS (GPLv2 plus Monocypher
 under CC0/BSD: fine). Submit the metadata recipe to `fdroiddata`, or self-host an
 F-Droid repo and publish the `.apk` there. This is the free-software front door

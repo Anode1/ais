@@ -137,16 +137,15 @@ with the reason for each.
 
 ### 1. Publishing is not finished
 
-A tag publishes ten artifacts. Reaching the two stores is manual, and only one
+A tag publishes seven artifacts, each with a checksum. Reaching the two stores is manual, and only one
 of them has ever received a build:
 
 - Upload `ais-v0.3.28-android.aab` to the Play Console as a new release on the
   closed test track, following [`dev/ANDROID_RELEASE.md`](dev/ANDROID_RELEASE.md).
   The listing is done and a production release with build 477 (0.3.27) went
-  to review on 2026-09-15, so every later build is another upload by hand. Take the
-  screenshots from `screenshots/play/`, not the ones beside them: Play requires
-  24-bit PNG with no alpha and refuses a side more than twice the other, and the
-  plain captures fail both.
+  to review on 2026-09-15, so every later build is another upload by hand. The
+  listing text and graphics are `fastlane/metadata/android/en-US/`
+  (`doc/public-text.txt` says what goes where).
 - Push the same `pkgver` to the AUR repository with `pkgrel=1` and a regenerated
   `.SRCINFO`. `packaging/aur/PKGBUILD` here is the reference copy, not the one
   users install.
