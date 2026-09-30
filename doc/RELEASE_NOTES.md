@@ -8,6 +8,14 @@ Before tagging, run `scripts/release-notes.sh vX.Y.Z`: it prepends the commit
 subjects since the previous tag, then edit them down to what a user needs to
 know. The old entries below the two newest are the raw subjects.
 
+## v0.3.29 (2026-09-29)
+
+- Android: a Help page, from the menu and from "How it works" on the empty start screen: what the app is for, saving, finding, passwords, keeping a copy, other devices, with links to report a problem, the source and the privacy policy. About carries the licence and the same two links.
+- MCP: a save reports whether the record is new or already existed, read from the engine under the writer lock. On an index named with `-f` the agent chooses keys from those already in use and saves for later sessions; on the home index it still asks.
+- Release: `ais-vX.Y.Z.mcpb`, an MCP Bundle for Claude Desktop and the official MCP Registry, and `ais-vX.Y.Z-android-arm64-v8a.apk`, a 21 MB APK for IzzyOnDroid, beside the universal one.
+- Store listing: the text and graphics live in `fastlane/metadata/android/en-US/`, the layout IzzyOnDroid and F-Droid read; `scripts/play-shots.sh` builds the captioned screenshots from the captures.
+- Docs: an index travels by email as an `.aisb` file; what the plain-text file does not show (locking, crash-safe rewrites, merge); the README says what an agent gains from the index and how the cost of a hit was measured.
+
 ## v0.3.28 (2026-09-16)
 
 - `ais --mcp` serves the index to a coding agent as MCP tools over stdin and stdout: recall, find, tags and timeline, read-only unless started as `ais --mcp rw`, which adds save. There is no delete and no edit at any setting, an encrypted value goes out as a fixed marker, and one line wires it up: `claude mcp add ais -- ais --mcp`. See doc/MCP.md.
