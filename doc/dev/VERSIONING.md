@@ -173,6 +173,9 @@ the run rather than assuming: `gh run list --workflow=release.yml`.
 and the AUR: the reference `PKGBUILD` moves with this repo, the copy users
 install lives in the AUR repository and needs the same `pkgver`, `pkgrel=1` and a
 regenerated `.SRCINFO`. And the official MCP Registry, once the release is up:
-`sh scripts/registry.sh vX.Y.Z > server.json`, then `mcp-publisher login github`
-(as Anode1) and `mcp-publisher publish`. The entry names the `.mcpb` by URL and
+`sh scripts/registry.sh vX.Y.Z > server.json`, then
+`MCP_GITHUB_TOKEN=$(gh auth token) mcp-publisher login github` (as Anode1) and
+`mcp-publisher publish`. The token form is the one that works: the plain
+device-code login fails with `incorrect_device_code` on every try here
+(registry issue 1543). The entry names the `.mcpb` by URL and
 SHA-256, so it is published after the file exists, never before.
