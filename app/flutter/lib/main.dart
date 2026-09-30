@@ -19,6 +19,7 @@ import 'record_rows.dart';
 import 'add_validation.dart';
 import 'survival.dart';
 import 'foldermirror.dart';
+import 'help.dart';
 import 'version.dart';
 
 void main() async {
@@ -1927,6 +1928,9 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
     }
   }
 
+  void _showHelp() => Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => HelpPage(open: _openUrl)));
+
   // App version, the ENGINE version this bundle actually links, and the index
   // format version -- the three numbers a bug report needs, on one copyable line.
   // A Flutter bundle can ship a stale libais; "engine: unknown" means no
@@ -1956,6 +1960,16 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
         ]),
         const SizedBox(height: 8),
         SelectableText(_dir.isEmpty ? 'Library: (default)' : 'Library: $_dir'),
+        const SizedBox(height: 8),
+        const Text('Free software: GPL 2 or later, or MIT.'),
+        Wrap(children: [
+          TextButton(
+              onPressed: () => _openUrl(kSourceUrl),
+              child: const Text('Source code')),
+          TextButton(
+              onPressed: () => _openUrl(kPrivacyUrl),
+              child: const Text('Privacy policy')),
+        ]),
       ],
     );
   }
@@ -2006,7 +2020,7 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
                               .bodySmall
                               ?.copyWith(color: cs.onSurfaceVariant),
                         ),
-                      // Config home for store/sync/theme/about. 48dp target.
+                      // Config home for store/sync/theme/help/about. 48dp target.
                       PopupMenuButton<String>(
                         icon: const Icon(Icons.more_vert),
                         tooltip: 'Settings',
@@ -2023,6 +2037,9 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
                               break;
                             case 'theme':
                               await _pickTheme();
+                              break;
+                            case 'help':
+                              _showHelp();
                               break;
                             case 'about':
                               _showAbout();
@@ -2070,6 +2087,14 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
                               contentPadding: EdgeInsets.zero,
                               leading: Icon(Icons.brightness_6_outlined),
                               title: Text('Theme'),
+                            ),
+                          ),
+                          const PopupMenuItem(
+                            value: 'help',
+                            child: ListTile(
+                              contentPadding: EdgeInsets.zero,
+                              leading: Icon(Icons.help_outline),
+                              title: Text('Help'),
                             ),
                           ),
                           const PopupMenuItem(
@@ -2429,6 +2454,12 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
                   label: const Text('Restore from a folder'),
                 ),
               ],
+              // A fresh install is where the question "what is this for" is asked.
+              TextButton.icon(
+                onPressed: _showHelp,
+                icon: const Icon(Icons.help_outline),
+                label: const Text('How it works'),
+              ),
               if (_restoreProblem.isNotEmpty) ...[
                 const SizedBox(height: 12),
                 Text(_restoreProblem,
