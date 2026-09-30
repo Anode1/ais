@@ -102,6 +102,10 @@ Why keys beat search is in [`about.txt`](doc/about.txt), and [above](#why).
 
 ## Download
 
+**Android**: the app is on Google Play:
+
+> **<https://play.google.com/store/apps/details?id=com.aisindex.ais>**
+
 On Linux or macOS, one line puts the current release on your PATH:
 
 ```sh
@@ -114,7 +118,7 @@ Or take the files by hand. The link below always points at the current release, 
 
 > **<https://github.com/Anode1/ais/releases/latest>**
 
-- **Android**: install `ais-<tag>-android.apk` from the release page (you will have to allow installing from your browser, once). `…-android.aab` beside it is the Play Store upload format; it is not installable by hand, so take the `.apk`.
+- **Android without Play** (a developer, or a phone with no Google services): install `ais-<tag>-android.apk` from the release page (you will have to allow installing from your browser, once). `…-android.aab` beside it is the Play upload format; it is not installable by hand, so take the `.apk`.
 - **macOS / Linux**: unzip the `…-<os>-<arch>.zip`, then `./ais --serve` opens the GUI in your browser (or use the `ais` CLI; add it to your PATH to use it anywhere).
 - **Windows**: _no native Windows build is published at the moment_ while the desktop GUI is reworked. The `…-linux-x86_64.zip` runs under the Windows Subsystem for Linux (WSL): unzip it there and `./ais --serve` serves the GUI, which opens in your Windows browser (if nothing opens, go to `http://127.0.0.1:8765`). Syncing a phone by QR code from inside WSL needs one network setting; see [`doc/SYNC.md`](doc/SYNC.md#from-windows-wsl). Or build from source (below), or run the Android app.
 
