@@ -13,7 +13,8 @@ Because it is plain text, it outlives its own tools: your index survives decades
 <p align="center">
   <img src="screenshots/demo.gif" width="78%" alt="Save a photo, two ssh tunnels and a link under your own keys, then recall them by key">
 </p>
-<p align="center"><em>Save a path, the ssh tunnel you always look up, a link: each under the words you would think of later. Then ask by those words. The same index on the phone:</em></p>
+<p align="center"><em>The command line version, which is the base: save a path, the ssh tunnel you always look up, a link, each under the words you would think of later. Then ask by those words.</em></p>
+<p align="center"><em>There are GUIs over the same index: a web GUI in the browser, a Windows app, and the Android app, shown here:</em></p>
 <p align="center">
   <img src="screenshots/android-timeline.png" width="30%" alt="Everything you saved: links, file paths, and encrypted secrets">
   <img src="screenshots/android-search.png" width="30%" alt="Search returns clickable links">
