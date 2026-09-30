@@ -118,7 +118,7 @@ Or take the files by hand. The link below always points at the current release, 
 
 > **<https://github.com/Anode1/ais/releases/latest>**
 
-- **Android without Play**: the `.apk` on the release page, or add `https://github.com/Anode1/ais` in [Obtainium](https://github.com/ImranR98/Obtainium), which installs each release as it appears; it takes the `…-arm64-v8a.apk`, which fits a modern phone.
+- **Android without Play**: the `.apk` on the release page, or add `https://github.com/Anode1/ais` in [Obtainium](https://github.com/ImranR98/Obtainium), which installs each release as it appears; when it asks which APK, the `…-arm64-v8a.apk` fits a modern phone.
 - **macOS / Linux**: unzip the `…-<os>-<arch>.zip`, then `./ais --serve` opens the GUI in your browser (or use the `ais` CLI; add it to your PATH to use it anywhere).
 - **Windows**: _no native Windows build is published at the moment_ while the desktop GUI is reworked. The `…-linux-x86_64.zip` runs under the Windows Subsystem for Linux (WSL): unzip it there and `./ais --serve` serves the GUI, which opens in your Windows browser (if nothing opens, go to `http://127.0.0.1:8765`). Syncing a phone by QR code from inside WSL needs one network setting; see [`doc/SYNC.md`](doc/SYNC.md#from-windows-wsl). Or build from source (below), or run the Android app.
 
