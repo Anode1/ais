@@ -3,9 +3,26 @@
 # can't reach the remote (or turn CI red). Mirrors .github/workflows/sanitizers.yml.
 # Enable:       make hooks           (points core.hooksPath at scripts/hooks)
 # Bypass once:  git push --no-verify
+#
+# The output of the last run is kept in .git/pre-push.log, and a failure ends
+# with the lines that name it. A push whose output was piped or has scrolled
+# away can then still be explained.
 set -e
 root=$(git rev-parse --show-toplevel)
+log=$(git rev-parse --absolute-git-dir)/pre-push.log
+echo "pre-push: $(date -u +%Y-%m-%dT%H:%M:%SZ) at $(git rev-parse --short HEAD)" > "$log"
 echo "pre-push: sanitizers (make codeut-asan, codeut-ubsan) ..."
-make -C "$root" codeut-asan
-make -C "$root" codeut-ubsan
+for t in codeut-asan codeut-ubsan; do
+    # The exit status goes into the log as a line: a pipe into tee reports tee's.
+    { rc=0; make -C "$root" "$t" 2>&1 || rc=$?; echo "pre-push: $t exit $rc"; } | tee -a "$log"
+    if ! grep -q "^pre-push: $t exit 0\$" "$log"; then
+        {
+            echo "pre-push: $t FAILED. The lines that name it:"
+            grep -n -E '^  FAIL|Sanitizer|runtime error:|Error 124|Segmentation|Aborted|waiting for it' "$log" | head -20
+            grep -q 'Error 124' "$log" && echo "pre-push: Error 124 is the suite running past its time limit"
+            echo "pre-push: the whole output is in $log"
+        } >&2
+        exit 1
+    fi
+done
 echo "pre-push: clean."
