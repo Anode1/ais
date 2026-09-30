@@ -19,10 +19,11 @@ com.aisindex.ais
 Short description (max 80 chars):
 Save links, notes and passwords under your own tags. Offline, no account.
 
-Full description (max 4000 chars). The paragraphs are single lines on purpose:
-Play keeps every line break, so text wrapped at 80 columns shows as ragged
-lines in the store.
+Full description (max 4000 chars): everything between the two marker lines,
+markers excluded. The paragraphs are single lines on purpose: Play keeps every
+line break, so text wrapped at 80 columns shows as ragged lines in the store.
 
+----- full description begins on the next line -----
 AIS keeps the things you want to find again: links, notes, file paths, commands, passwords. You save each one under tags you choose, and find it later by typing those tags.
 
 Examples
@@ -53,6 +54,7 @@ Also
 - Light and dark theme.
 
 Free and open source (GPL 2 or later, or MIT). Source code, documentation and the desktop versions: https://github.com/Anode1/ais
+----- full description ended on the previous line -----
 
 Graphics:
 - App icon (512x512):      icons/ais-512.png
