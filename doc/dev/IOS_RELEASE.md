@@ -58,8 +58,14 @@ this beats the web form at
 
 - Entity type **Individual / Sole Proprietor**. It needs no D-U-N-S number and
   clears in a day or two, where an organisation takes weeks.
-- **Your legal name becomes the seller name** on the listing. Without a company
-  there is no other option; a trading name needs registration documents.
+- **The account holder's legal name becomes the seller name** on the listing.
+  Without a company there is no other option; a trading name needs registration
+  documents.
+- **Only the account holder reaches Certificates, Identifiers & Profiles.** On
+  an Individual membership a person invited in App Store Connect, Admin
+  included, gets App Store Connect and nothing on developer.apple.com. Steps 2
+  and 3 are therefore done signed in as the account holder; an invited Admin
+  can do step 4 onward.
 - The Apple ID needs two-factor authentication, and in practice it is the account
   holder forever: moving an app to a different account later is a support
   request, not a setting.
@@ -139,8 +145,9 @@ New App:
   `TARGETED_DEVICE_FAMILY = "1,2"`, iPhone and iPad, and an iPad-capable listing
   requires iPad screenshots. Either produce them or set the project to `"1"`.
 
-Then Users and Access > **Integrations** > App Store Connect API > Team Keys >
-**+**, access **App Manager**. Download the `.p8` (**once**; Apple never serves
+Then Users and Access > **Integrations** > App Store Connect API. The first
+visit shows **Request Access**, which only the account holder can press. After
+that: Team Keys > **+**, access **App Manager**. Download the `.p8` (**once**; Apple never serves
 it again) and record the **Key ID** and the **Issuer ID**. This is what lets CI
 upload with no human at a Mac.
 

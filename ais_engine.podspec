@@ -46,6 +46,13 @@ Pod::Spec.new do |s|
   #            main.c (ais_mcp).
   s.exclude_files = 'c/main.c', 'c/tests.c', 'c/serve.c', 'c/mcp.c'
 
+  # The privacy manifest travels with the code it describes: the stat calls are
+  # in c/, so the declaration ships inside ais_engine.framework. A resource
+  # bundle is the form Flutter's own plugins use for theirs.
+  s.resource_bundles = {
+    'ais_engine_privacy' => ['app/flutter/ios/PrivacyInfo.xcprivacy']
+  }
+
   # Stamp the engine's version from the git tag, as c/Makefile does for the CLI
   # and CMakeLists.txt for Android and Linux. Without it ais_version() reports
   # ais.h's "0.0.0-dev" fallback, and the About screen -- which exists so a bug

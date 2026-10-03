@@ -278,6 +278,22 @@ jobs:
             exit 1
           fi
 
+      # The engine calls stat, a required-reason API, and App Store Connect
+      # refuses an upload whose bundle uses one without a privacy manifest
+      # (ITMS-91053). That refusal arrives after a signed tag build, so assert
+      # here that the podspec's resource bundle really landed in the app.
+      - name: the privacy manifest is in the app
+        run: |
+          app=build/ios/iphoneos/Runner.app
+          found=$(find "$app" -path '*ais_engine_privacy.bundle/PrivacyInfo.xcprivacy')
+          if [ -n "$found" ] && plutil -lint "$found"; then
+            echo "privacy manifest: $found"
+          else
+            echo "no valid PrivacyInfo.xcprivacy for the engine in $app:"
+            echo "App Store Connect would refuse the upload."
+            exit 1
+          fi
+
       # AIS_VERSION is stamped from the git tag by ais_engine.podspec. Unstamped,
       # About reports ais.h's 0.0.0-dev fallback, which is the whole reason the
       # About screen exists: a bug report has to name the engine it was filed

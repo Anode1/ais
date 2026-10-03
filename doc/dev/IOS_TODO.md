@@ -15,15 +15,19 @@ API Key ID, API Issuer ID.
 
 ## 1. Enrol as a developer ($99/yr)
 
-- [ ] On the iPhone: install the **Apple Developer** app, Account > Enroll,
+- [x] On the iPhone: install the **Apple Developer** app, Account > Enroll,
       entity **Individual / Sole Proprietor**. Identity check uses the phone
-      camera. Clears in a day or two. Legal name becomes the seller name.
+      camera. Legal name becomes the seller name. Cleared 2026-10-02, five days
+      after payment.
 - [ ] Go <https://developer.apple.com/account> > Membership details, record the
       **Team ID**.
 
 ## 2. Distribution certificate (on Linux, no Mac)
 
-- [ ] `openssl genrsa` + `openssl req` (commands in IOS_RELEASE.md step 2).
+Steps 2 and 3 need the account holder's own sign-in (IOS_RELEASE.md step 1).
+
+- [x] `openssl genrsa` + `openssl req` (commands in IOS_RELEASE.md step 2),
+      2026-10-02.
 - [ ] Go <https://developer.apple.com/account/resources/certificates> > + >
       **Apple Distribution** > upload the `.csr` > download `distribution.cer`.
 - [ ] Make `distribution.p12` (`openssl pkcs12 -export -legacy`). Keep the key
@@ -45,8 +49,9 @@ API Key ID, API Issuer ID.
       support URL = the issues page. App Privacy: nothing collected.
 - [ ] Decide device family: keep iPad (`TARGETED_DEVICE_FAMILY = "1,2"`) and
       make iPad screenshots, or set `"1"` in `project.pbxproj`.
-- [ ] Users and Access > Integrations > App Store Connect API > Team Keys > +,
-      access **App Manager**. Download the `.p8` (served once), record
+- [ ] Users and Access > Integrations > App Store Connect API > **Request
+      Access** (account holder only, once), then Team Keys > +, access
+      **App Manager**. Download the `.p8` (served once), record
       **Key ID** and **Issuer ID**.
 
 ## 5. Export compliance
@@ -74,6 +79,9 @@ API Key ID, API Issuer ID.
       deprecated for uploads; if it refuses, switch to `destination: upload` in
       `ExportOptions.plist` with the `-authenticationKey*` flags, or
       `iTMSTransporter`.
+- [x] Privacy manifest for the engine's `stat` calls
+      (`app/flutter/ios/PrivacyInfo.xcprivacy`, bundled by `ais_engine.podspec`,
+      2026-10-02); the `ios-build` job asserts it is in the app.
 - [ ] Tag a release, watch the upload reach App Store Connect.
 
 ## 7. TestFlight

@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- The engine's privacy manifest, bundled into ais_engine.framework by
+     ais_engine.podspec. c/ calls stat/lstat/fstat (size and file type, never a
+     timestamp), which Apple lists under the file timestamp category whatever
+     field is read; App Store Connect refuses an upload that uses the category
+     without a reason (ITMS-91053). C617.1: files inside the app container (the
+     index). 3B52.1: a file the user picked (the .aisb import). -->
+<plist version="1.0">
+<dict>
+  <key>NSPrivacyTracking</key>
+  <false/>
+  <key>NSPrivacyTrackingDomains</key>
+  <array/>
+  <key>NSPrivacyCollectedDataTypes</key>
+  <array/>
+  <key>NSPrivacyAccessedAPITypes</key>
+  <array>
+    <dict>
+      <key>NSPrivacyAccessedAPIType</key>
+      <string>NSPrivacyAccessedAPICategoryFileTimestamp</string>
+      <key>NSPrivacyAccessedAPITypeReasons</key>
+      <array>
+        <string>C617.1</string>
+        <string>3B52.1</string>
+      </array>
+    </dict>
+  </array>
+</dict>
+</plist>
