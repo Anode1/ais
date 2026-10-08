@@ -135,9 +135,7 @@ jobs:
   # after the gate skips itself until the six IOS_*/APPSTORE_* secrets exist
   # (doc/dev/IOS_RELEASE.md step 6 has the table), the way release.yml's android
   # job falls back without its keystore -- so forks and the pre-enrolment repo
-  # pass this job trivially. ios/ExportOptions.plist and the pbxproj Release
-  # config carry a YOUR_TEAM_ID placeholder until enrolment issues the real one;
-  # the gate keeps that placeholder from ever reaching an export.
+  # pass this job trivially.
   ios-release:
     name: ios release (signed, tag only)
     if: startsWith(github.ref, 'refs/tags/v')

@@ -195,7 +195,7 @@ Two files to commit. `app/flutter/ios/ExportOptions.plist`:
 <plist version="1.0">
 <dict>
   <key>method</key>            <string>app-store-connect</string>
-  <key>teamID</key>            <string>YOUR_TEAM_ID</string>
+  <key>teamID</key>            <string>3T7N3KADW5</string>
   <key>signingStyle</key>      <string>manual</string>
   <key>uploadSymbols</key>     <true/>
   <key>provisioningProfiles</key>
@@ -210,7 +210,7 @@ And the Runner target's Release configuration in
 account that does not exist on a runner:
 
     CODE_SIGN_STYLE = Manual;
-    DEVELOPMENT_TEAM = YOUR_TEAM_ID;
+    DEVELOPMENT_TEAM = 3T7N3KADW5;
     CODE_SIGN_IDENTITY = "Apple Distribution";
     PROVISIONING_PROFILE_SPECIFIER = "AIS App Store";
 

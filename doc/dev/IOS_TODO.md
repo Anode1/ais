@@ -19,8 +19,9 @@ API Key ID, API Issuer ID.
       entity **Individual / Sole Proprietor**. Identity check uses the phone
       camera. Legal name becomes the seller name. Cleared 2026-10-02, five days
       after payment.
-- [ ] Go <https://developer.apple.com/account> > Membership details, record the
-      **Team ID**.
+- [x] Team ID `3T7N3KADW5`, read off the App ID registration form's "App ID
+      Prefix" (2026-10-08). The Developer app and the account page's
+      Membership details card do not show it on a phone.
 
 ## 2. Distribution certificate (on Linux, no Mac)
 
@@ -68,12 +69,10 @@ Steps 2 and 3 need the account holder's own sign-in (IOS_RELEASE.md step 1).
 - [ ] Add the six repo secrets (table in IOS_RELEASE.md step 6):
       `IOS_DIST_P12_BASE64`, `IOS_DIST_P12_PASSWORD`, `IOS_PROFILE_BASE64`,
       `APPSTORE_KEY_ID`, `APPSTORE_ISSUER_ID`, `APPSTORE_KEY_P8_BASE64`.
-- [x] `app/flutter/ios/ExportOptions.plist` committed (2026-09-01) with a
-      `YOUR_TEAM_ID` placeholder; put the real Team ID in when enrolment
-      clears.
+- [x] `app/flutter/ios/ExportOptions.plist` committed (2026-09-01); real
+      Team ID in since 2026-10-08.
 - [x] `project.pbxproj` Release config: `CODE_SIGN_STYLE = Manual`, identity,
-      profile specifier (2026-09-01); `DEVELOPMENT_TEAM` is the same
-      placeholder to replace.
+      profile specifier (2026-09-01), `DEVELOPMENT_TEAM` (2026-10-08).
 - [x] `ios-release` job in `.github/workflows/flutter.yml` (2026-09-01), gated
       on a tag and on the certificate secret. `altool --upload-app` is
       deprecated for uploads; if it refuses, switch to `destination: upload` in
