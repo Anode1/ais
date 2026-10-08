@@ -80,6 +80,22 @@ Steps 2 and 3 need the account holder's own sign-in (IOS_RELEASE.md step 1).
       `Info.plist` so later uploads inherit the answer.
 - [ ] France: file the ANSSI declaration, then answer Yes on a later build.
 
+## 7. First device tests (build 526 on Marina's iPhone, 2026-10-08)
+
+- [x] Scan-to-join: the camera opened the app from the Android's QR and nothing
+      followed. The scene delegate built the `ais/deeplink` channel from the
+      window's root view controller at connect time, which is not reliably the
+      Flutter controller yet, so no handler was installed and Dart's
+      getInitialLink failed into its silent catch. Fixed: the channel is made in
+      AppDelegate from the engine bridge's messenger, the scene only stores and
+      forwards (`SceneDelegate.swift`). Unverified until the next TestFlight build.
+- [ ] Host on the iPhone, join from Android: the join never reached the iPhone
+      (its SYNs were dropped; the iPhone waited out its five minutes). Same
+      Wi-Fi. Suspects: the address under the QR is not the Wi-Fi address (a
+      VPN or tunnel interface wins the default route), or the router isolates
+      the two phones. Check Settings > Wi-Fi > (i) against the QR, and try the
+      roles reversed once scan-to-join works.
+
 ## 6. Signed build from CI
 
 - [x] The six repo secrets set 2026-10-08 by

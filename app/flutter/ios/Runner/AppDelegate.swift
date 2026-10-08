@@ -13,6 +13,13 @@ import UIKit
   func didInitializeImplicitFlutterEngine(_ engineBridge: FlutterImplicitEngineBridge) {
     GeneratedPluginRegistrant.register(with: engineBridge.pluginRegistry)
     registerBackupChannel(engineBridge)
+    // Scan-to-join (SceneDelegate.swift): the channel lives on this messenger,
+    // which exists here; the scene's window does not reliably carry the Flutter
+    // controller when a link cold-starts the app.
+    if let messenger = engineBridge.pluginRegistry
+      .registrar(forPlugin: "AisDeepLink")?.messenger() {
+      DeepLink.install(messenger: messenger)
+    }
   }
 
   // Nothing goes to any cloud. On iOS the index lives under Documents/, which iOS
