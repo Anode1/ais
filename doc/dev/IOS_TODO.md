@@ -36,8 +36,8 @@ Steps 2 and 3 need the account holder's own sign-in (IOS_RELEASE.md step 1).
 
 ## 3. App ID and profile
 
-- [ ] Go <https://developer.apple.com/account/resources/identifiers> > + >
-      App IDs: explicit `com.aisindex.ais`, no capabilities.
+- [x] App ID explicit `com.aisindex.ais`, no capabilities, registered from the
+      iPhone (2026-10-08).
 - [ ] Profiles > + > Distribution > **App Store Connect**: that App ID, that
       certificate, name it `AIS App Store`, download the `.mobileprovision`.
 
