@@ -51,7 +51,7 @@ Steps 2 and 3 need the account holder's own sign-in (IOS_RELEASE.md step 1).
       make iPad screenshots, or set `"1"` in `project.pbxproj`.
 - [x] App Store Connect API access granted and team key `ais ci` (App
       Manager) made 2026-10-08: Key ID `R2T7YDFCH6`, `.p8` in
-      `~/ais-signing/ios/`. The Issuer ID is on the same page.
+      `~/ais-signing/ios/`, Issuer ID `92c167f9-6945-4d98-9efc-ff68cf777d23`.
 
 ## 5. Export compliance
 
