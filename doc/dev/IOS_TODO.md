@@ -55,8 +55,8 @@ Steps 2 and 3 need the account holder's own sign-in (IOS_RELEASE.md step 1).
       2026-10-08). altool warned: deployment target iOS 13.0; from April 2027
       uploads need 15.0 or later.
 - [ ] 1.0 still lacks screenshots (Apple sizes, from the Play captures).
-- [ ] TestFlight shows the build as "Missing Compliance" until the encryption
-      questionnaire (section 5) is answered in Marina's session.
+- [x] Build 526 Ready to Submit in TestFlight (2026-10-08), auto-distributed
+      to the `Family` group.
 - [x] Device family: iPhone only (`TARGETED_DEVICE_FAMILY = "1"`,
       2026-10-08). iPad can be added in a later version; it could not have
       been removed.
@@ -69,10 +69,11 @@ Steps 2 and 3 need the account holder's own sign-in (IOS_RELEASE.md step 1).
 - [x] Notification emailed to `crypt@bis.doc.gov` and `enc@nsa.gov` on
       2026-10-08 (EAR 740.13(e), public source); text in
       `~/ais-signing/ios/bis-notification.txt`, sent copy in Vas's mailbox.
-- [ ] Answer the App Store Connect questionnaire on that basis, then set
-      `ITSAppUsesNonExemptEncryption` in `Info.plist`. Read the questionnaire
-      before choosing the value: exempt-only means `false`, and `false` is what
-      stops the per-build question.
+- [x] Questionnaire answered on build 526 (2026-10-08): standard algorithms
+      in addition to Apple's; not distributed in France (that needs an ANSSI
+      declaration first). `ITSAppUsesNonExemptEncryption` is `true` in
+      `Info.plist` so later uploads inherit the answer.
+- [ ] France: file the ANSSI declaration, then answer Yes on a later build.
 
 ## 6. Signed build from CI
 
