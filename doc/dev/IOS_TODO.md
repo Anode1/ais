@@ -49,10 +49,9 @@ Steps 2 and 3 need the account holder's own sign-in (IOS_RELEASE.md step 1).
       support URL = the issues page. App Privacy: nothing collected.
 - [ ] Decide device family: keep iPad (`TARGETED_DEVICE_FAMILY = "1,2"`) and
       make iPad screenshots, or set `"1"` in `project.pbxproj`.
-- [ ] Users and Access > Integrations > App Store Connect API > **Request
-      Access** (account holder only, once), then Team Keys > +, access
-      **App Manager**. Download the `.p8` (served once), record
-      **Key ID** and **Issuer ID**.
+- [x] App Store Connect API access granted and team key `ais ci` (App
+      Manager) made 2026-10-08: Key ID `R2T7YDFCH6`, `.p8` in
+      `~/ais-signing/ios/`. The Issuer ID is on the same page.
 
 ## 5. Export compliance
 
@@ -65,9 +64,9 @@ Steps 2 and 3 need the account holder's own sign-in (IOS_RELEASE.md step 1).
 
 ## 6. Signed build from CI
 
-- [ ] Add the six repo secrets (table in IOS_RELEASE.md step 6):
-      `IOS_DIST_P12_BASE64`, `IOS_DIST_P12_PASSWORD`, `IOS_PROFILE_BASE64`,
-      `APPSTORE_KEY_ID`, `APPSTORE_ISSUER_ID`, `APPSTORE_KEY_P8_BASE64`.
+- [x] The six repo secrets set 2026-10-08 by
+      `~/ais-signing/ios/set-secrets.sh` (`gh secret set`, needs the real
+      Issuer ID as its argument).
 - [x] `app/flutter/ios/ExportOptions.plist` committed (2026-09-01); real
       Team ID in since 2026-10-08.
 - [x] `project.pbxproj` Release config: `CODE_SIGN_STYLE = Manual`, identity,
