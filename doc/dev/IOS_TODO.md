@@ -37,8 +37,8 @@ Steps 2 and 3 need the account holder's own sign-in (IOS_RELEASE.md step 1).
 
 - [x] App ID explicit `com.aisindex.ais`, no capabilities, registered from the
       iPhone (2026-10-08).
-- [ ] Profiles > + > Distribution > **App Store Connect**: that App ID, that
-      certificate, name it `AIS App Store`, download the `.mobileprovision`.
+- [x] Profile `AIS App Store` (App Store Connect, that App ID, that
+      certificate), downloaded 2026-10-08, expires with the certificate.
 
 ## 4. App record and API key
 
