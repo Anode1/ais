@@ -161,15 +161,12 @@ The source is public, which is the easy road: EAR 740.13(e) exempts publicly
 available encryption source code, and claiming it takes one notification email to
 `crypt@bis.doc.gov` and `enc@nsa.gov` naming the repository URL. Send it, keep
 the sent copy, then answer the App Store Connect questionnaire on that basis.
-Once answered for a version, add this to
-`app/flutter/ios/Runner/Info.plist` so it stops being asked on every upload:
-
-    <key>ITSAppUsesNonExemptEncryption</key>
-    <true/>
-
-That key is not in the file yet. This is export law rather than a build setting:
-the questionnaire's own wording is what governs, and it is worth twenty minutes
-of reading before clicking.
+The answer on file since 2026-10-08: standard algorithms in addition to
+Apple's, not distributed in France (France wants its own ANSSI declaration
+first). `app/flutter/ios/Runner/Info.plist` carries
+`ITSAppUsesNonExemptEncryption` = `true`, so later uploads inherit it instead
+of asking. This is export law rather than a build setting: the questionnaire's
+own wording governs if it changes.
 
 ## 6. A signed build out of CI
 
