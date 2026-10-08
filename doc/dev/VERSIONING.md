@@ -152,8 +152,9 @@ changed on screen). `git push --follow-tags`.
 arm64, macOS arm64, each a zip plus `.sha256`, the Android `.apk` and `.aab`, and
 `ais-vX.Y.Z.mcpb`, the MCP Bundle made from those zips by `scripts/mcpb.sh`.
 Both workflows pin Flutter deliberately (currently 3.44.1); raise that pin and
-`android/`'s Gradle wrapper together, never one alone. iOS is not in the release
-matrix and cannot be until the app is signed (issue #1).
+`android/`'s Gradle wrapper together, never one alone. The same tag runs
+`flutter.yml`'s `ios-release` job, which signs an ipa and uploads it to
+TestFlight; it is not attached to the GitHub release.
 
 **The artifacts are stamped from the tag, not from `git describe`.** Describe adds
 `-dirty` whenever anything in the checkout has been touched, and the suite the

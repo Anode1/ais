@@ -129,7 +129,7 @@ there. An intent filter for `.aisb` (VIEW and SEND) that routes to the same
 merge, behind the confirmation the `ais://sync` link already shows, removes
 that step.
 
-## Known gaps, as of v0.3.29
+## Known gaps, as of v0.3.30
 
 Four things are open, and this is the list to work from: the release chores that
 remain, coverage nobody has, a test that cannot see, and defects left on purpose
@@ -140,7 +140,7 @@ with the reason for each.
 A tag publishes seven artifacts, each with a checksum. Reaching the two stores is manual, and only one
 of them has ever received a build:
 
-- Upload `ais-v0.3.29-android.aab` to the Play Console as a new release on the
+- Upload `ais-v0.3.30-android.aab` to the Play Console as a new release on the
   closed test track, following [`dev/ANDROID_RELEASE.md`](dev/ANDROID_RELEASE.md).
   The listing is done and a production release with build 477 (0.3.27) went
   to review on 2026-09-15, so every later build is another upload by hand. The
