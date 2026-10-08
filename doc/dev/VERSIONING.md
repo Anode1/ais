@@ -171,6 +171,12 @@ version fails the build instead of quietly editing a tracked file.
 v0.3.19 needed that, which is the reason the toolchain is pinned at all. Check
 the run rather than assuming: `gh run list --workflow=release.yml`.
 
+One failure shape needs no fix: a macOS job (the macOS build, the signed iOS
+upload) shown as cancelled after exactly fifteen minutes with no log. GitHub had
+no macOS runner to give it and gave up; the Linux jobs finished. v0.3.31 hit
+this on both workflows at once. `gh run rerun <id> --failed` reruns only those
+jobs, and the publish step then runs with the artifacts the first attempt kept.
+
 **5. What stays manual.** Uploading the `.aab` to Play (`ANDROID_RELEASE.md`),
 and the AUR: the reference `PKGBUILD` moves with this repo, the copy users
 install lives in the AUR repository and needs the same `pkgver`, `pkgrel=1` and a
