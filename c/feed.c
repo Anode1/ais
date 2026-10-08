@@ -145,7 +145,8 @@ void feed_interactive(ais *a, const char *base)
     char keys[AIS_LINE_MAX];
 
 #ifdef _WIN32
-    tty = fopen(ttypath != NULL ? ttypath : "CONIN$", "r");   /* Windows console */
+    tty = (ttypath != NULL || ais_console_present())            /* see main.c confirm */
+        ? fopen(ttypath != NULL ? ttypath : "CONIN$", "r") : NULL;
 #else
     tty = fopen(ttypath != NULL ? ttypath : "/dev/tty", "r");
 #endif
@@ -1192,7 +1193,8 @@ void feed_import_interactive(ais *a)
     int warned_old = 0;
 
 #ifdef _WIN32
-    tty = fopen(ttypath != NULL ? ttypath : "CONIN$", "r");
+    tty = (ttypath != NULL || ais_console_present())            /* see main.c confirm */
+        ? fopen(ttypath != NULL ? ttypath : "CONIN$", "r") : NULL;
 #else
     tty = fopen(ttypath != NULL ? ttypath : "/dev/tty", "r");
 #endif

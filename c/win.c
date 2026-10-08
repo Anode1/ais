@@ -63,6 +63,17 @@ FILE *ais_tmpfile(void)
     return fopen(name, "w+bD");
 }
 
+int ais_console_present(void)
+{
+    static const DWORD which[] = { STD_INPUT_HANDLE, STD_OUTPUT_HANDLE, STD_ERROR_HANDLE };
+    DWORD mode;
+    size_t i;
+    for (i = 0; i < sizeof which / sizeof which[0]; i++)
+        if (GetConsoleMode(GetStdHandle(which[i]), &mode))
+            return 1;
+    return 0;
+}
+
 void ais_net_init(void)
 {
     static int done = 0;

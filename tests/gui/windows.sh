@@ -19,7 +19,8 @@ command -v x86_64-w64-mingw32-gcc >/dev/null 2>&1 || {
 
 W=$(mktemp -d "${TMPDIR:-/tmp}/ais_win.XXXXXX") || exit 2
 trap 'rm -rf "$W"' EXIT
-cp -r "$root/c" "$root/win32" "$W/" && rm -f "$W"/c/*.o "$W"/c/ais "$W"/c/ais_ut "$W"/win32/*.exe "$W"/win32/*.o
+cp -r "$root/c" "$root/win32" "$W/" && rm -f "$W"/c/ais "$W"/c/ais_ut "$W"/win32/*.exe
+find "$W" -name '*.o' -delete        # every Linux object, the crypto/ ones too
 
 if make -C "$W/c" CC=x86_64-w64-mingw32-gcc LDFLAGS=-static >"$W/cli.log" 2>&1 &&
    [ -f "$W/c/ais.exe" ]; then

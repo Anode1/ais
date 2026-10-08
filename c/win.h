@@ -79,6 +79,11 @@ FILE *ais_tmpfile(void);
 /* Initialise Winsock once (WSAStartup); no-op after the first call. */
 void ais_net_init(void);
 
+/* 1 when one of the standard streams is a real console, so a person can answer
+ * a prompt there. CONIN$ opens on any attached console, including the unattended
+ * one a CI job runs under, and a read on that waits forever. */
+int ais_console_present(void);
+
 /* socket I/O is recv()/send()/closesocket() here: a SOCKET is not a file
  * descriptor, and read()/close() on one corrupt the CRT's fd table. */
 #define SOCK_READ(fd, b, n)  recv((SOCKET)(fd), (char *)(b), (int)(n), 0)

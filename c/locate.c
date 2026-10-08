@@ -106,6 +106,15 @@ static int find_local(char *out, size_t outsz)
 
     if (getcwd(dir, sizeof(dir)) == NULL)
         return -1;
+#ifdef _WIN32
+    /* Windows reports "D:\a\b"; the walk below looks for '/', and every API
+     * here accepts either separator. Without this the walk never climbed, and
+     * a put from a subdirectory went to the home index. */
+    for (char *p = dir; *p; p++)
+        if (*p == '\\') *p = '/';
+    for (char *p = home; have_home && *p; p++)
+        if (*p == '\\') *p = '/';
+#endif
 
     for (;;) {
         char *slash;
@@ -119,11 +128,15 @@ static int find_local(char *out, size_t outsz)
             return (put_str(out, outsz, cand) == 0) ? 1 : -1;
         if (dir[0] == '/' && dir[1] == '\0')
             return 0;                 /* reached the filesystem root */
+        if (dir[0] != '\0' && dir[1] == ':' && dir[2] == '/' && dir[3] == '\0')
+            return 0;                 /* a Windows drive root, "D:/" */
         slash = strrchr(dir, '/');
         if (slash == NULL)
             return 0;
         if (slash == dir)
             dir[1] = '\0';            /* parent is "/" */
+        else if (slash == dir + 2 && dir[1] == ':')
+            dir[3] = '\0';            /* parent is the drive root, "D:/" */
         else
             *slash = '\0';
     }

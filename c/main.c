@@ -386,7 +386,10 @@ static int confirm(const char *prompt)
      * feed_import_interactive uses): stdin can be a redirected data file, whose
      * first line would then answer a destructive prompt. */
 #ifdef _WIN32
-    tty = fopen(ttypath != NULL ? ttypath : "CONIN$", "r");
+    /* CONIN$ opens on an unattended console too (a CI job) and the read then
+     * waits forever, so ask only where a person could answer. */
+    tty = (ttypath != NULL || ais_console_present())
+        ? fopen(ttypath != NULL ? ttypath : "CONIN$", "r") : NULL;
 #else
     tty = fopen(ttypath != NULL ? ttypath : "/dev/tty", "r");
 #endif

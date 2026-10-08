@@ -58,6 +58,10 @@ jobs:
     name: run the CLI and sync suites on Windows (gates)
     needs: build
     runs-on: windows-latest
+    # The suites take minutes here (Defender scans each of the ~1500 process
+    # launches). The first run hung for 35 minutes on a prompt that waited at
+    # an unattended console; a hang must fail, not run out the six-hour default.
+    timeout-minutes: 45
     defaults:
       run:
         shell: bash
