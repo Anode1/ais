@@ -42,9 +42,9 @@ Steps 2 and 3 need the account holder's own sign-in (IOS_RELEASE.md step 1).
 
 ## 4. App record and API key
 
-- [ ] Go <https://appstoreconnect.apple.com> > Apps > + > New App: iOS, bundle
-      `com.aisindex.ais`, SKU `ais-ios`. Name `AIS` is likely taken (marine
-      ship trackers); fall back to `AIS Index` or similar, bundle id unchanged.
+- [x] App record made 2026-10-08: iOS, bundle `com.aisindex.ais`, SKU
+      `ais-ios`. `AIS` was taken; the store name is **AIS Index**. The bundle
+      id and the name under the icon stay `AIS`.
 - [ ] Listing from `doc/public-text.txt`; privacy policy URL = `PRIVACY.md`;
       support URL = the issues page. App Privacy: nothing collected.
 - [ ] Decide device family: keep iPad (`TARGETED_DEVICE_FAMILY = "1,2"`) and
