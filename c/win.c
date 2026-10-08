@@ -65,9 +65,8 @@ char *ais_realpath(const char *path, char *resolved)
     /* Long names: a TEMP of "RUNNER~1" is still that user's folder, and an
      * index path is shown to people. Needs the path to exist, as realpath does;
      * otherwise the _fullpath spelling stands. */
-    n = GetLongPathNameA(r, r, AIS_PATH_MAX);
-    if (n == 0 || n >= AIS_PATH_MAX)
-        (void)0;
+    n = GetLongPathNameA(r, r, AIS_PATH_MAX);  /* 0: left as _fullpath spelled it */
+    (void)n;
     for (p = r; *p; p++)
         if (*p == '\\') *p = '/';
     return r;
