@@ -59,7 +59,16 @@ int ais_rename(const char *from, const char *to)
 char *ais_realpath(const char *path, char *resolved)
 {
     char *p, *r = _fullpath(resolved, path, AIS_PATH_MAX);
-    for (p = r; r != NULL && *p; p++)
+    DWORD n;
+    if (r == NULL)
+        return NULL;
+    /* Long names: a TEMP of "RUNNER~1" is still that user's folder, and an
+     * index path is shown to people. Needs the path to exist, as realpath does;
+     * otherwise the _fullpath spelling stands. */
+    n = GetLongPathNameA(r, r, AIS_PATH_MAX);
+    if (n == 0 || n >= AIS_PATH_MAX)
+        (void)0;
+    for (p = r; *p; p++)
         if (*p == '\\') *p = '/';
     return r;
 }
