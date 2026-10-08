@@ -66,8 +66,9 @@ Steps 2 and 3 need the account holder's own sign-in (IOS_RELEASE.md step 1).
 
 ## 5. Export compliance
 
-- [ ] Email the repo URL to `crypt@bis.doc.gov` and `enc@nsa.gov`
-      (EAR 740.13(e), public source). Keep the sent copy.
+- [x] Notification emailed to `crypt@bis.doc.gov` and `enc@nsa.gov` on
+      2026-10-08 (EAR 740.13(e), public source); text in
+      `~/ais-signing/ios/bis-notification.txt`, sent copy in Vas's mailbox.
 - [ ] Answer the App Store Connect questionnaire on that basis, then set
       `ITSAppUsesNonExemptEncryption` in `Info.plist`. Read the questionnaire
       before choosing the value: exempt-only means `false`, and `false` is what
