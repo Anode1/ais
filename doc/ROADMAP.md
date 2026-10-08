@@ -137,8 +137,8 @@ with the reason for each.
 
 ### 1. Publishing is not finished
 
-A tag publishes seven artifacts, each with a checksum. Reaching the two stores is manual, and only one
-of them has ever received a build:
+A tag publishes seven artifacts, each with a checksum, and uploads a signed
+iOS build to TestFlight. Reaching the two stores is manual:
 
 - Upload `ais-v0.3.30-android.aab` to the Play Console as a new release on the
   closed test track, following [`dev/ANDROID_RELEASE.md`](dev/ANDROID_RELEASE.md).

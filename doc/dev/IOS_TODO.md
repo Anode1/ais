@@ -51,8 +51,12 @@ Steps 2 and 3 need the account holder's own sign-in (IOS_RELEASE.md step 1).
       folder, keywords, support and marketing URLs, manual release),
       TestFlight internal group `Family` with Marina as tester. Vas was not
       invited: he has no working Apple ID; CI and the API key need none.
-- [ ] 1.0 still lacks screenshots (Apple sizes, from the Play captures) and
-      a build.
+- [x] First build uploaded by CI from the v0.3.30 tag (0.3.30, build 526,
+      2026-10-08). altool warned: deployment target iOS 13.0; from April 2027
+      uploads need 15.0 or later.
+- [ ] 1.0 still lacks screenshots (Apple sizes, from the Play captures).
+- [ ] TestFlight shows the build as "Missing Compliance" until the encryption
+      questionnaire (section 5) is answered in Marina's session.
 - [x] Device family: iPhone only (`TARGETED_DEVICE_FAMILY = "1"`,
       2026-10-08). iPad can be added in a later version; it could not have
       been removed.
