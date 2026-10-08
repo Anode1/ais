@@ -994,7 +994,7 @@ if [ "$SKIP_DEFAULT" = no ]; then
     patheq "default: a new process reads back the saved path" "$TGT" "$("$AIS" --default)"
     patheq "default: --where resolves to the saved index"     "$TGT" "$(cd "$DIR" && "$AIS" --where)"
     "$AIS" --default "$TGT" >/dev/null                              # save again
-    okeq "default: saving the same path twice is idempotent" "$TGT" "$("$AIS" --default)"
+    patheq "default: saving the same path twice is idempotent" "$TGT" "$("$AIS" --default)"
     "$AIS" --default '' >/dev/null                                  # clear
     ok   "default: clearing falls back to the built-in default" "no saved default" "$("$AIS" --default)"
 fi

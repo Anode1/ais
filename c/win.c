@@ -53,9 +53,15 @@ int ais_rename(const char *from, const char *to)
     return MoveFileExA(from, to, MOVEFILE_REPLACE_EXISTING | MOVEFILE_COPY_ALLOWED) ? 0 : -1;
 }
 
+/* Forward slashes in the result: every other path the engine prints has them
+ * (the shell's own spelling comes through unchanged), and a backslash doubles
+ * inside JSON, where --mcp reports the index. */
 char *ais_realpath(const char *path, char *resolved)
 {
-    return _fullpath(resolved, path, AIS_PATH_MAX);
+    char *p, *r = _fullpath(resolved, path, AIS_PATH_MAX);
+    for (p = r; r != NULL && *p; p++)
+        if (*p == '\\') *p = '/';
+    return r;
 }
 
 /* GetTempFileName creates the file in the user's temp dir; "D" makes the CRT
