@@ -50,6 +50,32 @@ okeq() {
     fi
 }
 
+# Windows (Git Bash on a Windows runner, native-windows.yml): the shell says
+# /tmp/x where the binary sees and prints C:/Users/.../Temp/x, in the short or
+# the long spelling; there are no symlinks; and a command line holds 32 KB.
+case "$(uname -o 2>/dev/null)" in Msys|Cygwin) WIN=1 ;; *) WIN=0 ;; esac
+# pathok LABEL PATH ACTUAL / patheq LABEL PATH ACTUAL -- ok/okeq for a path, in
+# whichever spelling this platform prints it.
+winforms() { cygpath -m "$1"; cygpath -ml "$1" 2>/dev/null; cygpath -ms "$1" 2>/dev/null; }
+pathok() {
+    if [ "$WIN" != 1 ]; then ok "$1" "$2" "$3"; return; fi
+    for f in $(winforms "$2"); do
+        if printf '%s' "$3" | grep -qiF -- "$f"; then pass=$((pass + 1)); echo "  ok   $1"; return; fi
+    done
+    fail=$((fail + 1)); echo "  FAIL $1 -- expected '$2' (any Windows spelling) in: [$3]"
+}
+patheq() {
+    if [ "$WIN" != 1 ]; then okeq "$1" "$2" "$3"; return; fi
+    a=$(printf '%s' "$3" | tr 'A-Z' 'a-z')
+    for f in $(winforms "$2"); do
+        if [ "$a" = "$(printf '%s' "$f" | tr 'A-Z' 'a-z')" ]; then pass=$((pass + 1)); echo "  ok   $1"; return; fi
+    done
+    fail=$((fail + 1)); echo "  FAIL $1 -- expected '$2' (any Windows spelling), got '$3'"
+}
+# An absolute path starts with / here and with a drive letter there (grep BRE).
+if [ "$WIN" = 1 ]; then ROOT='[A-Za-z]:/'; else ROOT='/'; fi
+skipw() { echo "  skip $1 (Windows: $2)"; }
+
 DIR=$(mktemp -d "${TMPDIR:-/tmp}/ais_cli.XXXXXX") || exit 2
 trap 'rm -rf "$DIR"' EXIT
 
@@ -152,7 +178,7 @@ else
     fail=$((fail + 1)); echo "  FAIL doc: blob file missing"
 fi
 okeq "doc: blob preserved 3 lines"   "3" "$(( $(wc -l < "$blob") ))"   # $(()) strips BSD wc's leading pad
-ok "where: prints the index dir"     "$DC" "$("$AIS" -f "$DC" --where)"
+pathok "where: prints the index dir"     "$DC" "$("$AIS" -f "$DC" --where)"
 rm -rf "$DC"
 
 # 9. multi-link: two -v under one key make one record (id) with two values
@@ -318,11 +344,15 @@ rm -rf "$FK"
 # 17e. The store is written before the index. A rewrite that cannot fit must leave
 #      no posting behind: the next --compact drops a key the store does not know.
 AT=$(mktemp -d "${TMPDIR:-/tmp}/ais_atom.XXXXXX") || exit 2
+if [ "$WIN" = 1 ]; then
+    skipw "atomic: the keys field is unchanged when the rewrite cannot fit" "a 64 KB argument exceeds the command line"
+else
 big=$(printf 'v%.0s' $(seq 1 65400))
 longkey=$(printf 'z%.0s' $(seq 1 200))
 aid=$("$AIS" -f "$AT" -v "$big" only)
 "$AIS" -f "$AT" --update "$aid" alpha "$longkey" >/dev/null 2>&1   # 'alpha' fits, the pair does not
 okeq    "atomic: the keys field is unchanged when the rewrite cannot fit" "only" "$(cut -d'|' -f3 "$AT/store")"
+fi
 okempty "atomic: no phantom posting for the rejected keys"  "$(find "$AT/idx" -name 'alpha' -o -name "$longkey")"
 rm -rf "$AT"
 
@@ -961,8 +991,8 @@ if [ "$SKIP_DEFAULT" = no ]; then
 
     TGT="$DIR/saved-default"
     "$AIS" --default "$TGT" >/dev/null                              # save (process A)
-    okeq "default: a new process reads back the saved path" "$TGT" "$("$AIS" --default)"
-    okeq "default: --where resolves to the saved index"     "$TGT" "$(cd "$DIR" && "$AIS" --where)"
+    patheq "default: a new process reads back the saved path" "$TGT" "$("$AIS" --default)"
+    patheq "default: --where resolves to the saved index"     "$TGT" "$(cd "$DIR" && "$AIS" --where)"
     "$AIS" --default "$TGT" >/dev/null                              # save again
     okeq "default: saving the same path twice is idempotent" "$TGT" "$("$AIS" --default)"
     "$AIS" --default '' >/dev/null                                  # clear
@@ -1454,7 +1484,7 @@ mout=$(mcp '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVer
 jsonok  "mcp: initialize is valid JSON"                    "$mout"
 ok      "mcp: initialize names the server"                 '"name":"ais"' "$mout"
 # realpath: macOS puts TMPDIR under a /private symlink and getcwd resolves it.
-ok      "mcp: and says which index it opened"              "$(cd "$MI" && pwd -P)" "$mout"
+pathok  "mcp: and says which index it opened"              "$(cd "$MI" && pwd -P)" "$mout"
 ok      "mcp: read-only says saving is off"                'read-only and has no save tool' "$mout"
 ok      "mcp: and answers the protocol asked for"          '"protocolVersion":"2025-06-18"' "$mout"
 ok      "mcp: and tells it how to turn saving on"          "restarting it as 'ais --mcp rw'" "$mout"
@@ -1740,7 +1770,7 @@ MR=$(mktemp -d "${TMPDIR:-/tmp}/ais_mcp.XXXXXX") || exit 2
 "$AIS" -f "$MR/rel" --init >/dev/null
 mout=$(cd "$MR" && printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}' \
        | "$AIS" -f ./rel --mcp 2>/dev/null)
-ok      "mcp: a relative -f is reported absolute"          "This index is at /" "$mout"
+ok      "mcp: a relative -f is reported absolute"          "This index is at $ROOT" "$mout"
 okempty "mcp: not as the dot path the server was given"    "$(printf '%s' "$mout" | grep -o 'is at ./rel')"
 rm -rf "$MR"
 
@@ -1841,7 +1871,7 @@ okeq    "mcpproj: a walked-up index exits 2"               "2" "$prc"
 okempty "mcpproj: and nothing reaches stdout"              "$pout"
 perr=$(cd "$PJ/sub" && printf '%s\n' "$MLIST" | "$AIS" --mcp 2>&1 >/dev/null)
 ok      "mcpproj: the refusal names -f"                    "pass -f DIR" "$perr"
-ok      "mcpproj: and names the index it declined"         "$(cd "$PJ/.ais" && pwd -P)" "$perr"
+pathok  "mcpproj: and names the index it declined"         "$(cd "$PJ/.ais" && pwd -P)" "$perr"
 
 # Naming the same index serves it, at either setting.
 mout=$(printf '%s\n' "$MLIST" | "$AIS" -f "$PJ/.ais" --mcp 2>/dev/null)
@@ -1870,8 +1900,12 @@ okeq    "keylen: the store kept its one line"           "1" "$(grep -c . "$KL/st
 okeq    "keylen: next_id did not move"                  "2" "$(cat "$KL/next_id")"
 "$AIS" -f "$KL" --compact -y >/dev/null 2>&1
 okeq    "keylen: and compaction still succeeds"         "0" "$?"
+if [ "$WIN" = 1 ]; then
+    skipw "keylen: a 255-byte key is accepted" "the posting path exceeds MAX_PATH; see doc/dev/WINDOWS.md"
+else
 ok      "keylen: a 255-byte key is accepted"            "fits" \
         "$("$AIS" -f "$KL" -v fits "$K255" >/dev/null 2>&1; "$AIS" -f "$KL" "$K255")"
+fi
 
 # The same line arriving by --import is skipped and counted, never half-written.
 KI=$(mktemp -d "${TMPDIR:-/tmp}/ais_keylen_i.XXXXXX") || exit 2
@@ -1940,6 +1974,9 @@ printf 'VICTIM-BYTES-KEEP-THESE\n'  > "$SY/victim.txt"
 "$AIS" -f "$SY/idx" --init >/dev/null
 mkdir -p "$SY/idx/blobs"
 ln -s "$SY/secretfile.txt" "$SY/idx/blobs/leak.txt"
+if [ ! -L "$SY/idx/blobs/leak.txt" ]; then
+    echo "  skip symblob: this shell cannot make a symlink (Windows), nothing to refuse"
+else
 "$AIS" -f "$SY/idx" -v blobs/leak.txt leakkey >/dev/null
 okempty "symblob: --export does not carry the target's bytes" \
         "$("$AIS" -f "$SY/idx" --export 2>/dev/null | grep -o TOP-SECRET-FILE-CONTENTS)"
@@ -1955,6 +1992,7 @@ ok      "symblob: --del does not zero-fill through it"       "VICTIM-BYTES-KEEP-
         "$(cat "$SY/victim.txt")"
 okempty "symblob: the link itself is gone, the target is not" \
         "$(ls "$SY/idx/blobs/planted.aisc" 2>/dev/null)"
+fi
 rm -rf "$SY"
 
 # ---- a store line past AIS_LINE_MAX is one corrupt line, never two records --

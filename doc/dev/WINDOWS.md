@@ -31,6 +31,19 @@ covers what every other platform gets.
 - `release.yml`'s `windows` job runs `scripts/dist.sh win`, which cross-compiles
   and packages the zip.
 
+## Known limits on Windows
+
+- A key near the 255-byte limit can exceed `MAX_PATH` (260 characters for the
+  whole path) once the index sits a few folders deep: the posting file for it
+  cannot be created, and the record's store line is written without it.
+  `tests/cli.sh` skips its 255-byte key test there. A long-path manifest would
+  lift it only on systems whose policy allows long paths.
+- No symbolic links, so the blob symlink refusal has nothing to refuse; the same
+  test is skipped.
+- A confirmation prompt (`--del` without `-y`, `-i`) asks at the console only
+  when one of the standard streams is a console; a script with everything
+  redirected gets the "no terminal to confirm on" exit instead of a hang.
+
 ## Sync: a file bundle beside the sockets
 
 The native window has no sync of its own. The LAN transport is now in its

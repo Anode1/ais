@@ -13,6 +13,7 @@
 
 #include "feed.h"
 #include "sync.h"
+#include "log.h"           /* debug(): the -d trace */
 
 /* Mark this index as having a sync peer, with a marker of its own: `syncid` is the
  * FOLDER protocol's device identity and is never written by a LAN round, so anything
@@ -777,13 +778,11 @@ static uint64_t get_u64le(const uint8_t *p) { uint64_t v = 0; int i; for (i = 0;
 static void put_u32le(uint8_t *p, uint32_t v) { int i; for (i = 0; i < 4; i++) p[i] = (uint8_t)(v >> (8 * i)); }
 static uint32_t get_u32le(const uint8_t *p) { uint32_t v = 0; int i; for (i = 0; i < 4; i++) v |= (uint32_t)p[i] << (8 * i); return v; }
 
+/* The crypto module's OS randomness: /dev/urandom on Unix, rand_s on Windows.
+ * A private /dev/urandom read lived here until 2026-10-08, and on Windows it
+ * made every folder sync fail before it started: no device identity. */
 static int rand_bytes(uint8_t *p, size_t n) {
-    FILE *f = fopen("/dev/urandom", "rb");
-    size_t got;
-    if (f == NULL) return -1;
-    got = fread(p, 1, n, f);
-    fclose(f);
-    return got == n ? 0 : -1;
+    return aisc_random(p, n) == AISC_OK ? 0 : -1;
 }
 static void hexof(const uint8_t *p, size_t n, char *out) {
     static const char h[] = "0123456789abcdef";
@@ -1105,7 +1104,7 @@ int sync_folder_once_force(ais *a, const char *folder, int force) {
     if (read_frame_meta(own_path, fnonce, &fseq) == 0) {
         int diff_nonce = memcmp(fnonce, s.nonce, 16) != 0;
         if (diff_nonce || fseq > s.seq) {
-            if (ident_new(a, &s) != 0) return -1;
+            if (ident_new(a, &s) != 0) { debug("folder sync: could not renew the device identity"); return -1; }
             snprintf(own_name, sizeof own_name, "%s.aisb", s.id);
             snprintf(own_path, sizeof own_path, "%s/%s", folder, own_name);
         }

@@ -15,7 +15,16 @@
  * cookies, corrupting that arithmetic. Force binary mode for every fopen,
  * before main() runs, so the on-disk format stays byte-exact and LF-only. */
 __attribute__((constructor))
-static void ais_force_binary_mode(void) { _fmode = _O_BINARY; }
+static void ais_force_binary_mode(void)
+{
+    _fmode = _O_BINARY;
+    /* The standard streams are already open when this runs, so _fmode does not
+     * reach them: --dump and --export to stdout came out CRLF, and a dump
+     * imported elsewhere would carry a CR in every value. */
+    _setmode(_fileno(stdin),  _O_BINARY);
+    _setmode(_fileno(stdout), _O_BINARY);
+    _setmode(_fileno(stderr), _O_BINARY);
+}
 
 /* flock(2) -> LockFileEx / UnlockFileEx on the underlying OS handle. */
 int ais_flock(int fd, int op)
