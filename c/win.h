@@ -1,18 +1,28 @@
-/* win.h -- native Windows (MinGW-w64) compatibility shims, so the ANSI C engine
- * builds into a self-contained ais.exe with NO cygwin1.dll. Empty on POSIX;
- * safe to include anywhere. Each shim is only the subset AIS actually uses, not
- * a general implementation:
- *   - Winsock init (ais_net_init) for serve.c
- *   - flock(2)  -> LockFileEx        (store.c index lock)
- *   - mkdir(p,mode) -> _mkdir(p)     (mode ignored on Windows)
- *   - rename(2) -> MoveFileEx        (POSIX replace-existing; MSVCRT rename fails)
- *   - lstat -> stat                  (no POSIX symlinks on Windows)
- * The MinGW build is cross-compiled from Linux CI; see native-windows.yml. */
+/* win.h -- platform shims. On native Windows (MinGW-w64) they let the ANSI C
+ * engine build into a self-contained ais.exe with NO cygwin1.dll; on POSIX only
+ * the three socket macros remain. Safe to include anywhere. Each shim is only
+ * the subset AIS actually uses, not a general implementation:
+ *   - Winsock init (ais_net_init) for serve.c and sync.c
+ *   - poll(2)   -> WSAPoll            (sync.c's accept timeout)
+ *   - flock(2)  -> LockFileEx         (store.c index lock)
+ *   - mkdir(p,mode) -> _mkdir(p)      (mode ignored on Windows)
+ *   - rename(2) -> MoveFileEx         (POSIX replace-existing; MSVCRT rename fails)
+ *   - lstat -> stat                   (no POSIX symlinks on Windows)
+ *   - fsync -> _commit                (sync.c's atomic bundle write)
+ *   - realpath -> _fullpath           (main.c / mcp.c: is -f the home index?)
+ *   - ais_tmpfile: a temp FILE in the user's temp dir, deleted on close.
+ *     MSVCRT's tmpfile() opens it in the drive root, which a user cannot write.
+ * The MinGW build is cross-compiled from Linux; see native-windows.yml. */
 #ifndef AIS_WIN_H
 #define AIS_WIN_H
 
+#include <stdio.h>
+
 #ifdef _WIN32
 
+#ifndef _WIN32_WINNT
+#define _WIN32_WINNT 0x0600     /* Vista and later: WSAPoll, inet_pton, inet_ntop */
+#endif
 #include <winsock2.h>   /* must precede windows.h */
 #include <ws2tcpip.h>
 #include <windows.h>
@@ -53,8 +63,33 @@ int ais_rename(const char *from, const char *to);
 #endif
 #define rename(from, to) ais_rename((from), (to))
 
+/* poll(2) subset: WSAPoll takes the same pollfd array and POLLIN. */
+#define poll(fds, n, ms) WSAPoll((fds), (n), (ms))
+
+/* fsync(2): flush an open file's OS buffers to the disk. */
+#define fsync(fd) _commit(fd)
+
+/* realpath(3): RESOLVED must hold AIS_PATH_MAX bytes, as the callers' do. */
+char *ais_realpath(const char *path, char *resolved);
+#define realpath(path, resolved) ais_realpath((path), (resolved))
+
+/* A read/write temp FILE that disappears when closed. */
+FILE *ais_tmpfile(void);
+
 /* Initialise Winsock once (WSAStartup); no-op after the first call. */
 void ais_net_init(void);
+
+/* socket I/O is recv()/send()/closesocket() here: a SOCKET is not a file
+ * descriptor, and read()/close() on one corrupt the CRT's fd table. */
+#define SOCK_READ(fd, b, n)  recv((SOCKET)(fd), (char *)(b), (int)(n), 0)
+#define SOCK_WRITE(fd, b, n) send((SOCKET)(fd), (const char *)(b), (int)(n), 0)
+#define SOCK_CLOSE(fd)       closesocket((SOCKET)(fd))
+
+#else  /* POSIX: a socket is a file descriptor */
+
+#define SOCK_READ(fd, b, n)  read((fd), (b), (n))
+#define SOCK_WRITE(fd, b, n) write((fd), (b), (n))
+#define SOCK_CLOSE(fd)       close((fd))
 
 #endif /* _WIN32 */
 #endif /* AIS_WIN_H */

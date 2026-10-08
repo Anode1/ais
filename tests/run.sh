@@ -47,7 +47,7 @@ sub
 layer fail_gui  "web api (uiut)"        sh "$root/tests/gui/serve.sh" "$AIS"
 layer fail_gui  "web render (uiut)"     sh "$root/tests/gui/ui.sh" "$AIS"
 layer fail_gui  "web interact (uiut)"   sh "$root/tests/gui/inter.sh" "$AIS"
-layer fail_gui  "native windows ui"     sh "$root/tests/gui/windows.sh"
+layer fail_gui  "windows cross-build"   sh "$root/tests/gui/windows.sh"
 layer fail_gui  "flutter app"           sh "$root/tests/gui/flutter.sh"
 layer fail_gui  "flutter sync ui"       sh "$root/tests/gui/flutter-sync.sh"
 layer fail_gui  "flutter add/edit/delete" sh "$root/tests/gui/flutter-crud-android.sh"

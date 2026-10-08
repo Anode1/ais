@@ -30,6 +30,7 @@
 #include <string.h>
 
 #include "ais.h"
+#include "win.h"          /* realpath shim on native Windows; empty on POSIX */
 #include "compact.h"   /* tomb_contains: do not offer to delete a deleted record */
 #include "doc.h"           /* ais_doc_is_blob: recall cats a document, not its path */
 #include "help.h"

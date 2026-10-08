@@ -3162,6 +3162,27 @@ static void test_sync_socket(void)
     scratch_rm(db);
 }
 
+/* A join to a host that never answers (off the network, a firewall, the wrong
+ * subnet) must give up at its timeout. 192.0.2.1 is TEST-NET-1: never routed on
+ * the internet, so the SYN is dropped, or fails at once where there is no route.
+ * Before connect was bounded, the kernel's own retry schedule held each attempt
+ * for about two minutes, and a Join on a phone spun for that long. */
+static void test_sync_pull_unreachable(void)
+{
+    ais B;
+    const char *db = "/tmp/ais_ut_sockU";
+    time_t t0 = time(NULL);
+    int rc;
+
+    scratch_rm(db);
+    ais_open(&B, db);
+    rc = sync_pull(&B, "192.0.2.1", 47138, "0123456789abcdef0123456789abcdef", 2, 0);
+    CHECK(rc != 0, "sync(socket): a silent host fails the pull");
+    CHECK(difftime(time(NULL), t0) < 8, "sync(socket): and fails within the timeout, not the kernel's");
+    ais_close(&B);
+    scratch_rm(db);
+}
+
 /* A folder sync must never CREATE its target. A typo, or an unplugged drive whose
  * mount point is an empty directory, would otherwise look exactly like a working
  * backup: every run reports success and writes a bundle nobody will ever read. */
@@ -7243,6 +7264,7 @@ int main(void)
     test_sync_sealed();
     printf("sync transport (socket, forked loopback):\n");
     test_sync_socket();
+    test_sync_pull_unreachable();
     printf("folder sync (two devices converge through a shared folder):\n");
     test_edit_beats_earlier_delete();
     test_mts_slots();

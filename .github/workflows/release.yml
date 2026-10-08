@@ -72,6 +72,35 @@ jobs:
           name: ais-${{ matrix.name }}
           path: dist/*
 
+  # Windows: cross-compiled from Linux with MinGW-w64 (no Windows runner, no
+  # Cygwin). The zip holds the CLI, which carries the web GUI and LAN sync over
+  # Winsock, the native window and the .bat launcher. native-windows.yml runs
+  # the CLI suites against this same build on a Windows runner on every push.
+  windows:
+    name: build windows-x86_64 (cross)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: install MinGW-w64 (gcc + windres) and zip
+        run: sudo apt-get update && sudo apt-get install -y gcc-mingw-w64-x86-64 binutils-mingw-w64-x86-64 zip
+
+      - name: cross-compile and package
+        run: |
+          AIS_VERSION="${GITHUB_REF_NAME#v}" sh scripts/dist.sh win
+          src=$(ls releases/windows/ais-*.zip | head -n1)
+          name="ais-${{ github.ref_name }}-windows-x86_64"
+          mkdir -p dist
+          cp "$src" "dist/$name.zip"
+          ( cd dist && shasum -a 256 "$name.zip" > "$name.zip.sha256" )
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ais-windows-x86_64
+          path: dist/*
+
   # Android: the Flutter app (FFI to the C engine). The .apk is the installable
   # build a phone user sideloads from the release; the .aab is the Google Play
   # upload bundle (Play requires .aab; see doc/dev/ANDROID_RELEASE.md). Release-signed
@@ -160,12 +189,13 @@ jobs:
 
   publish:
     name: publish release
-    needs: [build, android]
+    needs: [build, windows, android]
     runs-on: ubuntu-latest
     # publish only on a tag, and only if the platform builds succeeded.
     if: >-
       ${{ startsWith(github.ref, 'refs/tags/')
           && needs.build.result == 'success'
+          && needs.windows.result == 'success'
           && needs.android.result == 'success' }}
     permissions:
       contents: write

@@ -3,6 +3,7 @@
 #define _POSIX_C_SOURCE 200809L
 #include <errno.h>
 #include <fcntl.h>
+#include <limits.h>        /* LONG_MAX: can an offset reach 11 digits here? */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -623,12 +624,17 @@ long store_recover_next_id(const ais *a)
 void off_write(FILE *fp, long offset)
 {
     long v = (offset < 0) ? 0L : offset + 1;   /* +1: 0 = absent */
+#if LONG_MAX > 2147483647L
     if (v >= 100000000000L)                    /* 11 digits (~90 GB); 12 would break the
                                                 * fixed AIS_OFF_WIDTH stride and misalign
                                                 * every later entry. Emit the absent
                                                 * sentinel: off_get then falls back to a
-                                                * scan instead of returning wrong offsets. */
+                                                * scan instead of returning wrong offsets.
+                                                * A 32-bit long (Windows) cannot reach 11
+                                                * digits, so there the check is left out
+                                                * rather than compiled as always false. */
         v = 0;
+#endif
     fprintf(fp, "%011ld\n", v);
 }
 

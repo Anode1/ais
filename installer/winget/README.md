@@ -3,11 +3,13 @@
 > **STATUS: stale, and not submittable as they stand.** The only version
 > directory here is `0.2.3`, twelve releases behind, and its `InstallerUrl`
 > points at `v0.2.3/...-windows-x86_64-installer.exe`, which no longer exists --
-> no Windows artifact has been published since, because `release.yml` has no
-> Windows job (see `doc/dev/WINDOWS.md`). Submitting these would give winget a
-> 404. They are kept as the TEMPLATE for a future submission: when a Windows
-> build returns, copy the directory to the new version and update all three
-> files, per the instructions below.
+> no Windows artifact was published between then and v0.3.31, and the release
+> since is a zip, `ais-<tag>-windows-x86_64.zip`, not an installer (see
+> `doc/dev/WINDOWS.md`). Submitting these would give winget a 404. They are kept
+> as the TEMPLATE for a future submission: a winget manifest can point at a zip
+> (`InstallerType: zip` with a `NestedInstallerFiles` entry for `ais.exe`), so
+> copy the directory to the new version and update all three files, per the
+> instructions below.
 
 Source for submitting AIS to the Windows Package Manager community repo
 ([microsoft/winget-pkgs](https://github.com/microsoft/winget-pkgs)), so users can

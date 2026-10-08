@@ -2,9 +2,9 @@
  * and apply a received sealed stream. See sync.h. The socket layer only moves the
  * sealed blob between two devices; the crypto + merge happen here.
  *
- * POSIX (open_memstream / fmemopen) and the crypto module are required; without either
- * the functions compile to inert stubs that return -1, leaving the rest of ais
- * unaffected. */
+ * The crypto module is required; without it the functions compile to inert stubs
+ * that return -1, leaving the rest of ais unaffected. Sockets are BSD on POSIX and
+ * Winsock on native Windows, through the shims in win.h. */
 #define _DEFAULT_SOURCE
 #define _POSIX_C_SOURCE 200809L
 #include <stdio.h>
@@ -31,13 +31,16 @@ static void sync_mark_peered(ais *a)
  * future format bumps this; a peer reading a byte it does not recognize fails LOUDLY
  * (-2 from sync_import_sealed) instead of mis-parsing binary as records. */
 
-#if !defined(_WIN32) && defined(__has_include) && __has_include("crypto/monocypher.h")
+#if defined(__has_include) && __has_include("crypto/monocypher.h")
 #  define SYNC_HAVE 1
 #  include "crypto/ais_crypto.h"
-#  include <sys/socket.h>
-#  include <netinet/in.h>
-#  include <arpa/inet.h>
-#  include <netdb.h>          /* getaddrinfo: join by hostname, not only a dotted quad */
+#  include "win.h"            /* Winsock, poll, fsync and temp-file shims on native Windows */
+#  ifndef _WIN32
+#    include <sys/socket.h>
+#    include <netinet/in.h>
+#    include <arpa/inet.h>
+#    include <netdb.h>        /* getaddrinfo: join by hostname, not only a dotted quad */
+#  endif
 #  include <sys/stat.h>
 #  include <sys/time.h>
 #  include <dirent.h>
@@ -46,7 +49,9 @@ static void sync_mark_peered(ais *a)
 #  include <unistd.h>
 #  include <errno.h>
 #  include <signal.h>
-#  include <poll.h>
+#  ifndef _WIN32
+#    include <poll.h>
+#  endif
 #endif
 
 /* Parse a sync URL into HOST and *PORT. Pure string logic (no sockets), so it is always
@@ -75,6 +80,56 @@ int sync_parse_url(const char *url, char *host, size_t hostsz, int *port)
 
 #ifdef SYNC_HAVE
 
+/* A FILE that collects what is written into a malloc'd buffer, and a FILE that
+ * reads from a string: open_memstream and fmemopen on POSIX. MinGW has neither,
+ * so there both are a temp file, read back on close or written before the first
+ * read. Both ends of a sync hold the bundle in memory anyway (the wire cap is
+ * AIS_SYNC_MAX_BLOB), so the detour changes nothing but the platform. */
+#ifdef _WIN32
+static FILE *bufstream_open(char **buf, size_t *len)
+{
+    *buf = NULL; *len = 0;
+    return ais_tmpfile();
+}
+static int bufstream_close(FILE *f, char **buf, size_t *len)
+{
+    long n;
+    if (fflush(f) != 0 || (n = ftell(f)) < 0) { fclose(f); return -1; }
+    rewind(f);
+    *buf = malloc((size_t)n + 1);
+    if (*buf == NULL || fread(*buf, 1, (size_t)n, f) != (size_t)n) {
+        free(*buf); *buf = NULL; fclose(f);
+        return -1;
+    }
+    (*buf)[n] = '\0';
+    *len = (size_t)n;
+    fclose(f);
+    return 0;
+}
+static FILE *strstream_open(const char *s, size_t n)
+{
+    FILE *f = ais_tmpfile();
+    if (f == NULL) return NULL;
+    if (fwrite(s, 1, n, f) != n || fflush(f) != 0) { fclose(f); return NULL; }
+    rewind(f);
+    return f;
+}
+#else
+static FILE *bufstream_open(char **buf, size_t *len)
+{
+    *buf = NULL; *len = 0;
+    return open_memstream(buf, len);
+}
+static int bufstream_close(FILE *f, char **buf, size_t *len)
+{
+    (void)buf; (void)len;                      /* the stream fills them on close */
+    return fclose(f);
+}
+static FILE *strstream_open(const char *s, size_t n)
+{
+    return fmemopen((void *)s, n, "r");
+}
+#endif
 
 /* Assemble the raw (UNSEALED) bundle: version byte + blob sections + merge stream,
  * the shared core both the file bundle (plaintext) and LAN sync (which seals this)
@@ -88,7 +143,7 @@ int sync_export_plain(ais *a, uint8_t **out, size_t *out_len)
 
     if (!a || !out || !out_len)
         return -1;
-    ms = open_memstream(&buf, &blen);          /* capture version + blobs + merge stream */
+    ms = bufstream_open(&buf, &blen);          /* capture version + blobs + merge stream */
     if (ms == NULL)
         return -1;
     if (fwrite(&ver, 1, 1, ms) != 1) { fclose(ms); free(buf); return -1; }
@@ -101,7 +156,7 @@ int sync_export_plain(ais *a, uint8_t **out, size_t *out_len)
         free(buf);
         return -1;
     }
-    if (fclose(ms) != 0) { free(buf); return -1; }
+    if (bufstream_close(ms, &buf, &blen) != 0) { free(buf); return -1; }
     if (blen > AIS_SYNC_MAX_BLOB) {            /* cap the plain side too (the import side matches) */
         fprintf(stderr, "sync: index too large (%zu bytes > %lu-byte cap)\n",
                 blen, (unsigned long)AIS_SYNC_MAX_BLOB);
@@ -244,13 +299,13 @@ int sync_import_plain(ais *a, const uint8_t *data, size_t len)
         off += (size_t)size;                    /* past the raw content */
     }
 
-    /* Record text = the rest of the payload, NUL-terminated for fmemopen. */
+    /* Record text = the rest of the payload, NUL-terminated for the string stream. */
     rectext = malloc(len - off + 1);
     if (rectext == NULL) goto done;
     memcpy(rectext, data + off, len - off);
     rectext[len - off] = '\0';
 
-    mf = fmemopen(rectext, strlen(rectext), "r");
+    mf = strstream_open(rectext, strlen(rectext));
     if (mf == NULL) goto done;
     feed_import_from_map(a, mf, &map);           /* record stream -> merge, values
                                                   * repointed once each */
@@ -291,7 +346,7 @@ int sync_import_sealed(ais *a, const char *token, const uint8_t *sealed, size_t 
 static int write_all(int fd, const void *buf, size_t n) {
     const char *p = (const char *)buf;
     while (n > 0) {
-        ssize_t w = write(fd, p, n);
+        ssize_t w = SOCK_WRITE(fd, p, n);
         if (w < 0) { if (errno == EINTR) continue; return -1; }
         if (w == 0) return -1;
         p += w; n -= (size_t)w;
@@ -302,7 +357,7 @@ static int write_all(int fd, const void *buf, size_t n) {
 static int read_all(int fd, void *buf, size_t n) {
     char *p = (char *)buf;
     while (n > 0) {
-        ssize_t r = read(fd, p, n);
+        ssize_t r = SOCK_READ(fd, p, n);
         if (r < 0) { if (errno == EINTR) continue; return -1; }
         if (r == 0) return -1;                  /* EOF before n bytes */
         p += r; n -= (size_t)r;
@@ -312,11 +367,60 @@ static int read_all(int fd, void *buf, size_t n) {
 
 /* Bound how long a stalled peer can hold us, so the transport never hangs. */
 static void set_timeout(int fd, int secs) {
+#ifdef _WIN32
+    DWORD ms = (DWORD)secs * 1000;             /* Winsock takes milliseconds, not a timeval */
+    setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, (const char *)&ms, sizeof ms);
+    setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, (const char *)&ms, sizeof ms);
+#else
     struct timeval tv;
     tv.tv_sec = secs;
     tv.tv_usec = 0;
     setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof tv);
     setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof tv);
+#endif
+}
+
+/* Winsock must be started before the first socket call; a no-op on POSIX. */
+static void net_init(void) {
+#ifdef _WIN32
+    ais_net_init();
+#endif
+}
+
+static int set_blocking(int fd, int blocking) {
+#ifdef _WIN32
+    u_long nb = blocking ? 0 : 1;
+    return ioctlsocket((SOCKET)fd, FIONBIO, &nb) == 0 ? 0 : -1;
+#else
+    int fl = fcntl(fd, F_GETFL, 0);
+    if (fl < 0) return -1;
+    fl = blocking ? (fl & ~O_NONBLOCK) : (fl | O_NONBLOCK);
+    return fcntl(fd, F_SETFL, fl) == 0 ? 0 : -1;
+#endif
+}
+
+/* connect() bounded by MS. A host that drops the SYN (off the network, behind
+ * a firewall, on another subnet) otherwise holds a blocking connect for the
+ * kernel's own retry schedule, about two minutes on Linux and Android, and a
+ * Join on a phone spun for that long before reporting anything. The socket is
+ * blocking again on return, so the rest of the transport is unchanged. */
+static int connect_bounded(int fd, const struct sockaddr *sa, socklen_t len, int ms) {
+    struct pollfd pfd;
+    int err = 0;
+    socklen_t elen = sizeof err;
+
+    if (set_blocking(fd, 0) != 0) return -1;
+    if (connect(fd, sa, len) == 0) return set_blocking(fd, 1);
+#ifdef _WIN32
+    if (WSAGetLastError() != WSAEWOULDBLOCK) return -1;
+#else
+    if (errno != EINPROGRESS) return -1;
+#endif
+    pfd.fd = fd; pfd.events = POLLOUT; pfd.revents = 0;
+    if (poll(&pfd, 1, ms) <= 0) return -1;          /* nobody answered in time */
+    if (getsockopt(fd, SOL_SOCKET, SO_ERROR, (char *)&err, &elen) != 0 || err != 0)
+        return -1;                                  /* refused, unreachable, reset */
+    return set_blocking(fd, 1);
 }
 
 int sync_serve(ais *a, int port, const char *token, int timeout_s, int bidir) {
@@ -329,15 +433,16 @@ int sync_serve(ais *a, int port, const char *token, int timeout_s, int bidir) {
     size_t blen = 0;
     unsigned char lenbuf[4];
 
+    net_init();
     srv = socket(AF_INET, SOCK_STREAM, 0);
     if (srv < 0) return -1;
-    setsockopt(srv, SOL_SOCKET, SO_REUSEADDR, &one, sizeof one);
+    setsockopt(srv, SOL_SOCKET, SO_REUSEADDR, (const char *)&one, sizeof one);
     memset(&addr, 0, sizeof addr);
     addr.sin_family = AF_INET;
     addr.sin_addr.s_addr = htonl(INADDR_ANY);   /* LAN, not 127.0.0.1 -- a peer must reach it */
     addr.sin_port = htons((unsigned short)port);
-    if (bind(srv, (struct sockaddr *)&addr, sizeof addr) != 0) { close(srv); return -2; }   /* port busy */
-    if (listen(srv, 1) != 0) { close(srv); return -1; }
+    if (bind(srv, (struct sockaddr *)&addr, sizeof addr) != 0) { SOCK_CLOSE(srv); return -2; }   /* port busy */
+    if (listen(srv, 1) != 0) { SOCK_CLOSE(srv); return -1; }
 
     survivals0 = a->survivals;               /* see AIS_SYNC_AGAIN in sync.h */
 
@@ -358,15 +463,15 @@ int sync_serve(ais *a, int port, const char *token, int timeout_s, int bidir) {
 
             if (timeout_s > 0) {
                 double left = difftime(deadline, time(NULL));
-                if (left <= 0) { close(srv); return -1; }   /* nobody completed in time */
+                if (left <= 0) { SOCK_CLOSE(srv); return -1; }   /* nobody completed in time */
                 left_ms = (int)(left * 1000);
             }
             pfd.fd = srv; pfd.events = POLLIN; pfd.revents = 0;
             /* Portable accept timeout: SO_RCVTIMEO does NOT bound accept() on
              * BSD/macOS, so wait for an incoming connection with poll() first. */
-            if (poll(&pfd, 1, left_ms) <= 0) { close(srv); return -1; }
+            if (poll(&pfd, 1, left_ms) <= 0) { SOCK_CLOSE(srv); return -1; }
             cli = accept(srv, NULL, NULL);
-            if (cli < 0) { close(srv); return -1; }
+            if (cli < 0) { SOCK_CLOSE(srv); return -1; }
             set_timeout(cli, timeout_s);
 
             /* Challenge-response: prove the peer knows the token WITHOUT it crossing the wire.
@@ -384,7 +489,7 @@ int sync_serve(ais *a, int port, const char *token, int timeout_s, int bidir) {
                     warned = 1;
                 }
             }
-            close(cli);                         /* wrong token or a dropped connection */
+            SOCK_CLOSE(cli);                    /* wrong token or a dropped connection */
             cli = -1;
         }
     }
@@ -426,8 +531,8 @@ done:
     aisc_wipe(proof_want, sizeof proof_want);
     aisc_wipe(proof_got, sizeof proof_got);
     if (blob) { aisc_wipe(blob, blen); free(blob); }
-    if (cli >= 0) close(cli);
-    close(srv);
+    if (cli >= 0) SOCK_CLOSE(cli);
+    SOCK_CLOSE(srv);
     /* Our stream went out BEFORE we read theirs, so a survival decided while
      * merging it cannot have reached them. They still hold the delete. */
     if (rc == 0 && a->survivals != survivals0)
@@ -443,6 +548,7 @@ int sync_pull(ais *a, const char *host, int port, const char *token, int timeout
     size_t blen;
     uint8_t *blob = NULL;
 
+    net_init();
     memset(&addr, 0, sizeof addr);
     addr.sin_family = AF_INET;
     addr.sin_port = htons((unsigned short)port);
@@ -466,15 +572,27 @@ int sync_pull(ais *a, const char *host, int port, const char *token, int timeout
     }
 
     /* Recreate the socket each attempt: after a failed connect(), BSD/macOS will not
-     * let you connect() the same fd again (only Linux retries an unconnected fd cleanly). */
+     * let you connect() the same fd again (only Linux retries an unconnected fd
+     * cleanly). The attempts share ONE deadline, TIMEOUT_S from now: a refusal
+     * retries quickly (the server may still be binding), a silent host eats the
+     * whole budget once and the call returns. */
     fd = -1;
-    for (attempt = 0; attempt < 50; attempt++) {        /* server may still be binding */
+    {
+    time_t deadline = time(NULL) + (timeout_s > 0 ? timeout_s : 10);
+    for (attempt = 0; attempt < 50; attempt++) {
+        int left_ms = (int)(difftime(deadline, time(NULL)) * 1000);
+        if (left_ms <= 0) return -1;                    /* out of time */
         fd = socket(AF_INET, SOCK_STREAM, 0);
         if (fd < 0) return -1;
         set_timeout(fd, timeout_s);
-        if (connect(fd, (struct sockaddr *)&addr, sizeof addr) == 0) break;
-        close(fd); fd = -1;
+        if (connect_bounded(fd, (struct sockaddr *)&addr, sizeof addr, left_ms) == 0) break;
+        SOCK_CLOSE(fd); fd = -1;
+#ifdef _WIN32
+        Sleep(100);
+#else
         { struct timespec ts = { 0, 100000000L }; nanosleep(&ts, NULL); }   /* 100ms */
+#endif
+    }
     }
     if (fd < 0) return -1;                              /* never connected */
 
@@ -519,7 +637,7 @@ done:
     aisc_wipe(challenge, sizeof challenge);
     aisc_wipe(proof, sizeof proof);
     if (blob) free(blob);
-    close(fd);
+    SOCK_CLOSE(fd);
     return rc;
 }
 
@@ -531,22 +649,25 @@ static int sync_local_ip(char *buf, size_t n) {
     struct sockaddr_in to, me;
     socklen_t ml = sizeof me;
 
+    net_init();
     fd = socket(AF_INET, SOCK_DGRAM, 0);
     if (fd < 0) return -1;
     memset(&to, 0, sizeof to);
     to.sin_family = AF_INET;
     to.sin_port = htons(53);
     inet_pton(AF_INET, "8.8.8.8", &to.sin_addr);
-    if (connect(fd, (struct sockaddr *)&to, sizeof to) != 0) { close(fd); return -1; }
-    if (getsockname(fd, (struct sockaddr *)&me, &ml) != 0) { close(fd); return -1; }
-    close(fd);
+    if (connect(fd, (struct sockaddr *)&to, sizeof to) != 0) { SOCK_CLOSE(fd); return -1; }
+    if (getsockname(fd, (struct sockaddr *)&me, &ml) != 0) { SOCK_CLOSE(fd); return -1; }
+    SOCK_CLOSE(fd);
     return (inet_ntop(AF_INET, &me.sin_addr, buf, n) == NULL) ? -1 : 0;
 }
 
 int sync_serve_lan(ais *a, int port, int timeout_s, int bidir) {
     char token[33], ip[64];
 
+#ifndef _WIN32
     signal(SIGPIPE, SIG_IGN);                  /* a peer that vanishes mid-write must not kill us */
+#endif
     if (aisc_token(token, sizeof token) != AISC_OK) {
         fprintf(stderr, "sync: cannot generate a token\n");
         return -1;
@@ -592,7 +713,9 @@ int sync_pull_url(ais *a, const char *url, const char *token, int timeout_s, int
     char host[128];
     int port;
 
+#ifndef _WIN32
     signal(SIGPIPE, SIG_IGN);
+#endif
     if (!url || !token) {
         fprintf(stderr, "sync: needs <url> and --token TOKEN\n");
         return -1;
@@ -1044,7 +1167,7 @@ int sync_folder_once_force(ais *a, const char *folder, int force) {
     return 0;
 }
 
-#else  /* no POSIX buffer streams or no crypto: transport unavailable */
+#else  /* no crypto module: transport unavailable */
 
 int sync_export_plain(ais *a, uint8_t **out, size_t *out_len)
 {
@@ -1097,7 +1220,7 @@ int sync_device_id(ais *a, char *id_hex, size_t idsz, uint8_t nonce[16])
 int sync_device_new(ais *a, char *id_hex, size_t idsz, uint8_t nonce[16])
 { (void)a; (void)id_hex; (void)idsz; (void)nonce; return -1; }
 int sync_folder_once(ais *a, const char *folder)
-{ (void)a; (void)folder; fprintf(stderr, "sync: this build lacks folder sync (needs POSIX + crypto)\n"); return -1; }
+{ (void)a; (void)folder; fprintf(stderr, "sync: this build lacks folder sync (needs the crypto module)\n"); return -1; }
 int sync_folder_once_force(ais *a, const char *folder, int force)
 { (void)force; return sync_folder_once(a, folder); }
 

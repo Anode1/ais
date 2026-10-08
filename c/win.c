@@ -5,7 +5,9 @@
 #ifdef _WIN32
 
 #include <fcntl.h>      /* _O_BINARY, _fmode */
+#include <stdlib.h>     /* _fullpath */
 #include <string.h>
+#include "common.h"     /* AIS_PATH_MAX: the realpath buffer contract */
 
 /* The store/idx/off files are LF plain text addressed by exact byte offsets
  * (store.c fseek by id*width; compact.c ftell). MinGW defaults new streams to
@@ -40,6 +42,25 @@ int ais_flock(int fd, int op)
 int ais_rename(const char *from, const char *to)
 {
     return MoveFileExA(from, to, MOVEFILE_REPLACE_EXISTING | MOVEFILE_COPY_ALLOWED) ? 0 : -1;
+}
+
+char *ais_realpath(const char *path, char *resolved)
+{
+    return _fullpath(resolved, path, AIS_PATH_MAX);
+}
+
+/* GetTempFileName creates the file in the user's temp dir; "D" makes the CRT
+ * delete it on the last close, so nothing is left behind on any exit path. */
+FILE *ais_tmpfile(void)
+{
+    char dir[MAX_PATH], name[MAX_PATH];
+    DWORD n = GetTempPathA(sizeof dir, dir);
+
+    if (n == 0 || n >= sizeof dir)
+        return NULL;
+    if (GetTempFileNameA(dir, "ais", 0, name) == 0)
+        return NULL;
+    return fopen(name, "w+bD");
 }
 
 void ais_net_init(void)

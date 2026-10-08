@@ -22,7 +22,7 @@ GUI is still in progress. The layers also have their own targets (`codeut`, `cli
 | web api (uiut) | `ais --serve` endpoints incl. the encrypt save + reveal round-trip | `tests/gui/serve.sh` | yes (needs curl + crypto) |
 | web render (uiut) | the `--serve` page in headless Chrome: it loads and its controls exist by id (post-JS DOM) | `tests/gui/ui.sh` | yes (needs Chrome); else SKIP |
 | web interact (uiut) | click-and-assert: type a query, press Enter, assert the seeded record renders -- driven by a C CDP client | `tests/gui/inter.sh` (+ `cdp.c`, `cdptest.c`) | yes (needs Chrome + cc); else SKIP |
-| native windows ui | that `win32/ais-gui.c` still compiles against the engine | `tests/gui/windows.sh` | only with MinGW-w64 (CI); else SKIP |
+| windows cross-build | that `ais.exe` (CLI, web GUI, Winsock sync) and the native window `win32/ais-gui.c` still cross-compile against the engine; running them is `native-windows.yml`'s job on a Windows runner | `tests/gui/windows.sh` | only with MinGW-w64; else SKIP |
 | flutter app | `dart analyze` of `app/flutter` (FFI binding + widgets); `flutter test` if a `test/` dir exists | `tests/gui/flutter.sh` | analyze if Dart present; else SKIP |
 | flutter sync ui | the real Host/Join UI on the **Linux desktop** build, against a CLI peer | `tests/gui/flutter-sync.sh` | needs clang + ninja + libgtk-3-dev; else SKIP |
 | flutter add/edit/delete | the everyday loop on the **shipped APK**: add a record through the Add sheet, change its tags, delete it, each step asserted against the app's own index | `tests/gui/flutter-crud-android.sh` | needs adb + an attached device; else SKIP |

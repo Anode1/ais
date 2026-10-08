@@ -114,10 +114,14 @@ scan, Join still accepts the address and token typed by hand, and the address
 may be a NAME as well as a number, so `http://mylaptop.local:8766` works wherever
 that name resolves (mDNS, your router's DHCP names, `/etc/hosts`).
 
-#### From Windows (WSL)
+#### From Windows
 
-The Linux build runs under the Windows Subsystem for Linux (see the README's Download
-section). Hosting a sync from there has one catch: by default WSL2 sits behind its own
+The Windows build hosts and joins exactly as Linux does: `ais-web.bat` opens the GUI,
+Sync is in its menu. The first Host asks Windows Defender Firewall to allow `ais.exe`
+on private networks; say yes, or the phone cannot reach port 8766.
+
+If you run the Linux build under the Windows Subsystem for Linux instead, hosting has
+one catch: by default WSL2 sits behind its own
 virtual network, so the address AIS puts in the code is WSL's internal one, and the phone
 cannot reach it. Either of these fixes it:
 

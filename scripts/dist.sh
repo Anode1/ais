@@ -9,8 +9,8 @@
 #   ais-<ver>-<os>-<arch>.zip         binary  (linux, macos)
 # Each gets a same-named .md5 sidecar, OUTSIDE the artifact.
 #
-# One machine cannot cross-build the others -> run `make dist` on each. Windows is
-# not built here; the native MinGW build is CI-validated only.
+# One machine cannot build the others -> run `make dist` on each. The exception is
+# Windows, cross-compiled from Linux with MinGW-w64: `scripts/dist.sh win`.
 set -e
 cd "$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
 # The tag is the source, exactly as it is for c/Makefile: honour an explicit
@@ -61,7 +61,7 @@ build_bin() {
                 pretty=linux; launcher=gui/ais-web.desktop ;;
         darwin) make -C c clean >/dev/null && make -C c AIS_VERSION="$VERSION" >/dev/null
                 pretty=macos; launcher=gui/ais-web.command ;;
-        *) echo "dist: no binary for '$os' (Windows ships the native installer; see release.yml)"; return 0 ;;
+        *) echo "dist: no binary for '$os' (Windows is cross-built: dist.sh win)"; return 0 ;;
     esac
     name="ais-$VERSION-$pretty-$arch"; out="releases/$pretty"; stage="$out/$name"
     mkdir -p "$out"; rm -rf "$stage"; mkdir -p "$stage"
@@ -122,8 +122,56 @@ EOF
     echo "built $pkg (+ .md5)"
 }
 
+# Windows, cross-compiled with MinGW-w64 (release.yml's windows job): the CLI
+# with the web GUI and LAN sync, the native window, and the .bat launcher.
+build_win() {
+    cc=${MINGW_CC:-x86_64-w64-mingw32-gcc}
+    make -C c clean >/dev/null && make -C c AIS_VERSION="$VERSION" CC="$cc" LDFLAGS=-static >/dev/null
+    make -C win32 clean >/dev/null && make -C win32 CC="$cc" WINDRES="${cc%gcc}windres" >/dev/null
+    name="ais-$VERSION-windows-x86_64"; out="releases/windows"; stage="$out/$name"
+    mkdir -p "$out"; rm -rf "$stage"; mkdir -p "$stage"
+
+    cp c/ais.exe "$stage/ais.exe"
+    cp win32/*.exe "$stage/"
+    cp gui/ais-web.bat "$stage/"
+    # Leave no Windows object behind: the next plain `make` here would link
+    # them into the Linux binary and fail on every symbol.
+    make -C c clean >/dev/null; make -C win32 clean >/dev/null
+    [ -f COPYING ]       && cp COPYING       "$stage/"
+    [ -f doc/about.txt ] && cp doc/about.txt "$stage/"
+    [ -f doc/USING.txt ] && cp doc/USING.txt "$stage/"
+    [ -f man/ais.1 ] && { mkdir -p "$stage/man"; sed "s/@VERSION@/$VERSION/" man/ais.1 > "$stage/man/ais.1"; }
+    cat > "$stage/README.txt" <<EOF
+AIS $VERSION  (windows/x86_64) -- your memory, yours to keep.
+
+GUI:   double-click  ais-web.bat    (opens the app in your browser; sync by QR
+                                     with a phone is in its menu)
+       or the native window, the other .exe here: search and add, no sync.
+CLI:   ais --help    in a terminal   (e.g.  ais venice italy)
+New?   open USING.txt for a one-minute guide.
+
+Your data is plain text you can find, back up, edit, or delete.
+Run  ais --where  for its exact path.
+
+The programs are not code-signed, so Windows shows "Windows protected your PC"
+the first time: More info, then Run anyway. That is a new-and-unsigned notice,
+not a malware finding.
+EOF
+    find "$stage" -type d -exec chmod 0755 {} +
+    find "$stage" -type f -exec chmod 0644 {} +
+    chmod 0755 "$stage"/*.exe
+    if command -v zip >/dev/null 2>&1; then
+        ( cd "$out" && rm -f "$name.zip" && zip -rq "$name.zip" "$name" ); pkg="$out/$name.zip"
+    else
+        tar -C "$out" -czf "$out/$name.tar.gz" "$name"; pkg="$out/$name.tar.gz"
+    fi
+    rm -rf "$stage"; sidecar "$pkg"
+    echo "built $pkg (+ .md5)"
+}
+
 case "${1:-all}" in
     src) build_src ;;
     bin) build_bin ;;
+    win) build_win ;;
     *)   build_bin; build_src ;;
 esac

@@ -206,8 +206,8 @@ the token, which is infeasible to brute-force. Still out of scope: cross-interne
 (no relay), which remains Syncthing's job.
 
 ## Implementation notes (as built)
-- New file `sync.c` (+ `sync.h`), gated POSIX + crypto; Windows / no-crypto builds get inert
-  stubs that return -1. It does NOT reuse `serve.c` (that loop is HTTP-on-127.0.0.1 for the
+- New file `sync.c` (+ `sync.h`), gated on the crypto module; a build without it gets inert
+  stubs that return -1. BSD sockets on POSIX, Winsock on native Windows through `win.h`. It does NOT reuse `serve.c` (that loop is HTTP-on-127.0.0.1 for the
   browser GUI); `sync.c` has its own small raw socket code that binds the LAN.
 - Token from `aisc_token` (OS RNG via `ais_crypto`'s `rand_bytes`).
 - The seal derives the key as `blake2b(token)` and uses XChaCha20-Poly1305 (`aisc_seal` /

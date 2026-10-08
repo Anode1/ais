@@ -510,7 +510,7 @@ writers serialize without colliding on an id, and a long-lived reader
     embed.c/.h     in-process FFI seam (ais_embed_*) for Flutter / native hosts
     help.c/.h      usage_short / usage_long
     log.c/.h       die() (CLI fatal: stderr + exit) + debug() (runtime -d gated trace)
-    win.c/.h       native Windows (MinGW-w64) shims, empty on POSIX
+    win.c/.h       native Windows (MinGW-w64) shims; on POSIX only the socket macros
     main.c         CLI / getopt_long dispatch (recall is the default; -v/-k, --commands)
     tests.c        the test bundle (linear, inline, one comment per test)
 

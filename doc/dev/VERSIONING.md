@@ -149,7 +149,8 @@ PARITY (what one front end gained that another already had), DESIGN (what
 changed on screen). `git push --follow-tags`.
 
 **4. What the tag does.** `release.yml` builds and publishes: Linux x86_64 and
-arm64, macOS arm64, each a zip plus `.sha256`, the Android `.apk` and `.aab`, and
+arm64, macOS arm64, Windows x86_64 (cross-compiled with MinGW-w64), each a zip
+plus `.sha256`, the Android `.apk` and `.aab`, and
 `ais-vX.Y.Z.mcpb`, the MCP Bundle made from those zips by `scripts/mcpb.sh`.
 Both workflows pin Flutter deliberately (currently 3.44.1); raise that pin and
 `android/`'s Gradle wrapper together, never one alone. The same tag runs

@@ -153,20 +153,15 @@ char *ais_embed_doc_read(void *handle, const char *value)
 
 static int embed_pull(void *handle, const char *url, const char *token, int bidir)
 {
-#ifdef _WIN32
-    /* LAN sync (sync.c: raw BSD sockets + poll + SIGPIPE) is not ported to
-     * Winsock, and the Windows client exposes no sync UI. Stubbed so the FFI
-     * seam stays symmetric and the Windows engine links without sync.c. */
-    (void)handle; (void)url; (void)token; (void)bidir;
-    return -1;
-#else
     ais *a = handle;
     char host[128];
     int port, r;
 
     if (a == NULL || url == NULL || token == NULL)
         return -1;                          /* bad args */
+#ifndef _WIN32
     signal(SIGPIPE, SIG_IGN);               /* a dropped peer must not kill the host app */
+#endif
     if (sync_parse_url(url, host, sizeof host, &port) != 0)
         return -1;                          /* malformed url */
     r = sync_pull(a, host, port, token, 10, bidir);         /* 10s LAN timeout */
@@ -177,7 +172,6 @@ static int embed_pull(void *handle, const char *url, const char *token, int bidi
     if (r != 0)
         return -2;                          /* unreachable, wrong token, or timeout */
     return 0;                               /* merged (and, if bidir, sent back) */
-#endif
 }
 
 int ais_embed_pull(void *handle, const char *url, const char *token)
@@ -188,16 +182,14 @@ int ais_embed_sync_pull(void *handle, const char *url, const char *token)
 
 static int embed_serve(void *handle, int port, const char *token, int bidir)
 {
-#ifdef _WIN32
-    (void)handle; (void)port; (void)token; (void)bidir;   /* sync not ported to Winsock (see embed_pull) */
-    return -2;
-#else
     ais *a = handle;
     int r;
 
     if (a == NULL || token == NULL)
         return -1;                          /* bad args */
+#ifndef _WIN32
     signal(SIGPIPE, SIG_IGN);               /* a peer that vanishes mid-write must not kill the app */
+#endif
     /* 300s, not 120: the peer has to unlock a phone, open the camera, wait out a
      * cold start and confirm, and two minutes ran out before it joined. */
     r = sync_serve(a, port, token, 300, bidir);
@@ -206,7 +198,6 @@ static int embed_serve(void *handle, int port, const char *token, int bidir)
     if (r == AIS_SYNC_AGAIN)   return 2;    /* both merged, but one more round is needed */
     if (r != 0)  return -2;                 /* no peer completed: timeout, wrong token, or error */
     return 0;                               /* a peer pulled (and, if bidir, we merged theirs) */
-#endif
 }
 
 int ais_embed_serve(void *handle, int port, const char *token)
@@ -219,8 +210,7 @@ int ais_embed_sync_serve(void *handle, int port, const char *token)
  * The same assembly + merge as LAN sync (sync.c), but PLAINTEXT: no AEAD, no
  * passphrase, so there is no wrong-secret failure class. Encrypted VALUES stay
  * opaque -- already "aisc:" ciphertext in the store, carried as-is: the envelope
- * is open, the secret values remain sealed. sync.c is not built on Windows, so
- * both calls are #ifdef'd to a -1 stub there, matching embed_pull/serve. */
+ * is open, the secret values remain sealed. */
 long ais_embed_count(void *handle)
 {
     long n = 0;
@@ -232,10 +222,6 @@ long ais_embed_count(void *handle)
 
 int ais_embed_export_bundle(void *handle, const char *path)
 {
-#ifdef _WIN32
-    (void)handle; (void)path;                   /* sync.c (assemble/merge) not built on Windows */
-    return -1;
-#else
     ais *a = handle;
     uint8_t *blob = NULL;
     size_t blen = 0, wrote;
@@ -252,15 +238,10 @@ int ais_embed_export_bundle(void *handle, const char *path)
     if (wrote != blen) { fclose(f); return -1; }
     if (fclose(f) != 0) return -1;              /* flush/close error = incomplete file */
     return 0;
-#endif
 }
 
 int ais_embed_import_bundle(void *handle, const char *path)
 {
-#ifdef _WIN32
-    (void)handle; (void)path;                   /* sync.c (assemble/merge) not built on Windows */
-    return -1;
-#else
     ais *a = handle;
     FILE *f;
     long size;
@@ -291,7 +272,6 @@ int ais_embed_import_bundle(void *handle, const char *path)
     if (rc == 0)  return 0;
     if (rc == -2) return -2;                    /* version mismatch */
     return -1;                                  /* malformed / I/O */
-#endif
 }
 
 int ais_embed_sync_folder(void *handle, const char *folder)
@@ -301,15 +281,10 @@ int ais_embed_sync_folder(void *handle, const char *folder)
 
 int ais_embed_sync_folder_force(void *handle, const char *folder, int force)
 {
-#ifdef _WIN32
-    (void)handle; (void)folder; (void)force;    /* sync.c (folder pass) not built on Windows */
-    return -1;
-#else
     ais *a = handle;
     if (a == NULL || folder == NULL)
         return -1;
     return sync_folder_once_force(a, folder, force);  /* import peers, (re)write own; clone-heal */
-#endif
 }
 
 char *ais_embed_display(void *handle, const char *value)

@@ -13,7 +13,8 @@
 #   override yours (distros inject hardening; macOS/BSD supply clang as cc).
 # Profiles:  make | make release | make debug | make pedantic | make static
 #   `static` builds a self-contained binary on Linux (glibc) and on the native
-#   Windows cross-build (MinGW: `make CC=...-mingw32-gcc LDFLAGS=-static`, see
+#   Windows cross-build (`make CC=x86_64-w64-mingw32-gcc LDFLAGS=-static`, which
+#   also selects the Winsock libraries and the .exe names; see
 #   native-windows.yml). macOS/BSD ship no static libc, so there the plain `make`
 #   binary links only the always-present system libc -- equally portable. The
 #   `make static` target below is the Linux convenience and is blocked on macOS.
@@ -44,6 +45,19 @@ endif
 
 AIS_STD    = -std=c99
 AIS_WARN   = -W -Wall
+AIS_LIBS   =
+
+# Native Windows, cross-compiled with MinGW-w64 (a CC naming mingw selects it):
+# gnu99 so <windows.h> is not hidden by __STRICT_ANSI__, the Winsock and shell
+# libraries the shims in win.h call, and .exe names. Add LDFLAGS=-static for a
+# binary that stands alone (native-windows.yml and release.yml do).
+ifneq (,$(findstring mingw,$(CC)))
+AIS_STD    = -std=gnu99
+AIS_LIBS   = -lws2_32 -lshell32
+BIN        = ais.exe
+TESTBIN    = ais_ut.exe
+endif
+
 AIS_CFLAGS = $(AIS_PORT) $(AIS_STD) $(AIS_WARN)
 
 # Version: single source = the git tag. `git describe` gives the exact tag on a
@@ -103,12 +117,12 @@ ifeq ($(UNAME),Darwin)
 endif
 
 $(BIN): $(OBJS)
-	$(CC) $(AIS_CFLAGS) $(CFLAGS) $(LDFLAGS) -o $(BIN) $(OBJS) $(LDLIBS)
+	$(CC) $(AIS_CFLAGS) $(CFLAGS) $(LDFLAGS) -o $(BIN) $(OBJS) $(LDLIBS) $(AIS_LIBS)
 
 # Test binary: all sources with -DUNIT_TEST; rebuilt only when a source changes.
 # `ut`/`check` are .PHONY, so they ALWAYS run (rebuilding first if needed).
 $(TESTBIN): $(SOURCES.c)
-	$(CC) $(AIS_CFLAGS) -g -DUNIT_TEST $(CPPFLAGS) $(SOURCES.c) -o $(TESTBIN) $(LDLIBS)
+	$(CC) $(AIS_CFLAGS) -g -DUNIT_TEST $(CPPFLAGS) $(LDFLAGS) $(SOURCES.c) -o $(TESTBIN) $(LDLIBS) $(AIS_LIBS)
 
 # TIMEOUT so an engine test that SPINS reports a failure instead of wedging the
 # run: a lost loop guard is exactly the kind of regression these tests exist for,

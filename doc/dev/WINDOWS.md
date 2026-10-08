@@ -1,39 +1,45 @@
 # Windows: what is built, and what is planned
 
-**Nothing is published for Windows right now.** `release.yml` has no Windows
-runner, so no CLI, no native GUI and no installer are attached to a release; a
-Windows user builds from source, runs the Android app, or reaches a machine on
-the LAN running `ais --serve`. This is the one place that status is stated;
-[`DISTRIBUTION.md`](DISTRIBUTION.md) covers what every other platform gets.
+**One zip per release, `ais-<tag>-windows-x86_64.zip`, cross-compiled from Linux
+with MinGW-w64.** It holds `ais.exe`, the full CLI with the web GUI
+(`ais --serve`, launched by `ais-web.bat`) and LAN sync over Winsock, so a
+Windows user hosts and joins a QR sync with a phone exactly as on Linux; and
+`ais-gui.exe`, the native window, search and add over the same index, no sync.
+No Cygwin, no `cygwin1.dll`, no runtime. [`DISTRIBUTION.md`](DISTRIBUTION.md)
+covers what every other platform gets.
 
-The port is parked rather than abandoned, and it is parked on the desktop GUI
-rework. Everything below is either gated in CI already or a settled plan waiting
-for someone to build it.
+## How it is built and tested
 
-## What is built today
+- `c/Makefile` recognises a `CC` naming mingw: gnu99 (so `<windows.h>` is not
+  hidden by `__STRICT_ANSI__`), `-lws2_32 -lshell32`, and `.exe` names.
+  `LDFLAGS=-static` folds in libgcc so the exe stands alone.
+- `c/win.h` / `c/win.c` are the shims: Winsock init, `poll` as `WSAPoll`,
+  `flock` as `LockFileEx`, `rename` as `MoveFileEx`, `fsync` as `_commit`,
+  `realpath` as `_fullpath`, a temp file in the user's temp dir (MSVCRT's
+  `tmpfile()` opens one in the drive root, which a user cannot write), and the
+  `SOCK_READ`/`SOCK_WRITE`/`SOCK_CLOSE` macros both platforms use, since a
+  Winsock `SOCKET` is not a file descriptor. `sync.c` keeps its POSIX
+  `open_memstream`/`fmemopen` and uses the temp file where MinGW has neither.
+- `serve.c`'s Host forks a child on POSIX; on Windows it is a thread with a
+  fresh handle to the same index, serialised by the store's per-handle file lock.
+- `native-windows.yml` cross-compiles both exes on every push and PR touching
+  `c/` or `win32/`, then runs `tests/cli.sh` and `tests/sync.sh` against
+  `ais.exe` on a Windows runner. That job is the only place the Windows binary
+  is ever executed: the developers' machines have no Windows and no wine. The
+  engine's in-process tests (`c/tests.c`) fork and exec, so they are not built
+  for Windows.
+- `release.yml`'s `windows` job runs `scripts/dist.sh win`, which cross-compiles
+  and packages the zip.
 
-`native-windows.yml` cross-compiles with MinGW-w64, no Cygwin and no
-`cygwin1.dll`, in two jobs that gate differently:
+## Sync: a file bundle beside the sockets
 
-- **win32-gui** builds the native window (`win32/`, a curated subset of the
-  engine: the core plus `embed`, `locate` and the `win` shims, no
-  `main`/`serve`/`feed`). It is the shipping Windows client, so it runs on every
-  push and PR touching `c/` or `win32/` and must stay green. It broke silently
-  once when LAN sync put SIGPIPE and sockets into `embed.c`; running it
-  automatically is what stops that recurring. Its output is a CI artifact, never
-  a release asset.
-- **cli** builds the command line, manually (`workflow_dispatch`) and
-  non-gating, because it pulls in `sync.c`, which is not ported to Winsock. That
-  port is the out-of-scope item at the end of the next section.
+The native window has no sync of its own. The LAN transport is now in its
+engine (`embed.c`'s sync FFI is live on Windows), but the window shows no Host
+or Join; the web GUI covers that. What the window would gain from the plan below
+is a file bundle: export to a file, import from a file, the same merge.
 
-## Sync: a file bundle instead of sockets
-
-LAN sync (`sync.c`) is not portable to Windows: raw BSD sockets, `poll()`,
-`signal(SIGPIPE)`, and no Winsock init. The Windows build is also GUI-only, so a
-Windows user today has **no sync path at all**, neither LAN nor folder.
-`embed.c`'s sync FFI is stubbed under `#ifdef _WIN32` purely so the build links.
-
-Key insight: **sync = merge + transport, and only the transport is unportable.**
+Key insight: **sync = merge + transport, and the transport is the part a file
+can replace.**
 The merge (LWW / content-hash CRDT in `merge.c`) is fully portable and already in
 the Windows build. A **file** is a valid transport: `export` a mergeable bundle,
 move it by any means (USB, share, cloud), `import` it (merges, LWW) on the other
@@ -52,14 +58,11 @@ device, and that is the same convergence LAN sync gives, minus the socket.
   target's records. Sync must go through export then import, which is the merge.
   A raw copy is only valid one-way, to move an index to a fresh PC.
 
-### The wrinkle: MinGW has no `open_memstream`/`fmemopen`
+### MinGW has no `open_memstream`/`fmemopen`
 
-`sync_export_sealed`/`sync_import_sealed` use both, so `sync.c` cannot compile
-as-is for Windows. The **file** path avoids the memstream (it reads and writes a
-real `FILE*`). The only remaining use is the record-merge step in import
-(`fmemopen(rectext,...)` -> `feed_import_from`): replace it with a Windows-safe
-path, either a `feed_import_str(ais*, const char*)` helper, or write `rectext` to
-a temp file and `feed_import_from` that.
+Solved in `sync.c`: `bufstream_open`/`bufstream_close` and `strstream_open` are
+the POSIX calls on POSIX and a temp file (`ais_tmpfile`) on Windows, so the
+bundle code below needs no second path.
 
 ### Build plan
 
@@ -95,10 +98,10 @@ a temp file and `feed_import_from` that.
    assert B equals A including a blob-backed document), reusing the merge-test
    scaffolding in `tests.c`.
 
-### Out of scope for that work
+### Done already
 
-Porting `sync.c`'s sockets to Winsock for real LAN sync, and a full Windows CLI
-build. `serve.c` is already Winsock-aware; `sync.c` is not.
+The Winsock port of `sync.c` and the full Windows CLI build, which this plan
+once listed as out of scope, shipped first; the bundle is what remains.
 
 ## Signing: SignPath (planned, nothing runs today)
 

@@ -39,24 +39,16 @@
 /* LAN sync (the GUI's Host/Join, mirroring the mobile Sync feature): available only
  * where the sync transport is -- POSIX plus the vendored crypto module, the same
  * guard sync.c uses. Elsewhere the routes report that the build lacks it. */
-#if !defined(_WIN32) && defined(__has_include) && __has_include("crypto/monocypher.h")
+#if defined(__has_include) && __has_include("crypto/monocypher.h")
 #  define SERVE_HAVE_SYNC 1
-#  include <arpa/inet.h>
-#  include <sys/wait.h>
+#  ifdef _WIN32
+#    include <process.h>             /* _beginthreadex: the Host thread */
+#  else
+#    include <arpa/inet.h>
+#    include <sys/wait.h>
+#  endif
 #  include "crypto/ais_crypto.h"   /* aisc_token */
 #  include "sync.h"                /* sync_serve, sync_pull, sync_parse_url, AIS_SYNC_PORT */
-#endif
-
-/* socket I/O is read()/write()/close() on POSIX, recv()/send()/closesocket()
- * on native Windows (where a SOCKET is not a file descriptor). */
-#ifdef _WIN32
-#define SOCK_READ(fd, b, n)  recv((SOCKET)(fd), (b), (int)(n), 0)
-#define SOCK_WRITE(fd, b, n) send((SOCKET)(fd), (b), (int)(n), 0)
-#define SOCK_CLOSE(fd)       closesocket((SOCKET)(fd))
-#else
-#define SOCK_READ(fd, b, n)  read((fd), (b), (n))
-#define SOCK_WRITE(fd, b, n) write((fd), (b), (n))
-#define SOCK_CLOSE(fd)       close((fd))
 #endif
 
 /* ---- the GUI page (HTML + JavaScript, NOT C) ----------------------------
@@ -1210,7 +1202,8 @@ static int serve_asset(int fd, const char *name)
  * Host: fork an ephemeral child running sync_serve() single-shot, so the
  * single-threaded HTTP loop is not blocked while it waits for a peer; the parent
  * returns the pairing info (URL + token) at once and the page renders a QR of it.
- * The child exits after one peer or the timeout; the parent reaps it. Join:
+ * The child exits after one peer or the timeout; the parent reaps it. On
+ * Windows, which has no fork, the child is a thread (below). Join:
  * synchronous sync_pull() -- a LAN merge is quick. Both use bidir=1, the symmetric
  * exchange the mobile app uses (both devices converge in one round).
  */
@@ -1219,6 +1212,45 @@ static int serve_asset(int fd, const char *name)
                                   /* unlock, camera, cold start, confirm -- two   */
                                   /* minutes ran out before the phone joined      */
 
+#ifdef _WIN32
+/* The Host is a thread with a FRESH handle to the same dir. The store's
+ * LockFileEx lock is per OS handle, so it serialises that merge against this
+ * loop's writes as separate processes would, and the engine keeps no mutable
+ * file-scope state the two could race on (the one static is locate.c's home
+ * override, set once at startup). The outcome codes are the POSIX child's. */
+static HANDLE sync_thread = NULL;               /* live Host thread, or NULL (one at a time) */
+static volatile LONG sync_last = -2;            /* last Host outcome: 0 served, 1 half, else not */
+static struct { char dir[AIS_PATH_MAX]; char token[33]; int port; } sync_args;
+
+static unsigned __stdcall sync_host_run(void *unused)
+{
+    ais fresh;
+    int rc;
+    (void)unused;
+    if (ais_open(&fresh, sync_args.dir) != 0)
+        return 1;
+    ais_on_discard(&fresh, ais_doc_discard_cb, fresh.dir);
+    rc = sync_serve(&fresh, sync_args.port, sync_args.token, SERVE_SYNC_TIMEOUT, SERVE_SYNC_BIDIR);
+    ais_close(&fresh);
+    return rc == 0 ? 0 : rc == AIS_SYNC_PARTIAL ? 2 : rc == AIS_SYNC_AGAIN ? 3 : 1;
+}
+
+/* Collect a finished Host thread and remember its outcome; harmless when none
+ * has finished. Called from the routes. */
+static void sync_reap(void)
+{
+    DWORD code;
+    if (sync_thread == NULL || WaitForSingleObject(sync_thread, 0) != WAIT_OBJECT_0)
+        return;
+    if (!GetExitCodeThread(sync_thread, &code))
+        code = 1;
+    sync_last = code == 0 ? 0 : code == 2 ? 1 : code == 3 ? 2 : -2;
+    CloseHandle(sync_thread);
+    sync_thread = NULL;
+    aisc_wipe(sync_args.token, sizeof sync_args.token);
+}
+#define SYNC_HOST_BUSY (sync_thread != NULL)
+#else
 static volatile sig_atomic_t sync_child = -1;   /* live Host child pid, or -1 (one at a time) */
 static volatile sig_atomic_t sync_last  = -2;   /* last Host outcome: 0 served, 1 half, else not */
 
@@ -1248,6 +1280,8 @@ static void sync_on_sigchld(int sig)
     (void)sig;
     sync_reap();                               /* async-signal-safe: only waitpid */
 }
+#define SYNC_HOST_BUSY (sync_child > 0)
+#endif /* _WIN32 */
 
 /* The primary LAN IPv4, via connecting a UDP socket (no packet is sent). Same
  * trick as the engine's CLI wrapper; kept local so this stays a pure GUI caller. */
@@ -1263,9 +1297,9 @@ static int sync_lan_ip(char *buf, size_t n)
     to.sin_family = AF_INET;
     to.sin_port = htons(53);
     inet_pton(AF_INET, "8.8.8.8", &to.sin_addr);
-    if (connect(fd, (struct sockaddr *)&to, sizeof to) != 0) { close(fd); return -1; }
-    if (getsockname(fd, (struct sockaddr *)&me, &ml) != 0) { close(fd); return -1; }
-    close(fd);
+    if (connect(fd, (struct sockaddr *)&to, sizeof to) != 0) { SOCK_CLOSE(fd); return -1; }
+    if (getsockname(fd, (struct sockaddr *)&me, &ml) != 0) { SOCK_CLOSE(fd); return -1; }
+    SOCK_CLOSE(fd);
     return (inet_ntop(AF_INET, &me.sin_addr, buf, n) == NULL) ? -1 : 0;
 }
 
@@ -1275,11 +1309,10 @@ static int sync_lan_ip(char *buf, size_t n)
 static void sync_host(ais *a, int fd)
 {
     char ip[64], token[33], reply[160];
-    int port = AIS_SYNC_PORT, m;
-    pid_t pid;
+    int port = AIS_SYNC_PORT, m, started;
 
     sync_reap();                              /* clear a finished previous Host */
-    if (sync_child > 0) {                      /* one at a time */
+    if (SYNC_HOST_BUSY) {                      /* one at a time */
         static const char e[] = "HTTP/1.0 409 Conflict\r\nConnection: close\r\n\r\n"
             "a sync host is already waiting\n";
         write_all(fd, e, sizeof(e) - 1);
@@ -1292,7 +1325,20 @@ static void sync_host(ais *a, int fd)
         write_all(fd, e, sizeof(e) - 1);
         return;
     }
-    pid = fork();
+#ifdef _WIN32
+    {
+        uintptr_t th;
+        snprintf(sync_args.dir, sizeof sync_args.dir, "%s", a->dir);
+        memcpy(sync_args.token, token, sizeof sync_args.token);
+        sync_args.port = port;
+        th = _beginthreadex(NULL, 0, sync_host_run, NULL, 0, NULL);
+        started = th != 0;
+        if (started)
+            sync_thread = (HANDLE)th;
+    }
+#else
+    {
+    pid_t pid = fork();
     if (pid == 0) {                            /* child: serve one peer, then exit */
         ais fresh;
         int rc;
@@ -1313,13 +1359,17 @@ static void sync_host(ais *a, int fd)
               : rc == AIS_SYNC_PARTIAL ? 2
               : rc == AIS_SYNC_AGAIN   ? 3 : 1);
     }
-    if (pid < 0) {
+    started = pid > 0;
+    if (started)
+        sync_child = pid;
+    }
+#endif
+    if (!started) {
         static const char e[] = "HTTP/1.0 500 Internal Server Error\r\n"
             "Connection: close\r\n\r\ncould not start host\n";
         write_all(fd, e, sizeof(e) - 1);
         return;
     }
-    sync_child = pid;
     sync_last = -1;                            /* -1 = still waiting */
     m = snprintf(reply, sizeof reply, "http://%s:%d\n%s\n", ip, port, token);
     send_head(fd, "text/plain");
@@ -1333,7 +1383,7 @@ static void sync_status(int fd)
 {
     const char *s;
     sync_reap();
-    if (sync_child > 0)      s = "waiting\n";
+    if (SYNC_HOST_BUSY)      s = "waiting\n";
     else if (sync_last == 0) s = "synced\n";
     else if (sync_last == 1) s = "half\n";    /* they got ours, we did not get theirs */
     else if (sync_last == 2) s = "again\n";   /* both merged; one more round needed */

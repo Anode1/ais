@@ -8,26 +8,26 @@ the repo; the Releases page stays minimal so users never have to ask "which one?
 
 | Platform | The one download | GUI the user gets |
 |----------|------------------|-------------------|
-| Windows  | _temporarily unavailable while the desktop GUI is reworked_ (use `ais --serve` or the mobile app meanwhile) | a **native window** (`ais-gui.exe`) when it returns |
+| Windows  | `ais-<tag>-windows-x86_64.zip` (cross-compiled from Linux) | **web** (`ais --serve`) via the `.bat` launcher; a **native window** (`ais-gui.exe`) for search and add |
 | macOS    | `ais-<tag>-macos-arm64.zip`              | **web** (`ais --serve`) via the `.command` launcher |
 | Linux    | `ais-<tag>-linux-x86_64.zip`, `…-arm64.zip` | **web** (`ais --serve`) via the `.desktop` launcher |
 | Android  | `ais-<tag>-android.apk` (sideload) and `…-android.aab` (Play bundle) | the Flutter app |
 | Phones (browser) | the PWA (hosted, later)          | web |
 
-Each shipped asset (macOS, Linux, Android) is accompanied by a matching
+Each shipped asset (Windows, macOS, Linux, Android) is accompanied by a matching
 `.sha256`. **Not shipped:** source bundles or duplicate engines. The CLI is
 present under every desktop download.
 
-Rule of thumb, matching how normal apps ship: the unix desktops get the universal
+Rule of thumb, matching how normal apps ship: the desktops get the universal
 web GUI, Android gets the Flutter app, and the CLI is under every desktop
 download.
 
 ## Windows
 
-No Windows artifact is published at the moment, and the native build is
-CI-validated rather than shipped. The whole picture, including the sync, signing
-and packaging work that is planned rather than done, is in
-[`WINDOWS.md`](WINDOWS.md).
+The zip is cross-compiled from Linux with MinGW-w64 and exercised by the CLI
+suites on a Windows runner in CI. How it is built, what the native window still
+lacks, and the signing and installer work that is planned rather than done, are
+in [`WINDOWS.md`](WINDOWS.md).
 
 ## The GUI inventory
 

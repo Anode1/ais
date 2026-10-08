@@ -23,10 +23,10 @@ Help is welcome: open an issue to claim a piece.
   one-time token), LAN-only. See [`doc/SYNC.md`](SYNC.md).
 - **Multiple named indexes** (`--switch` / `--indexes` / `--forget`) with a default
   project (`--project`).
-- **Native Windows app** (`win32/`, pure Win32 over the engine): built and
-  CI-validated. Neither it nor the Windows CLI is published while the desktop GUI
-  is reworked; what ships on each platform is in
-  [`dev/DISTRIBUTION.md`](dev/DISTRIBUTION.md).
+- **Windows**: the CLI with the web GUI and LAN sync (Winsock), plus the native
+  window (`win32/`, pure Win32 over the engine, search and add only), ship in
+  one zip per release, cross-compiled from Linux; what ships on each platform
+  is in [`dev/DISTRIBUTION.md`](dev/DISTRIBUTION.md).
 
 ## Planned
 

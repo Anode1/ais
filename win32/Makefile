@@ -15,9 +15,10 @@ CFLAGS  ?= -O2 -std=gnu99 -W -Wall
 CORE     = ../c
 
 # engine core + FFI seam (embed) + index policy (locate) + secret/crypto (embed's
-# encrypt+reveal) + Windows shims (win); deliberately NOT main/serve/feed/help/tests.
+# encrypt+reveal) + sync and the merge stream it carries (sync, feed) + Windows
+# shims (win); deliberately NOT main/serve/help/tests.
 ENGINE = $(addprefix $(CORE)/, embed.c ais.c store.c post.c key.c merge.c \
-           compact.c stats.c find.c doc.c locate.c log.c win.c \
+           compact.c stats.c find.c doc.c locate.c log.c win.c sync.c feed.c \
            secret.c b64.c crypto/ais_crypto.c crypto/monocypher.c)
 
 # only ever-present system DLLs -- no .NET, no Cygwin, no extra runtime.

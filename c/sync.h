@@ -4,7 +4,8 @@
  * work; these glue them: seal an index's merge stream under a one-time token, and
  * unseal + merge a received stream. The socket transport (`ais --export --serve` /
  * `ais --import <url>`) only moves the sealed blob between two LAN devices; it calls
- * these. POSIX + crypto only.
+ * these. The crypto module is required; the sockets are BSD on POSIX and Winsock on
+ * native Windows (win.h).
  */
 #ifndef AIS_SYNC_H
 #define AIS_SYNC_H
@@ -19,7 +20,7 @@
 /* Assemble A's raw (UNSEALED) bundle -- version byte + blob sections + merge stream --
  * the shared core the file bundle (plaintext) and LAN sync (which seals this) both use.
  * Allocates *OUT (caller frees). Enforces the same size cap as the wire. Returns 0, or -1
- * (incl. when the build lacks POSIX buffer streams or the crypto module). */
+ * (incl. when the build lacks the crypto module). */
 int sync_export_plain(ais *a, uint8_t **out, size_t *out_len);
 
 /* Parse + merge a raw (UNSEALED) bundle DATA[0..len): version gate, blob-import loop,
@@ -29,7 +30,7 @@ int sync_import_plain(ais *a, const uint8_t *data, size_t len);
 
 /* Produce A's merge stream (A|/D| lines) sealed under TOKEN, a high-entropy one-time
  * pairing secret. Allocates *OUT (caller frees; wipe with aisc_wipe). Returns 0, or -1
- * (incl. when the build lacks POSIX buffer streams or the crypto module). */
+ * (incl. when the build lacks the crypto module). */
 int sync_export_sealed(ais *a, const char *token, uint8_t **out, size_t *out_len);
 
 /* Unseal a received SEALED blob (LEN bytes) with TOKEN and merge it into A under
@@ -56,7 +57,7 @@ int sync_import_sealed(ais *a, const char *token, const uint8_t *sealed, size_t 
  * BIDIR, after sending it also receives and merges the peer's sealed stream (a symmetric
  * full-state exchange -- both converge in one round, no sender/receiver role). 0 on a
  * fully converged exchange, AIS_SYNC_PARTIAL when the peer got our records but we
- * did not get theirs, -1 on error/timeout/auth failure. POSIX + crypto only. */
+ * did not get theirs, -1 on error/timeout/auth failure. */
 int sync_serve(ais *a, int port, const char *token, int timeout_s, int bidir);
 
 /* Pull from a peer at HOST:PORT: send TOKEN, receive the sealed stream, unseal + merge.

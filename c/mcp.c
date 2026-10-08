@@ -30,6 +30,7 @@
 
 #include "common.h"
 #include "ais.h"
+#include "win.h"          /* realpath shim on native Windows; empty on POSIX */
 #include "doc.h"       /* ais_put_value: one record, blob-backed if multi-line */
 #include "find.h"      /* ais_find: the content search behind the find tool    */
 #include "secret.h"    /* secret_is_marked: ciphertext never reaches a model    */
