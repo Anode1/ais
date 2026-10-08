@@ -163,10 +163,14 @@ available encryption source code, and claiming it takes one notification email t
 the sent copy, then answer the App Store Connect questionnaire on that basis.
 The answer on file since 2026-10-08: standard algorithms in addition to
 Apple's, not distributed in France (France wants its own ANSSI declaration
-first). `app/flutter/ios/Runner/Info.plist` carries
-`ITSAppUsesNonExemptEncryption` = `true`, so later uploads inherit it instead
-of asking. This is export law rather than a build setting: the questionnaire's
-own wording governs if it changes.
+first). Apple records that as exempt: the build shows
+`usesNonExemptEncryption: false` through the API and no declaration with a
+code exists. So `app/flutter/ios/Runner/Info.plist` carries
+`ITSAppUsesNonExemptEncryption` = `false`, and later uploads inherit it instead
+of asking. `true` is wrong here: it makes the uploader demand an
+`ITSEncryptionExportComplianceCode` matching a declaration, and v0.3.31's
+upload was refused on exactly that. This is export law rather than a build
+setting: the questionnaire's own wording governs if it changes.
 
 ## 6. A signed build out of CI
 

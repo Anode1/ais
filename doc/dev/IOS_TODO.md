@@ -76,8 +76,10 @@ Steps 2 and 3 need the account holder's own sign-in (IOS_RELEASE.md step 1).
       `~/ais-signing/ios/bis-notification.txt`, sent copy in Vas's mailbox.
 - [x] Questionnaire answered on build 526 (2026-10-08): standard algorithms
       in addition to Apple's; not distributed in France (that needs an ANSSI
-      declaration first). `ITSAppUsesNonExemptEncryption` is `true` in
-      `Info.plist` so later uploads inherit the answer.
+      declaration first). Apple records that as exempt, so
+      `ITSAppUsesNonExemptEncryption` is `false` in `Info.plist` and later
+      uploads inherit the answer; `true` got v0.3.31's upload refused for a
+      missing compliance code.
 - [ ] France: file the ANSSI declaration, then answer Yes on a later build.
 
 ## 7. First device tests (build 526 on Marina's iPhone, 2026-10-08)
