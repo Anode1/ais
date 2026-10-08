@@ -1746,10 +1746,21 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
 
   // This device's LAN IPv4: prefer a private-range (Wi-Fi/LAN) address over a
   // VPN/cellular one; fall back to the first non-loopback address. Null if none.
+  // The Wi-Fi interface by name first (en0 on an iPhone, wlan0 on Android):
+  // a phone with cellular data on also carries the carrier's address, often in
+  // the private 10/8 range too, and the system lists the interfaces in no
+  // promised order. The first iPhone test (2026-10-08) hosted on an address the
+  // Android could not reach; this is the likeliest reason.
   Future<String?> _lanIp() async {
     try {
       final ifs = await NetworkInterface.list(
           type: InternetAddressType.IPv4, includeLoopback: false);
+      for (final ni in ifs) {
+        if (ni.name != 'en0' && !ni.name.startsWith('wlan')) continue;
+        for (final a in ni.addresses) {
+          if (!a.isLoopback && _isPrivate(a.address)) return a.address;
+        }
+      }
       String? fallback;
       for (final ni in ifs) {
         for (final a in ni.addresses) {

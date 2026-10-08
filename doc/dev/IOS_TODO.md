@@ -91,10 +91,11 @@ Steps 2 and 3 need the account holder's own sign-in (IOS_RELEASE.md step 1).
       forwards (`SceneDelegate.swift`). Unverified until the next TestFlight build.
 - [ ] Host on the iPhone, join from Android: the join never reached the iPhone
       (its SYNs were dropped; the iPhone waited out its five minutes). Same
-      Wi-Fi. Suspects: the address under the QR is not the Wi-Fi address (a
-      VPN or tunnel interface wins the default route), or the router isolates
-      the two phones. Check Settings > Wi-Fi > (i) against the QR, and try the
-      roles reversed once scan-to-join works.
+      Wi-Fi. Likeliest cause: the app took the first private address on any
+      interface, and with cellular on the carrier's 10.x address can list
+      before Wi-Fi. Fixed: the Wi-Fi interface (en0, wlan0) is tried first.
+      Unverified; if it recurs, compare Settings > Wi-Fi > (i) with the QR,
+      and consider router isolation between the two phones.
 
 ## 6. Signed build from CI
 
