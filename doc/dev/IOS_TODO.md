@@ -29,10 +29,9 @@ Steps 2 and 3 need the account holder's own sign-in (IOS_RELEASE.md step 1).
 
 - [x] `openssl genrsa` + `openssl req` (commands in IOS_RELEASE.md step 2),
       2026-10-02.
-- [ ] Go <https://developer.apple.com/account/resources/certificates> > + >
-      **Apple Distribution** > upload the `.csr` > download `distribution.cer`.
-- [ ] Make `distribution.p12` (`openssl pkcs12 -export -legacy`). Keep the key
-      and password out of git.
+- [x] Apple Distribution certificate issued 2026-10-08, valid to 2027-10-08;
+      `distribution.p12` made with `-legacy`, password beside it in
+      `~/ais-signing/ios/p12_password.txt`.
 
 ## 3. App ID and profile
 
