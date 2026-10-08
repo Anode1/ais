@@ -141,9 +141,9 @@ New App:
   Play uses. Support URL: the repo's issues page.
 - App Privacy: nothing is collected. No account, no analytics, no third-party
   SDK, and the index leaves the device only for a peer the user pairs with.
-- **Decide the device family now.** The Xcode project carries
-  `TARGETED_DEVICE_FAMILY = "1,2"`, iPhone and iPad, and an iPad-capable listing
-  requires iPad screenshots. Either produce them or set the project to `"1"`.
+- The project is iPhone only (`TARGETED_DEVICE_FAMILY = "1"`). An iPad-capable
+  listing needs iPad screenshots, and iPad support, once shipped, cannot be
+  withdrawn; adding it later can.
 
 Then Users and Access > **Integrations** > App Store Connect API. The first
 visit shows **Request Access**, which only the account holder can press. After

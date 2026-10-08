@@ -53,8 +53,9 @@ Steps 2 and 3 need the account holder's own sign-in (IOS_RELEASE.md step 1).
       invited: he has no working Apple ID; CI and the API key need none.
 - [ ] 1.0 still lacks screenshots (Apple sizes, from the Play captures) and
       a build.
-- [ ] Decide device family: keep iPad (`TARGETED_DEVICE_FAMILY = "1,2"`) and
-      make iPad screenshots, or set `"1"` in `project.pbxproj`.
+- [x] Device family: iPhone only (`TARGETED_DEVICE_FAMILY = "1"`,
+      2026-10-08). iPad can be added in a later version; it could not have
+      been removed.
 - [x] App Store Connect API access granted and team key `ais ci` (App
       Manager) made 2026-10-08: Key ID `R2T7YDFCH6`, `.p8` in
       `~/ais-signing/ios/`, Issuer ID `92c167f9-6945-4d98-9efc-ff68cf777d23`.
