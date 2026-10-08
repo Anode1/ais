@@ -45,8 +45,14 @@ Steps 2 and 3 need the account holder's own sign-in (IOS_RELEASE.md step 1).
 - [x] App record made 2026-10-08: iOS, bundle `com.aisindex.ais`, SKU
       `ais-ios`. `AIS` was taken; the store name is **AIS Index**. The bundle
       id and the name under the icon stay `AIS`.
-- [ ] Listing from `doc/public-text.txt`; privacy policy URL = `PRIVACY.md`;
-      support URL = the issues page. App Privacy: nothing collected.
+- [x] 2026-10-08: category Productivity/Utilities, age rating 4+, content
+      rights none, free in all countries, App Privacy "no data collected"
+      published, privacy policy URL, 1.0 text (description from the fastlane
+      folder, keywords, support and marketing URLs, manual release),
+      TestFlight internal group `Family` with Marina as tester. Vas was not
+      invited: he has no working Apple ID; CI and the API key need none.
+- [ ] 1.0 still lacks screenshots (Apple sizes, from the Play captures) and
+      a build.
 - [ ] Decide device family: keep iPad (`TARGETED_DEVICE_FAMILY = "1,2"`) and
       make iPad screenshots, or set `"1"` in `project.pbxproj`.
 - [x] App Store Connect API access granted and team key `ais ci` (App
