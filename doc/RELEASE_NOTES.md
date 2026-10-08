@@ -8,6 +8,12 @@ Before tagging, run `scripts/release-notes.sh vX.Y.Z`: it prepends the commit
 subjects since the previous tag, then edit them down to what a user needs to
 know. The old entries below the two newest are the raw subjects.
 
+## v0.3.32 (2026-10-08)
+
+- iOS: a pairing link scanned with the camera now reaches the app. The first device test opened the app and nothing followed: the link was handed to Dart through a view controller that is not ready when a link cold-starts the app. It now goes through the engine's own messenger.
+- iOS: uploads carry the export compliance answer, exempt, in `Info.plist`; v0.3.31's upload was refused with the key set the other way, so that version has no iOS build.
+- Phones: the address shown under the QR comes from the Wi-Fi interface first. With cellular data on, the carrier's address can list before Wi-Fi, and a host that advertises it cannot be reached by the other device.
+
 ## v0.3.31 (2026-10-08)
 
 - Windows: a native build, `ais-vX.Y.Z-windows-x86_64.zip`, cross-compiled from Linux with MinGW-w64. `ais.exe` is the full CLI with the web GUI (`ais-web.bat` opens it) and LAN sync over Winsock, so a Windows PC hosts and joins a QR sync with a phone as Linux does; the other `.exe` is a small native window for search and add. No runtime, no installer. The CLI and loopback-sync suites run against it on a Windows runner in CI.
