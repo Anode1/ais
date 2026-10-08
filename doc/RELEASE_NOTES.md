@@ -8,6 +8,10 @@ Before tagging, run `scripts/release-notes.sh vX.Y.Z`: it prepends the commit
 subjects since the previous tag, then edit them down to what a user needs to
 know. The old entries below the two newest are the raw subjects.
 
+## v0.3.33 (2026-10-08)
+
+- Windows: the first build exercised on a Windows machine. The CLI suite, the loopback sync over Winsock and a folder sync now run on a Windows runner in CI, and what that first run found is fixed: folder sync could not create the device identity (it read `/dev/urandom`), output to stdout carried CRLF line ends (a dump piped to a file would have put a carriage return in every value), the walk up to `.ais` never climbed a Windows path, a confirmation prompt waited forever at an unattended console, and a resolved path printed with backslashes and 8.3 short names. The zips in v0.3.31 and v0.3.32 have those defects; this one does not.
+
 ## v0.3.32 (2026-10-08)
 
 - iOS: a pairing link scanned with the camera now reaches the app. The first device test opened the app and nothing followed: the link was handed to Dart through a view controller that is not ready when a link cold-starts the app. It now goes through the engine's own messenger.
