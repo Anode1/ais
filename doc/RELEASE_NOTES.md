@@ -8,6 +8,17 @@ Before tagging, run `scripts/release-notes.sh vX.Y.Z`: it prepends the commit
 subjects since the previous tag, then edit them down to what a user needs to
 know. The old entries below the two newest are the raw subjects.
 
+## v0.3.31 (2026-10-08)
+
+- Windows: a native build, `ais-vX.Y.Z-windows-x86_64.zip`, cross-compiled from Linux with MinGW-w64. `ais.exe` is the full CLI with the web GUI (`ais-web.bat` opens it) and LAN sync over Winsock, so a Windows PC hosts and joins a QR sync with a phone as Linux does; the other `.exe` is a small native window for search and add. No runtime, no installer. The CLI and loopback-sync suites run against it on a Windows runner in CI.
+- Sync: a join to a host that never answers now gives up at its own timeout. Before, the kernel's connect retries held it for minutes, and a Join on a phone spun for that long when the two devices could not reach each other.
+- iOS: the App Store listing has screenshots, built from the captures by `scripts/appstore-shots.sh`; the encryption export answer is recorded in `Info.plist` so later uploads inherit it.
+
+## v0.3.30 (2026-10-08)
+
+- iOS: the first signed build. A version tag now uploads the app to TestFlight from CI, under the App Store record "AIS Index" (the name AIS was taken; the bundle id and the name under the icon stay AIS). iPhone only; the engine's `stat` calls are declared in a privacy manifest, which App Store Connect requires.
+- README: Obtainium installs the Android app from the release page, and the text names which APK to pick.
+
 ## v0.3.29 (2026-09-29)
 
 - Android: a Help page, from the menu and from "How it works" on the empty start screen: what the app is for, saving, finding, passwords, keeping a copy, other devices, with links to report a problem, the source and the privacy policy. About carries the licence and the same two links.
