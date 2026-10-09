@@ -8,6 +8,17 @@ Before tagging, run `scripts/release-notes.sh vX.Y.Z`: it prepends the commit
 subjects since the previous tag, then edit them down to what a user needs to
 know. The old entries below the two newest are the raw subjects.
 
+## v0.3.35 (2026-10-09)
+
+- Engine: deleting an id that was never issued now writes nothing. It wrote a tombstone, and the next record to receive that id was born deleted.
+- Web GUI: switching libraries persists again once a named index is current; the switch wrote the legacy config line, which resolution no longer reads in that state.
+- Phones: dictation ends after a 3 s pause or 30 s, a second tap on the microphone stops it, the icon shows when it is live, and the result opens on the Search tab. On iOS every phrase of a session was appended to the one before; on both platforms the results filled a tab that was not shown.
+- Phones: a tag is measured in bytes against the engine's limit of 255; a long plain note is accepted and filed as a document; an encrypted note is capped at 6000 characters, which is what seals into the engine's buffer. Folder sync says when the other copies come from a newer AIS or are half-written, instead of a generic failure.
+- iOS: the Help page is written for the iPhone, and the Sync sheet no longer offers a sync folder, which iOS has no picker for.
+- Install: an Intel Mac is told to build from source; the script handed it the arm64 build.
+- CLI: `-k` is described as an explicit key, the exit status line matches what the binary does, and `--doc` takes optional keys.
+- Docs: every claim in the README, the man page, the developer notes, the store listings and the source comments was checked against the code and corrected where it had drifted; the README shows the iPhone app.
+
 ## v0.3.34 (2026-10-08)
 
 - Phones: the Add sheet keeps Save above the keyboard. A note of two or three lines pushed it under the keyboard with nothing to say that scrolling would find it; now the fields scroll and Save stays put, and in landscape, where the keyboard leaves no room for that, the whole form scrolls. Both passphrase fields have an eye; either reveals both. A double tap on Save no longer saves twice.
