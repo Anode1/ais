@@ -8,6 +8,15 @@ Before tagging, run `scripts/release-notes.sh vX.Y.Z`: it prepends the commit
 subjects since the previous tag, then edit them down to what a user needs to
 know. The old entries below the two newest are the raw subjects.
 
+## v0.3.34 (2026-10-08)
+
+- Phones: the Add sheet keeps Save above the keyboard. A note of two or three lines pushed it under the keyboard with nothing to say that scrolling would find it; now the fields scroll and Save stays put, and in landscape, where the keyboard leaves no room for that, the whole form scrolls. Both passphrase fields have an eye; either reveals both. A double tap on Save no longer saves twice.
+- iOS: a pairing link that starts the app from the camera is handled on purpose. It used to arrive through Flutter's route fallback, about three seconds late. A join that ran out of time while iOS asked to allow local network access is offered again with the fields still filled.
+- Phones: the address under the Host code skips cellular, VPN and container interfaces and knows hotspot names, so a phone sharing its connection advertises an address the other one can reach.
+- Windows: every temporary file lives in the user's temp folder. The C library's went to the drive root, which a standard user cannot write, so the web GUI's content search and stats came back empty and an import ran a record at a time. A port already in use is reported instead of silently shared; a refused connection retries on Windows releases before 10 2004; a Host merge and a GUI import in the same process no longer share a temp name for incoming documents.
+- CLI: a join address whose port is outside 1..65535 is refused instead of quietly becoming 8766; `--sync --serve` on a busy port says so before printing a token; a plain `make` after a commit rebuilds the version string.
+- App Store: the listing screenshots are from an iPhone.
+
 ## v0.3.33 (2026-10-08)
 
 - Windows support recovered: `ais-vX.Y.Z-windows-x86_64.zip` is the CLI with the web GUI and LAN sync, and the CLI and sync suites run against it on a Windows runner in CI.

@@ -129,7 +129,7 @@ there. An intent filter for `.aisb` (VIEW and SEND) that routes to the same
 merge, behind the confirmation the `ais://sync` link already shows, removes
 that step.
 
-## Known gaps, as of v0.3.33
+## Known gaps, as of v0.3.34
 
 Four things are open, and this is the list to work from: the release chores that
 remain, coverage nobody has, a test that cannot see, and defects left on purpose
@@ -140,7 +140,7 @@ with the reason for each.
 A tag publishes eight artifacts, each with a checksum, and uploads a signed
 iOS build to TestFlight. Reaching the two stores is manual:
 
-- Upload `ais-v0.3.33-android.aab` to the Play Console as a new release on the
+- Upload `ais-v0.3.34-android.aab` to the Play Console as a new release on the
   closed test track, following [`dev/ANDROID_RELEASE.md`](dev/ANDROID_RELEASE.md).
   The listing is done and a production release with build 477 (0.3.27) went
   to review on 2026-09-15, so every later build is another upload by hand. The
