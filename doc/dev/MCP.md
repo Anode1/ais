@@ -6,8 +6,10 @@ the inside: the wire, the reader, and the three lists that have to stay in step.
 
 ## How it is built
 
-`c/mcp.c` calls the engine's public API and nothing else in `c/`, so adding or
-removing it changes only main.c's dispatch. It carries its own small JSON reader
+`c/mcp.c` calls the engine's public API plus three engine headers (`doc.h` for
+`ais_put_value` and the blob test, `find.h` for `ais_find`, `secret.h` for
+`secret_is_marked`) and the `win.h` shim, so adding or removing it changes only
+main.c's dispatch. It carries its own small JSON reader
 (objects, arrays, strings with `\u` escapes and surrogate pairs, numbers) that
 unescapes in place inside the request buffer, so a request costs one fixed node
 table and no allocation.
@@ -67,8 +69,9 @@ examples with single quotes, as the file does for `'id|value'` and `'blobs/'`.
 The instructions escape properly, because they go out through `jout()`.
 
 The instructions are assembled from three constants at connect time, and the
-middle one is a choice, not an addition: `INSTR_SAVE` under `rw`, `INSTR_NOSAVE`
-otherwise. Appending the read-only notice instead left the model told to call
+middle one is a choice, not an addition: `INSTR_NOSAVE` without `rw`, else
+`INSTR_SAVE_SHARED` for an index named with `-f` and `INSTR_SAVE` otherwise. The
+first constant is chosen the same way (`INSTR_INDEX_SHARED` or `INSTR_INDEX`). Appending the read-only notice instead left the model told to call
 save and then told there is no save, and a model reading both either claims it
 saved something or reaches for a file of its own. The path of the index actually
 opened is then appended, for the reason the code comment gives.
@@ -76,13 +79,15 @@ opened is then appended, for the reason the code comment gives.
 Which index gets served is decided before any of this, in main.c: `ais_locate_how`
 reports which precedence step chose the path, and step 2, a `.ais` found by
 walking up, is refused there (LAYOUT.md, "--mcp and the index nobody named").
-`ais_mcp` is handed an open index and a write bit and knows nothing about it.
+`ais_mcp` is handed an open index, a write bit and the `shared` bit, and knows
+nothing else about it.
 
 Three guards live in the tool layer rather than in the engine, because each one
 exists to keep a model from being misled by its own reply: `args_ok` refuses an
 argument no tool has, `rows_arg` refuses a limit outside 1 to 1000 instead of
 clamping it, and `out_value` replaces a secret's ciphertext and a `blobs/` path
-that fails `ais_blob_rel_ok` with fixed markers. The store keeps the real value
+that fails `ais_doc_is_blob` (the `ais_blob_rel_ok` containment test) with
+fixed markers. The store keeps the real value
 in every case, which is why `find` still matches text a reply will not show.
 
 `save` requires keys in its schema as well as in its prose. The schema is what a

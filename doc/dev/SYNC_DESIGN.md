@@ -32,14 +32,16 @@ spec. See LAYOUT.md (format), BNF.txt (grammar).
 - effective keys = bound minus unbound.
 - Re-bind after unbind: LATEST-SIGN-WINS (loose timestamp; skew is immaterial at a
   multi-day sync cadence).
-- Only a LEADING `-` is the sign; `-` elsewhere is literal (use `+key` to bind a
-  key that literally starts with `-`). A detach propagates today as a `K|` line;
+- Only a LEADING `-` is the sign; `-` elsewhere is literal. A key beginning `-`
+  is refused on every write path (`+` is not stripped: `+-x` stores `+-x`). A
+  detach propagates today as a `K|` line;
   the general `+/-` patch line remains planned.
 
 ## Delete: a tombstone, kept for the life of the index
 - Delete is delete. There is no trash and no restore: `--del ID` and
-  `--del-under KEY` confirm first, then remove the record. The GUI's 5s undo
-  window is the only reprieve, and nothing reaches the engine until it lapses.
+  `--del-under KEY` confirm first, then remove the record. The GUI's undo
+  window (web page 5 s; Flutter commits at 4.5 s behind a 4 s snackbar) is the
+  only reprieve, and nothing reaches the engine until it lapses.
 - The id goes to `tomb` as `id|ts|hash`; recall, `--find` and `--dump` suppress
   it. `--compact` drops the record's BODY from the store and KEEPS the
   tombstone: it is the portable delete fact a peer needs, so collecting it would
@@ -62,7 +64,8 @@ spec. See LAYOUT.md (format), BNF.txt (grammar).
 - Adds union losslessly (a grow-only CRDT, no clock). Removes propagate as
   tombstones: `D|` for a whole record, `K|` for a single key-detach, both
   content-addressed and resolved last-write-wins by ts.
-- Blobs sync as files (rsync-style), device-tagged names, never content-deduped.
+- Blobs sync as files (rsync-style), names unique per device (timestamp plus 8
+  random hex), never content-deduped.
 - Git or a file-sync app may TRANSPORT the bytes, but the MERGE must be `--import`
   (value-aware). Never trust git's textual merge of `store`, it id-collides.
 - Idempotent and resumable: a partial/interrupted sync just re-runs to converge.
@@ -75,7 +78,7 @@ spec. See LAYOUT.md (format), BNF.txt (grammar).
   `ais -f ./.ais KEY...`, no import: a checked-in config. Filter first (dump only
   the records meant to be shared) so nothing private travels.
 - Seed-and-own: hand over a portable dump and they make it their first version:
-      ais --dump | sed 's/^[0-9]*|//'  >  shared   # donor: strip the local ids
+      ais --dump                       >  shared   # donor: no ids in a dump
       ais -f ./.ais --import           <  shared   # receiver: into a fresh index
   From there each side diverges and the Sync merge above reconciles both ways:
   value-as-identity dedups the shared records, each side's own records just add.
@@ -94,5 +97,5 @@ spec. See LAYOUT.md (format), BNF.txt (grammar).
 - `-key` is internal: the GUI toggles tag chips and emits it; users never type
   operators.
 - Delete is an explicit, labeled action on the record, confirmed before it runs
-  and undoable only inside the 5s window; it is never a silent consequence of
+  and undoable only inside the undo window above; it is never a silent consequence of
   removing the last tag. Removing the last tag leaves the record live and keyless.

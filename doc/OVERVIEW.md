@@ -6,7 +6,7 @@ This document is the rationale and history behind those.
 
 What it is, in one phrase: an extension of your **associative memory**, a working *memex* as plain text you own. See [`about.txt`](about.txt) for the memex origin and pitch.
 
-Design in one line: an **immutable content store** plus a small, **rebuildable key index**.
+Design in one line: a plain-text **record store** plus a small, **rebuildable key index**.
 
 Where the code lives: [`dev/LAYOUT.md`](dev/LAYOUT.md) for the module map, [`../AGENTS.md`](../AGENTS.md) for the directories. What has shipped and what is next: [`ROADMAP.md`](ROADMAP.md). Which front end each platform gets: [`dev/DISTRIBUTION.md`](dev/DISTRIBUTION.md).
 
@@ -28,5 +28,5 @@ Conceived as a by-hand filesystem index (~2001), registered on SourceForge **200
 first implemented as shell scripts (**2005**, `legacy/ais-scripts/`). Early C and Java editions
 ran on Berkeley DB / Sleepycat (**2005-2007**) before Lucene; the Java/Lucene web app was
 running by **2007** and published (after a delay) in **2009** (`legacy/ais/`). Re-engineered
-from scratch in ANSI C (**2026**, `c/`).
+from scratch in C99 (**2026**, `c/`).
 Full trail in the deposited, citable record: [doi.org/10.5281/zenodo.20647047](https://doi.org/10.5281/zenodo.20647047).

@@ -188,7 +188,7 @@ Six secrets, under Settings > Secrets and variables > Actions, where the
 The Team ID and the profile name are not secrets. They ship inside every signed
 app, so they go in the repo.
 
-Two files to commit. `app/flutter/ios/ExportOptions.plist`:
+Two files are committed. `app/flutter/ios/ExportOptions.plist`:
 
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>
@@ -206,9 +206,9 @@ Two files to commit. `app/flutter/ios/ExportOptions.plist`:
 ```
 
 And the Runner target's Release configuration in
-`app/flutter/ios/Runner.xcodeproj/project.pbxproj`, which today says
-`CODE_SIGN_STYLE = Automatic` and would send the archive looking for an Xcode
-account that does not exist on a runner:
+`app/flutter/ios/Runner.xcodeproj/project.pbxproj`, signed manually, since
+`Automatic` sends the archive looking for an Xcode account that does not exist
+on a runner:
 
     CODE_SIGN_STYLE = Manual;
     DEVELOPMENT_TEAM = 3T7N3KADW5;
@@ -220,8 +220,9 @@ land in a diff instead of in Xcode state nobody can review, which is the reason
 the engine's file list lives in `ais_engine.podspec`. The existing `ios-build`
 job is unaffected, since `--no-codesign` never reaches signing.
 
-A new job, gated on the certificate secret being present so forks and
-unconfigured runs skip it, as the `android` job gates on the keystore:
+The `ios-release` job in `.github/workflows/flutter.yml` runs on a tag and
+skips when the certificate secret is absent, so forks and unconfigured runs
+pass, as the `android` job gates on the keystore. In outline:
 
 ```yaml
   ios-release:

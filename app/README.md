@@ -25,8 +25,8 @@ Browser voice/install need a secure context (HTTPS or localhost); on Android use
 Termux + `http://localhost:8765`. Full rule and the route choices:
 see doc/android-install.md.
 
-- **iOS:** Safari has no Web Speech recognition, so *voice* needs a future
-  native app / Siri Shortcuts. Text recall works over HTTPS.
+- **iOS:** Safari has no Web Speech recognition, so *voice* needs the native
+  app (`app/flutter/`). Text recall works over HTTPS.
 
 ## Notes
 

@@ -28,8 +28,8 @@ WHAT IT IS
   together. Keys cross-link, so the index is a graph of associations, not a
   flat list of folders or a single timeline.
 
-  Yours, free, repairable - by guarantee, not promise. The index is append-only
-  plain text on your own device (store, idx/, blobs/). There is no server, so
+  Yours, free, repairable - by guarantee, not promise. The index is plain text
+  on your own device (store, idx/, blobs/). There is no server, so
   nothing phones home and no one, not even the author, can read your keys or
   your memory. GPL keeps it free, open, and forkable: no vendor can enclose it
   or shut it down. Plain text keeps it repairable: a bad byte costs a line, not
@@ -94,8 +94,9 @@ WHAT IT IS NOT
 WHERE YOUR DATA LIVES
 
   Plain files you can find, copy, back up, edit, or delete yourself, under
-  ~/.ais by default. See USING.txt for the per-OS paths, `ais --where`,
-  `ais --switch` / `ais --indexes` (multiple named indexes), and `ais --init`.
+  ~/.ais by default. See USING.txt for the per-OS paths and `ais --where`;
+  `ais --help` or the man page for `ais --switch` / `ais --indexes` (multiple
+  named indexes) and `ais --init`.
 
 
 PROVENANCE

@@ -18,7 +18,7 @@ verbal explanation of a character class. "\n" is LF.
 ---- store : the source of truth (append-only) -------------------------------
 INDEX/store. One record per line. A v3 line is <id>|<ts>|<keys>|<value>; a
 legacy v1 line (no <ts>) is <id>|<keys>|<value>. store.c:store_parse reads BOTH:
-field 2 is taken as <ts> only if looks_like_ts accepts it (see <ts>), else it is
+field 2 is taken as <ts> only if store_looks_like_ts accepts it (see <ts>), else it is
 <keys>. After at most the first three "|", <value> is the line remainder and may
 itself contain "|". A multi-value record (from `add`) is several lines that
 share one <id>; it is NOT encoded with extra "|" on one line.
@@ -28,7 +28,7 @@ share one <id>; it is NOT encoded with extra "|" on one line.
 <id>           ::= [:digit:]+            ? positive (> 0), assigned monotonically ?
 <ts>           ::= <year> "-" <mm> "-" <dd>
                    ( "T" <hh> ":" <min> ( ":" <ss> "Z"? )? )?
-                   ? save time, present in v2/v3 records, absent in v1. looks_like_ts
+                   ? save time, present in v2/v3 records, absent in v1. store_looks_like_ts
                      requires at least a full date (YYYY-MM-DD), so a bare year or
                      YYYY-MM stays a KEY. The engine writes UTC to the second with a
                      trailing "Z" (v3); it also accepts the v2 local "...Thh:mm:ss"
@@ -41,9 +41,9 @@ share one <id>; it is NOT encoded with extra "|" on one line.
 <keys>         ::= <key> ( " " <key> )*  ? one or more space-separated encoded keys ?
 <key>          ::= <key_char>+
 <key_char>     ::= ? [:graph:] except "|" "/" "\" -- a key is one store line-field
-                     AND one safe path component. key.c:key_encode lowercases the
-                     source key and maps every other character (space, [:cntrl:],
-                     "|", "/", "\") to "_". ?
+                     AND one safe path component. key.c:key_encode lowercases
+                     ASCII letters (other bytes are kept as they are) and maps
+                     space, [:cntrl:], DEL, "|", "/", "\" and a leading "." to "_". ?
 <value>        ::= <value_char>*         ? may be empty ?
 <value_char>   ::= ? any character except "\n" (LF) and "\r" (CR); "|" IS allowed ?
 
@@ -51,7 +51,16 @@ A <value> is the literal resource, conventionally one of the following (these
 shapes are descriptive, not enforced: the store keeps any value verbatim):
 <value>        ::= <url> | <uri> | <abs_path> | <rel_path> | <secret> | <free_text>
 <rel_path>     ::= <blob_ref> | ? any path relative to INDEX ?
-<blob_ref>     ::= "blobs/" <timestamp> ( ".txt" | ".aisc" )  ? .txt: `doc`; .aisc: `doc -e` ?
+<blob_ref>     ::= "blobs/" <blob_stem> ( ".txt" | ".aisc" )  ? .txt: `doc`; .aisc: `doc -e` ?
+<blob_stem>    ::= <timestamp> ( "~" <tag> ( "-" [:digit:]+ )? )?
+                   ( "~" <body_hash> ( "-" [:digit:]+ )? )?
+<tag>          ::= [:xdigit:]{8}   ? random, minted with the document (doc.c:
+                                     ais_doc_blobname_ext); "-N" only when that
+                                     name is taken locally; absent on older names ?
+<body_hash>    ::= [:xdigit:]{16}  ? FNV-1a of the body, appended on import when the
+                                     arriving name holds a different document here
+                                     (doc.c:ais_doc_blob_place); "-N" only on a
+                                     hash collision ?
 
 A <secret> is an encrypted value, self-identifying by the "aisc:" prefix (written
 by `-e`). INLINE carries the base64 AIS-CR1 image in the value; BLOB references an
@@ -59,9 +68,10 @@ encrypted image file (the '@' after the prefix is the discriminator -- base64
 never starts with '@'). Treated as opaque <value> everywhere except an
 interactive recall at a terminal, which decrypts it:
 <secret>       ::= "aisc:" <base64>              ? INLINE: image is the value ?
-                 | "aisc:@" <blob_ref>          ? BLOB:   image is blobs/<ts>.aisc ?
+                 | "aisc:@" <blob_ref>          ? BLOB:   image is blobs/<blob_stem>.aisc ?
 <base64>       ::= ? RFC 4648 base64 of the AIS-CR1 file image ?
 <timestamp>    ::= <year> "-" <mm> "-" <dd> "-" <hhmmss> ( "-" [:digit:]+ ){0,1}
+                   ? local time; the "-N" form is an untagged older name ?
 <year>         ::= [:digit:]{4}
 <mm>           ::= [:digit:]{2}
 <dd>           ::= [:digit:]{2}
@@ -74,7 +84,31 @@ INDEX/next_id   -- the next id to assign
 
 INDEX/idx/<p>/<key> -- one key's posting list, ascending and duplicate-free
 <posting_file> ::= ( <id> "\n" )*        ? strictly ascending, no duplicates ?
-<p>            ::= <key_char> ( <key_char> ){0,1}   ? 1-2 char navigable prefix of <key> ?
+<p>            ::= <key_char> ( <key_char> ){0,1}   ? navigable prefix of <key>: its first
+                                                    two characters when the first byte is
+                                                    ASCII (one for a one-character key),
+                                                    else its whole first UTF-8 character ?
+
+INDEX/multi     -- ids carrying more than one value line
+<multi_file>   ::= ( <id> "\n" )*
+
+INDEX/off       -- positional accelerator; line k = byte offset of id k's first
+                   store line. Line NUMBER is the id; the stored offset is +1, so
+                   "0" means absent.
+<off_file>     ::= ( <offset> "\n" )*
+<offset>       ::= [:digit:]+            ? offset+1; "0" = no record for this id ?
+
+INDEX/version   -- on-disk format version (file absent = legacy, version 0)
+<version_file> ::= [:digit:]+ ( "\n" ){0,1}
+
+INDEX/lock      -- empty; advisory flock target only.
+
+
+---- real data, not rebuildable ----------------------------------------------
+INDEX/blobs/<blob_stem>.txt (or .aisc): a document saved by `doc` (`doc -e`)
+<blob_file>    ::= ? arbitrary text, one or more lines, any bytes ?
+(The store references it by <blob_ref>; `find` searches the reference text, not
+the blob's contents.)
 
 INDEX/tomb      -- deletions. REAL DATA, not derived: a deleted record is not in
                    the store, so nothing can rebuild this. Retained for the life
@@ -109,32 +143,31 @@ INDEX/edits     -- in-place value edits. REAL DATA for the same reason as tomb:
 <edits_file>   ::= ( <edits_line> "\n" )*
 <edits_line>   ::= <ts> "|" <hash> "|" <value>   ? the value hashing to <hash> became <value> ?
 
-INDEX/multi     -- ids carrying more than one value line
-<multi_file>   ::= ( <id> "\n" )*
-
-INDEX/off       -- positional accelerator; line k = byte offset of id k's first
-                   store line. Line NUMBER is the id; the stored offset is +1, so
-                   "0" means absent.
-<off_file>     ::= ( <offset> "\n" )*
-<offset>       ::= [:digit:]+            ? offset+1; "0" = no record for this id ?
-
-INDEX/version   -- on-disk format version (file absent = legacy, version 0)
-<version_file> ::= [:digit:]+ ( "\n" ){0,1}
-
-INDEX/lock      -- empty; advisory flock target only.
+INDEX/mts:       when each record was last edited on this device. Never exported.
+INDEX/sts:       the time a record must export at after surviving a peer's
+                   delete. Both are fixed-width slot files, like <off_file>:
+                   line k belongs to id k, and the file is seeked, never parsed.
+<slot_file>    ::= ( <slot> "\n" )*
+<slot>         ::= <utc_ts> | " "{20}   ? blank = no time recorded for this id ?
+<utc_ts>       ::= <year> "-" <mm> "-" <dd> "T" <hh> ":" <min> ":" <ss> "Z"   ? 20 chars ?
 
 
----- real data, not rebuildable ----------------------------------------------
-INDEX/blobs/<timestamp>.txt -- a document saved by `doc`
-<blob_file>    ::= ? arbitrary text, one or more lines, any bytes ?
-(The store references it by <blob_ref>; `find` searches the reference text, not
-the blob's contents.)
+---- device-local files (never synced, never exported) -----------------------
+INDEX/syncid:     this device's folder-sync identity
+<syncid_file>  ::= [:xdigit:]{16} " " [:xdigit:]{32} " " [:digit:]+ "\n"   ? id nonce seq ?
+
+INDEX/foldsync:   shared folders this device has synced with
+<foldsync_file> ::= ( <abs_path> "\n" )*
+
+INDEX/syncfolder: the folder the GUI syncs with
+<syncfolder_file> ::= <abs_path> "\n"
 
 
 ---- editable batch format (--dump / --import) -------------------------------
 `ais --dump` emits <kv_line>; `ais --import` (feed.c:feed_import_from) reads
 <import_line>, skipping blanks and "#" comments. An import line is EITHER a merge
-line (the prefixed export-wire forms `A|`/`D|`/`K|`/`M|` that `--export` emits) OR
+line (the prefixed export-wire forms `A|`/`D|`/`K|`/`T|`/`E|`/`C|`/`M|`/`B|` that
+`--export` emits, <merge_line> below) OR
 <kv_line>, the CLI's own argument grammar. The parser tries the merge forms FIRST.
 
 <kv_line> IS the command line: `ais KEY... -v VALUE` typed at a shell and the same

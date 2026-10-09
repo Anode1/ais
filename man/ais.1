@@ -46,7 +46,7 @@ ais \- associative index: save values under keys, get them back by keys
 .IR DIR ]
 .B \-\-update
 .I ID
-.RI [ KEY ...]
+.IR KEY ...
 .br
 .B ais
 .RB [ \-f
@@ -72,7 +72,7 @@ gets the tag "doc", while
 .B ais \-\-doc
 is the command.
 .PP
-The store is append-only plain text and the index is navigable plain files, so
+The store is plain text, one record per line, and the index is navigable plain files, so
 the whole index can be read, grepped, rsynced, and repaired by hand. Re-filing a
 value already saved is idempotent: the keys given are ADDED to the record that
 already holds it. Re-filing a value that was DELETED brings the record back with
@@ -106,7 +106,7 @@ values attach to the same record (multi-link).
 reads values from standard input, one per line. Keys are optional.
 .TP
 .BR \-k ", " \-\-key " " \fIKEY\fR
-An explicit key, for one that LOOKS like a flag (\fB\-v\fR, \fB\-o\fR). A key
+An explicit key, the same as a bare KEY. A key
 cannot BEGIN with
 .RB ' \- ':
 that spelling is the detach operator, see
@@ -263,7 +263,7 @@ it propagates to synced peers. A record whose only key was KEY stays in the
 index, reachable by
 .BR \-\-find " and " \-\-timeline .
 .TP
-.B \-\-doc \fIKEY ...\fR
+.B \-\-doc \fR[\fIKEY ...\fR]
 Save standard input as a document: write it to
 .I <index>/blobs/<timestamp>~<8 hex>.txt
 and save that relative path as a value under the keys. For multi-line or large
@@ -380,7 +380,7 @@ marker key
 Trashed notes are skipped. A .zip is refused: extract it first.
 .TP
 .B \-\-sync \-\-serve \fR[\fIPORT\fR]
-Two-way LAN sync. This form hosts one peer (prints a URL, a one-time token, and a QR); the
+Two-way LAN sync. This form hosts one peer (prints a URL and a one-time token); the
 other device joins with
 .B \-\-sync \fIURL\fR \-\-token \fITOKEN\fR\fR.
 Both converge in one round, a tombstone-union, timestamp last-writer-wins merge
@@ -537,10 +537,12 @@ Success.
 No record matched (recall,
 .BR \-\-find ),
 or the action was not performed: a declined confirmation, or nothing to
-delete or untag. Grep semantics, so a script can tell hit from miss.
+delete or untag; or an error. Grep semantics, so a script can tell hit from miss.
 .TP
 .B 2
-Usage error, or no terminal to confirm on.
+Unknown option, no arguments, a port out of range,
+.B \-\-mcp
+refused, or no terminal to confirm on.
 .SH FILES
 These live inside the index directory (e.g.
 .I .ais/
@@ -548,11 +550,14 @@ or the per-user default
 .IR ~/.ais ):
 .TP
 .I store
-Append-only records,
+Records, one per line,
 .IR id | ts | keys | value
 (legacy v1 lines omit the
 .I ts
-field).
+field). A new record is appended; an edit to a record's keys or value rewrites
+its line, and
+.B \-\-compact
+rewrites the file, each by writing a new file beside it and renaming.
 .TP
 .I idx/<p>/<key>
 Per-key posting lists (sorted record ids).
@@ -604,16 +609,29 @@ and
 are rebuildable from
 .IR store ;
 everything else above is real data. The per-device files
-.RI ( lock ", " foldsync ", " syncfolder ", " syncid )
+.RI ( lock ", " foldsync ", " syncfolder )
 are meaningless on another machine and must not be copied to one.
+.I syncid
+is this device's folder-sync identity; a whole-folder copy clones it, and the
+next folder-sync pass detects the clone and gives one device a new identity.
 .PP
 Outside the index, in your home AIS dir:
 .TP
 .I ~/.ais/config
-Plain-text config; an
+Plain-text config. An
+.I index.NAME = PATH
+line registers a named index
+.RB ( "ais \-\-switch \-c" ),
+.I current = NAME
+selects one
+.RB ( "ais \-\-switch" ),
+and the legacy
 .I index = PATH
-line records the saved default index (see
-.BR "ais \-\-default" ).
+line records the single default index
+.RB ( "ais \-\-default" ),
+used when no
+.I current
+line is set.
 .SH SYNCING
 For a one-shot copy between two devices on the same network with no setup, AIS has a
 built-in encrypted transfer:
@@ -634,9 +652,9 @@ copy, changes flow in both directions (blobs included), by a tombstone-union,
 timestamp last-writer-wins merge.
 .PP
 For continuous, hands-off syncing the index is just plain files, so it needs no cloud
-account and no ais feature: point a folder-sync tool at the index directory, ignoring only
-the per-device writer lock file
-.RI ( lock ).
+account and no ais feature: point a folder-sync tool at the index directory, ignoring the
+per-device files
+.IR lock ", " foldsync " and " syncfolder .
 .B Syncthing
 is recommended: peer-to-peer, open source, on Android and the desktops. The full
 walkthrough (pairing, conflict handling, and one-shot alternatives like LocalSend) is in

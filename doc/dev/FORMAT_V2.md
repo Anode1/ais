@@ -1,7 +1,7 @@
 # The dump/import format
 
-Decision record. Implementation waits until after the Play closed test, because
-this changes a documented interface.
+Decision record. Steps 1 and 2 of the order of work (below) are done; steps 3
+to 5 are open.
 
 Three independent audits, one per surface (engine, CLI, front ends), each denied
 sight of the others' findings. They agreed on the verdict and disagreed on one
@@ -30,7 +30,7 @@ digits. That guess is wrong in both directions:
 - `work|my note|http://x`: read as keys + a value containing a `|`
 
 Same shape, opposite rules. And the guess corrupts a **documented** feature:
-`help.c:113` teaches year tags (`ais -v photo.jpg italy venice 2023`), and
+`help.c`'s usage text teaches year tags (`ais -v photo.jpg italy venice 2023`), and
 
     printf '2023|http://a|b\n' | ais --import
 
@@ -76,8 +76,8 @@ So the whole data model is already expressible without ids, and `--export` is th
 existence proof.
 
 They must remain internal. Postings *are* ascending id files and the read
-path is a numeric k-way merge over them. `off` seeks by `(id-1)*width`. `multi`,
-`mts`, `sts`, `tomb`, `ktomb` slot-address by id. `next_id` must stay monotonic
+path is a numeric k-way merge over them. `off`, `mts` and `sts` seek by
+`(id-1)*width`; `multi`, `tomb` and `ktomb` are lists keyed by id. `next_id` must stay monotonic
 and must never regress past a retained tombstone. Recency order is id-descending
 because `ts` is non-unique, second-resolution, and absent on legacy lines.
 
@@ -100,9 +100,8 @@ The front-end audit tested `--add` and demonstrated otherwise:
     2|two|other
     2|two|shared-value        <- ais --add 2 -v 'shared-value'
 
-`add_link` (ais.c:722-766) is the only write path with **no** duplicate guard,
-unlike `ais_put_at_k` (ais.c:372), `ais_merge_addval` (ais.c:1236) and
-`ais_set_value` (ais.c:886). `store_find_value` then resolves that value to
+`add_link` (ais.c) was the only write path with **no** duplicate guard,
+unlike `ais_put_at_k`, `ais_merge_addval` and `ais_set_value`. `store_find_value` then resolves that value to
 record 1, so any value-addressed `--del` or `--set` would silently act on the
 wrong record.
 
@@ -116,13 +115,13 @@ Write it as **hash filter, strcmp confirm**:
 
 Comparing digests instead of whole values is what makes this cheap on `--doc`
 blobs and long notes, and it is the same content-addressing the merge path
-already uses (`mdel_seek`, ais.c:1187).
+already uses (`mdel_seek`, ais.c).
 
 But note why the local guard confirms and the wire cannot. `mdel_seek` accepts a
 hash match as proof because a delete arrives as `D|ts|hash` with no value: the
 hash is all the evidence there will ever be. A local guard holds both, so a
 `strcmp` on a hit costs nothing and removes the one bad outcome: FNV-1a is
-documented as "NOT a security hash" (store.c:170), and an unconfirmed collision
+documented as "NOT a security hash" (`content_hash`, store.c), and an unconfirmed collision
 would reject a legitimate distinct value with "already exists".
 
 ## What ids carry that nothing else does
@@ -137,7 +136,7 @@ watches a row they did not touch vanish. The replacement is a **presentation
 marker**, not another identifier: an indent, a blank line between records, or
 one row per record carrying a link count.
 
-**2. Value-less records.** `main.c:92` prints `id|` for a posting that names an
+**2. Value-less records.** `on_id` in `main.c` prints `id|` for a posting that names an
 id with no store line (a hand-edited or truncated index). Drop the id and the
 line is empty, the diagnostic disappears, and such a record can never be named on
 the command line, so `--del` cannot reach it.
@@ -167,9 +166,9 @@ shows them, and `--dump` stops leaking them.**
 
 ## The empty-keys asymmetry disappears
 
-This looked like a cost and is a gain. Today `import` accepts an
-empty keys field only on a line with an id "to vouch for it" (LAYOUT.md), because
-a hand-written `|value` is more likely a typo than a deliberate keyless record.
+This looked like a cost and is a gain. The old `import` accepted an
+empty keys field only on a line with an id "to vouch for it", because a
+hand-written `|value` is more likely a typo than a deliberate keyless record.
 
 Under `KEY... -v VALUE` there is nothing to vouch for. A keyless record is `-v
 VALUE`, and you cannot omit keys by accident the way you can leave a field empty
@@ -181,8 +180,9 @@ and the typo heuristic all go away together.
 1. ~~duplicate-value guard in `ais_add`~~: DONE 2026-08-03, folded into the pass
    add_link already made, hash filter with strcmp confirm, returns -2. Invariants
    pinned in tests/cli.sh under "wire:", "identity:" and "disposable:".
-2. the new `KEY... -v VALUE` grammar for `--dump` and `--import`, sharing the
-   CLI's parser, with old-format detection and a warning
+2. ~~the new `KEY... -v VALUE` grammar for `--dump` and `--import`, sharing the
+   CLI's parser, with old-format detection and a warning~~: DONE (`ais_dump` in
+   ais.c, the split in feed.c)
 3. value-addressed `--del`, `--set`, `--update`; drop or respell `--add`
 4. a grouping marker for multi-link recall output
 5. decide what replaces `put`'s id on stdout (13 test captures and any user
@@ -198,11 +198,11 @@ give you two records. That is the identity rule and it stays.
 
 What is separable is STORAGE. Identity by occurrence, storage by content: two
 records keep their own identity while pointing at one file when the bytes match.
-Today they cannot, because the value is a timestamp-derived path
-(`blobs/2026-08-03-095035.txt`, doc.c:43-56):
+Today they cannot, because the value is a timestamp-derived path with a random
+tag (`blobs/<ts>~<8 hex>.txt`, `ais_doc_blobname_ext` in doc.c):
 
-    1|report |blobs/2026-08-03-095035.txt
-    2|summary|blobs/2026-08-03-095035-2.txt     <- identical bytes
+    1|report |blobs/2026-08-03-095035~3f9a01c2.txt
+    2|summary|blobs/2026-08-03-095035~b7e4d610.txt     <- identical bytes
 
 The same document filed under two tags cannot become one record with two keys,
 which is what the value path does and what a user would expect.
@@ -210,7 +210,7 @@ which is what the value path does and what a user would expect.
 Naming blobs by content hash would let identical bytes share one file, and buys:
 
 - **sync could skip payloads the peer already holds.** The wire is
-  `B|path|size` plus the bytes (feed.c:506-587). With a content-addressed name a
+  `B|path|size` plus the bytes (`export_blobs_stream` in feed.c). With a content-addressed name a
   peer recognising the hash can decline the transfer. Today it must take the
   bytes, because a timestamp path says nothing about what is inside.
 - deleting one of two identical documents stops orphaning the other's storage

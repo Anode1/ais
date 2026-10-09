@@ -101,20 +101,22 @@ Steps 2 and 3 need the account holder's own sign-in (IOS_RELEASE.md step 1).
 - [x] Privacy manifest for the engine's `stat` calls
       (`app/flutter/ios/PrivacyInfo.xcprivacy`, bundled by `ais_engine.podspec`,
       2026-10-02); the `ios-build` job asserts it is in the app.
-- [ ] Tag a release, watch the upload reach App Store Connect.
+- [x] Tag a release, watch the upload reach App Store Connect (v0.3.30,
+      build 526, section 4).
 
 ## 7. TestFlight
 
-- [ ] Users and Access > + > invite your own Apple ID and the second
-      tester's, role Developer (internal testers, no Beta App Review); two
-      phones widen the hardware coverage and give sync a real second device.
-- [ ] TestFlight > Internal Testing > group > tester > build.
-- [ ] Install **TestFlight** on the phone, accept the invite, install AIS.
+- [x] Internal group `Family` with Marina as tester, builds auto-distributed
+      (section 4).
+- [x] **TestFlight** installed on Marina's iPhone, AIS installed from it.
 - [ ] Run the acceptance list from issue #1 on the phone: QR join, speech
       (first real test of it), sync over a real network, force-quit
       persistence. Builds expire in 90 days.
 
 ## 8. First device tests (build 526 on Marina's iPhone, 2026-10-08)
+
+A sync between the iPhone (0.3.34) and an Android phone (0.3.29) succeeded on
+2026-10-09; which items below it closes awaits the direction it ran in.
 
 - [x] Scan-to-join: the camera opened the app from the Android's QR and nothing
       followed. The scene delegate built the `ais/deeplink` channel from the
@@ -122,7 +124,7 @@ Steps 2 and 3 need the account holder's own sign-in (IOS_RELEASE.md step 1).
       Flutter controller yet, so no handler was installed and Dart's
       getInitialLink failed into its silent catch. Fixed: the channel is made in
       AppDelegate from the engine bridge's messenger, the scene only stores and
-      forwards (`SceneDelegate.swift`). Unverified until the next TestFlight build.
+      forwards (`SceneDelegate.swift`). Shipped in 0.3.32; unverified.
 - [ ] Host on the iPhone, join from Android: the join never reached the iPhone
       (its SYNs were dropped; the iPhone waited out its five minutes). Same
       Wi-Fi. Likeliest cause: the app took the first private address on any
@@ -151,11 +153,15 @@ Steps 2 and 3 need the account holder's own sign-in (IOS_RELEASE.md step 1).
       Recent list showed unfiltered. The speech path called `_recall()`, which
       fills the results without switching the view; typing goes through
       `_recallLive()`. Fixed: speech goes through `_recallLive()` too.
+      Unverified on a device.
+- [x] The Sync sheet offered "Set a sync folder" on iOS, where
+      file_selector_ios has no directory picker; the tap did nothing. The
+      folder group is now hidden on iOS (2026-10-09).
 
 ## 9. App Store
 
-- [ ] Distribution tab: pick the build, screenshots from the phone, category
-      Productivity, age rating.
+- [ ] Distribution tab: attach the build (screenshots, category and age
+      rating are done, section 4).
 - [ ] Review notes: no account to sign into, nothing reaches a server, sync
       needs a second device and the reviewer can skip it.
 - [ ] Submit. A rejection comes with a guideline number and a reply box;

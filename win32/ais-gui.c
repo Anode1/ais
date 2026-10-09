@@ -2,12 +2,15 @@
  * c/ stays pure ANSI C and never sees <windows.h>; this front-end only calls the
  * public FFI seam (embed.h) plus the index-resolution policy (locate.h), exactly
  * as serve.c / the Flutter app do. Pure C, no C++, no .NET, no Cygwin -- it links
- * only user32/gdi32/comctl32, present on every Windows (XP -> 11), so the exe is
- * tiny and self-contained. Build: see win32/Makefile (MinGW cross-compile).
+ * only user32/gdi32/comctl32/shell32/ws2_32, present on every Windows (XP -> 11),
+ * so the exe is tiny and self-contained. Build: see win32/Makefile (MinGW
+ * cross-compile).
  *
- * UI: a labelled keys box + Get (with an OR toggle) over a results list
- * (double-click an http(s) value to open it), and a labelled value+keys row with
- * Add. One window, common controls only -- no resource (.rc) file. */
+ * UI: Search / Timeline / Tags tabs; a labelled keys box + Search (with a "Match
+ * any key" toggle) over a results list (double-click an http(s) value to open
+ * it), whose rows carry an Edit keys / Delete / Reveal menu; a labelled
+ * value+keys row with Encrypt and Add; Store... to switch index. One window,
+ * common controls only; ais.rc supplies only the manifest. */
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <commctrl.h>

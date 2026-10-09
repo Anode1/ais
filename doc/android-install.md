@@ -4,20 +4,25 @@ There are two ways to run AIS on a phone. Pick by what you want today:
 
 - **Native app (Flutter)**: a real installed app with an icon. The C engine runs
   on-device via FFI; the index is plain-text files in the app's storage. Best for
-  a store-style app and offline use. Voice recall uses the native Android
-  `SpeechRecognizer`.
+  a store-style app and offline use. Voice recall runs on-device through the
+  Android speech recognizer.
 - **PWA (web app) via Termux**: no APK. Run `ais --serve` on the phone and open
-  it in Chrome as an installable web app. Fastest path to working voice today,
-  since it needs no signing.
+  it in Chrome as an installable web app.
 
 Both keep your data on the phone in the same plain-text index format as the
 desktop CLI.
 
 ## Route A: the native Flutter app
 
-### A1. Install the prebuilt debug APK (quickest)
+### A1. Install a release (quickest)
 
-A debug APK is built at
+- Google Play: <https://play.google.com/store/apps/details?id=com.aisindex.ais>
+- Without Play: the `.apk` on <https://github.com/Anode1/ais/releases/latest>, or
+  add `https://github.com/Anode1/ais` in
+  [Obtainium](https://github.com/ImranR98/Obtainium), which installs each release
+  as it appears; the `-arm64-v8a.apk` fits a modern phone.
+
+A local build leaves a debug APK at
 `app/flutter/build/app/outputs/flutter-apk/app-debug.apk`.
 
 ```sh
@@ -81,7 +86,8 @@ pinned Flutter version defaults to, which is API 36 today.
 
 ### A5. Status
 
-Sideloading works today, from the release page or a local build. A local release
+The app is on Google Play; sideloading works from the release page or a local
+build. A local release
 build is signed with your own key when `android/key.properties` is present and
 falls back to the debug key when it is not, so a debug-signed copy cannot be
 upgraded over a real one. Keys and publishing are both in
@@ -114,8 +120,8 @@ disables voice, install, and the service worker.
 
 | Want | Route |
 | --- | --- |
-| A real installed app icon, mostly text recall now | A (sideload the APK) |
-| Voice working today, no signing/build hassle | B (PWA in Termux) |
+| An installed app with on-device voice recall | A1 (Google Play or the release APK) |
+| The web GUI on the phone, no app installed | B (PWA in Termux) |
 | To develop/iterate on the native app | A2 (`flutter run`) |
 
 ## Troubleshooting

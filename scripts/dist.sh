@@ -1,7 +1,7 @@
 #!/bin/sh
 # dist.sh -- build release bundles into releases/<platform>/ (kept across runs).
 #   make dist       this platform's BINARY bundle + the SOURCE bundle
-#   make dist-src   just the source bundle (build anywhere)
+#   sh scripts/dist.sh src   just the source bundle (build anywhere)
 #
 # Every bundle is a .zip so one tool opens any download on any OS. One bundle per
 # platform serves both the CLI and the GUI launcher, which wraps the same binary:
@@ -77,7 +77,8 @@ build_bin() {
     cat > "$stage/README.txt" <<EOF
 AIS $VERSION  ($pretty/$arch) -- your memory, yours to keep.
 
-GUI:   double-click  $lname     (opens the app in your browser)
+GUI:   double-click  $lname     (opens the app in your browser;
+                                 the Linux launcher needs ais on your PATH)
 CLI:   ./ais --help             (e.g.  ./ais venice italy ;  alias is='ais' for short)
 New?   open USING.txt for a one-minute guide.
 

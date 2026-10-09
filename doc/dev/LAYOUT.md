@@ -13,7 +13,7 @@ is hashed: every file is plain text, readable, greppable, repairable by hand.
       idx/<p>/<key>   posting list for a key: ids, one per line, ascending
       off             id->offset accelerator: line k = byte offset of id k
       multi           ids carrying >1 value line (from add)
-      tomb            tombstones: deleted ids, one per line
+      tomb            tombstones: id|ts|hash, one line per delete
       mts             when each record was last edited HERE: one fixed-width slot per id
       sts             the time a record must EXPORT at after surviving a peer's delete
       ktomb           key-detaches: id|ts|hash|key, one line per removal
@@ -26,6 +26,8 @@ is hashed: every file is plain text, readable, greppable, repairable by hand.
       syncfolder      DEVICE-LOCAL: the folder the GUI syncs with (written by the app)
       syncid          DEVICE-LOCAL: this device's sync identity, "id nonce seq"
                       (never synced, never exported)
+      synced          DEVICE-LOCAL: empty marker, present once this index has synced
+      project         DEVICE-LOCAL: the default project key (`--project`), never exported
       blobs/<ts>~<tag>.txt   documents saved by `doc` (real data; not rebuildable)
       lock            writers' advisory flock (per op; reads lock-free)
 
@@ -202,7 +204,9 @@ against `next_id` too: a stale counter also mis-declares the accelerator
 inconsistent and diverts to the scan path.
 
 **Format versions.** v1 was `id|keys|value` (no `ts`); v2 added a local `ts`;
-v3 makes `ts` UTC with a trailing `Z`. `INDEX/version` records the format, and
+v3 makes `ts` UTC with a trailing `Z`; v4 makes `mts`, `sts` and `katt` real
+data, with the store line unchanged (a v3 binary ignores `mts`, so a record
+edited after a peer's delete would lose the edit). `INDEX/version` records the format, and
 `store_open` stamps the current version into an older index in place the first
 time this build touches it (a too-old `ais` then refuses it, rather than misread
 a `ts` as keys; a *newer* format is refused too). The parser reads every shape:
@@ -229,11 +233,14 @@ Holds the next id as text. On put: read, use, write back +1. If missing
 taking max(id)+1: bounded memory, one `long`.
 
 ### idx/<p>/<key>: posting lists, sorted by construction
-`<key>` is the encoded key (lowercased; space, control, `|`, `/` and `\` -> `_`,
-so it is one store field and one safe path component). The file is that
+`<key>` is the encoded key (ASCII letters lowercased, other bytes kept; space,
+control, DEL, `|`, `/`, `\` and a leading `.` -> `_`, so it is one store field
+and one safe path component). The file is that
 one key's list of record ids, one per line, ascending. `<p>` is a short
-NAVIGABLE prefix of the key (first one or two encoded CHARACTERS, never a
-partial UTF-8 sequence): `idx/a/apple`, `idx/日/日本語`. Two BYTES was the rule
+NAVIGABLE prefix of the key: an ASCII first byte takes the first two
+characters (one for a one-character key), a non-ASCII first byte takes the
+whole first character, never a partial UTF-8 sequence: `idx/ap/apple`,
+`idx/日/日本語`. Two BYTES was the rule
 until a three-byte character showed what that means: the directory name was half
 a character, which Linux stores happily and APFS refuses, so on macOS and iOS the
 posting was never written and the key recalled nothing.
@@ -244,8 +251,8 @@ cannot be opened would leave the record in the store, in `--timeline` and in
 `--export`, under no tag. Compaction skips such a key with a warning instead of
 failing, so an index written before the refusal rebuilds rather than failing
 forever.
-The prefix keeps the index human-walkable: `ls idx/a/` shows keys beginning
-with `a`. No hashing: keys are human words, kept as themselves (git shards by a
+The prefix keeps the index human-walkable: `ls idx/ap/` shows keys beginning
+with `ap`. No hashing: keys are human words, kept as themselves (git shards by a
 hash prefix because its keys are hashes; ours are words). (If a prefix bucket
 ever grows large, split it adaptively by the next character.) Each key being its
 own small file is also why sync is cheap: `rsync` transfers only the keys that
@@ -314,7 +321,7 @@ narrow a window this already makes survivable, and compaction's rename commit
 takes the same view.
 
 ### tomb: tombstones
-`del(id)` appends the id to `tomb`. `get`/`dump` merge it out (suppress ids
+`del(id)` appends `id|ts|hash` to `tomb`. `get`/`dump` merge it out (suppress ids
 present in `tomb`). Compaction drops the deleted record's BODY from the store but
 KEEPS the tombstone (`tomb_keep_hashed`): the tombstone is the portable delete
 fact a peer needs, so collecting it would let any device that still holds the
@@ -419,7 +426,9 @@ advance every stream at it (dedup). Suppress tombstoned ids. Memory is O(nkeys).
 ### compact: streaming rewrite
 Stream `store` dropping tombstoned ids into `store.new`; rebuild `idx/`, `off`
 (first-line offset per id, `0` sentinels for gaps) and `multi` in the same pass;
-rename atomically; clear `tomb`; recompute `next_id`. Bounded buffers throughout.
+rename atomically; keep the hash-bearing tombstones (see `tomb` above); raise
+`next_id` to one past the highest live id if it is lower, never lower it.
+Bounded buffers throughout.
 
 ### import: the editable batch format (inverse of dump)
 `ais --import` reads `KEY... -v VALUE` lines from stdin and `put`s each, the
@@ -446,8 +455,8 @@ reads a document from stdin, writes it to `blobs/<timestamp>~<8 hex>.txt` (local
 time, so `ls blobs/` reads chronologically; the random tag is what stops two
 DEVICES minting one name for two documents, and a same-second doc on the same
 device still gets a `-N` suffix), and `put`s that relative path as the value. The engine stays
-oblivious (it stores a path like any other); the front-end (feed.c) owns blob
-placement. `blobs/` is REAL DATA, not rebuildable, as are `tomb`, `ktomb`, `katt`,
+oblivious (it stores a path like any other); `doc.c` owns blob placement
+(`ais_doc_blobname_ext`). `blobs/` is REAL DATA, not rebuildable, as are `tomb`, `ktomb`, `katt`,
 `mts` and `sts` (lose `sts` and a record that survived a peer's delete is simply
 deleted again on the next sync; lose `katt` and a tag put back on is removed again by
 the peer that removed it); only
@@ -464,7 +473,8 @@ ship a `.ais/`, and running an agent in that checkout would make a stranger's
 records its memory. So `--mcp` serves steps 1, 3 and 4 (`-f`, the current named
 index, home) and refuses step 2, printing one line naming `-f` and exiting 2
 before anything is served. `ais_locate_how` reports the step; main.c holds the
-rule, and `ais_mcp` never learns of it.
+rule. `ais_mcp` receives only a `shared` flag (named with `-f`, and not home),
+which picks the tool text that asks for keys or chooses them.
 
 Naming the index is the permission, and it is already where permission belongs:
 the client's own configuration line, `ais -f /abs/.ais --mcp`, which the user
@@ -480,7 +490,8 @@ writers serialize without colliding on an id, and a long-lived reader
 ## Module map (one concept per file; see STYLE.md)
 
     common.h       shared limits/types (AIS_LINE_MAX, AIS_KEY_MAX, ...)
-    key.c/.h       key encoding (lower; space, ctrl, | / \ -> '_') + the navigable prefix
+    key.c/.h       key encoding (ASCII lower; space, ctrl, DEL, | / \, leading . -> '_')
+                   + the navigable prefix
     store.c/.h     append-only store: append/stream records, monotonic id,
                    resolve by id, value->id scan for idempotency
     post.c/.h      posting lists: append an id to a key's file, open a key's
@@ -550,6 +561,9 @@ web-GUI obligations that go with them.
     ais --default [PATH]              DEPRECATED: the old single saved default (use --switch)
     ais --init                        create a local .ais here
 
+The full list of commands and flags is `usage_long` in `help.c` (`ais --help`);
+this table leaves out the sync, export, MCP and maintenance flags.
+
 INDEX location precedence (no env vars; `-f` is the only override): `-f/--index
 DIR` > nearest `.ais/` (walking up, git-style) > the CURRENT named index from
 `~/.ais/config` (set with `--switch`; falls back to the legacy `index = PATH`
@@ -574,7 +588,7 @@ always present) and `--switch home` returns to it. Indexes are SEPARATE
 stores, so switching only repoints `current`: there is no history merge (move
 records between indexes with `--import` / `--import-interactively`). The legacy
 `index = PATH` line (the old `--default`) is still honoured when there is no
-`current`, for one release. Resolution lives in `locate.c`; the config layer
+`current`. Resolution lives in `locate.c`; the config layer
 (`config_get`/`config_set`) and the registry calls (`ais_current_*`,
 `ais_index_*`) are there too. `ais_home_override()` relocates the config home
 (the test seam, and an embedder hook).

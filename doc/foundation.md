@@ -2,8 +2,7 @@
 
 *A plain account of where innovation comes from, and the human part.*
 
-Vasili Gavrilov. Markdown of the essay; the typeset PDF lives in
-`articles/innovation_compression/`. This is the conceptual foundation note for the AIS project.
+Vasili Gavrilov. Markdown of the essay. This is the conceptual foundation note for the AIS project.
 
 > **Status:** a synthesis. The parts below are established and named; the contribution is the
 > assembly, not the parts. Closest neighbours to credit up front: **Sperber** (culture as contagion

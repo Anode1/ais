@@ -2,11 +2,11 @@
 """gen.py -- synthetic dataset generator for the AIS associative index.
 
 Writes ONLY the three files AIS can rebuild an index from:
-    <DIR>/store    append-only records, one per line: "id|keys|value"
+    <DIR>/store    records, one per line: "id|keys|value" (legacy v1, no ts)
     <DIR>/next_id  a single line, the next id to assign (= N+1)
     <DIR>/meta     one line per record: "id|epoch_seconds" (not read by ais)
 
-It does NOT write idx/ -- run `ais -f <DIR> -y compact` afterwards, which
+It does NOT write idx/ -- run `ais -f <DIR> -y --compact` afterwards, which
 rebuilds the posting lists from the store with AIS's own logic.
 
 Usage:   gen.py DIR N
@@ -18,7 +18,7 @@ reproducible. Re-running with the same DIR/N yields byte-identical files.
 ------------------------------------------------------------------ data model
 VALUES  File paths found by walking KUL_ROOT (read-only), taken RELATIVE to
         KUL_ROOT, '.git' pruned. Sampled with replacement. '|' is stripped
-        from a path (AIS forbids '|' in a value); paths never contain newlines.
+        from a path; paths never contain newlines.
         If the pool is empty we fall back to a synthetic "value/<i>" path.
 
 KEYS    1 or 2 keys per record (P(2 keys) = 0.8). Vocabulary: lowercase-ASCII

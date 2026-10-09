@@ -17,16 +17,22 @@ below is shell work.
 
 - One seam: the mic in the search field (`app/flutter/lib/main.dart`,
   `_listen`), mobile only. Partials fill the box as they arrive; the final
-  result runs recall. Auto-running voice search is the industry standard
+  result runs recall and brings the Search tab forward (`_recallLive`,
+  unverified on a device). Auto-running voice search is the industry standard
   (Google, YouTube, Spotify), so this stays.
+- One phrase per session: a 3 s pause or 30 s in all ends it (`pauseFor`,
+  `listenFor`), a tap on the live mic stops it, and the icon shows which state
+  it is in. Unverified on a device.
 - On-device only: `SpeechListenOptions(onDevice: true)`, because the plugin
   default streams audio to the platform's cloud recognizer. A device without
   an offline language pack is told to install one. No cloud fallback, ever;
   the privacy answers on both stores promise it.
 - Permissions and manifests done on both platforms (`RECORD_AUDIO` plus the
   Android 11+ `RecognitionService` query; mic and speech usage strings on iOS).
-- Untested on hardware. Emulators have no recognizer; the acceptance list in
-  [issue #1](https://github.com/Anode1/ais/issues/1) covers the first real run.
+- Run on hardware once: an iPhone in TestFlight on 0.3.34 (2026-10-09), where
+  each phrase arrived appended to the earlier ones, which the session limits
+  above fix. Emulators have no recognizer; the acceptance list in
+  [issue #1](https://github.com/Anode1/ais/issues/1) covers the rest.
 
 ## The standard, from apps that do this
 
@@ -82,8 +88,8 @@ availability check, which is why the pack-missing message matters.
 ## What to add, in order
 
 1. Prove GET on hardware (issue #1), then polish it to the standard above:
-   listening state on the mic, haptic on start and stop, `pauseFor` about 2 s,
-   inline errors with Open Settings and one-tap retry.
+   haptic on start and stop, inline errors with Open Settings and one-tap
+   retry.
 2. Voice PUT, two-step: a mic on the Add form's value field through the same
    `_listen` seam, transcript editable, Save stays a press, `pauseFor` 3 s or
    more with a stop control. Then tags as chips: recent tags plus a dictatable
@@ -91,7 +97,8 @@ availability check, which is why the pack-missing message matters.
    passwords are typed.
 3. iOS App Intents: Add-a-note and a recall intent in one pass, Swift calling
    the engine directly, confirmation dialog naming what was saved.
-4. Android: the `ais://capture` deep link, a static shortcut, and the
-   share-sheet receiver on the same route.
+4. Android: the `ais://capture` deep link and a static shortcut. The
+   share-sheet receiver exists on Android (`ais/share`, prefills the Add
+   sheet) and moves onto the same route; iOS has none.
 5. Later: the home-screen widget. Skip App Actions; adopt AppFunctions when it
    leaves preview.

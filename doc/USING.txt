@@ -11,7 +11,8 @@ OPEN IT
 
   Windows   Double-click  ais-web.bat  (or type  ais --serve  in a terminal)
   macOS     Double-click  ais-web.command
-            (the first time: right-click it, choose Open, and confirm once)
+            (the first time: in Terminal, run  xattr -dr com.apple.quarantine .
+            in the unzipped folder)
   Linux     Double-click  ais-web.desktop , or type  ais --serve  in a terminal
 
 Each one opens AIS in your web browser at  http://127.0.0.1:8765 . A small
@@ -31,19 +32,18 @@ The everyday actions are recall and add; you can also fix or remove an item.
             few keywords below if you like (optional), then Save. It appears
             right away.
 
-  Edit /    Each result has small  Edit value ,  Edit tags  and  Delete
-  remove    actions. "Edit value" rewrites the item's text in place; the item
-            keeps its place in the timeline and its keywords, and the change
-            reaches your other devices the same way. "Edit tags" adds or
-            removes keywords on that one item: type a keyword to add it, or
-            -keyword  to remove it; the item itself stays. "Delete" removes
-            the whole item.
+  Edit /    Each result has a three-dot menu with  copy ,  edit  and  delete .
+  remove    "edit" opens one sheet: the Value box rewrites the item's text in
+            place (the item keeps its place in the timeline and its keywords,
+            and the change reaches your other devices the same way); under
+            Tags, type a keyword to add it, or click the x on a tag to remove
+            it; the item itself stays. "delete" removes the whole item.
 
 The timeline shows your most recent items; "Load more" reveals older ones.
 
 
-PREFER TYPING? (Linux and macOS)
---------------------------------
+PREFER TYPING? (any OS)
+-----------------------
 
   ais venice italy                  recall items under BOTH keywords
   ais -o venice rome                recall items under EITHER keyword

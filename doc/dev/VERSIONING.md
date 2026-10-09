@@ -114,8 +114,8 @@ reached every device.
 ## Where the version is surfaced
 
 - `ais --version`
-- `/api/version` and the About line in both web front ends
-- Flutter's About: `AIS 0.3.10 (249) · engine: … · index format: v3`, copyable,
+- `/api/version` (`serve.c`); neither web page calls it or shows an About line
+- Flutter's About: `AIS 0.3.10 (249) · engine: … · index format: v4`, copyable,
   because the first thing a bug report needs is which of the four numbers moved.
 
 ## Cutting a release
@@ -144,13 +144,18 @@ number in text:
 `flutter.yml` fails the build if the first two disagree with each other. Nothing
 checks the other three.
 
+The same commit carries the release notes: `scripts/release-notes.sh vX.Y.Z`
+prepends the commit subjects since the previous tag to `doc/RELEASE_NOTES.md`;
+edit them down. `release.yml` publishes that entry as the GitHub release body,
+and falls back to the raw commit subjects when the tag has none.
+
 **3. The tag,** annotated, its body in three sections: FIX (what was broken),
 PARITY (what one front end gained that another already had), DESIGN (what
 changed on screen). `git push --follow-tags`.
 
 **4. What the tag does.** `release.yml` builds and publishes: Linux x86_64 and
 arm64, macOS arm64, Windows x86_64 (cross-compiled with MinGW-w64), each a zip
-plus `.sha256`, the Android `.apk` and `.aab`, and
+plus `.sha256`, the Android `.apk`, `-arm64-v8a.apk` and `.aab`, and
 `ais-vX.Y.Z.mcpb`, the MCP Bundle made from those zips by `scripts/mcpb.sh`.
 Both workflows pin Flutter deliberately (currently 3.44.1); raise that pin and
 `android/`'s Gradle wrapper together, never one alone. The same tag runs

@@ -39,7 +39,7 @@ That class is caught here:
   codeut-ubsan`, the hook in `scripts/hooks/`, and `.github/workflows/sanitizers.yml`.
 - The code builds clean under `-std=c99 -Wall -Wextra`; a warning is a defect.
 - The style is stack-and-stream: the heap is rare and sanctioned (`STYLE.md`),
-  and strings are bounded (`snprintf`, never `strcpy`). A small, disciplined heap
+  and strings are bounded (`snprintf`, never an unchecked `strcpy`). A small, disciplined heap
   surface is a small bug surface.
 
 Together these close most of the gap a rewrite would close, in the language we

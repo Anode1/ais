@@ -1,7 +1,9 @@
 #!/bin/sh
 # ais-mcp: the MCPB bundle's entry point. Runs this machine's ais binary as
 # `ais --mcp`, with the bundle's two settings: AIS_MCP_INDEX (an index to name
-# with -f; empty serves the home index) and AIS_MCP_WRITES (true adds `rw`).
+# with -f; empty serves the current named index, else ~/.ais, and a .ais above
+# the client's working directory makes --mcp refuse with exit 2) and
+# AIS_MCP_WRITES (true adds `rw`).
 # A client that leaves a setting unset may pass the placeholder through
 # verbatim, so a value still reading ${...} counts as empty. A folder picker
 # tends to hand over the project, so a folder holding a .ais means that .ais.

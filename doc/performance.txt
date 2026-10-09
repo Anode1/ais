@@ -2,12 +2,12 @@ AIS performance baseline (first-order)
 ======================================
 Date 2026-06-09. Build: c/ais -O2 (make). One desktop core, /tmp (local disk).
 Reproduce: python3 tests/perf/gen.py /tmp/ais_1m 1000000
-           ais -f /tmp/ais_1m -y compact      (builds idx/ from store)
+           ais -f /tmp/ais_1m -y --compact    (builds idx/ from store)
            then the timings below. Generator seed 20260606 (deterministic).
 
 Dataset
   records   1,000,000     (~ a heavy human lifetime: dozens/day x 365 x ~70 yr)
-  store     85 MB, 1,000,000 lines  "id|keys|value"
+  store     85 MB, 1,000,000 lines  "id|keys|value" (legacy v1 lines, no ts)
   keys      4,000 distinct          (human active vocab ~10-20K => key-space BOUNDED)
   postings  1.8M total; hottest key = 270,360 ids; median key = 69 ids
   meta      1,000,000 lines  "id|epoch"  spanning 1996..2026

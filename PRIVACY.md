@@ -1,6 +1,6 @@
 # Privacy Policy for AIS
 
-Last updated: 1 July 2026
+Last updated: 16 September 2026
 
 AIS ("the app") is a personal, offline associative index for links, notes,
 documents, and passwords. This policy explains how the app handles your

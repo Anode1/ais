@@ -6,8 +6,8 @@ step (see `GUI.md`): the page embedded in `c/serve.c` as the `PAGE[]` string
 literal, and `app/index.html` (the installable PWA), served when `$AIS_WEB`
 points at the `app/` directory.
 
-Everything is loopback-only, single user, no accounts. A `POST` to `/api/*` from
-a cross-site context is refused; see the `cross_site` check at the top of
+Everything is loopback-only, single user, no accounts. A request of any method
+to `/api/*` from a cross-site context is refused (403); see the `cross_site` check at the top of
 `handle()` in `c/serve.c`.
 
 Bodies and replies are plain text, never JSON: one record per line, the same
@@ -100,6 +100,9 @@ push those records back. Both pages ask it as a **separate** question from
 `/api/sync/host`, `/api/sync/status`, `/api/sync/join`, `/api/sync-folder`,
 `/api/export-bundle`, `/api/import-bundle`, `/api/store`. See `SYNC_DESIGN.md`.
 
+`GET /api/sync-folder` answers the folder this index syncs with (kept in
+`<index>/syncfolder`), or an empty body when none is set.
+
 `POST /api/sync-folder` takes the folder path as the body and answers `synced`, or
 **400 with the reason as the body**: `no such folder`, `not a folder`, `cannot read
 that folder`, `folder empty` (synced here before, no device bundles in it now), or
@@ -108,8 +111,10 @@ got; a flat "sync failed" is what let a broken folder sync pass for a working
 backup. `?force=1` accepts the `folder empty` case, and is the web equivalent of
 the CLI's `-y`. Nothing else creates the folder or bypasses a check.
 
-`/api/store` switches the active index and persists the choice via
-`ais_default_set`, which writes the developer's REAL `~/.ais/config`. Any test
+`/api/store` switches the active index and persists the choice in the
+developer's REAL `~/.ais/config`: `current` set by name when the path is a
+registered index, `current` and the legacy line both cleared for home, otherwise
+`current` cleared and the legacy `index = PATH` line written (`ais_default_set`). Any test
 touching it must snapshot and restore that file: `tests/gui/serve.sh` does, and
 did not for a long time, which is how a plain `make ut` silently repointed a
 developer's saved default at a temp directory it then deleted.

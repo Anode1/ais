@@ -11,7 +11,7 @@ the repo; the Releases page stays minimal so users never have to ask "which one?
 | Windows  | `ais-<tag>-windows-x86_64.zip` (cross-compiled from Linux) | **web** (`ais --serve`) via the `.bat` launcher; a **native window** (`ais-gui.exe`) for search and add |
 | macOS    | `ais-<tag>-macos-arm64.zip`              | **web** (`ais --serve`) via the `.command` launcher |
 | Linux    | `ais-<tag>-linux-x86_64.zip`, `…-arm64.zip` | **web** (`ais --serve`) via the `.desktop` launcher |
-| Android  | `ais-<tag>-android.apk` (sideload) and `…-android.aab` (Play bundle) | the Flutter app |
+| Android  | `ais-<tag>-android.apk` (sideload), `…-android-arm64-v8a.apk` (sideload, one ABI) and `…-android.aab` (Play bundle) | the Flutter app |
 | Phones (browser) | the PWA (hosted, later)          | web |
 
 Each shipped asset (Windows, macOS, Linux, Android) is accompanied by a matching
@@ -56,12 +56,15 @@ Today's `app/` PWA is only a thin client to a local `ais --serve` (`/api/...`),
 so it is a desktop convenience, not a standalone phone app. This track makes it
 stand alone by compiling the engine to **WebAssembly** (emcc over the same
 `embed.h` FFI seam the Flutter app uses) and keeping the store in browser
-storage (IDBFS now, OPFS later). The WASM build curates engine + FFI only,
-excluding the POSIX-bound `main.c`/`serve.c`/`feed.c`/`win.c`, so it dodges
-sockets, nftw, realpath and `/dev/tty`; the one likely shim is `flock` -> no-op
-(a browser origin is single-threaded).
+storage (IDBFS now, OPFS later). The WASM build (`WASM_SRC` in `c/Makefile`)
+compiles the engine, the FFI and what `embed.c` reaches (`sync.c`, `feed.c`,
+`secret.c`, `win.c`, the crypto) and leaves out `main.c`, `serve.c`, `help.c`
+and the tests: no CLI, no listening sockets, no tty. The rule has never been
+run (`wasm-pwa.yml` is manual dispatch only), so whether those files compile
+under emcc is unverified; the one likely shim is `flock` -> no-op (a browser
+origin is single-threaded).
 
-Milestones, each verified on CI / a real phone: (1) `make wasm` emits
+Milestones, each verified on CI / a real phone: (1) `make -C c wasm` emits
 `app/engine/ais.{js,wasm}` exporting `ais_embed_*`; (2) mount IDBFS at the index
 dir and `FS.syncfs` after each write; (3) in `app/`, call the WASM module when
 present, else fall back to `fetch('/api/...')` (same page both ways, UI

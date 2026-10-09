@@ -25,10 +25,11 @@ isolatable (the help text, the store, the posting lists, the merge). Names are c
 and literal, for files, types, and variables alike, so a reader infers a file's responsibility
 from its name and a function's from its signature.
 
-Two functions do not meet this bar and are known debts, not precedents: `main()` in `main.c` (~630
-lines) and `handle()` in `serve.c` (~520). Both are flat option/route dispatchers where each case is
-short and calls out immediately, which is why they have been tolerated, but each is long enough that
-a new case is easy to misplace. Add work to them by adding a case that delegates, never by growing one
+Three functions do not meet this bar and are known debts, not precedents: `main()` in `main.c` (~710
+lines), `handle()` in `serve.c` (~620) and `import_run()` in `feed.c` (~430). The first two are flat
+option/route dispatchers where each case is short and calls out immediately, which is why they have
+been tolerated, but each is long enough that a new case is easy to misplace; `import_run()` is the
+import stream's one loop over every verb. Add work to them by adding a case that delegates, never by growing one
 in place; splitting the dispatch out is welcome. No other function in the tree may reach this size.
 
 ## Memory: stack first, heap only when forced
@@ -41,14 +42,17 @@ in place; splitting the dispatch out is welcome. No other function in the tree m
 - When the heap is truly unavoidable, the allocation is bounded, documented, and freed on every path.
 - **The only heap the core sanctions today.** Every other `malloc` is a defect to justify in review
   or remove. The record path itself (get, find, set, merge, compact) is strictly stack-and-stream and
-  allocates nothing. The four exceptions are all bounded by something other than the corpus:
+  allocates nothing. Twelve exceptions follow; (1) to (6) and (9) to (12) are bounded by something
+other than the corpus, (7) and (8) are not:
   1. *FFI return strings and the handle* (`embed.c`): a variable-length result handed across the seam
      to a GUI or binding, owned by the caller and released with `ais_embed_free`. Bounded by one
      result, not the store.
-  2. *Bounded aggregate collectors* (`ais.c`: `ais_keys`, `ais_tags`, `tl_scan`): a set sized by key
-     cardinality or a fixed top-N count, never by record count, and freed before return.
-  3. *Crypto buffers* (`secret.c`): an AEAD document is authenticated as a whole, so the blob and its
-     plaintext are held once, bounded by the document, wiped and freed on every path.
+  2. *Bounded aggregate collectors* (`ais.c`: `ais_keys`, `ais_tags`, `tl_scan`): `ais_keys` takes one
+     fixed block of 65536 names of `AIS_KEY_MAX` (512 B), 32 MiB; `ais_tags` a set sized by key
+     cardinality; `tl_scan` a fixed top-N count. Never sized by record count, and freed before return.
+  3. *Crypto buffers* (`secret.c`, `crypto/ais_crypto.c`): an AEAD document is authenticated as a
+     whole, so the blob and its plaintext are held once, bounded by the document, wiped and freed on
+     every path. The Argon2 work area is the KDF's memory cost, capped at 256 MiB.
   4. *Sync transport* (`sync.c`): the sealed merge stream is buffered whole to seal or verify it as one
      AEAD document (it cannot be authenticated incrementally), then wiped and freed on every path.
      Bounded by the export and capped on the receive side (64 MiB); the send side needs the same cap,
@@ -60,6 +64,21 @@ in place; splitting the dispatch out is welcome. No other function in the tree m
   6. *Bundle upload* (`serve.c`, the `/api/import-bundle` handler): a POST body is buffered whole to be
      merged as one bundle, capped at 64 MiB, the same cap the sync receive side uses. Bounded by the
      upload, never by the store, and freed on every path. Front-end code, not the record path.
+
+  7. *The edit log* (`compact.c`, `edits_mem_load`): the whole `edits` file plus a hash table over it,
+     loaded by import, by merge's edit translation and by `--compact --forget-deleted`. Sized by the
+     number of edits ever made, so it grows with the data, against *Restraint* below; nothing reclaims
+     the log (ROADMAP, Known gaps 4).
+  8. *Export blob list* (`feed.c`, `blobrefs`): one `AIS_PATH_MAX` name per document a live record
+     references, gathered once per export. Grows with the data, as (7).
+  9. *Import name map* (`doc.c`, `ais_blobmap_add`): one from/to name pair per document arriving in one
+     bundle. Bounded by the bundle.
+  10. *Whole-document read* (`doc.c`, `ais_doc_read`): one blob for the FFI and the web GUI. Bounded by
+      the document.
+  11. *Duplicate-document collector* (`doc.c`, `ais_doc_copies`; `main.c`, `dedupe_list`): one entry per
+      record with a pre-0.3.20 blob name, a set no new index adds to. Used by `--dedupe-docs` only.
+  12. *One value copy* (`feed.c`, `import_run`): a line moved off its buffer while a batch flushes.
+      Bounded by `AIS_LINE_MAX`.
 
   Both (5) and (6) hold one document for one operation and are refused past a fixed cap. Neither may be
   imitated to hold *records*: the record path stays stack-and-stream and allocates nothing.
@@ -84,8 +103,9 @@ Why this discipline pays, four ways:
 
 - **Return codes in the modules.** A function returns `0`/`-1` (or a value/`-1`); the
   caller decides. Only the CLI front-end (`main.c` and its helpers, e.g. `feed.c`) turns a fatal
-  error into `die()`. No engine module calls `exit()` or prints an error: a single, visible exit
-  path, per Power of Ten.
+  error into `die()`. An engine module may print a diagnostic to stderr (`store.c`, `ais.c` warn about
+  an over-long or multi-line value) but never calls `exit()`: a single, visible exit path, per Power
+  of Ten.
 - **`die(fmt, ...)`** (`log.c`): print to stderr, exit non-zero. CLI-level, for unrecoverable user
   errors (cannot open INDEX, lock held).
 - **`debug(fmt, ...)`** (`log.c`): gated on the runtime `-d` flag, prints to stderr; safe to sprinkle

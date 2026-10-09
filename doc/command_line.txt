@@ -36,7 +36,7 @@ SAVE (-v marks the value; bare args and -k are keys; keys are optional)
 COMMANDS (--word; operands are bare args, values via -v; an ID is the number
           in the 'id|value' that get and --find print)
   ais --find TEXT                records whose value contains TEXT (any case)
-  ais --doc KEY... < FILE        save a multi-line document as a blob file
+  ais --doc [KEY...] < FILE      save a multi-line document as a blob file
                                  (--del removes it; a file you merely POINT at
                                  is never touched)
   ais --doc KEY... -e < FILE     same, ENCRYPTED to an aisc: blob (--del shreds it)
@@ -52,8 +52,8 @@ COMMANDS (--word; operands are bare args, values via -v; an ID is the number
                                  (a sync before v0.3.20 minted X, X-1, X-1-1: X stays)
   ais --dump | --keys | --stats  print records / list keys / counts
                                  --dump emits 'KEY... -v VALUE', which is this
-                                 same grammar: a dumped line can be pasted back as
-                                 arguments, or piped to --import as plain records
+                                 same grammar, so a dump pipes back into --import
+                                 as plain records
                                  (links and documents travel only by --export)
   ais --timeline [N]             the N most recent records, newest first (default 500;
                                  a GUI pages through older ones on demand)
@@ -93,7 +93,7 @@ COMMANDS (--word; operands are bare args, values via -v; an ID is the number
   ais --mcp [rw]                 serve MCP on stdin/stdout for an agent (Claude Code, or
                                  any MCP client): recall/find/tags/timeline; 'rw' adds saving
                                  a .ais found by walking up is refused: name it with -f
-                                 on an -f index the agent picks keys from those in use
+                                 on an -f index (not ~/.ais) the agent picks from keys in use
   ais --project [KEY]            show / set / clear ('') the default project key
   ais --switch [NAME]            switch the current index; no arg shows it,
                                  -c NAME [DIR] creates a new index and switches
@@ -119,23 +119,26 @@ OPTIONS
   -f, --index DIR   index directory (else: see INDEX LOCATION below)
   -o, --or          match ANY key (union) instead of all (intersection)
   -v, --value VAL   a value to save (repeatable; -v - reads stdin)
-  -k, --key KEY     an explicit key (for a key that looks like a flag)
+  -k, --key KEY     an explicit key, the same as a bare KEY
   -p KEY            default project prepended to this save ('' = none;
                     persistent via 'ais --project KEY')
   -i, --interactive save interactively: stdin lines are values, prompts for keys
   -e, --encrypt     store the value encrypted (prompts for value + passphrase)
   -y, --yes         assume yes for --del / --del-under / --untag / --compact / --dedupe-docs
+                    / --sync-folder
   -d, --debug       trace to standard error
   -h                short help;  --help  this full help
   --version         print version and exit
 
-EXIT STATUS  0 success; 1 no match or nothing done (grep semantics); 2 usage error
+EXIT STATUS  0 success; 1 no match, nothing done, or an error (grep semantics);
+             2 unknown option, no arguments, a port out of range, or --mcp refused
 
 INDEX LOCATION (when -f is not given; no env vars -- -f is the only override)
-  1. the nearest .ais/ at or above the current directory (like git)
+  1. the nearest .ais/ at or above the current directory (the walk stops at home)
   2. the current named index, if one is set ('ais --switch NAME'; --indexes lists them)
   3. the legacy single default in ~/.ais/config ('ais --default PATH')
   4. else ~/.ais, created on first use.  'ais --init' starts a local .ais here.
 
-Re-storing the same value changes nothing (idempotent). The index is plain
-text in that directory; read, grep, or repair it by hand.
+Re-storing a value adds no second record: new keys attach to the one it has,
+dated today. The index is plain text in that directory; read, grep, or repair
+it by hand.

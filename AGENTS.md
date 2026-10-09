@@ -40,10 +40,11 @@ already.
     make hooks  # enable the pre-push hook (runs codeut-asan + codeut-ubsan before a push)
     make clean
 
-`make ut` runs two groups: CORE (codeut + cliut + the FFI stack budget, the
-commit gate) and GUI (uiut + the wrapper build-checks + the native Flutter sync
-UI; a layer whose toolchain is absent SKIPs). A green CORE with a red or skipped
-GUI is fine to commit. Every layer, what it covers and how to run it alone:
+`make ut` runs two groups: CORE (codeut, cliut, the FFI stack budget, loopback
+and mesh sync, upgrade, encrypt over a pty: the commit gate) and GUI (uiut, the
+wrapper build-checks, the native Flutter sync UI; a layer whose toolchain is
+absent SKIPs). A green CORE with a red or skipped GUI is fine to commit. Every
+layer, what it covers and how to run it alone:
 `tests/README.md`.
 
 Two of those layers exist because something broke without anything noticing, and
@@ -64,7 +65,8 @@ both lessons generalise:
 Before tagging a release, run `make codeut-asan` and `make codeut-ubsan`: they
 rebuild the engine tests under the compiler's sanitizers, so memory errors and
 undefined behavior abort with a file:line report instead of passing silently
-under `-O2`. `sanitizers.yml` runs both on every push and `make hooks` installs a
+under `-O2`. `sanitizers.yml` runs both on every push to main, every pull request and on
+manual dispatch, and `make hooks` installs a
 pre-push hook that runs them first (bypass once with `git push --no-verify`).
 They stay out of the default build: 2-3x slower and not universally available, so
 `make` and `make ut` stay portable. The rest of the release procedure is in
@@ -80,8 +82,9 @@ every time:
     env -u WAYLAND_DISPLAY -u XDG_SESSION_TYPE GDK_BACKEND=x11 DISPLAY=:99 \
         xvfb-run -a flutter run -d linux
 
-Browsers take `--headless=new --ozone-platform=headless` instead, and the Android
-emulator takes `-no-window` (no X server at all); `make uiut` already does this.
+Browsers take `--headless=new --ozone-platform=headless` instead (use both in a
+new script; `make uiut` already runs its browser headless), and the Android
+emulator takes `-no-window` (no X server at all).
 If a check cannot run headless, say so rather than falling back to a real
 display.
 
@@ -116,7 +119,8 @@ This is the single highest-yield instruction we have measured. A defect where th
 stopped doing so was found by 3 of 3 agents told this sentence and 0 of 19 agents
 not told it (Fisher p = 0.0006). It also beat four-agent fleets that lacked the
 sentence, at a quarter of the cost, so it is worth more than any team arrangement
-tried alongside it. The full comparison is in `hsearch/probes/0010`.
+tried alongside it. The full comparison (probe 0010) is in the owner's
+research notes, outside this repository.
 
 Two real examples from this repository, both live at the time:
 
@@ -152,7 +156,8 @@ Developed with Claude Code's built-in orchestration, nothing to install:
 - The **integrator** (the main session) locks the contract and runs `make ut`.
 - For a large structured job, a deterministic multi-agent workflow can run many
   agents at once; for ordinary work, one subagent plus the test gate is enough.
-- A `PostToolUse` hook auto-runs `make codeut` after edits to `c/` (see `.claude/`).
+- A `PostToolUse` hook auto-runs `make codeut` after edits to `c/*.c` and `c/*.h`
+  (not `c/crypto/`; see `.claude/`).
 
 Keep orchestration minimal: the model + native subagents + the test gate. Resist
 building agent infrastructure that itself needs maintaining.

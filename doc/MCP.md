@@ -124,8 +124,7 @@ Several agents serve one index at once, each client starting its own
 two agents never collide on a record id ([`limitations.txt`](limitations.txt)).
 Across machines, [`--sync-folder`](SYNC.md) carries the index.
 
-The same index lives on laptops (Linux, macOS, Windows) and Android phones, and
-an iPhone app is in progress. What an agent saves on the laptop is on the phone
+The same index lives on laptops, Android phones and iPhones. What an agent saves on the laptop is on the phone
 after the next sync, and what you save on the phone reaches the agent.
 
 ## What the file does not show
@@ -145,8 +144,8 @@ wrong. The merge rules are in [`dev/MERGE.md`](dev/MERGE.md).
 | A damaged line | skipped as one corrupt line, named by its byte offset; the rest reads |
 | Moving it between devices | LAN sync by a code, encrypted with XChaCha20-Poly1305; a shared folder, where no two devices need be online at once |
 
-998 engine tests, 569 CLI tests, and sync, mesh and UI suites on Linux, macOS,
-Windows and Android hold these in place.
+Engine, CLI, sync, mesh and UI suites on Linux, macOS, Windows and Android hold
+these in place.
 
 ## What it refuses
 
@@ -158,7 +157,8 @@ restarting as `ais --mcp rw` turns one on.
 There is no delete, no re-tag, no edit, at any setting. Those are the operations
 whose damage you cannot see happening, and the CLI is two keystrokes away.
 
-`save` itself refuses seven things, each in the words the model gets back:
+`save` itself refuses these seven things, among others, each in the words the
+model gets back:
 
 | The refusal | Because |
 | --- | --- |

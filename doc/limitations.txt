@@ -1,8 +1,8 @@
 AIS limitations (for developers)
 ================================
 Hard limits (c/common.h) and design constraints. Plain text, fixed stack
-buffers, no heap in the data path (the `keys` listing is the one bounded malloc;
-see ais.c). Peak memory is a function of these sizes, never of the data.
+buffers, no heap in the data path (the few bounded mallocs are listed in
+doc/dev/STYLE.md, "The only heap the core sanctions"). Peak memory is a function of these sizes, never of the data.
 
 Sizes (compile-time, c/common.h)
   AIS_LINE_MAX   65536   one store line "id|ts|keys|value": a single VALUE, or
@@ -23,7 +23,7 @@ Sizes (compile-time, c/common.h)
                          N is cut to it, and a front end pages for older ones.
 
 Value rules
-  - A value is ONE line: no newline, and no '|' (the reserved field delimiter).
+  - A value is ONE line: no newline.
   - Multi-line or large text -> `ais --doc` (saved as a blob file under blobs/;
     only its relative path is stored as the value).
   - `find` searches VALUES only, not blob CONTENT: blobs are recalled by keys.

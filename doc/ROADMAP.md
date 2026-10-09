@@ -1,6 +1,6 @@
 # AIS: Roadmap
 
-AIS is one small ANSI C engine (`c/`) with thin wrappers over a single FFI seam
+AIS is one small C99 engine (`c/`) with thin wrappers over a single FFI seam
 (`embed.h`: `ais_embed_open` / `store` / `recall` / `timeline` / `tags` / …).
 Almost everything below is a *wrapper* or a *packaging* task over that unchanged
 engine, which is what keeps each piece tractable for one contributor at a time.
@@ -21,6 +21,8 @@ Help is welcome: open an issue to claim a piece.
   `--import <url> --token`) and two-way device sync (`--sync --serve` / `--sync <url>
   --token`) that converge in one round, end-to-end encrypted (XChaCha20-Poly1305 under a
   one-time token), LAN-only. See [`doc/SYNC.md`](SYNC.md).
+- **Speak to recall**: the mic in the app's search field, Android and iOS,
+  on-device recognition only ([dev/SPEECH.md](dev/SPEECH.md)).
 - **Multiple named indexes** (`--switch` / `--indexes` / `--forget`) with a default
   project (`--project`).
 - **Windows**: the CLI with the web GUI and LAN sync (Winsock), plus the native
@@ -41,9 +43,12 @@ The **Android** app has shipped (above); **iOS** is the next focus. The same
 (`embed.h` is the contract), and the iOS scaffold, its platform channels and the
 `ais://` scheme are already written. The engine is wired in
 (`ais_engine.podspec`), and CI builds the app unsigned on macOS and launches it
-on a simulator, where the engine opens an index. What is left is the Apple side:
-signing, a device, TestFlight. No interface work, since the screens are shared
-with Android, and no core changes.
+on a simulator, where the engine opens an index. A tag builds, signs and
+uploads the app to TestFlight, where it is installed for internal testers and
+has synced with an Android phone (Known gaps 2). What is left is the App Store
+submission and the device checks in
+[`dev/IOS_TODO.md`](dev/IOS_TODO.md) section 8. No interface work, since the
+screens are shared with Android, and no core changes.
 Issue [#1](https://github.com/Anode1/ais/issues/1) carries the brief: what is
 missing and how to tell it works. [`dev/IOS_RELEASE.md`](dev/IOS_RELEASE.md) is
 the Apple side step by step, from a machine with no Mac. A native Swift client
@@ -61,8 +66,8 @@ Depends on the Android app above. Google Play is a separate, optional track.
 
 ### Speech support
 
-Voice as a first-class input: **speak to file** (PUT) and **speak to recall**
-(GET). On-device recognition where the platform provides it (iOS and Android
+**Speak to recall** has shipped (above); **speak to file** (PUT) is next.
+On-device recognition where the platform provides it (iOS and Android
 native speech APIs, not browser Safari, which is one reason iOS needs a native
 shell). This is the seam toward the longer-horizon hands-free / wearable use.
 Design and build order: [dev/SPEECH.md](dev/SPEECH.md).
@@ -92,12 +97,12 @@ So a *downloaded* build runs without security warnings. **macOS notarization**
 binaries, but it requires the paid Apple Developer Program ($99/year) and is not
 planned. Meanwhile, clear the quarantine flag once with
 `xattr -dr com.apple.quarantine .` (see the README), verify a download by its
-SHA-256, or just build from source, which is never quarantined. **Windows code-signing** is already wired into the
-release workflow (the SignPath OSS program), but is not active: SignPath's
-Foundation program declined the project in June 2026 as too new: it gates on
-community-adoption signals (stars, forks, third-party references) that a fresh
-repo cannot yet show. Paid signing is not planned. The wiring stays in place;
-reapply once the project has visible adoption. Until a build is signed, verify a
+SHA-256, or just build from source, which is never quarantined. **Windows
+code-signing** is planned through the SignPath OSS program ([`dev/WINDOWS.md`](dev/WINDOWS.md)); the release workflow has no
+signing step. SignPath's Foundation program declined the project in June 2026
+as too new: it gates on community-adoption signals (stars, forks, third-party
+references) that a fresh repo cannot yet show. Paid signing is not planned.
+Reapply once the project has visible adoption. Until a build is signed, verify a
 download by its SHA-256 or build from source (see the README).
 
 ### Sync through any storage
@@ -138,30 +143,39 @@ with the reason for each.
 ### 1. Publishing is not finished
 
 A tag publishes eight artifacts, each with a checksum, and uploads a signed
-iOS build to TestFlight. Reaching the two stores is manual:
+iOS build to TestFlight. Reaching the stores is manual:
 
 - Upload `ais-v0.3.34-android.aab` to the Play Console as a new release on the
-  closed test track, following [`dev/ANDROID_RELEASE.md`](dev/ANDROID_RELEASE.md).
+  Production track, following [`dev/ANDROID_RELEASE.md`](dev/ANDROID_RELEASE.md).
   The listing is done and a production release with build 477 (0.3.27) went
   to review on 2026-09-15, so every later build is another upload by hand. The
   listing text and graphics are `fastlane/metadata/android/en-US/`
   (`doc/public-text.txt` says what goes where).
-- Push the same `pkgver` to the AUR repository with `pkgrel=1` and a regenerated
-  `.SRCINFO`. `packaging/aur/PKGBUILD` here is the reference copy, not the one
-  users install.
+- Submit the iOS build for App Store review: the app is in TestFlight only
+  ([`dev/IOS_TODO.md`](dev/IOS_TODO.md) section 9).
+- Publish the release to the official MCP Registry
+  ([`dev/VERSIONING.md`](dev/VERSIONING.md), step 5).
+- The AUR package does not exist yet. The first step is claiming the name;
+  `packaging/aur/PKGBUILD` here is the reference copy for it.
 
-### 2. Four things are barely verified
+### 2. Five things are barely verified
 
-One has been run once, by hand; the other three have never been run at all.
+One has been run twice, by hand; the other four have never been run at all.
 Each needs hardware or time rather than code:
 
 - **A real arm64 phone on a real Wi-Fi network.** One pass exists: on 2026-08-24
   an Android phone on build 425 paired by QR with `ais --serve` on a laptop over
   ordinary Wi-Fi and converged both ways, and an earlier attempt that evening
   failed silently, which is what the 300-second host wait and the reported join
-  result in v0.3.23 come from. Every other sync test went through emulator NAT
+  result in v0.3.23 come from. The second pass, and the first with iOS: on
+  2026-10-09 an iPhone on 0.3.34 synced with an Android phone on 0.3.29 over
+  Wi-Fi. Every other sync test went through emulator NAT
   (`10.0.2.2`) or `adb forward` over loopback. Still untested: `.local`/mDNS
   names, a router with client isolation, and the armeabi-v7a ABI.
+- **The iPhone checks in [`dev/IOS_TODO.md`](dev/IOS_TODO.md) section 8**:
+  a cold-start scan, the second join after the local-network alert, and the
+  2026-10-09 speech fixes (one phrase per session, the Search tab brought
+  forward).
 - **A multi-day soak.** Everything converges in seconds here. Nothing has tested
   a week of use, clock skew between two machines, or an index that grew.
 - **Backgrounding mid-sync, and doze during the 300-second host wait.** The
@@ -234,10 +248,10 @@ Each is understood, loses no data, and is left for a stated reason.
 
 ## How to contribute
 
-- **Keep the core pure.** ANSI C lives in `c/`; platform code and any
+- **Keep the core pure.** C99 lives in `c/`; platform code and any
   C++/Swift/Dart stays isolated in its own wrapper directory (`win32/`, `app/`,
   a future `macos/`).
-- **Build the engine as a library:** `make lib`.
+- **Build the engine as a library:** `make -C c lib`.
 - **The contract is `embed.h`** (and the CLI). Wrappers call it; they never reach
   into the on-disk store format.
 - Open an issue describing the wrapper or platform you want to take.

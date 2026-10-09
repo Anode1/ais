@@ -10,16 +10,16 @@ installed, same Wi-Fi" path; for set-and-forget or cross-network sync, use Synct
 ## Status (as built)
 Decisions LOCKED: full tombstone-union merge (decision B), end-to-end encrypted from the
 start, CLI = `--export` / `--import <url>` (no `--remote`), `--import` merge-aware for all
-sources, plain `--dump` unchanged. **Built, wired, and tested** (257 unit tests incl. a
+sources, plain `--dump` unchanged. **Built, wired, and tested** (unit tests incl. a
 forked-loopback socket test): `ais --export --serve [PORT]` serves one peer (prints token +
 URL); `ais --import <url> --token T` pulls and merges. Blob transfer is done (below); remaining follow-ups: GUI polish.
 
     device A                                            device B
-      store ──feed_export──► E|ts|hash|value   (in-place edits, first)
+      store ──feed_export──► B|blobs/x|len     (a document body, then raw bytes; first)
+                             E|ts|hash|value   (in-place edits)
+                             C|ts|hash         (the next A|'s TRUE time, when raised)
                              A|ts|keys|value  (live records)
-                             C|ts|hash         (an A|'s TRUE time, when raised)
                              M|ts|hash|value   (an extra link on the record above)
-                             B|blobs/x|len     (a document body, then raw bytes)
                              D|ts|hash         (record tombstones)
                              K|ts|hash|key     (key-detaches)
                              T|ts|hash|key     (key-ATTACHES; K|'s mirror)
@@ -47,7 +47,8 @@ URL); `ais --import <url> --token T` pulls and merges. Blob transfer is done (be
 3. **CLI surface**: **DONE**. `ais --export --serve [PORT]` (`sync_serve_lan`: token + pairing
    line, then `sync_serve`) and `ais --import <url> --token T` (`sync_pull_url`: parse host:port,
    `sync_pull`); `--token` flag added; `ais --export` to stdout unchanged.
-4. **GUI: a "Sync" surface**, later. Phone (scan QR -> import) and the desktop GUIs.
+4. **GUI: a "Sync" surface**: **DONE**. Host / Join on the phone (Android, and iOS in
+   TestFlight) and in the desktop web GUI, each host showing a QR.
 
 Owner: the sync/engine track. All decisions locked; `ktomb` key-detach shipped (merges via the `K|` line).
 
@@ -62,6 +63,9 @@ Only the real, non-rebuildable data:
 
     store      append-only records
     tomb       deletions
+    edits      in-place value edits (E|)
+    ktomb      key-detaches (K|)
+    katt       key-attaches (T|)
     blobs/     documents saved by `doc`
 
 NOT `idx/`, `off`, `next_id`, `version`, `lock` (rebuilt or local-only).
@@ -83,8 +87,8 @@ Reuses the existing dump/import vocabulary. The only new verb is `--export`; the
 
     ais --import <url> --token TOK
         Remote: fetch the peer's export stream, decrypt with TOKEN, and MERGE into the
-        current index (last-write-wins; deletions included). Print a summary
-        (added / deleted / unchanged).
+        current index (last-write-wins; deletions included). Print
+        `sync: merged from HOST:PORT` (`--sync`: `sync: converged with HOST:PORT`).
 
     ais --import [< file]
         Local: stdin or a file, unchanged surface, same merge path as the remote case.
@@ -132,7 +136,8 @@ Inside the sealed blob, the *plaintext* is versioned and self-describing:
 
 Blob merge is by NAME + CONTENT (blobs are immutable and timestamp-named, so never by mtime):
 same name + identical bytes = skip (dedup); same name + different bytes = keep BOTH (the
-incoming file lands as `blobs/<stem>-<seq><ext>`) and the incoming record's value is repointed,
+incoming file lands as `blobs/<stem>~<16-hex FNV-1a of the body><ext>`, with `-N` added only
+on a hash collision; `ais_doc_blob_place`) and the incoming record's value is repointed,
 covering both the plain `blobs/X` and the encrypted `aisc:@blobs/X` value forms. The relpath is
 validated to stay inside `blobs/` (`ais_blob_rel_ok`: one name after `blobs/`); each blob and the whole payload are capped
 (`AIS_SYNC_MAX_BLOB` / 64 MiB) on both ends.
@@ -147,16 +152,18 @@ app's one "Sync" button (Host / Join) runs the same exchange. One-way `--export`
 
 ## Merge / convergence
 Reconcile is the content-keyed, ts-resolved tombstone-union merge (see `MERGE.md`).
-`--export` emits, in this order: adds (`A|ts|keys|value`), each optionally preceded by a
+`--export` (`feed_export_capped`) emits, in this order: document bodies
+(`B|blobs/<name>|<len>` plus that many raw bytes), first because a record may point at one
+and `sync_import_plain` reads the blob section before the records; in-place edits
+(`E|ts|hash|value`); adds (`A|ts|keys|value`), each optionally preceded by a
 `C|ts|hash` carrying its TRUE time when the exported one was raised to beat a peer's
 tombstone, and followed by `M|ts|hash|value` for every extra link on a multi-value record;
-document bodies (`B|blobs/<name>|<len>` plus that many raw bytes); record tombstones
-(`D|ts|hash`); per-key detaches (`K|ts|hash|key`); and per-key ATTACHES (`T|ts|hash|key`),
+record tombstones (`D|ts|hash`); per-key detaches (`K|ts|hash|key`); and per-key ATTACHES (`T|ts|hash|key`),
 which say when a key went onto a record that already existed: without them a key any
 device had once detached could never be re-attached anywhere in the mesh.
 
-In front of all of them, `E|ts|hash|value` for every in-place edit, so a peer edits its
-record before the `A|` for the new value can create a second one (`MERGE.md`).
+The `E|` lines precede the adds so a peer edits its record before the `A|` for the new
+value can create a second one (`MERGE.md`).
 
 `--import` replays them through `feed_import_from`, where `put` is idempotent (dedup by
 content), a run of `A|` lines resolves its values in one pass, `ais_merge_edit` applies
@@ -210,8 +217,8 @@ the token, which is infeasible to brute-force. Still out of scope: cross-interne
   stubs that return -1. BSD sockets on POSIX, Winsock on native Windows through `win.h`. It does NOT reuse `serve.c` (that loop is HTTP-on-127.0.0.1 for the
   browser GUI); `sync.c` has its own small raw socket code that binds the LAN.
 - Token from `aisc_token` (OS RNG via `ais_crypto`'s `rand_bytes`).
-- The seal derives the key as `blake2b(token)` and uses XChaCha20-Poly1305 (`aisc_seal` /
-  `aisc_unseal`), no Argon2.
+- The seal derives the key as a keyed subkey, `aisc_subkey(token, "ais-sync-seal-v1")`, and
+  uses XChaCha20-Poly1305 (`aisc_seal_key` / `aisc_unseal_key`), no Argon2.
 - Tested by `test_sync_sealed` (sealed-stream round-trip) and `test_sync_socket` (a forked
   client/server over loopback) in `c/tests.c`.
 
@@ -223,11 +230,10 @@ the token, which is infeasible to brute-force. Still out of scope: cross-interne
    phone registers the `ais://` scheme (Android intent-filter + iOS `CFBundleURLTypes`) and a
    thin native `MethodChannel` (`ais/deeplink`, MainActivity / SceneDelegate) hands a scanned
    link to Dart, which CONFIRMS then joins, so the phone's OWN camera scans (no bundled QR
-   scanner / no ML Kit). Android is the tested path; iOS is best-effort (deferred to TestFlight).
-   Still to do: RENDER that link as a QR on a host device, in the desktop web Sync page
-   (`serve.c`, a small vendored single-file JS generator), and/or a phone-host QR via the
-   pure-Dart `qr_flutter`. The link is confirmed before any sync because it can arrive from
-   anywhere.
+   scanner / no ML Kit). **DONE**: a host renders the link as a QR, the desktop web Sync page
+   with `qrGen` in `serve.c` and the phone with the pure-Dart `qr_flutter`. An iPhone in
+   TestFlight synced with an Android phone on 2026-10-09. The link is confirmed before any
+   sync because it can arrive from anywhere.
 3. `--export` bind on multi-homed machines: all interfaces (current), or prompt which one?
 4. Full-store merge is an O(store) scan per sync: fine at personal scale.
 

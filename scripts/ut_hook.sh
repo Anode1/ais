@@ -1,5 +1,6 @@
 #!/bin/sh
-# PostToolUse hook: on a write/edit to c/*.c or c/*.h, run `make ut` and report.
+# PostToolUse hook: on a write/edit to c/*.c or c/*.h, run `make codeut` (make -C c ut)
+# and report. Only files directly in c/ trigger it; c/crypto/ edits do not.
 # Reads the tool-event JSON on stdin, prints {"systemMessage": ...}, and is inert
 # (exit 0) for any other file. Registered in .claude/settings.json; needs python3.
 python3 -c '
@@ -22,7 +23,7 @@ try:
                 out[-1] if out else "")
     status = "green" if r.returncode == 0 else "RED"
     print(json.dumps({"systemMessage":
-        "make ut (%s) after %s: %s" % (status, os.path.basename(f), line.strip())}))
+        "make codeut (%s) after %s: %s" % (status, os.path.basename(f), line.strip())}))
 except Exception as e:
-    print(json.dumps({"systemMessage": "make ut hook error: %s" % e}))
+    print(json.dumps({"systemMessage": "make codeut hook error: %s" % e}))
 '

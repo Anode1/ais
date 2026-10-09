@@ -77,20 +77,24 @@ they choose.
 
 ## Licences
 
-- New code (`c/`, and the tree generally): **GPL-2.0-or-later**, see `COPYING`.
+- New code (`c/`, and the tree generally): **GPL-2.0-or-later** (`COPYING`) or
+  **MIT** (`LICENSE-MIT`), the user's choice.
 - `legacy/`, an imported earlier project: **Apache-2.0** under its own headers.
 - `c/crypto/monocypher.[ch]`: vendored Monocypher, dual **CC0-1.0 / BSD-2-Clause**,
   see `c/crypto/README.md`.
 
-Both licences should be listed if your distro records them per package.
+Every licence above should be listed if your distro records them per package;
+install `LICENSE-MIT` beside `COPYING`.
 
 ## Runtime
 
 - Data lives in `~/.ais` by default, or in the nearest `.ais/` directory at or
   above the working directory (git-style), or wherever `-f` points. The resolution
   order is in `ais --help` under INDEX LOCATION.
-- No environment variables are consulted for configuration; `-f` is the only
-  override. (`AIS_TTY` and `AIS_NO_OPEN` exist for tests and CI, not for users.)
+- One environment variable is for users: `AIS_WEB` names a directory of web
+  files `ais --serve` serves in place of the embedded page (`app/README.md`).
+  The index location reads none; `-f` is the only override. (`AIS_TTY` and
+  `AIS_NO_OPEN` exist for tests and CI.)
 - Nothing phones home, and there is no telemetry to disable.
 
 ## Documentation worth shipping

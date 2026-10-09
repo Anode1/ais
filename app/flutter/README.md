@@ -6,7 +6,7 @@ stay thin; here that seam is the FFI to the C engine (`../../c`) via
 Speech / Android SpeechRecognizer), which works on iPhone, unlike the browser
 PWA.
 
-    lib/ais_ffi.dart   FFI bindings to ais_embed_open/recall/store/free/close
+    lib/ais_ffi.dart   the embed.h FFI bindings
     lib/main.dart      the UI: search + mic + results + put (recall-first)
     src/CMakeLists.txt builds the engine as libais.so for Android & Linux
 
@@ -25,8 +25,8 @@ lists must stay in step:
 - **iOS** takes the sources through `../../ais_engine.podspec`, which delivers
   them as `ais_engine.framework` in the app bundle. CI builds it unsigned on
   macOS and launches it on a simulator on every change to `c/**` or the app,
-  asserting the engine opens an index. Signing, a device and TestFlight are in
-  <https://github.com/Anode1/ais/issues/1>.
+  asserting the engine opens an index. A tag builds a signed `.ipa` and uploads
+  it to TestFlight (the `ios-release` job).
 
 ## Build / run
 
@@ -40,7 +40,8 @@ Release builds take their version from the git tag, never from `pubspec.yaml`:
 
 Why those flags are not optional, and what `tool/version.sh` derives, is in
 [`../../doc/dev/VERSIONING.md`](../../doc/dev/VERSIONING.md). Publishing is
-[`../../doc/dev/ANDROID_RELEASE.md`](../../doc/dev/ANDROID_RELEASE.md).
+[`../../doc/dev/ANDROID_RELEASE.md`](../../doc/dev/ANDROID_RELEASE.md) and
+[`../../doc/dev/IOS_RELEASE.md`](../../doc/dev/IOS_RELEASE.md).
 
 ## Notes
 

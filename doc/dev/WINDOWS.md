@@ -62,7 +62,8 @@ is a file bundle: export to a file, import from a file, the same merge.
 
 Key insight: **sync = merge + transport, and the transport is the part a file
 can replace.**
-The merge (LWW / content-hash CRDT in `merge.c`) is fully portable and already in
+The merge (LWW over content hashes, `ais_merge_*` in `ais.c` and the import in
+`feed.c`) is fully portable and already in
 the Windows build. A **file** is a valid transport: `export` a mergeable bundle,
 move it by any means (USB, share, cloud), `import` it (merges, LWW) on the other
 device, and that is the same convergence LAN sync gives, minus the socket.
@@ -88,42 +89,26 @@ bundle code below needs no second path.
 
 ### Build plan
 
-1. **`c/bundle.c` + `c/bundle.h`**: factor the portable bundle logic out of
-   `sync.c`.
-   - `int bundle_write(ais *a, FILE *out);` version byte + blob frames
-     (`export_blobs`/`export_one_blob`) + `feed_export`.
-   - `int bundle_read(ais *a, FILE *in);` parse blob frames (`import_one_blob`
-     plus the `renmap` keep-both rename and `ren_rewrite`), then merge the record
-     text (see the `fmemopen` note above).
-   - Move `export_blobs`, `export_one_blob`, `import_one_blob`, `same_content`,
-     `ren_add/ren_free/ren_rewrite` and `struct renmap` from `sync.c` into here.
-   - `sync_export_sealed`/`sync_import_sealed` then become memstream +
-     `bundle_write`/`bundle_read` + seal/unseal. The existing sync tests verify
-     the refactor: same wire format, same round trip.
-2. **FFI** (`embed.c`/`embed.h`): `int ais_embed_export_file(void *h, const char *path);`
-   and `int ais_embed_import_file(void *h, const char *path);`, which `fopen` the
-   path and call `bundle_write`/`bundle_read`. Portable: no sockets, no memstream.
-3. **The native GUI** (`win32/`): **Export** and **Import** buttons. Export ->
-   `GetSaveFileNameA`, import -> `GetOpenFileNameA`, both defaulting to Documents
-   via `SHGetFolderPathA(CSIDL_PERSONAL)` with a default name like
-   `ais-export.aisync`. **Never** default to `%LOCALAPPDATA%`: it is hidden.
-   Documents is visible and writable, and the user picks the final spot in the
-   dialog anyway. Comdlg32 is already available; add `-lcomdlg32` to
+The bundle exists: `sync_export_plain`/`sync_import_plain` in `sync.c`, exposed
+through the FFI as `ais_embed_export_bundle`/`ais_embed_import_bundle`
+(`embed.h`), which the phone's Export/Import to a file already uses. What remains
+is the window:
+
+1. **The native GUI** (`win32/`): **Export** and **Import** buttons over those
+   two calls. Export -> `GetSaveFileNameA`, import -> `GetOpenFileNameA`, both
+   defaulting to Documents via `SHGetFolderPathA(CSIDL_PERSONAL)` with a default
+   name like `ais-export.aisb`. **Never** default to `%LOCALAPPDATA%`: it is
+   hidden. Documents is visible and writable, and the user picks the final spot
+   in the dialog anyway. Comdlg32 is already available; add `-lcomdlg32` to
    `win32/Makefile` WINLIBS.
-4. **CLI** (`main.c`): `ais --export FILE` / `ais --import FILE` through the same
-   `bundle_write`/`bundle_read`, so every surface agrees. The existing
-   stdin/stdout merge-stream behaviour stays; the FILE argument adds the
-   blob-inclusive bundle.
-5. **Makefiles**: `c/Makefile` globs `bundle.c` automatically; add it to the
-   `win32/Makefile` ENGINE list.
-6. **Test**: a round trip (export index A to a file, import into empty index B,
-   assert B equals A including a blob-backed document), reusing the merge-test
-   scaffolding in `tests.c`.
+2. **Test**: a round trip through the window's calls (export index A to a file,
+   import into empty index B, assert B equals A including a blob-backed
+   document), reusing the merge-test scaffolding in `tests.c`.
 
 ### Done already
 
-The Winsock port of `sync.c` and the full Windows CLI build, which this plan
-once listed as out of scope, shipped first; the bundle is what remains.
+The Winsock port of `sync.c`, the full Windows CLI build and the file bundle
+shipped first; the window's buttons are what remains.
 
 ## Signing: SignPath (planned, nothing runs today)
 
@@ -183,10 +168,3 @@ clears the warning immediately.
 submission. As they stand they cannot be submitted: the only version directory is
 twelve releases old and its `InstallerUrl` points at an artifact that no longer
 exists. That directory's README has the regeneration steps.
-
-## When a Windows build returns
-
-Publish one native download again (a portable zip plus the optional installer,
-the registry-free xcopy model, a Start-Menu shortcut, the CLI on PATH): add the
-runner back to `release.yml`'s matrix, add the signing job above so SmartScreen
-has something to trust, and regenerate the winget manifests against the new tag.

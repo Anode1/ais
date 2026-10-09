@@ -107,7 +107,7 @@ coverage until someone gets Flutter's GTK embedder to rasterise in software.
 
 `run.sh` takes `HEADED=1` to watch it on a real display (deliberate, and not
 during automated work) and `KEEP=1` to leave the throwaway stores and the
-screenshots behind. Its five click coordinates are pre-tuned for a pinned
+screenshots behind. Its four click coordinates are pre-tuned for a pinned
 1280x720 window and a fixed store path; re-tune by reading `shots/NN-*.png` after
 a failing run. If the layout starts churning, graduate the drive step to
 `integration_test`, which taps widgets by `Key` and does not drift, and keep this

@@ -94,14 +94,17 @@ uiut: all
 	@sh tests/gui/ui.sh "$(CURDIR)/c/ais"
 	@sh tests/gui/inter.sh "$(CURDIR)/c/ais"
 
-# ut = the whole suite: codeut + cliut + uiut + the wrapper build-checks, each
-# layer PASS / FAIL / SKIP. The one command to run before committing -- a green
-# core with a skipped GUI layer is still committable.
+# ut = the whole suite (tests/run.sh): codeut, the FFI stack budget, cliut,
+# loopback and mesh sync, upgrade, encrypt over a pty, uiut, the wrapper
+# build-checks and the Flutter and Android layers, each PASS / FAIL / SKIP. The
+# one command to run before committing -- a green core with a skipped GUI layer
+# is still committable.
 ut: all
 	@sh tests/run.sh
 
-# dist = a release bundle for THIS platform into releases/ (kept across runs;
-# md5 sidecar included). Run it on each platform; see scripts/dist.sh.
+# dist = this platform's binary bundle plus the source bundle into releases/
+# (kept across runs; md5 sidecars included). Run it on each platform; see
+# scripts/dist.sh.
 dist:
 	@sh scripts/dist.sh
 
@@ -118,7 +121,7 @@ install-strip: install
 	strip "$(DESTDIR)$(bindir)/ais"
 
 # install-desktop: GUI menu integration (optional; packagers may add it). Installs
-# the freedesktop .desktop entry + the scalable icon, so `ais --serve` shows up in
+# the freedesktop .desktop entry + the 256x256 PNG icon, so `ais --serve` shows up in
 # the application menu. Independent of `install` so it can be run on its own.
 install-desktop:
 	$(INSTALL) -d "$(DESTDIR)$(desktopdir)" "$(DESTDIR)$(icondir)"

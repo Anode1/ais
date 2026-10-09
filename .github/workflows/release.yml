@@ -74,8 +74,9 @@ jobs:
 
   # Windows: cross-compiled from Linux with MinGW-w64 (no Windows runner, no
   # Cygwin). The zip holds the CLI, which carries the web GUI and LAN sync over
-  # Winsock, the native window and the .bat launcher. native-windows.yml runs
-  # the CLI suites against this same build on a Windows runner on every push.
+  # Winsock, the native window and the .bat launcher. native-windows.yml builds
+  # its own binary and runs the CLI suites on a Windows runner, on pushes that
+  # touch c/ or win32/.
   windows:
     name: build windows-x86_64 (cross)
     runs-on: ubuntu-latest

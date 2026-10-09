@@ -46,12 +46,15 @@ TECHNICAL for a technical audience, PLAIN for everyone else.
 
 === TECHNICAL ===
 
-AIS LAN sync is a one-shot, direct device-to-device transfer over the local
-network: no cloud, no relay, no dependencies. One device runs an ephemeral
-single-client TCP server (ais --export --serve) and shows a pairing token and a
-URL (as text or QR); the other device pulls and merges (ais --import
-<host:port> --token T). Pairing is manual, there is no auto-discovery, and it
-works on the same LAN only (no internet, relays, or NAT traversal).
+AIS LAN sync is a direct device-to-device exchange over the local network: no
+cloud, no relay, no dependencies. One device hosts an ephemeral single-client
+TCP server (ais --sync --serve, or Host in the app) and shows a pairing token
+and a URL (the app also as a QR); the other joins (ais --sync
+http://host:port --token T, or Join in the app), and both merge each other's
+records in one round. A one-way copy is ais --export --serve on one side and
+ais --import http://host:port --token T on the other. Pairing is manual, there
+is no auto-discovery, and it works on the same LAN only (no internet, relays,
+or NAT traversal).
 
 Security is a pre-shared one-time token plus challenge-response auth: the server
 sends a random challenge, the client returns a keyed proof of token+challenge,
@@ -61,17 +64,25 @@ under a key derived from the token. A wrong token or any tampering is rejected a
 decryption, before anything is merged. So the transfer is end-to-end encrypted
 and authenticated between the two devices.
 
-The receiver merges the stream into its store: tombstone-union, last-write-wins
+Each receiver merges the stream into its store: tombstone-union, last-write-wins
 by timestamp, content-addressed and idempotent (re-syncing is safe; only
 genuinely new records land). Only non-rebuildable data moves (store, tombstones,
 saved blobs); the index is rebuilt locally. The server is single-use and exits
 after one transfer.
 
+Folder sync is the always-on alternative: each device writes a framed bundle
+into a folder that a folder-sync tool such as Syncthing shares between them
+(ais --sync-folder DIR, or Sync > Set a sync folder in the app) and merges the
+other devices' bundles. The app runs a pass at every open and after every
+change.
+
 === PLAIN ===
 
-Sync is optional and on-demand, directly between your own devices on the same
-Wi-Fi. One device shows a code (and a QR); the other uses it to pull the data
-over your local network. The transfer is end-to-end encrypted with a one-time
-token only your devices share, and a wrong token is rejected before any data is
-read. No cloud, no account, nothing passes through us, and it is a one-time
-manual transfer, not always-on background sync.
+Sync is optional, directly between your own devices on the same Wi-Fi. One
+device shows a code (and a QR); the other joins with it, and both end up with
+each other's data over your local network. The transfer is end-to-end
+encrypted with a one-time token only your devices share, and a wrong token is
+rejected before any data is read. No cloud, no account, nothing passes through
+us. For background sync, share a folder between your devices with a tool such
+as Syncthing and point AIS at it; the app then syncs at every open and after
+every change.

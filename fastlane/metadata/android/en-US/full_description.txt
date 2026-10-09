@@ -12,7 +12,7 @@ Private
 Everything stays on the phone. No account, no ads, no tracking, no server, and the app collects no data. Passwords and other secrets are encrypted with a passphrase only you know.
 
 Yours
-The index is plain text: you can read it, export it, and open it without AIS. Plain text has been readable since the 1960s on any machine, so the index outlives the app. The same index opens on Linux and macOS, in a terminal and in a browser.
+The index is plain text: you can read it, export it, and open it without AIS. Plain text has been readable since the 1960s on any machine, so the index outlives the app. The same index opens on Linux, macOS, Windows and iPhone, in a terminal and in a browser.
 
 Sync and backup, only when you ask
 - Between two of your devices on the same Wi-Fi: one shows a code, the other scans it. The transfer is direct and end-to-end encrypted.

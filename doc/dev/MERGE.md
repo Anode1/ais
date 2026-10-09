@@ -269,7 +269,7 @@ argument of `ais_put_at_k` (the value `attach_wins` compares a key attach agains
 while the `A|` timestamp goes on deciding the record against tombstones, exactly as
 before.
 
-An older peer skips the line (the unknown-verb rule below) and converges precisely as
+An older peer skips the line (the unknown-verb rule above) and converges precisely as
 it does today: the raised `A|` answers both questions there, which is the outcome that
 shipped. Pinned by `test_old_peer_ignores_the_new_verbs`.
 
@@ -358,7 +358,7 @@ Given local index A and incoming index B:
     5. Rebuild idx/off (derived, as today).
 
 Symmetric: run both directions (A pulls B, then B pulls A) and both converge to the same
-live set. `--import` grows to understand DEL events (today it only adds).
+live set. `--import` applies DEL events as well as adds.
 
 ## Export-wire format (so deletions travel)
 DECISION: plain `--dump` stays **unchanged**: human-readable and greppable, live records
@@ -371,6 +371,8 @@ and `--import <url>` consumes), NOT `--dump` output:
     K|<ts>|<hash>|<key>        # key-detach (a content-addressed per-key removal)
     T|<ts>|<hash>|<key>        # key-attach (when a key went ON, K|'s mirror)
     E|<ts>|<hash>|<value>      # an in-place edit: the value hashing to <hash> became <value>
+    M|<ts>|<hash>|<value>      # another link on the record whose first value hashes to <hash>
+    B|blobs/<name>|<size>      # a document body: the header, then <size> raw bytes
 
 The `K|` line carries a per-key detach: `<hash>` is the record's content hash and `<key>` is
 the single (encoded) key to strip, removed at `<ts>`. Like `D|` it is a portable, content-addressed
@@ -378,8 +380,10 @@ fact (the `ktomb` tombstone) that MUST propagate so a tag a user removed on one 
 reappear the next time that device syncs: the removal wins by last-write-wins the same way a
 whole-record delete does, but scoped to one key, leaving the record and its other keys intact.
 
-`--import` applies `A` lines via `put`, `D` lines via the tomb/suppress path, and `K` lines via
-`ais_merge_detach` (the `ktomb`/key-suppress path), all under last-write-wins. A plain (unprefixed)
+`--import` applies `A` lines via `put`, `D` lines via the tomb/suppress path, `K` lines via
+`ais_merge_detach` (the `ktomb`/key-suppress path), `T` via `ais_merge_attach_many`, `E` via
+`ais_merge_edit`, `M` via `ais_merge_addval`, `C` as the next `A`'s attach time, and `B` by
+placing the body under `blobs/`, all under last-write-wins. A plain (unprefixed)
 line fed to `--import` from a file/stdin is treated as an `A` line with ts unknown (oldest), so a
 hand-edited or legacy dump still imports as adds.
 
@@ -430,9 +434,10 @@ rewrite v1 tombstones to `0|hash` on open was not taken.
 - **Clock skew.** Last-write-wins assumes roughly-synced clocks (NTP-normal). A badly skewed
   device could mis-order a delete vs a re-add. Acceptable for single-user; Lamport/vector
   clocks are the heavier fix if ever needed (out of scope).
-- **Content collision.** Two different notes with identical `(keys,value)` are one logical
-  record by design, same as today's idempotent put. Acceptable.
-- **Edit = del + add** at the content level; nothing special.
+- **Content collision.** Two notes with an identical value are one logical record by
+  design (identity is the value alone, above), same as the idempotent put. Acceptable.
+- **An edit travels as `E|`**, applied in place; del + add was tried and reverted (see
+  "An edited value travels as E|").
 - **Hash width.** FNV-1a 64-bit, as built; not a security boundary (content is
   already content-addressed).
 

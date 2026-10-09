@@ -14,13 +14,19 @@ Because it is plain text, it outlives its own tools: your index survives decades
   <img src="screenshots/demo.gif" width="78%" alt="Save a photo, two ssh tunnels and a link under your own keys, then recall them by key">
 </p>
 <p align="center"><em>The command line version, which is the base: save a path, the ssh tunnel you always look up, a link, each under the words you would think of later. Then ask by those words.</em></p>
-<p align="center"><em>There are GUIs over the same index: a web GUI in the browser, a Windows app, and the Android app, shown here:</em></p>
+<p align="center"><em>There are GUIs over the same index: a web GUI in the browser, a Windows app, and the phone app. Android:</em></p>
 <p align="center">
   <img src="screenshots/android-timeline.png" width="30%" alt="Everything you saved: links, file paths, and encrypted secrets">
   <img src="screenshots/android-search.png" width="30%" alt="Search returns clickable links">
   <img src="screenshots/android-tags.png" width="30%" alt="Browse everything by tag">
 </p>
 <p align="center"><em>Save links, file paths and notes, recall them by tag; passwords stay encrypted (&#128274;).</em></p>
+<p align="center"><em>The same app on an iPhone, synced with the Android above over Wi-Fi:</em></p>
+<p align="center">
+  <img src="screenshots/iphone_timeline.png" width="30%" alt="The timeline on an iPhone">
+  <img src="screenshots/iphone_search.png" width="30%" alt="Search by tag on an iPhone">
+  <img src="screenshots/iphone_encrypt.png" width="30%" alt="Saving a secret under a passphrase on an iPhone">
+</p>
 
 ## Why
 
@@ -58,7 +64,7 @@ An embedding places your note near the average meaning of its words, which is th
 No, it points *into* them. For files, photos and pages ais is an index of pointers, not a store of copies: a photo stays in Immich, a file on disk, a page at its URL. You save the *reference* under your own keys and recall it by association; the silo keeps the bytes. It does not compete with Immich or the filesystem, it sits across them as the one associative layer that remembers where a thing is and why it mattered. (Secrets are the one exception: those it stores inline, encrypted, see below.)
 
 **Can it hold passwords? Is it a password manager?**
-Yes. A secret is stored encrypted inline (`-e`), so a login lives right next to the context it belongs to, and two things set it apart from a built-in manager. It is **cross-platform**: Apple Keychain and Google Password Manager are locked to one ecosystem, while ais is the same plain-text index on Windows, macOS, Linux, Android and the CLI, so your secrets travel with you. And it is **agent-safe**: decryption is interactive (a passphrase you supply at a terminal or in the app), so an agent reading your index sees an opaque `aisc:` marker, not the secret, with no master key or unlocked vault to drain. What it is *not* is a bulk web-login manager: no autofill, no generation, no shared vaults, so for hundreds of site logins a dedicated cross-platform manager is still more convenient. See [`about.txt`](doc/about.txt).
+Yes. A secret is stored encrypted inline (`-e`), so a login lives right next to the context it belongs to, and two things set it apart from a built-in manager. It is **cross-platform**: Apple Keychain and Google Password Manager are locked to one ecosystem, while ais is the same plain-text index on Windows, macOS, Linux, Android, iPhone and the CLI, so your secrets travel with you. And it is **agent-safe**: decryption is interactive (a passphrase you supply at a terminal or in the app), so an agent reading your index sees an opaque `aisc:` marker, not the secret, with no master key or unlocked vault to drain. What it is *not* is a bulk web-login manager: no autofill, no generation, no shared vaults, so for hundreds of site logins a dedicated cross-platform manager is still more convenient. See [`about.txt`](doc/about.txt).
 
 ## Give an agent your index
 
@@ -72,7 +78,7 @@ claude mcp add ais -- ais --mcp        # or: {"mcpServers":{"ais":{"command":"ai
 
 That serves `recall`, `find`, `tags` and `timeline` over stdin/stdout. It is read-only, `ais --mcp rw` adds saving, and there is no delete or edit at any setting. Encrypted values stay opaque. It opens your home index, the current named index, or the one `-f` names, and refuses a `.ais/` it merely found by walking up, because a clone can ship one: a project index is served by naming it, `claude mcp add ais -- ais -f /abs/path/of/project/.ais --mcp`, and that line in the client's configuration is the permission. The full picture is in [`doc/MCP.md`](doc/MCP.md).
 
-The same index is memory shared between sessions, between you and an agent, and between agents of different models. On your home index the agent asks you for keys. On a project's or a group's index, named with `-f`, it chooses them from the keys already in use, so the next session, or another model, recalls what was saved by the group's words. An agent saves when asked; left alone it rarely does ([measured](experiment/memory/README.md)). Several agents serve one index at once: reads take no lock, and writes serialize under an exclusive lock. The index syncs between laptops and Android phones, and an iPhone app is in progress. [Details](doc/MCP.md#a-projects-or-a-groups-index), and [what the plain-text file does not show](doc/MCP.md#what-the-file-does-not-show): locking, crash-safe rewrites, an index that answers in milliseconds at a million records, and a merge that survives edits and deletes on devices that were apart.
+The same index is memory shared between sessions, between you and an agent, and between agents of different models. On your home index the agent asks you for keys. On a project's or a group's index, named with `-f`, it chooses them from the keys already in use, so the next session, or another model, recalls what was saved by the group's words. An agent saves when asked; left alone it rarely does ([measured](experiment/memory/README.md)). Several agents serve one index at once: reads take no lock, and writes serialize under an exclusive lock. The index syncs between laptops, Android phones and iPhones. [Details](doc/MCP.md#a-projects-or-a-groups-index), and [what the plain-text file does not show](doc/MCP.md#what-the-file-does-not-show): locking, crash-safe rewrites, an index that answers in milliseconds at a million records, and a merge that survives edits and deletes on devices that were apart.
 
 A skill is the other door, for an agent that already has a shell: [`.claude/skills/ais/SKILL.md`](.claude/skills/ais/SKILL.md), copied into your own project's `.claude/skills/`. It drives the CLI, so it can edit and delete records, which the server cannot at any setting.
 
@@ -105,6 +111,8 @@ Why keys beat search is in [`about.txt`](doc/about.txt), and [above](#why).
 **Android**: the app is on Google Play:
 
 > **<https://play.google.com/store/apps/details?id=com.aisindex.ais>**
+
+**iPhone**: the same app, built for iOS and in TestFlight; the App Store link lands here once the listing is approved.
 
 On Linux or macOS, one line puts the current release on your PATH:
 

@@ -116,13 +116,15 @@ invisible to this process and counts for nothing.
 20 is a hard floor: plan on recruiting 15 to 20 real people, each on their own
 account and device. This is the Android twin of TestFlight.
 
-## 5. Apply for production
+## 5. Production
 
-The Console unlocks the application after the 14 days. Answer the questionnaire
-truthfully, including how you recruited the testers; obviously fake testers get
-rejected, and review takes days to weeks. On approval, promote the build to
-Production. The Console's own checklist is the source of truth if any of this has
-moved.
+The Console unlocks Production after the 14 days. The production questionnaire
+this step expected never appeared: Production opened, and build 477 (0.3.27)
+went to review there on 2026-09-15. The Console's own checklist is the source of
+truth if any of this has moved.
+
+Every later build is an update: Production > Create new release, upload that
+tag's `ais-vX.Y.Z-android.aab`, publish, and it goes to review.
 
 ## 6. IzzyOnDroid and F-Droid, in parallel
 

@@ -28,7 +28,7 @@ years is about a million). So 1M records is not a waypoint we must scale past;
 it is the upper bound, and AIS already answers it in milliseconds to a couple of
 seconds. The key space is bounded too: human active vocabulary is ~10-20k words,
 so distinct keys stay few (the 1M test had 4,000). That bound is also why the
-index shards shallowly: keys live in `idx/<first-letter>/<key>`, navigable and
+index shards shallowly: keys live in `idx/<first-two-letters>/<key>` (`idx/ap/apple`), navigable and
 hash-free, and one fixed level keeps every bucket small enough to `ls`. Deeper,
 adaptive splitting (re-shard a bucket by the next letter once it grows hot) is
 available as an option, but at human scale it is not needed. (The early 2001

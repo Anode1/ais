@@ -9,8 +9,7 @@ AIS=${AIS:-c/ais}
 EX=example
 rm -rf "$EX"
 
-# The docs themselves, as documents (multi-line -> blobs). Keys: 'about', 'docs'
-# ('doc' is a command, so it is not used as a key).
+# The docs themselves, as documents (multi-line -> blobs). Keys: 'about', 'docs'.
 "$AIS" -f "$EX" --doc about docs  < doc/about.txt >/dev/null
 "$AIS" -f "$EX" --doc docs readme < README.md     >/dev/null
 
@@ -19,4 +18,4 @@ rm -rf "$EX"
 "$AIS" -f "$EX" -v "keys are words you choose, not folders you nest" tip example >/dev/null
 "$AIS" -f "$EX" -v "https://gavr144.substack.com/p/intelligence-is-the-discovery-of" article ai compression >/dev/null
 
-echo "built $EX/  (inspect: ls $EX; cat $EX/store; ls $EX/idx; '$AIS' -f $EX serve)"
+echo "built $EX/  (inspect: ls $EX; cat $EX/store; ls $EX/idx; '$AIS' -f $EX --serve)"

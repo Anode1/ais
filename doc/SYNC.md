@@ -7,7 +7,7 @@ Every way to move an index between devices, and where each one exists:
 |---|---|---|---|
 | Sync by code (Sync > Host / Join; `--sync`) | CLI, web GUI, Android, iOS | two-way, one round | Built in, encrypted, same Wi-Fi. The phone scans the code with its camera. |
 | One-way LAN (`--export --serve` / `--import <url>`) | CLI | one-way | The older form of the same exchange. |
-| A file (Sync > Export / Import to a file) | web GUI, Android | either way, by hand | One `.aisb` file, the whole index, carried by email, a messenger or a drive ([below](#by-email-or-any-app-that-carries-a-file)). The CLI does not read it: its `--import` takes text records. |
+| A file (Sync > Export / Import to a file) | web GUI, Android, iOS | either way, by hand | One `.aisb` file, the whole index, carried by email, a messenger or a drive ([below](#by-email-or-any-app-that-carries-a-file)). The CLI does not read it: its `--import` takes text records. |
 | A shared folder (Sync > Set a sync folder; `--sync-folder`) | CLI, web GUI, Android | two-way, at every open and change | The set-and-forget path. Syncthing or a mounted drive carries the folder. |
 | Keep a copy in a folder / Restore from a folder | Android | copy out, restore back | Survives an uninstall. Not a sync. |
 | Text (`--dump` / `--import < FILE`) | CLI | either way, by hand | Records only, no documents. |
@@ -20,7 +20,7 @@ press Host and scan.
 
 ## What an index holds (so you know what matters)
 
-    store       real data, the SOURCE OF TRUTH (append-only records)
+    store       real data, the SOURCE OF TRUTH (one record per line)
     tomb        real data: which records were deleted
     mts         real data: when each record was last edited on THIS device
                 (so a delete made elsewhere cannot undo a later edit)
@@ -29,10 +29,14 @@ press Host and scan.
     katt        real data: when a tag was put on a record that already existed,
                 so re-adding a tag another device removed actually sticks
     ktomb       real data: which tags were taken off, so a removal propagates
+    edits       real data: in-place value edits, so an edit reaches every device
+                and an old copy of the value cannot bring the old text back
     blobs/      real data: documents saved by `doc`
     version     on-disk format version (see below)
     next_id     rebuildable from store
     idx/, off   rebuildable from store (the search index)
+    multi       rebuildable from store: ids carrying more than one value
+    project     the default project key (`ais --project KEY`)
     lock        per-device, ephemeral: never sync this one
     foldsync    per-device: which shared folders THIS device syncs with (its own
                 mount points, meaningless on another machine): never sync it
@@ -113,7 +117,7 @@ camera does the reading, and AIS just registers the `ais://` link. If you would 
 scan, Join still accepts the address and token typed by hand, and the address
 may be a NAME as well as a number, so `http://mylaptop.local:8766` works wherever
 that name resolves (mDNS, your router's DHCP names, `/etc/hosts`). Android
-resolves no mDNS names, so from a phone type the number.
+resolves no mDNS names, so from an Android phone type the number.
 
 #### From Windows
 
@@ -270,7 +274,7 @@ it is imported if the index holds anything private.
 As a single user you are almost always on one device at a time, so conflicts are rare.
 If you do edit the same index on two devices while offline, Syncthing keeps both copies
 and writes a file named like `store.sync-conflict-...`; reconcile by merging the store
-(it is append-only and built to merge). Two-writer chaos is a multi-user problem you do
+(one record per line, built to merge). Two-writer chaos is a multi-user problem you do
 not have here.
 
 ## Other no-cloud options

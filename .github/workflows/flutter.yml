@@ -9,8 +9,8 @@
 # Pinned to a Flutter VERSION, not `stable`. The Android SDK levels and the NDK
 # come from `flutter.compileSdkVersion` / `flutter.ndkVersion` in
 # android/app/build.gradle.kts, so a channel that moves underneath us silently
-# changes what ships. release.yml still tracks stable; this job is the one that
-# tells us a version bump is coming before it lands in an artifact.
+# changes what ships. release.yml pins the same version; this job is the one
+# that tells us a version bump is coming before it lands in an artifact.
 
 name: flutter
 
@@ -122,7 +122,7 @@ jobs:
 
       # The harness drives a real window, so its per-step screenshots are the
       # only way to see WHY a step missed; without them a failure here is a
-      # guess. It writes them to a fixed path (see uitest/run.sh WORK).
+      # guess. It writes them to a fixed path (see app/flutter/uitest/run.sh WORK).
       - name: keep the screenshots either way
         if: always()
         uses: actions/upload-artifact@v4
@@ -227,8 +227,8 @@ jobs:
   # a certificate would be needed for. What this catches is the wiring in
   # ais_engine.podspec going stale -- a c/*.c added and not linked, or the
   # crypto sources dropped, which is a link error here rather than a crash on
-  # someone's phone. Signing, a real device and TestFlight stay manual
-  # (issue #1).
+  # someone's phone. ios-release above signs and uploads on a tag; only
+  # testing on a real device stays manual (issue #1).
   ios-build:
     name: ios build (unsigned)
     runs-on: macos-latest

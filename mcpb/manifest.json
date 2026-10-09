@@ -34,7 +34,7 @@
     "index": {
       "type": "directory",
       "title": "Index",
-      "description": "A project's index to serve instead of your home index: the .ais folder, or the folder holding it. Leave empty for ~/.ais.",
+      "description": "A project's index to serve instead of your home index: the .ais folder, or the folder holding it. Leave empty for your current index (~/.ais unless you switched); a .ais above the client's working folder then makes the server refuse to start.",
       "required": false
     },
     "writes": {
