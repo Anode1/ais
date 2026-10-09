@@ -42,19 +42,27 @@ class SceneDelegate: FlutterSceneDelegate {
 }
 
 // One pending link and one channel, shared by the scene (which receives links)
-// and the app delegate (which owns the engine's messenger). A link that arrives
-// before the channel exists waits for getInitialLink; one that arrives after is
-// pushed as onLink. getInitialLink is answered exactly once, like MainActivity.kt:
-// the link is consumed by the first ask so a later rebuild cannot replay a sync
-// the user already did.
+// and the app delegate (which owns the engine's messenger). getInitialLink is
+// answered exactly once, like MainActivity.kt: the link is consumed by the first
+// ask so a later rebuild cannot replay a sync the user already did.
+//
+// A link is held until Dart has ASKED once, not merely until the channel exists.
+// The channel is installed while the storyboard instantiates the Flutter view
+// controller, which is before scene(_:willConnectTo:) delivers a cold-start
+// link and well before the Dart isolate runs; a message invoked on the channel
+// in that window is dropped by the engine, not queued. So "channel exists" is
+// the wrong test for "Dart can hear": the first getInitialLink is the signal,
+// and only links after it are pushed as onLink.
 enum DeepLink {
   private static var pending: String?
   private static var channel: FlutterMethodChannel?
+  private static var dartAsked = false
 
   static func install(messenger: FlutterBinaryMessenger) {
     let ch = FlutterMethodChannel(name: "ais/deeplink", binaryMessenger: messenger)
     ch.setMethodCallHandler { call, result in
       if call.method == "getInitialLink" {
+        dartAsked = true
         result(pending)
         pending = nil
       } else {
@@ -65,7 +73,7 @@ enum DeepLink {
   }
 
   static func arrived(_ url: URL) {
-    if let ch = channel {
+    if dartAsked, let ch = channel {
       ch.invokeMethod("onLink", arguments: url.absoluteString)
     } else {
       pending = url.absoluteString

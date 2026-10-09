@@ -31,6 +31,12 @@
 	<!-- Scan-to-join: register the ais:// scheme so the camera (or another app)
 	     can open an ais://sync?host=..&token=.. link straight into AIS, which
 	     SceneDelegate forwards to Dart. No in-app QR scanner. -->
+	<!-- The link is routed by SceneDelegate over ais/deeplink. Flutter's own
+	     deep linking would also push it as a named route, which MaterialApp has
+	     none of, and on the error the embedder re-opens the URL on the app: the
+	     same scan arriving twice. -->
+	<key>FlutterDeepLinkingEnabled</key>
+	<false/>
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>

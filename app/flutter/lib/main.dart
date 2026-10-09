@@ -1503,7 +1503,8 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
 
   // Join: connect to a device that is hosting; both converge (bidirectional).
   // Prefill (URL, token) arrives from a scanned ais:// QR (see _handleLink).
-  Future<void> _syncJoin({String? prefillUrl, String? prefillToken}) async {
+  Future<void> _syncJoin(
+      {String? prefillUrl, String? prefillToken, bool afterTimeout = false}) async {
     final scanned = prefillUrl != null && prefillToken != null;
     final urlCtrl = TextEditingController(text: prefillUrl ?? 'http://');
     final tokCtrl = TextEditingController(text: prefillToken ?? '');
@@ -1522,7 +1523,7 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
               decoration: const InputDecoration(
                   labelText: 'Address',
                   hintText: 'http://192.168.1.5:8766',
-                  helperText: 'An address or a name, e.g. mylaptop.local'),
+                  helperText: 'As shown under the code on the hosting device'),
             ),
             TextField(
               controller: tokCtrl,
@@ -1531,7 +1532,10 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
             ),
             const SizedBox(height: 8),
             Text(
-                scanned
+                afterTimeout
+                    ? 'It did not answer in time. If iOS just asked to allow '
+                        'local network access, tap Sync again.'
+                    : scanned
                     ? 'Scanned from the other device. Tap Sync to connect.'
                     : "These come from the OTHER device: open AIS there, tap Sync, "
                         "choose Host, and it shows both. Scanning its code with your "
@@ -1551,13 +1555,13 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
     final token = tokCtrl.text.trim();
     if (go != true || _ais == null) return;
     if (url.isEmpty || token.isEmpty) return;
-    await _runJoin(url, token);
+    await _runJoin(url, token, retryOffered: afterTimeout);
   }
 
   // Run the bidirectional join for an address + token, whether typed into the
   // Join dialog or parsed from a scanned ais:// link. Blocks the UI while the
   // sync isolate holds the shared engine handle (a data race otherwise).
-  Future<void> _runJoin(String url, String token) async {
+  Future<void> _runJoin(String url, String token, {bool retryOffered = false}) async {
     if (_ais == null || !mounted) return;
     final messenger = ScaffoldMessenger.of(context);
     if (_syncBusy) {
@@ -1612,6 +1616,13 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
     }
     messenger.showSnackBar(SnackBar(content: Text(msg)));
     if (rc >= 0) _setView(_view); // a half-done sync still merged theirs
+    // iOS asks "allow local network access" on the first connection to a LAN
+    // address, and until the user answers every attempt fails at once; the
+    // alert is read on the join's own 10 s budget. Offer the same join again,
+    // once, with the fields still filled.
+    if (rc == -2 && Platform.isIOS && !retryOffered && mounted) {
+      await _syncJoin(prefillUrl: url, prefillToken: token, afterTimeout: true);
+    }
   }
 
   // Host: wait for another device to join; both converge (bidirectional).
@@ -1664,7 +1675,7 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
               intro: 'On your OTHER device: open AIS, tap Sync, choose Join, and '
                   'scan this code with its camera. Keep this screen open.',
               waiting: 'Waiting for the other device...',
-              note: 'You can hide this; hosting keeps waiting in the background.',
+              note: 'Keep AIS open until the other device has joined.',
               done: fut),
         ) ??
         false;
@@ -1756,13 +1767,14 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
       final ifs = await NetworkInterface.list(
           type: InternetAddressType.IPv4, includeLoopback: false);
       for (final ni in ifs) {
-        if (ni.name != 'en0' && !ni.name.startsWith('wlan')) continue;
+        if (!_wifiName(ni.name)) continue;
         for (final a in ni.addresses) {
           if (!a.isLoopback && _isPrivate(a.address)) return a.address;
         }
       }
       String? fallback;
       for (final ni in ifs) {
+        if (_neverLan(ni.name)) continue;
         for (final a in ni.addresses) {
           if (a.isLoopback) continue;
           fallback ??= a.address;
@@ -1773,6 +1785,25 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
     } catch (_) {}
     return null;
   }
+
+  // Wi-Fi by interface name: en0 (iPhone), wlan* (Android, Linux), wlp*
+  // (Linux predictable names), ap* and swlan* (an Android phone sharing its
+  // hotspot), bridge* (an iPhone sharing its hotspot).
+  static bool _wifiName(String n) =>
+      n == 'en0' ||
+      n.startsWith('wlan') ||
+      n.startsWith('wlp') ||
+      n.startsWith('ap') ||
+      n.startsWith('swlan') ||
+      n.startsWith('bridge');
+
+  // Never the LAN, whatever address they carry: cellular (pdp_ip, rmnet,
+  // ccmni), VPN tunnels (utun, tun, ppp), container and VM bridges (docker,
+  // virbr, veth, vEthernet, the WSL trap doc/SYNC.md describes).
+  static bool _neverLan(String n) => const [
+        'pdp_ip', 'rmnet', 'ccmni', 'utun', 'tun', 'ppp',
+        'docker', 'virbr', 'veth', 'vEthernet',
+      ].any(n.startsWith);
 
   // RFC 1918 private ranges (10/8, 172.16/12, 192.168/16) = a LAN/Wi-Fi address.
   static bool _isPrivate(String ip) {
@@ -3232,6 +3263,7 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
+      useSafeArea: true,   // a full-height sheet otherwise puts its title under the notch
       showDragHandle: true,
       builder: (ctx) => AddSheet(
         initialValue: value,
@@ -3442,7 +3474,7 @@ class _AddSheetState extends State<AddSheet> {
   final _pp2Ctrl = TextEditingController();
   final _keysFocus = FocusNode();
   bool _encrypt = false; // off by default
-  bool _saving = false;  // true while the off-isolate encrypt runs
+  bool _saving = false;  // true from the tap until the sheet closes or the error shows
   bool _ppShow = false;  // the sealing passphrase revealed, both fields at once
   String? _error;        // in-sheet feedback so a save never fails silently
 
@@ -3457,7 +3489,13 @@ class _AddSheetState extends State<AddSheet> {
   }
 
   Future<void> _save() async {
-    if (_encrypt) setState(() => _saving = true);
+    // Two taps in one frame, before the button disables, ran this twice: two
+    // records and two pops, the second taking the page under the sheet.
+    if (_saving) return;
+    setState(() {
+      _saving = true;
+      _error = null;
+    });
     final err = await widget.onSave(
         value: _valCtrl.text,
         keys: _keysCtrl.text,
@@ -3481,126 +3519,163 @@ class _AddSheetState extends State<AddSheet> {
   // reveals both, and a field with no eye reads as a field that cannot be shown.
   Widget _eye() => IconButton(
         icon: Icon(_ppShow ? Icons.visibility_off : Icons.visibility),
-        tooltip: _ppShow ? 'Hide' : 'Show',
+        tooltip: _ppShow ? 'Hide passphrases' : 'Show passphrases',
         onPressed: () => setState(() => _ppShow = !_ppShow),
       );
 
+  // The fields, in the order they are read; build() places them.
+  List<Widget> _fields(BuildContext context) => [
+        // The thing being saved comes first, then how to find it again. The
+        // other order asked for the label before the thing it labels, which
+        // is not how anyone describes what they are doing.
+        TextField(
+          controller: _valCtrl,
+          autofocus: true,
+          minLines: 1,
+          maxLines: 3,
+          decoration: const InputDecoration(
+            labelText: 'What to remember',
+            hintText: 'a link, a note, a phone number…',
+            border: OutlineInputBorder(),
+          ),
+        ),
+        const SizedBox(height: 12),
+        TextField(
+          controller: _keysCtrl,
+          focusNode: _keysFocus,
+          decoration: const InputDecoration(
+            labelText: 'Tags (space-separated, optional)',
+            hintText: 'e.g. venice italy hotel',
+            border: OutlineInputBorder(),
+          ),
+        ),
+        TagSuggestRow(
+          controller: _keysCtrl,
+          focusNode: _keysFocus,
+          lookup: widget.suggest,
+        ),
+        const SizedBox(height: 4),
+        Row(children: [
+          Switch(
+            value: _encrypt,
+            // Off takes the stale state with it: a mismatch error that no
+            // longer applies, and a revealed passphrase that would come back
+            // revealed.
+            onChanged: (b) => setState(() {
+              _encrypt = b;
+              if (!b) {
+                _error = null;
+                _ppShow = false;
+              }
+            }),
+          ),
+          const Text('Encrypt'),
+        ]),
+        if (_encrypt) ...[
+          TextField(
+            controller: _ppCtrl,
+            obscureText: !_ppShow,
+            decoration: InputDecoration(
+              labelText: 'Passphrase',
+              border: const OutlineInputBorder(),
+              suffixIcon: _eye(),
+            ),
+          ),
+          const SizedBox(height: 8),
+          TextField(
+            controller: _pp2Ctrl,
+            obscureText: !_ppShow,
+            decoration: InputDecoration(
+              labelText: 'Repeat passphrase',
+              border: const OutlineInputBorder(),
+              suffixIcon: _eye(),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.only(top: 6, bottom: 4),
+            child: Text('A lost passphrase cannot be recovered.',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: Theme.of(context).colorScheme.onSurfaceVariant)),
+          ),
+        ],
+      ];
+
+  // Needs a bounded height (a modal bottom sheet gives one): the pinned layout
+  // puts the fields in a Flexible.
   @override
-  Widget build(BuildContext context) => Padding(
-        padding: EdgeInsets.only(
-            bottom: MediaQuery.of(context).viewInsets.bottom + 16,
-            left: 16, right: 16, top: 4),
-        child: Column(
+  Widget build(BuildContext context) {
+    final mq = MediaQuery.of(context);
+    final title = Text('Add to your memory',
+        style: Theme.of(context).textTheme.titleMedium);
+    final error = _error == null
+        ? null
+        : Padding(
+            padding: const EdgeInsets.only(top: 2, bottom: 6),
+            child: Text(_error!,
+                style: TextStyle(color: Theme.of(context).colorScheme.error)),
+          );
+    final save = FilledButton.icon(
+      icon: _saving
+          ? const SizedBox(
+              width: 16, height: 16,
+              child: CircularProgressIndicator(strokeWidth: 2))
+          : const Icon(Icons.check),
+      label: Text(_saving ? (_encrypt ? 'Encrypting…' : 'Saving…') : 'Save'),
+      onPressed: _saving ? null : _save,
+    );
+    return Padding(
+      // Above the keyboard, or above the home indicator when it is down.
+      padding: EdgeInsets.only(
+          bottom: max(mq.viewInsets.bottom, mq.viewPadding.bottom) + 16,
+          left: 16, right: 16, top: 4),
+      child: LayoutBuilder(builder: (context, box) {
+        // Save is pinned under a scrolling field area, so it stays above the
+        // keyboard however tall the note and the Encrypt fields get. With Save
+        // inside the scroll view a three-line note on a phone pushed it under
+        // the keyboard, out of sight until the user guessed to scroll. When
+        // the keyboard leaves too little for that split (a phone in landscape
+        // left a 10 px slit for the fields), the whole form scrolls, Save last.
+        final pinned = box.maxHeight >= 280;
+        final fields = _fields(context);
+        if (!pinned) {
+          return SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                title,
+                const SizedBox(height: 14),
+                ...fields,
+                if (error != null) error,
+                const SizedBox(height: 16),
+                save,
+              ],
+            ),
+          );
+        }
+        return Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Text('Add to your memory',
-                style: Theme.of(context).textTheme.titleMedium),
+            title,
             const SizedBox(height: 14),
-            // The fields scroll; Save below them does not, so it stays above
-            // the keyboard however tall the note and the Encrypt fields get.
-            // With Save inside the scroll view a three-line note on a phone
-            // pushed it under the keyboard, out of sight until the user
-            // guessed to scroll.
             Flexible(
               child: SingleChildScrollView(
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    // The thing being saved comes first, then how to find it
-                    // again. The other order asked for the label before the
-                    // thing it labels, which is not how anyone describes what
-                    // they are doing.
-                    TextField(
-                      controller: _valCtrl,
-                      autofocus: true,
-                      minLines: 1,
-                      maxLines: 3,
-                      decoration: const InputDecoration(
-                        labelText: 'What to remember',
-                        hintText: 'a link, a note, a phone number…',
-                        border: OutlineInputBorder(),
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    TextField(
-                      controller: _keysCtrl,
-                      focusNode: _keysFocus,
-                      decoration: const InputDecoration(
-                        labelText: 'Tags (space-separated, optional)',
-                        hintText: 'e.g. venice italy hotel',
-                        border: OutlineInputBorder(),
-                      ),
-                    ),
-                    TagSuggestRow(
-                      controller: _keysCtrl,
-                      focusNode: _keysFocus,
-                      lookup: widget.suggest,
-                    ),
-                    const SizedBox(height: 4),
-                    Row(children: [
-                      Switch(
-                        value: _encrypt,
-                        onChanged: (b) => setState(() => _encrypt = b),
-                      ),
-                      const Text('Encrypt'),
-                    ]),
-                    if (_encrypt) ...[
-                      TextField(
-                        controller: _ppCtrl,
-                        obscureText: !_ppShow,
-                        decoration: InputDecoration(
-                          labelText: 'Passphrase',
-                          border: const OutlineInputBorder(),
-                          suffixIcon: _eye(),
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      TextField(
-                        controller: _pp2Ctrl,
-                        obscureText: !_ppShow,
-                        decoration: InputDecoration(
-                          labelText: 'Repeat passphrase',
-                          border: const OutlineInputBorder(),
-                          suffixIcon: _eye(),
-                        ),
-                      ),
-                      Padding(
-                        padding: const EdgeInsets.only(top: 6, bottom: 4),
-                        child: Text('A lost passphrase cannot be recovered.',
-                            style: Theme.of(context)
-                                .textTheme
-                                .bodySmall
-                                ?.copyWith(
-                                    color: Theme.of(context)
-                                        .colorScheme
-                                        .onSurfaceVariant)),
-                      ),
-                    ],
-                  ],
+                  children: fields,
                 ),
               ),
             ),
-            if (_error != null)
-              Padding(
-                padding: const EdgeInsets.only(top: 2, bottom: 6),
-                child: Text(_error!,
-                    style: TextStyle(color: Theme.of(context).colorScheme.error)),
-              ),
+            if (error != null) error,
             const SizedBox(height: 16),
-            FilledButton.icon(
-              icon: _saving
-                  ? const SizedBox(
-                      width: 16, height: 16,
-                      child: CircularProgressIndicator(strokeWidth: 2))
-                  : const Icon(Icons.check),
-              label: Text(_saving ? 'Encrypting…' : 'Save'),
-              onPressed: _saving ? null : _save,
-            ),
+            save,
           ],
-        ),
-      );
+        );
+      }),
+    );
+  }
 }
 
 // The Edit-tags dialog, extracted from _editKeys so a widget test can pump it
