@@ -8,6 +8,10 @@ Before tagging, run `scripts/release-notes.sh vX.Y.Z`: it prepends the commit
 subjects since the previous tag, then edit them down to what a user needs to
 know. The old entries below the two newest are the raw subjects.
 
+## v0.3.36 (2026-10-09)
+
+- iOS: the app icon is the AIS artwork. Every iOS build so far carried the Flutter placeholder logo.
+
 ## v0.3.35 (2026-10-09)
 
 - Engine: deleting an id that was never issued now writes nothing. It wrote a tombstone, and the next record to receive that id was born deleted.
