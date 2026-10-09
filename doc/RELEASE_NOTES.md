@@ -10,7 +10,7 @@ know. The old entries below the two newest are the raw subjects.
 
 ## v0.3.33 (2026-10-08)
 
-- Windows: the first build exercised on a Windows machine. The CLI suite, the loopback sync over Winsock and a folder sync now run on a Windows runner in CI, and what that first run found is fixed: folder sync could not create the device identity (it read `/dev/urandom`), output to stdout carried CRLF line ends (a dump piped to a file would have put a carriage return in every value), the walk up to `.ais` never climbed a Windows path, a confirmation prompt waited forever at an unattended console, and a resolved path printed with backslashes and 8.3 short names. The zips in v0.3.31 and v0.3.32 have those defects; this one does not.
+- Windows support recovered: `ais-vX.Y.Z-windows-x86_64.zip` is the CLI with the web GUI and LAN sync, and the CLI and sync suites run against it on a Windows runner in CI.
 
 ## v0.3.32 (2026-10-08)
 
@@ -22,7 +22,7 @@ know. The old entries below the two newest are the raw subjects.
 
 - Windows: a native build, `ais-vX.Y.Z-windows-x86_64.zip`, cross-compiled from Linux with MinGW-w64. `ais.exe` is the full CLI with the web GUI (`ais-web.bat` opens it) and LAN sync over Winsock, so a Windows PC hosts and joins a QR sync with a phone as Linux does; the other `.exe` is a small native window for search and add. No runtime, no installer. The CLI and loopback-sync suites run against it on a Windows runner in CI.
 - Sync: a join to a host that never answers now gives up at its own timeout. Before, the kernel's connect retries held it for minutes, and a Join on a phone spun for that long when the two devices could not reach each other.
-- iOS: the App Store listing has screenshots, built from the captures by `scripts/appstore-shots.sh`; the encryption export answer is recorded in `Info.plist` so later uploads inherit it.
+- iOS: `scripts/appstore-shots.sh` builds the App Store screenshots from the captures (uploading them to the listing is a manual step, still open); the encryption export answer is recorded in `Info.plist` so later uploads inherit it.
 
 ## v0.3.30 (2026-10-08)
 
