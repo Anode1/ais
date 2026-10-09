@@ -114,13 +114,13 @@ Why keys beat search is in [`about.txt`](doc/about.txt), and [above](#why).
 
 **iPhone**: the same app, built for iOS and in TestFlight; the App Store link lands here once the listing is approved.
 
-**macOS and Linux**: one line installs the current release, and the same line updates it later:
+**macOS and Linux**: one line installs or updates:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/Anode1/ais/main/scripts/install.sh | sh
 ```
 
-It downloads the build for your OS and CPU, checks it against the published `.sha256`, and installs into `~/.local` (`PREFIX=/usr/local` to put it elsewhere). It compiles nothing, needs no root, and edits no shell profile: if `~/.local/bin` is not on your PATH, it prints the one line to add. Read [`scripts/install.sh`](scripts/install.sh) first if you would rather not pipe a script to a shell. Then `ais --serve` opens the GUI in your browser, and `ais` alone is the CLI.
+It downloads the build for your OS and CPU, checks it against the published `.sha256`, and installs into `~/.local` (`PREFIX=/usr/local` to put it elsewhere). It compiles nothing and needs no root. If `~/.local/bin` is not on your PATH, it prints the line to add. Read [`scripts/install.sh`](scripts/install.sh) first if you would rather not pipe a script to a shell. `ais --serve` opens the GUI in your browser.
 
 Or take the files by hand. The link below always points at the current release:
 
