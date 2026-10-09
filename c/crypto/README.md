@@ -102,11 +102,12 @@ aisc_wipe(out, out_len); free(out);
 
 ## Licensing
 
-- `ais_crypto.{c,h}` are part of ais and are **GPL-2.0-only** (see `../../COPYING`).
+- `ais_crypto.{c,h}` are part of ais, under its licence: **GPL-2.0-or-later or MIT**
+  (`../../COPYING`, `../../LICENSE-MIT`).
 - **Monocypher** is dual-licensed **CC0-1.0 / BSD-2-Clause**: permissive, and
-  GPL-compatible. We vendor `monocypher.c` / `monocypher.h` unchanged and keep its
-  license as `LICENSE.monocypher`. The combined binary ships under ais's GPLv2;
-  Monocypher's terms add at most attribution.
+  GPL-compatible. We vendor `monocypher.c` / `monocypher.h` unchanged; the licence
+  text is the header of `monocypher.c`. The combined binary ships under ais's
+  licence; Monocypher's terms add at most attribution.
 
 Note: for a bundled dependency you *want* a permissive license (CC0/BSD/MIT), not
 GPL. A GPL dependency is the awkward case (copyleft obligations); a permissive one

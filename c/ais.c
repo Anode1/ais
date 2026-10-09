@@ -69,11 +69,6 @@ void ais_on_discard(ais *a, ais_discard_cb cb, void *ctx)
     a->discard_ctx = ctx;
 }
 
-/* Post each whitespace-separated key of KEYS to record ID. A bare token is
- * ATTACHED (post_insert keeps each posting ascending and duplicate-free, so
- * re-puts add nothing); a "-key" token is DETACHED -- the posting is removed and
- * the (id,key) pair recorded in ktomb, so the record keeps its id but loses the
- * key (re-attaching the same key clears the pair). Returns 0/-1. */
 /* forward: stamp a record's (ts, value-hash) -- shared by delete and key-detach. */
 static void del_stamp(ais *a, long id, char *ts, size_t tsz, char hash[17]);
 
@@ -98,10 +93,6 @@ static int  keys_contains(const char *keys, const char *tok);
 static int  store_restamp(ais *a, long id, const char *ts);
 static long tag_count_file(const ais *a, const char *path, int dead);
 
-/* Attach/detach KEYS on record ID. ATTACH_TS is what an implicit re-attach
- * LWW-competes against a prior detach with: NULL = a LOCAL edit (now, always wins,
- * clears the detach); on the merge/import path the record's add-ts, so a key
- * detached at or after it survives an unaware peer's stale A| line. */
 /* Does an attach of TOK win against a prior detach? 1 = attach, 0 = leave the
  * detach standing, -1 on error. On the merge path ATTACH_TS is the record's
  * add-ts and a detach stamped at or after it wins (detaches are sticky on ties);
@@ -142,10 +133,6 @@ static int katt_note(ais *a, long id, const char *tok)
     return katt_add(a, id, kts, khash, tok);
 }
 
-/* Walk KEYS token by token without copying the whole list. Fills TOK (one key
- * wide) from *P and advances it: 1 = a token, 0 = end, -1 = a token too long to
- * be a key. No line-sized copy: this sits on the primary save path's chain, which
- * has to fit the 512 KB thread stack the FFI seam runs on. */
 /* Fill L (id already set) with record L->id's first line, through the "off"
  * accelerator when it can serve it and a full scan only when it cannot -- the seek
  * del_stamp uses. A whole store pass per lookup makes every key attach O(records),
@@ -177,6 +164,10 @@ static int key_tok_ok(const char *tok, size_t len)
     return len <= AIS_KEY_NAME_MAX;
 }
 
+/* Walk KEYS token by token without copying the whole list. Fills TOK (one key
+ * wide) from *P and advances it: 1 = a token, 0 = end, -1 = a token too long to
+ * be a key. No line-sized copy: this sits on the primary save path's chain, which
+ * has to fit the 512 KB thread stack the FFI seam runs on. */
 static int keys_next(const char **p, char *tok, size_t toksz)
 {
     const char *s = *p;
@@ -229,6 +220,15 @@ int ais_keys_too_long(const char *keys, char *bad, size_t badsz, size_t *badlen)
     return 0;
 }
 
+/* Post each whitespace-separated key of KEYS to record ID. A bare token is
+ * ATTACHED (post_insert keeps each posting ascending and duplicate-free, so
+ * re-puts add nothing); a "-key" token is DETACHED -- the posting is removed and
+ * the (id,key) pair recorded in ktomb, so the record keeps its id but loses the
+ * key (re-attaching the same key clears the pair). ATTACH_TS is what an implicit
+ * re-attach LWW-competes against a prior detach with: NULL = a LOCAL edit (now,
+ * always wins, clears the detach); on the merge/import path the record's add-ts, so
+ * a key detached at or after it survives an unaware peer's stale A| line.
+ * Returns 0/-1. */
 static int ais_post_keys(ais *a, const char *keys, long id, const char *attach_ts,
                          int line_carries_keys)
 {
@@ -535,7 +535,7 @@ long ais_put_at_k_resolved(ais *a, const char *keys, const char *value, const ch
         a->next_id = id + 1;
         if (store_save_next_id(a) != 0) { a->next_id = id; rc = -1; goto out; }
         if (store_append(a, id, use_ts, clean, value, &off) != 0) { rc = -1; goto out; }
-        if (ok && off_append(a, off) != 0)                        { rc = -1; goto out; }  /* keep "off" in lockstep */
+        if (ok && off_append(a, off) != 0)                        { rc = -4; goto out; }  /* the line is in; see below */
     }
     /* 1: store_append above just wrote the line from `clean`, so the mirror
      * could not change anything -- skip its full-store scan on every new put.
@@ -682,12 +682,6 @@ static int key_fold_stored(const char *tok, char *out, size_t sz)
     return 0;
 }
 
-/* Append TOK to KEYS unless an encode-equivalent key is already there. Identity is
- * the key_encode() form, matching the postings this mirrors: idx/ holds one entry
- * for "Doc", "doc" and "DOC", so treating them as three tokens grows the keys field
- * without bound on ordinary re-puts (a UI that titlecases a tag is enough) until the
- * line no longer fits and the record becomes unstorable. The first spelling seen is
- * kept. Returns 1 if added, 0 if already present, -1 if the result would not fit. */
 /* Is TOK (already stored-form) one of the space-separated tokens in KEYS? */
 static int keys_contains(const char *keys, const char *tok)
 {
@@ -707,6 +701,12 @@ static int keys_contains(const char *keys, const char *tok)
     return 0;
 }
 
+/* Append TOK to KEYS unless an encode-equivalent key is already there. Identity is
+ * the key_encode() form, matching the postings this mirrors: idx/ holds one entry
+ * for "Doc", "doc" and "DOC", so treating them as three tokens grows the keys field
+ * without bound on ordinary re-puts (a UI that titlecases a tag is enough) until the
+ * line no longer fits and the record becomes unstorable. The first spelling seen is
+ * kept. Returns 1 if added, 0 if already present, -1 if the result would not fit. */
 static int keys_union(char *keys, size_t sz, const char *tok)
 {
     const char *p = keys;
@@ -1103,7 +1103,8 @@ static int set_value_core(ais *a, long id, const char *old_value, const char *ol
 }
 
 /* A value fed verbatim (an "aisc:"/"@blob" marker) is compared and replaced as a
- * plain string: no re-encryption, and no blob file is touched. */
+ * plain string, with no re-encryption. The replaced value goes to the discard
+ * callback, which may remove its blob. */
 int ais_set_value(ais *a, long id, const char *old_value, const char *new_value)
 {
     char now[AIS_TS_MAX];
@@ -1316,6 +1317,13 @@ int ais_del(ais *a, long id)
         return 0;
     }
     del_stamp(a, id, ts, sizeof ts, hash);
+    /* No store line, no hash: nothing to delete. A tombstone written here would
+     * sit on an id not yet issued, and the next put to land on it is born dead. */
+    if (hash[0] == '\0') {
+        store_wunlock(a);
+        debug("del: id=%ld has no record", id);
+        return 0;
+    }
     rc = tomb_append(a, id, ts, hash);
     if (rc == 0) {
         mts_clear(a, id);          /* delete is delete: keep no note of when it was touched */
@@ -1780,7 +1788,9 @@ int ais_merge_detach(ais *a, const char *hash, const char *key, const char *ts)
     struct mdel_ctx M;
     char att[AIS_TS_MAX];
 
-    if (a == NULL || hash == NULL || key == NULL)
+    int rc = 0;
+
+    if (a == NULL || hash == NULL || key == NULL || ts == NULL)
         return -1;
     M.hash = hash;
     M.id = 0;
@@ -1801,10 +1811,12 @@ int ais_merge_detach(ais *a, const char *hash, const char *key, const char *ts)
         if (ktomb_append(a, M.id, ts, hash, key) == 0) {   /* keep + re-propagate */
             post_remove(a, key, M.id);
             katt_forget(a, M.id, key);                     /* no longer attached */
+        } else {
+            rc = -1;
         }
     }
     store_wunlock(a);
-    return 0;
+    return rc;
 }
 
 int ais_get(ais *a, char *const keys[], int nkeys, ais_mode mode,

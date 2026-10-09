@@ -82,6 +82,18 @@ void main() {
     expect(find.byType(HelpPage), findsOneWidget);
   });
 
+  // The iOS text names no control the iOS build lacks.
+  test('the iOS help omits share intake, the folder copy and the sync folder', () {
+    final text = helpSectionsIos.map((s) => s.$2).join(' ');
+    for (final absent in ['Share button', 'Keep a copy in a folder',
+        'Restore from a folder', 'sync folder']) {
+      expect(text, isNot(contains(absent)), reason: 'iOS help names $absent');
+    }
+    for (final present in ['Export to a file', 'Import from a file', 'Host a sync']) {
+      expect(text, contains(present), reason: 'iOS help lost $present');
+    }
+  });
+
   // The text names controls by their label; a renamed control makes it a lie.
   test('every control the help names is a label in main.dart', () {
     final src = File('lib/main.dart').readAsStringSync();

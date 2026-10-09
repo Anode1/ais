@@ -9,15 +9,16 @@
  *   --CMD         a command: find add update set del del-under (del-key, its
  *                 old name) untag dedupe-docs dump keys tags timeline stats
  *                 compact init import import-interactively import-bookmarks
- *                 import-keep export sync sync-folder where serve project
+ *                 import-keep export sync sync-folder where serve mcp project
  *                 default switch indexes forget doc. Operands are the bare
  *                 args; values come through -v. The list is longopts[] below;
  *                 keep them in step.
  * No bare word is ever a command, so a tag named "doc" or "find" recalls fine.
  *
- * INDEX location precedence: -f DIR > nearest .ais/ > saved default in
- * ~/.ais/config > the built-in ~/.ais (see locate.h). No env vars -- the index
- * comes from argv. The CLI front-end (this file and feed.c) calls die(); the
+ * INDEX location precedence: -f DIR > nearest .ais/ > the current named index
+ * (or the saved default) in ~/.ais/config > the built-in ~/.ais (see locate.h).
+ * No env vars -- the index comes from argv. The CLI front-end (this file, feed.c
+ * and import.c) calls die(); the
  * engine modules return codes.
  */
 #define _DEFAULT_SOURCE          /* getopt_long */
@@ -576,7 +577,7 @@ int main(int argc, char **argv)
     }
 
     /* --serve is a command on its own (web GUI) and also a modifier of --export
-     * (serve the merge stream over the LAN). */
+     * and --sync (serve the merge stream over the LAN). */
     if (serve_flag) {
         if (cmd == 0) cmd = CMD_SERVE;            /* --serve alone -> web GUI */
         else if (cmd != CMD_EXPORT && cmd != CMD_SYNC)

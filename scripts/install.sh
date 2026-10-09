@@ -37,8 +37,10 @@ case $arch in
     arm64|aarch64) arch=arm64 ;;
     *) die "no published build for $arch (build from source: make && sudo make install)" ;;
 esac
-# macOS ships one arm64 build; an Intel Mac runs it under Rosetta 2 or builds.
-[ "$os" = macos ] && arch=arm64
+# macOS ships one arm64 build. Rosetta 2 runs x86_64 code on Apple silicon, not
+# the reverse, so an Intel Mac builds from source.
+[ "$os" = macos ] && [ "$arch" = x86_64 ] && die "no published build for an Intel Mac. Build from source:
+    git clone https://github.com/$REPO && cd ais && make && sudo make install"
 
 have unzip || die "unzip is needed and was not found"
 if have curl;   then get() { curl -fsSL "$1" -o "$2"; }; fetch() { curl -fsSL "$1"; }

@@ -175,9 +175,10 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
       _delSnack = {};
   bool _voice = false;
   bool _searched = false;
-  // Full-text fallback is SECONDARY: shown only after a key search finds nothing
-  // and the user taps "Search note text instead". Reset on any new key search,
-  // clear, or view change.
+  // Full-text mode: set when the user taps "Search note text instead" on the
+  // empty state. Every key search already appends note-text matches (_recall's
+  // value half); this re-runs find() alone on the normalized query. Reset on any
+  // new key search, clear, or view change.
   bool _textSearch = false;
   String _status = 'opening index…';
   String _query = '';
@@ -229,7 +230,7 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
   // importFromTree, see MainActivity.kt). On desktop the calls just throw.
   static const _backupChannel = MethodChannel('ais/backup');
 
-  // Hosting shows a QR and waits up to ~2 minutes for the other device to scan
+  // Hosting shows a QR and waits up to five minutes for the other device to scan
   // it -- far longer than a phone's screen timeout, so the code would go dark
   // mid-scan. Held only while the host dialog is up.
   static const _screenChannel = MethodChannel('ais/screen');
@@ -847,6 +848,7 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
   // Sync & backup. Three clearly-separated ways in, so they can't be confused:
   //   * A NEARBY DEVICE, live over Wi-Fi (Host / Join+scan) -- QR/camera.
   //   * A FILE you move by Drive / USB / email (Export / Import) -- no network.
+  //   * A FOLDER another tool syncs (Keep a copy in a folder / Restore from one).
   Future<void> _syncSheet() async {
     if (_ais == null) return;
     final choice = await showModalBottomSheet<String>(
@@ -905,8 +907,8 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
               child: Text(
-                  'Open AIS on both devices and keep both awake. Tap Host on one, '
-                  'Join on the other, then scan or type the code it shows. Nothing '
+                  'Keep both devices awake. Tap Host on one; on the other, scan '
+                  'its code with the camera, or tap Join and type it. Nothing '
                   'leaves your Wi-Fi.',
                   style: Theme.of(ctx).textTheme.bodySmall),
             ),
@@ -919,7 +921,7 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
             ListTile(
               leading: const Icon(Icons.qr_code_scanner),
               title: const Text('Join / scan a nearby device'),
-              subtitle: const Text('For the OTHER device: scan the code, or type it in'),
+              subtitle: const Text('For the OTHER device: type what the host shows, or scan it with the camera'),
               onTap: () => Navigator.pop(ctx, 'join'),
             ),
             const Divider(height: 24),
@@ -936,31 +938,35 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
               subtitle: const Text('Merge in a file you exported on another device'),
               onTap: () => Navigator.pop(ctx, 'import'),
             ),
-            const Divider(height: 24),
-            _syncGroupLabel(ctx, 'A shared folder (Syncthing or cloud)'),
-            ListTile(
-              leading: const Icon(Icons.folder_shared_outlined),
-              title: Text(_syncFolder.isEmpty ? 'Set a sync folder' : 'Synced folder'),
-              subtitle: Text(_syncFolder.isEmpty
-                  // I5: a versioning cloud keeps old plaintext copies, which can
-                  // defeat tombstones (a delete reappears); Syncthing does not.
-                  ? 'Best with Syncthing. A versioning cloud (e.g. Dropbox) may keep deleted items.'
-                  : folderLabel(_syncFolder)),
-              onTap: () => Navigator.pop(ctx, 'folder'),
-            ),
-            if (_syncFolder.isNotEmpty)
+            // Not on iOS: file_selector_ios has no directory picker, so the
+            // entry would do nothing (USING.txt points iOS at Export instead).
+            if (!Platform.isIOS) ...[
+              const Divider(height: 24),
+              _syncGroupLabel(ctx, 'A shared folder (Syncthing or cloud)'),
               ListTile(
-                leading: const Icon(Icons.sync),
-                title: const Text('Sync now'),
-                subtitle: const Text('Pull peer changes and push yours'),
-                onTap: () => Navigator.pop(ctx, 'folder-sync'),
+                leading: const Icon(Icons.folder_shared_outlined),
+                title: Text(_syncFolder.isEmpty ? 'Set a sync folder' : 'Synced folder'),
+                subtitle: Text(_syncFolder.isEmpty
+                    // I5: a versioning cloud keeps old plaintext copies, which can
+                    // defeat tombstones (a delete reappears); Syncthing does not.
+                    ? 'Best with Syncthing. A versioning cloud (e.g. Dropbox) may keep deleted items.'
+                    : folderLabel(_syncFolder)),
+                onTap: () => Navigator.pop(ctx, 'folder'),
               ),
-            if (_syncFolder.isNotEmpty)
-              ListTile(
-                leading: const Icon(Icons.sync_disabled),
-                title: const Text('Stop folder sync'),
-                onTap: () => Navigator.pop(ctx, 'folder-off'),
-              ),
+              if (_syncFolder.isNotEmpty)
+                ListTile(
+                  leading: const Icon(Icons.sync),
+                  title: const Text('Sync now'),
+                  subtitle: const Text('Pull peer changes and push yours'),
+                  onTap: () => Navigator.pop(ctx, 'folder-sync'),
+                ),
+              if (_syncFolder.isNotEmpty)
+                ListTile(
+                  leading: const Icon(Icons.sync_disabled),
+                  title: const Text('Stop folder sync'),
+                  onTap: () => Navigator.pop(ctx, 'folder-off'),
+                ),
+            ],
             // Android only: the SAF keep-a-copy folder (see _pickBackupFolder).
             // The engine cannot POSIX-open a SAF tree, so this is a bundle
             // copy streamed natively, not the folder sync above.
@@ -1688,8 +1694,9 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
               qrData: link,
               commandLabel: 'Or type the address and token on the other device:',
               command: detail,
-              intro: 'On your OTHER device: open AIS, tap Sync, choose Join, and '
-                  'scan this code with its camera. Keep this screen open.',
+              intro: 'On your OTHER device: point its camera at this code and tap '
+                  'the link, or open AIS, tap Sync, choose Join and type what is '
+                  'below. Keep this screen open.',
               waiting: 'Waiting for the other device...',
               note: 'Keep AIS open until the other device has joined.',
               done: fut),
@@ -1700,7 +1707,7 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
     _keepAwake(false);                  // release it however the wait ended
     if (!mounted) return;
     // A hidden dialog that then timed out must not surprise with a late failure
-    // snackbar ~2 min later; a success, whole or half, is still announced.
+    // snackbar up to five minutes later; a success, whole or half, is still announced.
     if (hidden && rc < 0) return;
     final String msg;
     switch (rc) {
@@ -1987,7 +1994,8 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
   }
 
   void _showHelp() => Navigator.of(context).push(
-      MaterialPageRoute(builder: (_) => HelpPage(open: _openUrl)));
+      MaterialPageRoute(
+          builder: (_) => HelpPage(open: _openUrl, ios: Platform.isIOS)));
 
   // App version, the ENGINE version this bundle actually links, and the index
   // format version -- the three numbers a bug report needs, on one copyable line.
@@ -3031,8 +3039,8 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
         ),
       );
 
-  // The empty key-search state: no TAG matched, plus the full-text fallback as a
-  // quiet TextButton rather than a primary action.
+  // The empty key-search state: neither a tag nor note text matched (the label
+  // names only tags), plus the full-text fallback as a quiet TextButton.
   Widget _noTagMatch(ColorScheme cs) => Center(
         child: Padding(
           padding: const EdgeInsets.all(24),
@@ -3122,7 +3130,7 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
     );
   }
 
-  // Timeline: dateless rows surface first, then newest; grouped by day.
+  // Timeline: newest id first, grouped by day.
   Widget _timelineBody(ColorScheme cs) {
     // Opening or open-failed must not read as an empty timeline.
     final gate = _engineGate(cs);
@@ -3803,9 +3811,6 @@ class _EditTagsDialogState extends State<EditTagsDialog> {
       );
 }
 
-// A non-dismissible barrier dialog shown while a sync FFI call blocks: it keeps
-// the UI off the shared engine handle during the sync and closes itself when the
-// future completes (peer done, or timeout). Used by both receive and send.
 // Owns a dialog's or sheet's TextEditingControllers/FocusNodes and frees them in
 // its own dispose(). Mounted INSIDE the route, so the framework runs that dispose
 // at route teardown, after the exit animation, and unmounts deepest-first -- the
@@ -3835,6 +3840,10 @@ class _OwnedFieldsState extends State<_OwnedFields> {
   Widget build(BuildContext context) => widget.child;
 }
 
+// A barrier dialog shown while a sync FFI call blocks: it keeps the UI off the
+// shared engine handle during the sync and closes itself when the future
+// completes (peer done, or timeout). The barrier does not dismiss it; its Hide
+// button does. Used by both receive and send.
 class _SyncWaitDialog extends StatefulWidget {
   final String title;
   final String? qrData;       // ais:// pairing link; shown as a QR on host, null hides it
@@ -3951,7 +3960,8 @@ class _SyncWaitDialogState extends State<_SyncWaitDialog> {
         actions: [
           // "Hide", not "Cancel": an in-flight network sync cannot be safely
           // aborted mid-merge, so this only dismisses the dialog; the sync keeps
-          // running and the result arrives as a snackbar.
+          // running and the result arrives as a snackbar, except a Host that
+          // fails or times out after Hide, which stays silent.
           TextButton(
               onPressed: () => Navigator.pop(context, true),
               child: const Text('Hide')),

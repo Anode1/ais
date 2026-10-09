@@ -855,6 +855,16 @@ static void test_del(void)
 
     CHECK(ais_del(&a, 1) == 0, "double-del is a no-op");
     CHECK(ais_del(&a, 4242) == 0, "del of an absent id is a no-op");
+    {   /* and writes nothing: the id it names is issued later and must be alive */
+        long nid = a.next_id, got;
+        CHECK(ais_del(&a, nid) == 0, "del of the next id -> 0");
+        got = ais_put(&a, "bornalive", "value after a del of my id");
+        CHECK(got == nid, "the put takes that id");
+        query(&a, AIS_AND, &v, 1, "bornalive");
+        CHECK(v.n == 1 && v.ids[0] == nid, "and the record is alive, not born deleted");
+    }
+    CHECK(ais_merge_detach(&a, "0123456789abcdef", "k", NULL) == -1,
+          "detach with no timestamp is -1, not a crash");
     query(&a, AIS_AND, &v, 1, "samba");
     CHECK(v.n == 0, "after double-del, [samba] still empty");
 

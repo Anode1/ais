@@ -219,8 +219,8 @@ class AisEngine {
     }
   }
 
-  /// Content search: the records whose VALUE contains [needle] (a plain,
-  /// case-sensitive substring), for a "forgot the key" fallback.
+  /// Content search: the records whose VALUE contains [needle] (a plain
+  /// substring, ASCII case ignored), for a "forgot the key" fallback.
   List<Hit> find(String needle) {
     Pointer<Utf8> n = nullptr, p = nullptr;
     try {
@@ -408,7 +408,8 @@ class AisEngine {
     });
   }
 
-  /// Pull + merge a peer's `ais --export --serve` over the LAN (sync: Receive).
+  /// Pull + merge a peer's `ais --export --serve` over the LAN (sync: Receive);
+  /// with [bidir], a peer's `ais --sync --serve`, and ours goes back.
   /// Runs off the UI isolate (it blocks on the network). Returns 0 = merged,
   /// 1 = HALF done (bidir only: we merged theirs, they did not get ours),
   /// -1 = bad URL/args, -2 = could not connect / wrong token / timeout.
@@ -431,10 +432,13 @@ class AisEngine {
   }
 
   /// Serve this index to one LAN peer that pulls with `ais --import` (sync:
-  /// Send). Blocks up to ~300s for one peer, so run it off the UI isolate.
+  /// Send); with [bidir], a peer running `ais --sync`, and theirs comes back.
+  /// Blocks up to ~300s for one peer, so run it off the UI isolate.
   /// Returns 0 = a peer pulled and merged, 1 = HALF done (bidir only: they got
-  /// ours, we did not get theirs), -1 = bad args, -2 = no peer completed
-  /// (timeout / wrong token / error), -3 = the port is already in use.
+  /// ours, we did not get theirs), 2 = one more round needed (bidir only: a
+  /// record here outlived a delete from this round), -1 = bad args, -2 = no
+  /// peer completed (timeout / wrong token / error), -3 = the port is already
+  /// in use.
   Future<int> serveAsync(int port, String token, {bool bidir = false}) {
     final addr = _h.address;
     final name = bidir ? 'ais_embed_sync_serve' : 'ais_embed_serve';
@@ -534,6 +538,13 @@ class AisEngine {
       case -6:
         return 'Merged what was there, but could not write into that folder: '
             'it may be read-only or full.';
+      case -7:
+        return 'Your records were written there, but every other copy in that '
+            'folder comes from a newer AIS. Update this app to receive them.';
+      case -8:
+        return 'Your records were written there, but the other copies are '
+            'damaged or half-written. If another device is writing now, try '
+            'again in a moment.';
       default:
         return 'Folder sync failed.';
     }

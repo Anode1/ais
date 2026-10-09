@@ -13,7 +13,7 @@ pkgrel=1
 pkgdesc='Associative index: file anything under your own keys and recall it by keys, in plain text'
 arch=('x86_64' 'aarch64')
 url='https://github.com/Anode1/ais'
-license=('GPL-2.0-or-later' 'Apache-2.0')
+license=('GPL-2.0-or-later' 'MIT' 'Apache-2.0' 'BSD-2-Clause OR CC0-1.0')
 depends=('glibc')
 source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
 sha256sums=('SKIP')
@@ -39,6 +39,7 @@ package() {
     make AIS_VERSION="$pkgver" prefix=/usr DESTDIR="$pkgdir" install-desktop
 
     install -Dm644 COPYING              "$pkgdir/usr/share/licenses/$pkgname/COPYING"
+    install -Dm644 LICENSE-MIT          "$pkgdir/usr/share/licenses/$pkgname/LICENSE-MIT"
     install -Dm644 README.md            "$pkgdir/usr/share/doc/$pkgname/README.md"
     install -Dm644 doc/USING.txt        "$pkgdir/usr/share/doc/$pkgname/USING.txt"
     install -Dm644 doc/command_line.txt "$pkgdir/usr/share/doc/$pkgname/command_line.txt"

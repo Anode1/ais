@@ -28,10 +28,6 @@ static void sync_mark_peered(ais *a)
 }
 
 
-/* Sealed-plaintext protocol version, the first byte of every unsealed payload. A
- * future format bumps this; a peer reading a byte it does not recognize fails LOUDLY
- * (-2 from sync_import_sealed) instead of mis-parsing binary as records. */
-
 #if defined(__has_include) && __has_include("crypto/monocypher.h")
 #  define SYNC_HAVE 1
 #  include "crypto/ais_crypto.h"
@@ -153,7 +149,9 @@ int sync_export_plain(ais *a, uint8_t **out, size_t *out_len)
     /* feed_export emits the blob sections itself; do not add them here. CAPPED as it
      * streams: this buffer grows in memory, so the size check after fclose below can
      * only fire once the whole thing is already allocated -- fine for the record text,
-     * hopeless for documents, where a large blobs/ is an OOM before it is a refusal. */
+     * hopeless for documents, where a large blobs/ is an OOM before it is a refusal.
+     * A document past the cap is skipped and the call returns 0, so this branch
+     * fires only if that contract changes. */
     if (feed_export_capped(a, ms, AIS_SYNC_MAX_BLOB) != 0) {
         fclose(ms);
         free(buf);
@@ -194,9 +192,6 @@ int sync_export_sealed(ais *a, const char *token, uint8_t **out, size_t *out_len
     return (rc == AISC_OK) ? 0 : -1;
 }
 
-/* Rename map: incoming "blobs/X" that collided with a different local file was
- * written as "blobs/X-N"; every such (old -> new) is recorded so record values
- * can be repointed. Almost always empty (the fast path skips the whole rewrite). */
 /* Write DATA[0..dlen) to a temp under blobs/ and hand it to doc.c, which owns
  * the keep-both policy for every arriving document (see ais_doc_blob_place). The
  * private copy that used to live here disagreed with feed.c's, and its renames

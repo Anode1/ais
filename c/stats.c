@@ -29,11 +29,11 @@ static long stats_line_id(const char *line)
     return id;
 }
 
-/* Count distinct ids in "<dir>/<name>", a file of "id|...." lines whose ids
- * arrive in nondecreasing order (the store is physically id-ordered; tomb is
- * appended in del order, also nondecreasing). Distinct ids are therefore
- * consecutive, so deduping needs only the previous id -- bounded memory.
- * A missing file counts as 0. Returns 0 on success, -1 on error. */
+/* Count distinct ids in "<dir>/<name>", a file of "id|...." lines, deduping
+ * against the previous id only -- bounded memory. The count is exact only when
+ * each id's entries are adjacent; the tomb is in delete order, not id order, so
+ * that holds only while each id has one entry. A missing file counts as 0.
+ * Returns 0 on success, -1 on error. */
 static int stats_count_ids(const ais *a, const char *name, long *out)
 {
     char path[AIS_PATH_MAX];

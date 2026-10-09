@@ -1,9 +1,10 @@
-/* SPDX-License-Identifier: GPL-2.0-only
+/* SPDX-License-Identifier: GPL-2.0-or-later OR MIT
  *
  * ais_crypto - authenticated file encryption for the ais secret store.
  *
  * Part of ais (GPLv2). Built on vendored Monocypher (CC0-1.0 / BSD-2-Clause,
- * permissive and GPL-compatible; see README.md and LICENSE.monocypher).
+ * permissive and GPL-compatible; see README.md, and the licence text that heads
+ * monocypher.c).
  *
  * Design (see README.md for the full rationale and threat model):
  *   key   = Argon2id(password [+ keyfile as secret], random salt)   // 256-bit

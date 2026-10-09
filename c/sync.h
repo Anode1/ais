@@ -35,7 +35,8 @@ int sync_export_sealed(ais *a, const char *token, uint8_t **out, size_t *out_len
 
 /* Unseal a received SEALED blob (LEN bytes) with TOKEN and merge it into A under
  * last-write-wins. A wrong token or any tampering fails (-1) BEFORE anything is merged,
- * so unauthenticated bytes never reach the store. Returns 0, or -1. */
+ * so unauthenticated bytes never reach the store. Returns 0, -1, or -2 (unrecognized
+ * version byte, from sync_import_plain). */
 int sync_import_sealed(ais *a, const char *token, const uint8_t *sealed, size_t len);
 
 /* HALF a bidirectional exchange succeeded: THIS device merged the peer's records
@@ -57,13 +58,16 @@ int sync_import_sealed(ais *a, const char *token, const uint8_t *sealed, size_t 
  * BIDIR, after sending it also receives and merges the peer's sealed stream (a symmetric
  * full-state exchange -- both converge in one round, no sender/receiver role). 0 on a
  * fully converged exchange, AIS_SYNC_PARTIAL when the peer got our records but we
- * did not get theirs, -1 on error/timeout/auth failure. */
+ * did not get theirs, AIS_SYNC_AGAIN when both converged but a survival decided in
+ * this round still has to reach the peer, -2 when PORT is busy, -1 on
+ * error/timeout. */
 int sync_serve(ais *a, int port, const char *token, int timeout_s, int bidir);
 
 /* Pull from a peer at HOST:PORT: send TOKEN, receive the sealed stream, unseal + merge.
  * If BIDIR, after merging it also seals and sends its own stream back so the peer
  * converges too. TIMEOUT_S bounds I/O. 0 when both converged, AIS_SYNC_PARTIAL when
- * we merged theirs but could not send ours back, -1 on error/timeout/auth failure. */
+ * we merged theirs but could not send ours back, -2 on an unrecognized version byte,
+ * -1 on error/timeout/auth failure. */
 int sync_pull(ais *a, const char *host, int port, const char *token, int timeout_s, int bidir);
 
 /* High-level CLI wrappers (these also generate the token and print the pairing line). */
@@ -71,12 +75,12 @@ int sync_pull(ais *a, const char *host, int port, const char *token, int timeout
 /* Generate a one-time token, print the pairing line (URL + token) for the peer, then serve
  * ONE pull over the LAN on PORT for up to TIMEOUT_S. If BIDIR, the exchange is symmetric
  * (both converge) and the printed pairing line is `ais --sync` rather than `ais --import`.
- * 0 on a served peer, -1 otherwise. */
+ * 0 on a served peer, 1 for AIS_SYNC_PARTIAL, 2 for AIS_SYNC_AGAIN, -1 otherwise. */
 int sync_serve_lan(ais *a, int port, int timeout_s, int bidir);
 
 /* Parse URL (`http://host:port` or `host:port`; default port AIS_SYNC_PORT) and pull from
  * it with TOKEN, merging into A. If BIDIR, also sends A's stream back so the peer converges.
- * 0 on success, -1 otherwise. */
+ * 0 on success, 1 for AIS_SYNC_PARTIAL, -1 otherwise. */
 int sync_pull_url(ais *a, const char *url, const char *token, int timeout_s, int bidir);
 
 /* ----- folder auto-sync: a framed per-device bundle in a shared folder (Syncthing /
@@ -141,8 +145,9 @@ int sync_folder_once(ais *a, const char *folder);
 int sync_folder_once_force(ais *a, const char *folder, int force);
 
 /* Parse a sync URL into HOST (bounded by HOSTSZ) and *PORT: "http(s)://host[:port][/path]"
- * or "host[:port]"; a missing or out-of-range port defaults to AIS_SYNC_PORT. Pure string
- * logic (no sockets/crypto), always compiled. 0 on success, -1 if the host is empty. */
+ * or "host[:port]"; a missing port defaults to AIS_SYNC_PORT. Pure string logic (no
+ * sockets/crypto), always compiled. 0 on success, -1 if the host is empty or the port
+ * is outside 1..65535. */
 int sync_parse_url(const char *url, char *host, size_t hostsz, int *port);
 
 #endif /* AIS_SYNC_H */

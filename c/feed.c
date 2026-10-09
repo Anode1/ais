@@ -195,9 +195,10 @@ void feed_interactive(ais *a, const char *base)
     fclose(tty);
 }
 
-/* Consume WANT raw bytes from IN into <index>/blobs/<basename of REL>. Refuses a
- * relative path with a separator so a crafted stream cannot write outside blobs/.
- * The bytes are consumed either way, so the parser stays in sync. 0/-1. */
+/* Consume WANT raw bytes from IN and place them under <index>/blobs/ through
+ * ais_doc_blob_place, which refuses any REL but blobs/<one segment> and lands a
+ * body whose name is taken by different bytes as <stem>~<hash>. The bytes are
+ * consumed either way, so the parser stays in sync. 0/-1. */
 static int feed_take_blob(ais *a, const char *rel, long want, FILE *in,
                           ais_blobmap *map)
 {
@@ -439,9 +440,10 @@ static long import_run(ais *a, FILE *in, ais_blobmap *map, long *skipped)
     }
 
     /* A line is one of: a merge-stream "A|ts|keys|value" (add) or "D|ts|hash" (delete),
-     * or a plain "keys|value" (legacy dump / hand-edit -> an add with no ts). Keys never
-     * contain '|' (key_encode maps it to '_'). Blank/#-comment lines are skipped, so the
-     * plain form stays hand-editable; a malformed A|/D| line falls through to plain. */
+     * one of the other verbs B/E/M/C/K/T, or a plain "KEY... -v VALUE" (an add with no
+     * ts; the pre-v2 "keys|value" form is read with a warning). Keys never contain '|'
+     * (key_encode maps it to '_'). Blank/#-comment lines are skipped, so the plain form
+     * stays hand-editable; a malformed A|/D| line falls through to plain. */
     for (;;) {
         char *keys, *val;
         int rl = store_read_line(line, sizeof(line), in);
@@ -863,9 +865,10 @@ long feed_import_stream(ais *a, FILE *in, long *skipped)
 
 void feed_import(ais *a) { feed_import_from(a, stdin); }
 
-/* The merge/export stream: A|ts|keys|value for every live record, then D|ts|hash
- * for every content-addressed tombstone. Adds precede deletes so a delete in the
- * same stream applies after its add. */
+/* The merge/export stream: B| bodies, E| edits, A|ts|keys|value (with M| and C|)
+ * for every live record, then D|ts|hash for every content-addressed tombstone, K|
+ * detaches and T| attaches. Adds precede deletes so a delete in the same stream
+ * applies after its add. */
 struct exp_ctx { ais *a; FILE *out; int hasktomb; int hassts; };
 /* Effective keys: drop any locally-detached (ktomb'd) key, so the export never carries
  * a removed tag that a peer would re-attach. Only run when ktomb has entries. */
@@ -998,9 +1001,8 @@ static int exp_kborn(long id, const char *ts, const char *hash, const char *key,
  * CAP is a running ceiling on the bytes written, or 0 for none, checked BEFORE
  * each document is streamed: a bundle assembles into memory (open_memstream,
  * sync.c), so testing the total at the end allocates a multi-gigabyte blobs/
- * before rejecting it -- an OOM kill on a phone. Returns 0, or -1 once the cap
- * would be passed (the caller abandons the whole bundle; a partial one must
- * never be sent). */
+ * before rejecting it -- an OOM kill on a phone. A document past the cap is
+ * skipped with a note and the rest continues. Returns 0. */
 /* The blob names LIVE records point at. Gathering them costs one store pass and
  * saves shipping files nothing refers to: an orphan (a document whose record was
  * edited away by an older build, say) used to ride EVERY export to EVERY peer,
@@ -1180,7 +1182,7 @@ void feed_doc(ais *a, const char *keys)
     printf("%ld|%s\n", got, relval);
 }
 
-/* --import with a per-record gate: show each stdin "keys|value" record and read a
+/* --import with a per-record gate: show each stdin record and read a
  * [y/N] answer from the terminal (/dev/tty, or $AIS_TTY for scripting/tests), so
  * records and answers stay on separate streams. Only y/Y takes the record. */
 void feed_import_interactive(ais *a)
@@ -1334,7 +1336,7 @@ void feed_encrypt_doc(ais *a, const char *keys)
     }
     secret_wipe(plain, got); free(plain); secret_wipe(pw, sizeof pw);
 
-    snprintf(marked, sizeof marked, "%s@%s", AIS_SECRET_PREFIX, relval);  /* aisc:@blobs/<ts>.aisc */
+    snprintf(marked, sizeof marked, "%s@%s", AIS_SECRET_PREFIX, relval);  /* aisc:@blobs/<ts>~<8hex>.aisc */
     id = ais_put(a, keys, marked);
     if (id < 0) {
         secret_shred_blob(a->dir, marked);    /* don't leave an orphan ciphertext file */

@@ -17,7 +17,8 @@
 #    the strongest verification it offers.)
 #
 # Monocypher is dual-licensed CC0-1.0 / BSD-2-Clause (permissive, GPL-compatible),
-# so it bundles cleanly into GPLv2 ais. Its LICENSE is vendored too (see README.md).
+# so it bundles cleanly into GPLv2 ais. Its licence text is the header of
+# monocypher.c (see README.md).
 #
 #   sh vendor-monocypher.sh
 #

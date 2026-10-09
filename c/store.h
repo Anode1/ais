@@ -1,8 +1,9 @@
 /* store.h -- the append-only store and the writer lock.
  *
  * INDEX/store holds one record line per write:  id|ts|keys|value
- * ts is the save time ("YYYY-MM-DDThh:mm:ss", local). ids are monotonic, so the
- * file is physically in id order. A record may span several lines sharing one id
+ * ts is the save time ("YYYY-MM-DDThh:mm:ssZ", UTC). ids are monotonic, so each
+ * id's FIRST line appears in ascending order; --add and merge append later lines
+ * carrying older ids. A record may span several lines sharing one id
  * (multi-link; see ais_add). The store is the source of truth and the value->id
  * map (idempotent put scans it). Legacy v1 lines (id|keys|value, no ts) still
  * parse; their ts comes back empty.
@@ -11,7 +12,8 @@
  * pass taking max(id)+1. Reads take no lock; writers take an exclusive flock on
  * INDEX/lock for one mutating op.
  *
- * Modules return 0/-1 (or a value/-1); only main.c turns errors into die().
+ * Modules return 0/-1 (or a value/-1); only the CLI files (main.c, feed.c,
+ * import.c) turn errors into die().
  */
 #ifndef AIS_STORE_H
 #define AIS_STORE_H
@@ -45,7 +47,7 @@ int store_save_next_id(const ais *a);
  * store_open stamps a new/legacy index; compact refreshes it. */
 int store_write_version(const ais *a);
 
-/* Format the current local time as "YYYY-MM-DDThh:mm:ss" into BUF (size >=
+/* Format the current UTC time as "YYYY-MM-DDThh:mm:ssZ" into BUF (size >=
  * AIS_TS_MAX). Sets BUF to "" and returns -1 if the clock cannot be read. */
 int store_now(char *buf, size_t bufsz);
 

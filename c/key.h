@@ -1,9 +1,10 @@
 /* key.h -- key encoding and the navigable shard prefix.
  *
  * Encoding lowercases the key and maps every unsafe character to '_' -- space,
- * control chars, '|' (the store field delimiter), '/' and '\' (path
- * separators) -- so a key is one store field and one safe path component.
- * The shard prefix is the first one or two encoded characters, giving the
+ * control chars and 0x7F, '|' (the store field delimiter), '/' and '\' (path
+ * separators), and a leading '.' -- so a key is one store field and one safe path
+ * component. The shard prefix is the first two ASCII characters or the whole
+ * first non-ASCII character (key_prefix), giving the
  * layout idx/<p>/<key>: `ls idx/a/` shows the keys beginning with 'a'. Nothing
  * is hashed.
  *
@@ -17,13 +18,11 @@
 /* the longest shard name (4 bytes of one character) plus its NUL */
 #define AIS_PREFIX_MAX 5
 
-/* Encode KEY into OUT (size OUTSZ): lowercase ASCII; space, control, '|', '/'
- * and '\' all map to '_'. Truncates to fit OUT (always NUL-terminated).
- * Returns 0 on success, -1 if KEY encodes empty (nothing to file under). */
+/* Encode KEY into OUT (size OUTSZ): lowercase ASCII; space, control, 0x7F, '|',
+ * '/', '\' and a leading '.' all map to '_'. Truncates to fit OUT (always
+ * NUL-terminated). Returns 0 on success, -1 if KEY encodes empty (nothing to file under). */
 int key_encode(const char *key, char *out, size_t outsz);
 
-/* Write the shard prefix of the already-encoded key ENC into OUT (size OUTSZ):
- * its first one or two characters. Returns 0, or -1 if ENC is empty. */
 /* The shard directory name for an encoded key: two characters for ASCII, and
  * for anything else the whole FIRST character, 2 to 4 bytes. Never a partial
  * UTF-8 sequence -- APFS refuses a filename that is not valid UTF-8, so a

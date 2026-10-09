@@ -965,7 +965,7 @@ int edits_lookup(const ais *a, const char *hash, const char *line_ts, char *out,
  * and only a record that actually survives a delete is restamped (ais_merge_del),
  * which is how the decision reaches the other devices at all.
  *
- * Shape: slot k = id k, AIS_TS_MAX-1 chars plus a newline, blank = never edited,
+ * Shape: slot k = id k, MTS_TS_LEN (20) chars plus a newline, blank = never edited,
  * exactly like the "off" accelerator. Fixed width buys an O(1) seek in and out,
  * no parsing, no allocation on the record path, and a file bounded by the highest
  * id rather than by the number of edits ever made.

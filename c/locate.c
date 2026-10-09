@@ -160,7 +160,8 @@ static int home_ais(char *out, size_t outsz)
 }
 
 /* The pre-1.0 per-user index location (for the one-time migration fallback):
- * $XDG_DATA_HOME/ais or $HOME/.local/share/ais; Windows %LOCALAPPDATA%\ais. */
+ * <home>/.local/share/ais, home from getpwuid (no environment variable is read);
+ * Windows %LOCALAPPDATA%\ais. */
 static int legacy_dir(char *out, size_t outsz)
 {
     char base[AIS_PATH_MAX];

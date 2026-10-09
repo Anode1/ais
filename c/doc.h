@@ -3,8 +3,8 @@
  * CLI (feed_doc), the web server (serve.c) and the FFI seam (embed.c): a
  * multi-line paste becomes one blob-backed record, never one record per line.
  *
- * die()-free: every failure returns -1. A server and a linked library must not
- * call exit() on a write error. */
+ * die()-free: every failure returns a negative code. A server and a linked
+ * library must not call exit() on a write error. */
 #ifndef AIS_DOC_H
 #define AIS_DOC_H
 
@@ -41,8 +41,9 @@ int  ais_blob_rel_ok(const char *rel);
 FILE *ais_blob_fopen(const char *path, int rw);
 
 /* Ensure <index>/blobs/ exists and pick a free, timestamp-named blob path with
- * the given extension (no dot). Fills RELVAL ("blobs/<ts>.<ext>", the stored
- * value) and the absolute BLOBPATH. Returns 0 on success, -1 on error. */
+ * the given extension (no dot). Fills RELVAL ("blobs/<ts>~<8hex>.<ext>", with
+ * -N before the dot when that name is taken; the stored value) and the absolute
+ * BLOBPATH. Returns 0 on success, -1 on error. */
 int  ais_doc_blobname_ext(const ais *a, const char *ext, char *relval, size_t rvsz,
                           char *blobpath, size_t bpsz);
 
@@ -67,13 +68,13 @@ const char *ais_blobmap_get(const ais_blobmap *m, const char *from);
 void        ais_blobmap_free(ais_blobmap *m);
 
 /* Write CONTENT (LEN bytes) to a new blob and put its path under KEYS.
- * Returns the new record id, or -1 on any failure. */
+ * Returns the new record id, -1 on any failure, or -4 as ais_put. */
 long ais_doc_put(ais *a, const char *keys, const char *content, size_t len);
 
 /* Store VALUE as exactly ONE record: a plain put when it is a single line, or
  * a blob-backed document when it has an interior newline. A lone trailing
  * newline does not count (a one-line paste stays a plain record). Returns the
- * new record id, or -1. This is the entry point every GUI calls. */
+ * new record id, -1, or -4 as ais_put. This is the entry point every GUI calls. */
 long ais_put_value(ais *a, const char *keys, const char *value);
 
 /* The in-place-edit twin of ais_put_value: replace record ID's value with TEXT,

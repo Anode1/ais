@@ -54,7 +54,7 @@ class MainActivity : FlutterActivity() {
         }
 
         // Keep the screen on while hosting a sync. The host shows a QR and waits
-        // up to two minutes for the other phone to scan it, and the usual screen
+        // up to five minutes for the other phone to scan it, and the usual screen
         // timeout is well under that -- so the code the user is holding a camera
         // up to went black halfway through, which reads as the feature being
         // broken. A window flag, not a wakelock: it needs no permission, it only

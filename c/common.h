@@ -24,7 +24,9 @@
  * rebuilt. AIS_KEY_MAX stays the BUFFER size: it also holds config keys and
  * encoded names that never become a filename. */
 #define AIS_KEY_NAME_MAX 255   /* one key as a filename (POSIX NAME_MAX)  */
-#define AIS_KEYS_MAX      64   /* keys per record / query (merge width) */
+/* Query width: the keys one recall merges. ais_get silently drops keys past it;
+ * nothing caps the keys on a record. */
+#define AIS_KEYS_MAX      64
 #define AIS_TS_MAX        24   /* a save timestamp "YYYY-MM-DDThh:mm:ss" + slack */
 
 /* The "off" id->offset index: one fixed-width line per id, value = (offset+1)

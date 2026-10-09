@@ -1,6 +1,7 @@
 /* win.h -- platform shims. On native Windows (MinGW-w64) they let the ANSI C
  * engine build into a self-contained ais.exe with NO cygwin1.dll; on POSIX only
- * the three socket macros remain. Safe to include anywhere. Each shim is only
+ * seven pass-through macros remain (SOCK_*, ais_tmpfile, AIS_WRITER_TAG,
+ * AIS_SO_REUSE). Safe to include anywhere. Each shim is only
  * the subset AIS actually uses, not a general implementation:
  *   - Winsock init (ais_net_init) for serve.c and sync.c
  *   - poll(2)   -> WSAPoll            (sync.c's accept timeout; connect uses select)

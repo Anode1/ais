@@ -78,9 +78,17 @@ void main() {
     test('a tag at the limit is allowed', () {
       expect(contentError(value: 'x', keys: 'k' * kAisKeyMax), isNull);
     });
-    test('an over-long value is rejected by length', () {
-      expect(contentError(value: 'v' * (kAisLineMax + 1), keys: ''),
-          'That note is too long to save (max $kAisLineMax characters).');
+    test('a tag is measured in bytes: 128 two-byte letters are over', () {
+      expect(contentError(value: 'x', keys: 'é' * 128), isNotNull);
+      expect(contentError(value: 'x', keys: 'é' * 127), isNull);
+    });
+    test('a long plain value is allowed: the engine files it as a blob', () {
+      expect(contentError(value: 'v' * 100000, keys: ''), isNull);
+    });
+    test('a long encrypted value is rejected: it would not seal', () {
+      expect(contentError(value: 'v' * (kAisEncryptedMax + 1), keys: '', encrypt: true),
+          startsWith('An encrypted note holds at most'));
+      expect(contentError(value: 'v' * kAisEncryptedMax, keys: '', encrypt: true), isNull);
     });
     test('addSaveError surfaces a content problem too', () {
       final longKey = 'k' * (kAisKeyMax + 1);

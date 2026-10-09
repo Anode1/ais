@@ -14,7 +14,9 @@ void feed_stdin(ais *a, const char *keys);
  * /dev/tty -- or from $AIS_TTY (a file) if set, for scripting and testing. */
 void feed_interactive(ais *a, const char *base);
 
-/* Import "keys|value" lines from stdin, putting each (the inverse of dump).
+/* Import "KEY... -v VALUE" lines (the pre-v2 "keys|value" form is read with a
+ * warning) and the merge verbs B| E| A| M| C| D| K| T| from stdin (the inverse
+ * of dump).
  * Blank lines and lines starting with '#' are skipped; idempotent via ais_put. */
 void feed_import(ais *a);
 
@@ -38,15 +40,16 @@ long feed_import_stream(ais *a, FILE *in, long *skipped);
  * importer. */
 void feed_import_report(long n, long skipped);
 
-/* Write the merge/export stream to OUT: A|ts|keys|value for live records, then
- * D|ts|hash for tombstones. The inverse of merge-aware import; what --export serves. */
+/* Write the merge/export stream to OUT: B| document bodies, E| edits, A| (with M|
+ * and C|) live records, then D| tombstones, K| detaches and T| attaches. The
+ * inverse of merge-aware import; what --export serves. */
 void feed_export(ais *a, FILE *out);
 
 /* feed_export with a ceiling on the DOCUMENT bytes it writes (0 = none), checked
  * as it goes: a bundle is assembled in memory, so an after-the-fact check means
  * allocating the whole of a huge blobs/ before refusing it -- an OOM kill on a
- * phone. Returns 0, or -1 if the cap was reached; on -1 the output is INCOMPLETE
- * and the caller must discard it, never send it. */
+ * phone. A document past the cap is skipped with a note on stderr and the stream
+ * continues; returns 0. */
 int  feed_export_capped(ais *a, FILE *out, size_t blob_cap);
 
 /* Like feed_import, but confirm each record first: show "keys | value" and read
@@ -63,13 +66,13 @@ void feed_encrypt(ais *a, const char *keys, int from_stdin);
 
 /* Mode 2 of -e: store a (possibly large, multi-line) DOCUMENT encrypted. Reads
  * the whole document from stdin, prompts for a passphrase, encrypts it to a blob
- * (blobs/<ts>.aisc), and stores an "aisc:@<relpath>" reference under KEYS -- for
- * a secret too big to inline (a recovery-code sheet, a config, a password list). */
+ * (blobs/<ts>~<8hex>.aisc), and stores an "aisc:@<relpath>" reference under
+ * KEYS -- for a secret too big to inline (a recovery-code sheet, a config, a password list). */
 void feed_encrypt_doc(ais *a, const char *keys);
 
 /* doc: read a (possibly large, multi-line) document from stdin, save it as a
- * blob file <index>/blobs/<timestamp>.txt, and put that relative path as a value under
- * KEYS. The engine stores only the path; the bytes live in the file. */
+ * blob file <index>/blobs/<ts>~<8hex>.txt, and put that relative path as a value
+ * under KEYS. The engine stores only the path; the bytes live in the file. */
 void feed_doc(ais *a, const char *keys);
 
 #endif /* AIS_FEED_H */

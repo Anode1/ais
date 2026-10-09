@@ -1,8 +1,9 @@
 /* embed.c -- the FFI seam (see embed.h). Front-end glue, not engine internals:
  * it adapts the engine's streaming callbacks into a single result buffer for a
  * host in a garbage-collected language (Dart/Swift/Kotlin). The engine stays
- * streaming and stack-bounded; the one heap buffer lives here, at the boundary
- * where a result set must be materialized for the caller. */
+ * streaming and stack-bounded; the heap allocations (the handle, result buffers,
+ * a bundle read) live here, at the boundary where a result must be materialized
+ * for the caller. */
 #define _POSIX_C_SOURCE 200809L     /* strtok_r */
 #include <stdlib.h>
 #include <string.h>
@@ -388,9 +389,9 @@ char *ais_embed_recall(void *handle, const char *keys, int or_mode)
 }
 
 /* ---- find: content search over values, captured from ais_find's stream ---- */
-/* Same "id|value\n" line format as recall. The capture goes through tmpfile()
- * (ISO C, so it works on Windows, unlike open_memstream): ais_find writes to it,
- * then the file is read back. */
+/* Same "id|value\n" line format as recall. The capture goes through ais_tmpfile()
+ * (tmpfile() on POSIX, a win.h shim on Windows; open_memstream is POSIX only):
+ * ais_find writes to it, then the file is read back. */
 char *ais_embed_find(void *handle, const char *needle)
 {
     ais *a = handle;

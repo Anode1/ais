@@ -49,7 +49,7 @@ import UIKit
       }
 
     // Keep the screen on while hosting a sync: the host shows a QR and waits up
-    // to two minutes for the other device to scan it, well past the usual auto-
+    // to five minutes for the other device to scan it, well past the usual auto-
     // lock, so the code being aimed at simply vanished. Scoped to the host
     // dialog by the Dart side, and cleared when it closes.
     FlutterMethodChannel(name: "ais/screen", binaryMessenger: messenger)

@@ -2,8 +2,9 @@
  *
  * del(id) appends an id to INDEX/tomb; get/dump merge it out. Physical removal
  * happens only at compaction, which streams the store dropping tombstoned ids
- * into store.new, rebuilds idx/, renames atomically, clears tomb, and
- * recomputes next_id. Bounded buffers throughout.
+ * into store.new, rebuilds idx/, renames atomically, keeps the hash-bearing tomb
+ * and ktomb entries (dropping the rest), and recomputes next_id. Bounded buffers
+ * throughout, except edits_mem_load, which reads the whole edits file.
  */
 #ifndef AIS_COMPACT_H
 #define AIS_COMPACT_H

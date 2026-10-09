@@ -1,7 +1,7 @@
 /* embed.h -- in-process API for EMBEDDERS (Flutter dart:ffi, a native mobile
  * plugin, any host that links the engine instead of shelling out to the CLI).
  *
- * The same engine as the CLI and `ais serve`: recall returns the exact
+ * The same engine as the CLI and `ais --serve`: recall returns the exact
  * "id|value\n" text the web /api/get returns, so every front-end shares one
  * contract. Handles are void*: an opaque pointer (Dart Pointer<Void>), no struct
  * layout to track across the FFI boundary.
@@ -16,7 +16,7 @@
 /* The rules a signature cannot state, and every embedder needs:
  *
  * - NOTHING HERE BELONGS ON THE UI THREAD. ais_embed_sync_serve blocks for up to
- *   its timeout (~120 s) waiting for a peer, and ais_embed_sync_pull blocks for
+ *   its timeout (300 s) waiting for a peer, and ais_embed_sync_pull blocks for
  *   the transfer. The Flutter app runs them on a background isolate.
  * - ONE CALLER PER HANDLE. The handle is single-writer, so a recall issued while
  *   a sync runs on the same handle is a data race. Calls serialize onto one
@@ -24,8 +24,8 @@
  * - ONE SYNC AT A TIME. A scanned pairing link can arrive while a sync is
  *   already running; the Flutter app keeps a _syncBusy flag and refuses the
  *   second.
- * - ONE LONG-LIVED HANDLE PER INDEX. ais_embed_open holds the single-writer lock
- *   for the handle's lifetime, so the same directory is never opened twice.
+ * - ONE LONG-LIVED HANDLE PER INDEX. ais_embed_open takes no lock; each write
+ *   takes a blocking exclusive lock on the index for its own duration.
  * - SIGPIPE from a dropped socket is ignored inside this layer, so a peer
  *   hanging up mid-sync does not terminate the host process. There is no fork()
  *   on this path (that lives only in the CLI and the web host), which is what
@@ -36,8 +36,8 @@
 
 #include <stddef.h>     /* size_t */
 
-/* Open (creating if absent) the index directory; takes the single-writer lock
- * for the life of the handle. Returns an opaque handle, or NULL on failure. */
+/* Open (creating if absent) the index directory. Takes no lock (each write locks
+ * for itself). Returns an opaque handle, or NULL on failure. */
 void *ais_embed_open(const char *dir);
 
 /* Recall records under space-separated KEYS. or_mode is the mode switch:
@@ -54,18 +54,20 @@ char *ais_embed_recall(void *handle, const char *keys, int or_mode);
 char *ais_embed_recall_page(void *handle, const char *keys, int or_mode,
                             long after, int count);
 
-/* Content search: recall records whose VALUE contains NEEDLE (a plain, case-
- * sensitive substring). Same "id|value\n" line format as ais_embed_recall.
+/* Content search: recall records whose VALUE contains NEEDLE (a plain substring,
+ * ASCII case ignored). Same "id|value\n" line format as ais_embed_recall.
  * Returns a newly allocated, NUL-terminated buffer (empty string if nothing
  * matches); free with ais_embed_free(). NULL on bad args / OOM. */
 char *ais_embed_find(void *handle, const char *needle);
 
-/* Store VALUE under KEYS. Returns the record id (> 0), or -1 on error. */
+/* Store VALUE under KEYS. Returns the record id (> 0), -1 on error, or -4 when
+ * the record is in the store but its offset or postings are not (see ais_put). */
 long  ais_embed_store(void *handle, const char *keys, const char *value);
 
 /* Store VALUE under KEYS, ENCRYPTED under PASSPHRASE (the "aisc:" marker), for a
- * GUI's "encrypt" toggle. Returns the record id (> 0), or -1 (error, or the
- * crypto module is not built). PASSPHRASE is used, not retained. */
+ * GUI's "encrypt" toggle. Returns the record id (> 0), -1 (error, or the
+ * crypto module is not built), or -4 as ais_embed_store. PASSPHRASE is used,
+ * not retained. */
 long  ais_embed_store_encrypted(void *handle, const char *keys,
                                 const char *value, const char *passphrase);
 
@@ -86,7 +88,8 @@ int   ais_embed_update(void *handle, long id, const char *keys);
 /* Replace record ID's VALUE (OLD_VALUE -> NEW_VALUE), preserving its id, ts and
  * keys. OLD_VALUE must be the record's exact stored value (the "id|value" handle
  * from recall/timeline). Returns 0, or -1 if the id is unknown, the value does
- * not match (nothing is changed), or on IO error. */
+ * not match (nothing is changed), or on IO error; -2/-3 when a live/deleted
+ * record already holds NEW_VALUE (see ais_set_value). */
 int   ais_embed_set_value(void *handle, long id, const char *old_value,
                           const char *new_value);
 
@@ -95,7 +98,7 @@ int   ais_embed_set_value(void *handle, long id, const char *old_value,
  * inline). OLD_VALUE is the stored string; for a document that is its "blobs/"
  * path. On success NEWVAL (when non-NULL, NVSZ bytes) gets the value the
  * record now stores -- the trimmed line or the fresh blob's path. Same return
- * codes, plus -2/-3 when a live/deleted record already holds TEXT. */
+ * codes. */
 int   ais_embed_set_value_text(void *handle, long id, const char *old_value,
                                const char *text, char *newval, int nvsz);
 
@@ -137,7 +140,8 @@ int   ais_embed_serve(void *handle, int port, const char *token);
  *   2 = RUN IT AGAIN -- both directions completed, but a record here outlived a
  *       delete that arrived in this same round, decided after our own stream had
  *       gone out. The peer still has the record deleted; one more exchange
- *       settles it. */
+ *       settles it. Only ais_embed_sync_serve returns it: the joiner sends
+ *       last, so its stream already carries the news. */
 int   ais_embed_sync_pull(void *handle, const char *url, const char *token);
 int   ais_embed_sync_serve(void *handle, int port, const char *token);
 
@@ -161,7 +165,8 @@ int   ais_embed_import_bundle(void *handle, const char *path);
  * Returns 0, or one of the AIS_FOLDER_* codes (sync.h): -2 no such folder, -3 not a
  * folder, -4 unreadable, -5 we have synced here before and our own bundle is gone
  * (an unmounted drive, an emptied share), -6 the merge applied but our bundle could
- * not be written; -1 anything else. A front end must SHOW which -- the remedies
+ * not be written, -7 every bundle here is from a newer ais, -8 bundles are here but
+ * none is readable; -1 anything else. A front end must SHOW which -- the remedies
  * differ. FORCE (0/1) accepts the -5 folder and re-establishes it. Creates nothing. */
 int   ais_embed_sync_folder(void *handle, const char *folder);
 int   ais_embed_sync_folder_force(void *handle, const char *folder, int force);
@@ -186,10 +191,10 @@ char *ais_embed_tags(void *handle);
 char *ais_embed_tags_page(void *handle, long after_count, const char *after_key,
                           int count);
 
-/* Record ID's keys as one space-separated string (the same KEYS field the
- * timeline emits). Free with ais_embed_free(). Returns "" (empty, not NULL) if
- * the record has no keys or ID is unknown/deleted; NULL only on bad args /
- * allocation failure. */
+/* Record ID's keys as one space-separated string of encoded posting names
+ * (lowercased, busiest first), not the stored KEYS field. Free with
+ * ais_embed_free(). Returns "" (empty, not NULL) if the record has no keys or
+ * ID is unknown/deleted; NULL only on bad args / allocation failure. */
 char *ais_embed_keys(void *handle, long id);
 
 /* Resolve VALUE to the bounded text a GUI SHOWS (see ais_doc_display): a document
@@ -206,7 +211,7 @@ void  ais_embed_free(char *buf);
  * (>= 0), or -1 on bad args / read error. */
 long  ais_embed_count(void *handle);
 
-/* Release the lock, flush the id counter, free the handle. */
+/* Close the lock file's fd and free the handle. */
 void  ais_embed_close(void *handle);
 
 /* Persist DIR as the saved default index in ~/.ais/config (for a GUI's "change

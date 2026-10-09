@@ -1,7 +1,8 @@
 /* ais.h -- AIS public API: a plain-text associative index.
  *
  * An INDEX is a directory (see doc/dev/LAYOUT.md). Open it, then put/get/del/etc.
- * All calls use fixed, stack-sized buffers; memory never scales with the data.
+ * Calls use fixed-size buffers; memory never scales with the data. Three listing
+ * calls (ais_keys, ais_tags_page, the timeline scan) take one bounded heap block.
  * get() streams matching ids through a callback.
  */
 #ifndef AIS_H
@@ -27,20 +28,21 @@ const char *ais_version(void);
  * 0.3.9 is 3009. A non-numeric or missing stamp yields 0. */
 long ais_version_number(void);
 
-/* Open handle. Holds only the path, the id counter, and the writer lock.
- * Declare one on the stack:  ais a; ais_open(&a, dir); ... ais_close(&a); */
-/* Called with a value whose LAST reference the engine has just dropped, because
- * a delete arrived from another device. The engine stores paths and knows
+/* Called with a value whose LAST reference the engine has just dropped: by a
+ * delete (local ais_del or one arriving from another device; ais_del_key does not
+ * call it), or by ais_set_value replacing it. The engine stores paths and knows
  * nothing about what they point at, so deciding whether a file goes with the
  * record belongs to the front end: pass ais_doc_discard_cb (doc.h), which
  * destroys what the index made and never touches the user's own files. Unset,
  * nothing is disposed of and the file waits for the next compaction. */
 typedef void (*ais_discard_cb)(const char *value, void *ctx);
 
+/* Open handle: the path, the id counter, the lock fd and per-handle merge and
+ * lookup state. Declare one on the stack:  ais a; ais_open(&a, dir); ... ais_close(&a); */
 typedef struct ais {
     char dir[AIS_PATH_MAX];   /* the INDEX directory                         */
     long next_id;             /* next id to assign (monotonic)               */
-    int  lock_fd;             /* single-writer advisory lock; -1 if not held */
+    int  lock_fd;             /* the lock file's fd, flocked per write; -1 if closed */
     int  purge_deletes;       /* ais_compact also forgets the delete FACTS (see
                                * ais_compact_purge); 0 for every other caller  */
     long survivals;           /* records that have beaten an incoming delete on
@@ -67,20 +69,21 @@ typedef struct ais {
                                * handle last read it. Not persisted. */
 } ais;
 
-/* Open (creating if absent) the INDEX directory `dir`, taking a single-writer
- * advisory lock for the lifetime of the handle.
- * Returns 0 on success, -1 on error (including the lock being held). */
+/* Open (creating if absent) the INDEX directory `dir`. Takes no lock: each write
+ * takes a blocking exclusive lock for its own duration, and reads take none.
+ * Returns 0 on success, -1 on error. */
 int  ais_open(ais *a, const char *dir);
 
-/* Release the lock and flush the id counter. */
+/* Close the lock file's fd. The id counter is already saved by each write. */
 void ais_close(ais *a);
 
 /* Put VALUE under one or more whitespace-separated KEYS.
  * Idempotent on VALUE: if VALUE is already stored, its existing record is
- * reused (and any new keys added to it); identical re-puts change nothing.
+ * reused (and any new keys added to it); a re-put stamps the record's edit time
+ * and notes each key, so --export then carries a new T| line for it.
  * Returns the record id (> 0), -1 on error (nothing was written), or -4 when
- * the record IS in the store but its postings could not be written: it exists,
- * no key finds it, and `ais --compact` files it. */
+ * the record is in the store but its offset or postings are not: it exists,
+ * no key may find it, and `ais --compact` files it. */
 long ais_put(ais *a, const char *keys, const char *value);
 
 /* Like ais_put, but stamp a NEW record with TS (NULL = now), and if the value exists
@@ -110,7 +113,7 @@ long ais_put_at_k_resolved(ais *a, const char *keys, const char *value, const ch
  * new as that record's add-ts and it is not already deleted. No-op if absent. 0/-1. */
 int  ais_merge_del(ais *a, const char *hash, const char *ts);
 
-/* Register the disposer for values a merged delete retires (see ais_discard_cb).
+/* Register the disposer for values a delete or an edit retires (see ais_discard_cb).
  * Every front end should set it right after ais_open, or a document deleted on
  * another device leaves its file here forever -- and this index keeps handing
  * that file back to the peer that deleted it, since an export streams all of
@@ -134,7 +137,8 @@ typedef struct { char hash[17]; char ts[AIS_TS_MAX]; } ais_del_fact;
 int  ais_merge_del_many(ais *a, const ais_del_fact *facts, int n);
 
 /* Apply a remote key-detach (K|ts|hash|key): find the record by value-hash and detach
- * KEY under last-write-wins (folder sync I1). Idempotent. Returns 0, or -1 on bad args. */
+ * KEY under last-write-wins (folder sync I1). Idempotent. Returns 0, or -1 on bad args
+ * (TS NULL included) or a failed ktomb append. */
 int  ais_merge_detach(ais *a, const char *hash, const char *key, const char *ts);
 
 /* Apply a remote key-attach (T|ts|hash|key), the mirror of ais_merge_detach: attach
@@ -142,11 +146,9 @@ int  ais_merge_detach(ais *a, const char *hash, const char *key, const char *ts)
  * detach of it here. The A| line carries one timestamp for the whole record, so this
  * is the only way a key attached AFTER the record was created can out-rank a detach
  * made in between; without it a detached key can never be re-attached anywhere in
- * the mesh. Idempotent. Returns 0, or -1 on bad args. */
+ * the mesh. Idempotent. Returns 0, or -1 on bad args or a write error. */
 int  ais_merge_attach(ais *a, const char *hash, const char *key, const char *ts);
 
-/* One key-attach fact off the wire: the record's content hash, the key, and when
- * the key went on. */
 /* The first key in KEYS (a blank-separated list, "-key" included) that this
  * index cannot file: one longer than AIS_KEY_NAME_MAX bytes, which no posting
  * file could be named after. Returns 1, copying that key into BAD (truncated to
@@ -155,6 +157,8 @@ int  ais_merge_attach(ais *a, const char *hash, const char *key, const char *ts)
  * before anything is written; a front end calls this to say WHICH key it was. */
 int ais_keys_too_long(const char *keys, char *bad, size_t badsz, size_t *badlen);
 
+/* One key-attach fact off the wire: the record's content hash, the key, and when
+ * the key went on. */
 typedef struct { char hash[17]; char key[AIS_KEY_MAX]; char ts[AIS_TS_MAX]; } ais_att_fact;
 
 /* How many attach facts one pass resolves. Smaller than AIS_MERGE_BATCH because a
@@ -171,7 +175,7 @@ typedef struct { char hash[17]; char key[AIS_KEY_MAX]; char ts[AIS_TS_MAX]; } ai
  * index tagged as it grew -- so one scan per fact costs an ordinary bundle
  * O(attaches x records). Applying can rewrite a line's keys field but never its
  * VALUE, so the hash->id map one pass builds stays valid for the whole batch.
- * 0, or -1 on bad arguments. */
+ * 0, or -1 on bad arguments or a write error. */
 int  ais_merge_attach_many(ais *a, const ais_att_fact *facts, int n);
 
 /* Apply an incoming additional link (M|): attach VALUE, at its own time TS, to
@@ -211,6 +215,7 @@ int  ais_update(ais *a, long id, const char *keys);
  * record holding a value twice exports as two A| lines the peer collapses. That
  * refusal is -2, or -3 when the holder is a DELETED record whose line waits for
  * compaction (--compact clears it; editing anyway resurrected the dead record).
+ * NEW_VALUE identical to OLD_VALUE returns 0 at once, before any lock or id check.
  *
  * The edit reaches the peers as E|ts|hash|value, kept in `edits` and exported
  * before the records: a peer still holding the old value replaces it in place,
@@ -229,7 +234,8 @@ int  ais_merge_edit(ais *a, const char *hash, const char *value, const char *ts)
 int  ais_del(ais *a, long id);
 
 /* Tombstone every record currently filed under KEY, by streaming the key's posting
- * list and tombstoning each id (the mechanism ais_del uses). Idempotent; a key with
+ * list and tombstoning each id. Unlike ais_del it never calls the discard callback:
+ * the caller disposes of blobs before the delete. Idempotent; a key with
  * no records is a no-op. A record already tombstoned is re-stamped (so the deletion
  * holds as of now against a peer add dated in between) but NOT counted -- the count
  * is live records only, so a caller's preview and this return value agree. Returns
@@ -286,10 +292,11 @@ int  ais_record(ais *a, long id, ais_val_cb cb, void *ctx);
  * negative to stop early (ais_keys then returns that value). */
 typedef int (*ais_key_cb)(const char *key, void *ctx);
 
-/* Emit every DISTINCT key once, in ascending (sorted) order, via CB. Keys are
- * the filenames under idx/<p>/<key>; the walk covers all prefix dirs. If idx/
- * is absent, emits nothing and returns 0. Returns 0, or the callback's stop
- * code. Buffers the key names (bounded by AIS_KEY_MAX each) to sort them. */
+/* Emit every DISTINCT key with a live record once, in ascending (sorted) order,
+ * via CB. Keys are the filenames under idx/<p>/<key>; the walk covers all prefix
+ * dirs. If idx/ is absent, emits nothing and returns 0. Returns 0, the callback's
+ * stop code, or -1 past 65536 keys or on allocation failure. Buffers the key names
+ * (bounded by AIS_KEY_MAX each) in one heap block to sort them. */
 int  ais_keys(ais *a, ais_key_cb cb, void *ctx);
 
 /* Stream every live record (tombstones merged out) to `out`, one per line. */

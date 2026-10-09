@@ -9,8 +9,10 @@
 # AIS re-engineering (2026): ANSI C / C99, plain-text sharded store (no binary backend).
 #
 # Honors the standard variables, so packagers and other compilers just work:
-#   CC CFLAGS CPPFLAGS LDFLAGS LDLIBS  -- project flags are APPENDED, never
-#   override yours (distros inject hardening; macOS/BSD supply clang as cc).
+#   CC CFLAGS CPPFLAGS LDFLAGS LDLIBS  -- project flags come first on the line,
+#   so yours win (distros inject hardening; macOS/BSD supply clang as cc).
+#   Exceptions: `make release` and `make debug` replace CFLAGS; the test binary
+#   ignores CFLAGS; ut-asan and ut-ubsan ignore CFLAGS and LDFLAGS.
 # Profiles:  make | make release | make debug | make pedantic | make static
 #   `static` builds a self-contained binary on Linux (glibc) and on the native
 #   Windows cross-build (`make CC=x86_64-w64-mingw32-gcc LDFLAGS=-static`, which
@@ -161,9 +163,10 @@ ut-ubsan: $(BIN)
 	  $(CPPFLAGS) $(SOURCES.c) -o $(TESTBIN)_ubsan $(LDLIBS)
 	$(UT_TIMEOUT) ./$(TESTBIN)_ubsan
 
-# -- libais: the engine as a library, for embedders (Flutter dart:ffi, native
-# plugins). libais.a = static (linked into the app, e.g. iOS); libais.so =
-# shared, for dlopen-style FFI (Linux desktop, Android). Both exclude main().
+# -- libais: the engine as a library, for embedders. libais.a = static,
+# libais.so = shared, for dlopen-style FFI. Both exclude main() and keep mcp.c.
+# The Flutter app does not link these: iOS builds from ../ais_engine.podspec,
+# Android and Linux from app/flutter/src/CMakeLists.txt, and both leave out mcp.c.
 lib: libais.a libais.so
 libais.a: $(LIBOBJS)
 	ar rcs $@ $(LIBOBJS)
@@ -171,10 +174,13 @@ libais.so: $(LIBSRC)
 	$(CC) $(AIS_CFLAGS) $(CPPFLAGS) $(CFLAGS) -fPIC -shared -o $@ $(LIBSRC) $(LDLIBS)
 
 # -- wasm: the engine + FFI seam compiled to WebAssembly for the standalone
-# browser PWA (see ../doc/dev/WASM-PWA.md). Needs emcc (emsdk) on PATH; built in
-# CI by wasm-pwa.yml. Curated sources: the engine core + embed.c only -- no
-# main/serve/feed/help/tests/win (no CLI, sockets, dir-walk, or tty in a browser).
-WASM_SRC     = embed.c ais.c store.c post.c key.c merge.c compact.c stats.c find.c doc.c locate.c log.c
+# browser PWA (see ../doc/dev/DISTRIBUTION.md). Needs emcc (emsdk) on PATH.
+# wasm-pwa.yml runs it on manual dispatch only and has never been run, so this
+# rule is UNVERIFIED. embed.c now reaches sync.c, secret.c and the crypto, and
+# doc.c calls aisc_random, so those are in the list; main/serve/help/tests stay
+# out (no CLI, listening sockets, or tty in a browser).
+WASM_SRC     = embed.c ais.c store.c post.c key.c merge.c compact.c stats.c find.c doc.c locate.c log.c \
+               sync.c feed.c secret.c b64.c win.c crypto/ais_crypto.c crypto/monocypher.c
 WASM_OUT     = ../app/engine/ais.js
 WASM_EXPORTS = _ais_embed_open,_ais_embed_close,_ais_embed_store,_ais_embed_recall,_ais_embed_timeline,_ais_embed_tags,_ais_embed_del,_ais_embed_update,_ais_embed_free,_malloc,_free
 wasm:

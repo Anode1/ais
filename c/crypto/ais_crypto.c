@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: GPL-2.0-only
+/* SPDX-License-Identifier: GPL-2.0-or-later OR MIT
  *
  * ais_crypto - authenticated file encryption for the ais secret store.
  * Part of ais (GPLv2). Crypto primitives from vendored Monocypher (CC0/BSD).

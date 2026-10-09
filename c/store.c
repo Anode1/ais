@@ -37,13 +37,6 @@ static int ts_digits(const char *p, int i, int n)
     return 1;
 }
 
-/* Does field-2 of a store line hold a timestamp? Tells a v2 line
- * (id|ts|keys|value) from a legacy v1 line (id|keys|value). Accepts the engine's
- * own "YYYY-MM-DDThh:mm:ss" and the hand-written "YYYY-MM-DD" and
- * "YYYY-MM-DDThh:mm", always anchored and ending at '|'/EOL. The lower bound is a
- * FULL date: a bare year or "YYYY-MM" stays a KEY, tagging by year ("photos
- * 2026") being common. A malformed date fails here and the line reads as a
- * dateless v1 record -- only the date is dropped, never the id, keys or value. */
 /* One second later, on the canonical "YYYY-MM-DDThh:mm:ssZ" form. Civil
  * arithmetic, not timegm()/mktime() (non-standard and local-time respectively);
  * the string is already UTC. Returns 0, or -1 if TS is not that exact form. */
@@ -77,6 +70,14 @@ int store_ts_next_second(const char *ts, char *out, size_t outsz)
                      y, mo, d, h, mi, se) == 20) ? 0 : -1;
 }
 
+/* Does field-2 of a store line hold a timestamp? Tells a v2 line
+ * (id|ts|keys|value) from a legacy v1 line (id|keys|value). Accepts the engine's
+ * own "YYYY-MM-DDThh:mm:ssZ" (v3) and "YYYY-MM-DDThh:mm:ss" (v2), and the
+ * hand-written "YYYY-MM-DD" and "YYYY-MM-DDThh:mm", always anchored and ending
+ * at '|'/EOL. The lower bound is a FULL date: a bare year or "YYYY-MM" stays a
+ * KEY, tagging by year ("photos 2026") being common. A malformed date fails
+ * here and the line reads as a dateless v1 record -- only the date is dropped,
+ * never the id, keys or value. */
 int store_looks_like_ts(const char *p)
 {
     int i;

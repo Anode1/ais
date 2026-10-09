@@ -445,7 +445,7 @@ long ais_doc_put(ais *a, const char *keys, const char *content, size_t len)
 
     {
         long id = ais_put(a, keys, relval);   /* store only the path */
-        if (id < 0)
+        if (id < 0 && id != -4)               /* -4: the line is in and names the blob */
             remove(blobpath);
         return id;
     }
@@ -702,7 +702,7 @@ long ais_doc_copies(ais *a, ais_doc_copy_cb cb, void *ctx)
         return -1;
     memset(&C, 0, sizeof C);
     C.a = a;
-    if (store_each_record(a, doc_copies_cb, &C) < -1 || C.err) {
+    if (store_each_record(a, doc_copies_cb, &C) < 0 || C.err) {
         reported = -1;
         goto out;
     }

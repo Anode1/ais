@@ -1,13 +1,13 @@
-/* serve.c -- `ais serve`: an OPTIONAL built-in web GUI. See serve.h.
+/* serve.c -- `ais --serve`: an OPTIONAL built-in web GUI. See serve.h.
  *
  * A GUI WRAPPER, not the program: the index, the store and the algorithms live in
  * ais.c, store.c, merge.c, post.c, compact.c. This file only lets a browser drive
  * that engine, and embeds a small web page as a C string (PAGE, below) so the binary
  * stays self-contained -- that blob is HTML/JS, NOT C, and not a sample of how AIS
  * is written. It is the only GUI file under c/. A single-threaded HTTP/1.0 loop on
- * 127.0.0.1 serves the page plus two endpoints that call the engine directly: no
- * Python, no framework, no DB. A SKETCH: localhost only, one client at a time, the
- * request must fit a single read.
+ * 127.0.0.1 serves the page plus the /api/ routes that call the engine directly: no
+ * Python, no framework, no DB. Localhost only, one request at a time; a sync Host
+ * runs beside the loop (a child process, a thread on Windows).
  */
 #define _DEFAULT_SOURCE          /* htonl, strtok_r */
 #define _POSIX_C_SOURCE 200809L
@@ -32,7 +32,7 @@
 #include "find.h"        /* ais_find: the /api/find content search */
 #include "secret.h"      /* GUI encrypt: secret_encrypt for the "aisc:" marker */
 #include "stats.h"       /* ais_stats: the GUI shows what clean-up would reclaim */
-#include "locate.h"       /* ais_default_set: persist the chosen store */
+#include "locate.h"       /* store_persist: the chosen store is the default next run */
 #include "win.h"          /* Winsock + socket shims on native Windows; empty on POSIX */
 #include "serve.h"
 
@@ -215,7 +215,7 @@ static const char PAGE[] =
 "<input id=fileimp type=file accept='.aisb' hidden>"
 /* Host pane: address + token to read off, a QR to scan, and a live status line. */
 "<div id=synchost hidden>"
-"<p style='margin:.2rem 0 .6rem;font-size:.9rem'>Scan with the AIS app, or on the other device choose Join and enter:</p>"
+"<p style='margin:.2rem 0 .6rem;font-size:.9rem'>Scan with the phone's camera, or on the other device choose Join and enter:</p>"
 "<div id=qr style='display:flex;justify-content:center;margin:.4rem 0 .8rem'></div>"
 "<div style='font-family:monospace;font-size:.85rem;word-break:break-all;background:var(--field);border:1px solid var(--line);border-radius:10px;padding:.6rem'>"
 "<div id=hostaddr></div><div id=hosttok class=muted></div></div>"
@@ -335,7 +335,8 @@ static const char PAGE[] =
 "(v.indexOf('aisc:')==0?fillSecret(r,v):v.indexOf('aisdoc:')==0?fillDoc(r,v):fillVal(r,v));if(notHere(v))r.appendChild(awayBadge());"
 "r.appendChild(rowActions(id,v));o.appendChild(r);added++});"
 "if(added)$('count').textContent=tagN?tagN+' result'+(tagN==1?'':'s')+' + '+added+' in the value':added+' result'+(added==1?'':'s')}"
-/* per-row edit (attach/detach keys by id) and delete; both refresh the view */
+/* per-row edit (attach/detach keys by id), which refreshes the view, and delete,
+ * which hides the row behind Undo */
 "function rowActions(id,v){var d=document.createElement('div');d.className='act';"
 "var m=document.createElement('button');m.className='actbtn';m.textContent='\\u22EE';m.title='more';m.style.fontSize='1.2rem';"
 "var box=document.createElement('span');box.className='actmenu';box.hidden=true;"
@@ -345,7 +346,8 @@ static const char PAGE[] =
 "box.appendChild(e);box.appendChild(x);m.onclick=function(){box.hidden=!box.hidden};"
 "d.appendChild(m);d.appendChild(box);return d}"
 "async function copyText(t,btn){try{await navigator.clipboard.writeText(t);if(btn){var o=btn.textContent;btn.textContent='copied';setTimeout(function(){btn.textContent=o},1200)}}catch(e){alert('copy needs https or localhost')}}"
-/* Deferred delete + Undo (Flutter parity): hide the row and start a 5s window. The
+/* Deferred delete + Undo, as in Flutter: hide the row and start a 5 s window
+ * (Flutter commits at 4.5 s behind a 4 s snackbar). The
  * engine del() only fires when the window lapses OR another action flushes it --
  * never on Undo, which just re-shows the row (nothing was deleted). */
 "var delTimer=null,delRow=null,delCommit=null,delUndoFn=null;"
@@ -449,7 +451,7 @@ static const char PAGE[] =
  * so the Undo really does undo); delete-under gets a modal with a preview, an escape hatch to untag, and
  * type-to-confirm, because it destroys records that are NOT on this screen -- each
  * also disappears from every other tag it is filed under. */
-/* Finds its own row, so both front ends expose the same untagKey(key,count). */
+/* Finds its own row, so both web pages expose the same untagKey(key). */
 "function untagKey(k){delFlush();toastClaim();"
 "var row=null,acts=null;"
 "[].forEach.call(document.querySelectorAll('.taglink'),function(b){"
@@ -798,6 +800,40 @@ static void serve_load_syncfolder(const ais *a, char *out, size_t osz)
         out[--n] = '\0';
 }
 
+/* Make DIR the index every later run opens. Resolution (locate.h) reads the
+ * current named index before the legacy `index =` line, so once --switch has
+ * been used that line is ignored: a registered path is made current by name,
+ * home clears both, and any other path is written as the legacy default with
+ * `current` cleared. */
+struct persist_ctx { const char *dir; char name[AIS_KEY_MAX]; };
+static int persist_match(const char *name, const char *path, void *vp)
+{
+    struct persist_ctx *c = vp;
+    if (strcmp(path, c->dir) != 0)
+        return 0;
+    snprintf(c->name, sizeof c->name, "%s", name);
+    return 1;
+}
+static void store_persist(const char *dir)
+{
+    struct persist_ctx c;
+    char home[AIS_PATH_MAX];
+
+    c.dir = dir;
+    c.name[0] = '\0';
+    if (ais_index_path("home", home, sizeof home) == 1 && strcmp(home, dir) == 0) {
+        ais_current_set(NULL);
+        ais_default_set(NULL);
+        return;
+    }
+    if (ais_index_list(persist_match, &c) == 1 && c.name[0] != '\0') {
+        ais_current_set(c.name);
+        return;
+    }
+    ais_current_set(NULL);
+    ais_default_set(dir);
+}
+
 /* Is DIR a path /api/store may hand to ais_open? The body of that POST is a
  * network request, not a typed path: ais_open CREATES what it is given, and
  * ais_default_set then persists it into ~/.ais/config as the default index for
@@ -1043,7 +1079,7 @@ static int on_id(long id, void *vp)
 }
 
 /* Get records under the keys: AND (intersection) by default, OR (union) when
- * want_or is set (the "Match any key" box). No automatic relaxation. */
+ * want_or is set (the "Match any tag" box). No automatic relaxation. */
 static void do_get(ais *a, char *keys, int want_or, long after, int count,
                    int meta, int fd)
 {
@@ -1094,7 +1130,7 @@ static long do_put_enc(ais *a, const char *keys, char *body)
     return rc;
 }
 
-/* ---- timeline: "id|ts|keys|value" newest-first (dateless first) ---------- */
+/* ---- timeline: "id|ts|keys|value", newest id first ----------------------- */
 static int tl_sink(long id, const char *ts, const char *keys,
                    const char *value, void *vp)
 {
@@ -1222,7 +1258,7 @@ static int serve_asset(int fd, const char *name)
  * the pid; it now carries the thread id (AIS_WRITER_TAG). The outcome codes
  * are the POSIX child's. */
 static HANDLE sync_thread = NULL;               /* live Host thread, or NULL (one at a time) */
-static volatile LONG sync_last = -2;            /* last Host outcome: 0 served, 1 half, else not */
+static volatile LONG sync_last = -2;            /* last Host outcome: 0 served, 1 half, 2 again, else not */
 static struct { char dir[AIS_PATH_MAX]; char token[33]; int port; } sync_args;
 
 static unsigned __stdcall sync_host_run(void *unused)
@@ -1255,7 +1291,7 @@ static void sync_reap(void)
 #define SYNC_HOST_BUSY (sync_thread != NULL)
 #else
 static volatile sig_atomic_t sync_child = -1;   /* live Host child pid, or -1 (one at a time) */
-static volatile sig_atomic_t sync_last  = -2;   /* last Host outcome: 0 served, 1 half, else not */
+static volatile sig_atomic_t sync_last  = -2;   /* last Host outcome: 0 served, 1 half, 2 again, else not */
 
 /* Reap the Host child if it has finished so it leaves no zombie, remembering its
  * outcome (the child exits 0 when a peer synced, non-zero on timeout/error). Called
@@ -1380,8 +1416,8 @@ static void sync_host(ais *a, int fd)
         write_all(fd, reply, (size_t)m);
 }
 
-/* Status: reap a finished Host and report "waiting" / "synced" / "timeout" so the
- * page can poll and tell the user when a peer completed. */
+/* Status: reap a finished Host and report "waiting" / "synced" / "half" / "again" /
+ * "timeout" so the page can poll and tell the user when a peer completed. */
 static void sync_status(int fd)
 {
     const char *s;
@@ -1396,7 +1432,8 @@ static void sync_status(int fd)
 }
 
 /* Join: pull + merge from a peer's URL with its token (bidir, so the host also
- * converges). Reply "merged" / "bad url" / "could not connect or wrong token". */
+ * converges). Reply "merged" / "half" / "bad url" / "could not connect or wrong
+ * token". */
 static void sync_join(ais *a, char *body, int fd)
 {
     char host[128], *tok;
@@ -1453,7 +1490,7 @@ static void handle(ais *a, int fd)
     char nokeys[1] = "";
     ssize_t n;
     char *method, *path, *query, *body, *keys = nokeys, *sp;
-    int want_or = 0;                      /* "Match any key" -> AIS_OR; default AND+relax */
+    int want_or = 0;                      /* "Match any tag" -> AIS_OR; default AND */
     int enc = 0;                          /* ?enc=1 -> encrypt the value before storing */
 #ifdef SERVE_HAVE_SYNC
     int force = 0;                        /* ?force=1 -> accept a remembered folder gone empty */
@@ -1768,8 +1805,9 @@ static void handle(ais *a, int fd)
             write_all(fd, e, sizeof(e) - 1);
         }
     } else if (strcmp(method, "POST") == 0 && strcmp(path, "/api/del-under") == 0) {
-        /* DELETE every record filed under ?keys=KEY. Shred encrypted blobs first,
-         * exactly as /api/del and the CLI do. */
+        /* DELETE every record filed under ?keys=KEY. Shred blobs first, as the
+         * CLI's --del-under does: ais_del_key never calls the discard callback
+         * that ais_del (behind /api/del) uses. */
         if (keys[0] != '\0' && strcspn(keys, " \t") == strlen(keys)) {
             char *k1[1];
             int nd;
@@ -1944,7 +1982,7 @@ static void handle(ais *a, int fd)
                 return;                        /* accept loop closes fd */
             }
             ais_on_discard(a, ais_doc_discard_cb, a->dir);
-            ais_default_set(nd);              /* persist: it's the default next run */
+            store_persist(nd);                /* the default next run */
         }
         send_head(fd, "text/plain");
         write_all(fd, a->dir, strlen(a->dir));
@@ -1952,7 +1990,7 @@ static void handle(ais *a, int fd)
     } else if (strcmp(method, "POST") == 0 && strcmp(path, "/api/sync/host") == 0) {
         sync_host(a, fd);                      /* fork a child to serve one peer */
     } else if (strcmp(method, "GET") == 0 && strcmp(path, "/api/sync/status") == 0) {
-        sync_status(fd);                       /* poll: waiting / synced / timeout */
+        sync_status(fd);                       /* poll: waiting / synced / half / again / timeout */
     } else if (strcmp(method, "POST") == 0 && strcmp(path, "/api/sync/join") == 0) {
         sync_join(a, body, fd);                /* pull + merge from a host's url+token */
     } else if (strcmp(method, "GET") == 0 && strcmp(path, "/api/export-bundle") == 0) {
@@ -2053,8 +2091,9 @@ static void handle(ais *a, int fd)
         }
 #endif
     } else if (strcmp(method, "GET") == 0) {
-        /* an external asset (e.g. /style.css) if gui/web has it; the root falls
-         * back to the embedded page so the binary still works with no files. */
+        /* an external asset (e.g. /style.css) if $AIS_WEB (else gui/web) has it;
+         * the root falls back to the embedded page so the binary still works
+         * with no files. */
         const char *name = (strcmp(path, "/") == 0) ? "index.html" : path + 1;
         if (serve_asset(fd, name)) {
             /* served from disk */
