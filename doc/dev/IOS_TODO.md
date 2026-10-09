@@ -60,8 +60,15 @@ Steps 2 and 3 need the account holder's own sign-in (IOS_RELEASE.md step 1).
       from `screenshots/iphone_*.png`, Marina's captures on the 0.3.33 build
       (2026-10-08): timeline, add, search; encrypt retaken 2026-10-09 with
       the eye on both passphrase fields.
-- [ ] 1.0: rename the version to the build's, upload the four screenshots,
-      attach the build, Submit for Review.
+- [x] 2026-10-09: the version renamed 0.3.35, the four screenshots uploaded,
+      build 554 attached. Not submitted: that build still carried the Flutter
+      placeholder icon in `ios/Runner/Assets.xcassets/AppIcon.appiconset`,
+      untouched since the iOS port; the Android launcher had the AIS artwork
+      since June. `scripts/ios-icon.sh` renders the set from
+      `app/flutter/assets/icon/ais.png`, corners filled with the artwork's
+      blue (Apple masks it itself and refuses alpha). The listing shows the
+      new icon once the next tagged build is attached.
+- [ ] Attach the first build with the AIS icon, Submit for Review.
 - [x] Build 526 Ready to Submit in TestFlight (2026-10-08), auto-distributed
       to the `Family` group.
 - [x] Device family: iPhone only (`TARGETED_DEVICE_FAMILY = "1"`,
