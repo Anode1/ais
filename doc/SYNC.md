@@ -5,7 +5,7 @@ Every way to move an index between devices, and where each one exists:
 
 | Channel | Where | Direction | Note |
 |---|---|---|---|
-| Sync by code (Sync > Host / Join; `--sync`) | CLI, web GUI, Android | two-way, one round | Built in, encrypted, same Wi-Fi. The phone scans the code with its camera. |
+| Sync by code (Sync > Host / Join; `--sync`) | CLI, web GUI, Android, iOS | two-way, one round | Built in, encrypted, same Wi-Fi. The phone scans the code with its camera. |
 | One-way LAN (`--export --serve` / `--import <url>`) | CLI | one-way | The older form of the same exchange. |
 | A file (Sync > Export / Import to a file) | web GUI, Android | either way, by hand | One `.aisb` file, the whole index, carried by email, a messenger or a drive ([below](#by-email-or-any-app-that-carries-a-file)). The CLI does not read it: its `--import` takes text records. |
 | A shared folder (Sync > Set a sync folder; `--sync-folder`) | CLI, web GUI, Android | two-way, at every open and change | The set-and-forget path. Syncthing or a mounted drive carries the folder. |
@@ -112,7 +112,8 @@ code expires; press Host again for a fresh one. The app bundles no QR scanner: y
 camera does the reading, and AIS just registers the `ais://` link. If you would rather not
 scan, Join still accepts the address and token typed by hand, and the address
 may be a NAME as well as a number, so `http://mylaptop.local:8766` works wherever
-that name resolves (mDNS, your router's DHCP names, `/etc/hosts`).
+that name resolves (mDNS, your router's DHCP names, `/etc/hosts`). Android
+resolves no mDNS names, so from a phone type the number.
 
 #### From Windows
 

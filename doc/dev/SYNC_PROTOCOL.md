@@ -75,7 +75,7 @@ land. Stores are small plain text; optimize to a ts/hash delta later only if siz
 Reuses the existing dump/import vocabulary. The only new verb is `--export`; there is no
 `--remote` flag (a URL operand is self-evidently remote, otherwise it is stdin/file).
 
-    ais --export --serve [PORT] [--timeout 60]
+    ais --export --serve [PORT]
         Serve to ONE authenticated peer over the LAN. Print the URL (ip:port), a one-time
         high-entropy TOKEN, and a QR encoding both. Exit on the first successful import, or
         at --timeout. (Bare `ais --export`, without `--serve`, writes the A|/D| merge stream
@@ -189,7 +189,7 @@ end-to-end:
   the handshake never yields the seal key; a MITM sees only ciphertext and tampering fails
   the Poly1305 tag (and a version byte allows future algorithm changes);
 - **ephemeral + single client**: the server runs only during the export, serves one
-  authenticated peer, and exits on first success or at `--timeout`.
+  authenticated peer, and exits on first success or after 120 s.
 
 Cost is negligible. Because the token is already high-entropy random, we do NOT use the
 memory-hard Argon2id (that exists to slow brute-force of weak passphrases). A fast KDF

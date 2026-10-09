@@ -67,8 +67,8 @@ Steps 2 and 3 need the account holder's own sign-in (IOS_RELEASE.md step 1).
       2026-10-08). iPad can be added in a later version; it could not have
       been removed.
 - [x] App Store Connect API access granted and team key `ais ci` (App
-      Manager) made 2026-10-08: Key ID `R2T7YDFCH6`, `.p8` in
-      `~/ais-signing/ios/`, Issuer ID `92c167f9-6945-4d98-9efc-ff68cf777d23`.
+      Manager) made 2026-10-08. The Key ID, Issuer ID and `.p8` are in
+      `~/ais-signing/ios/` (off git) and in the repository secrets.
 
 ## 5. Export compliance
 
@@ -82,23 +82,6 @@ Steps 2 and 3 need the account holder's own sign-in (IOS_RELEASE.md step 1).
       uploads inherit the answer; `true` got v0.3.31's upload refused for a
       missing compliance code.
 - [ ] France: file the ANSSI declaration, then answer Yes on a later build.
-
-## 7. First device tests (build 526 on Marina's iPhone, 2026-10-08)
-
-- [x] Scan-to-join: the camera opened the app from the Android's QR and nothing
-      followed. The scene delegate built the `ais/deeplink` channel from the
-      window's root view controller at connect time, which is not reliably the
-      Flutter controller yet, so no handler was installed and Dart's
-      getInitialLink failed into its silent catch. Fixed: the channel is made in
-      AppDelegate from the engine bridge's messenger, the scene only stores and
-      forwards (`SceneDelegate.swift`). Unverified until the next TestFlight build.
-- [ ] Host on the iPhone, join from Android: the join never reached the iPhone
-      (its SYNs were dropped; the iPhone waited out its five minutes). Same
-      Wi-Fi. Likeliest cause: the app took the first private address on any
-      interface, and with cellular on the carrier's 10.x address can list
-      before Wi-Fi. Fixed: the Wi-Fi interface (en0, wlan0) is tried first.
-      Unverified; if it recurs, compare Settings > Wi-Fi > (i) with the QR,
-      and consider router isolation between the two phones.
 
 ## 6. Signed build from CI
 
@@ -130,7 +113,33 @@ Steps 2 and 3 need the account holder's own sign-in (IOS_RELEASE.md step 1).
       (first real test of it), sync over a real network, force-quit
       persistence. Builds expire in 90 days.
 
-## 8. App Store
+## 8. First device tests (build 526 on Marina's iPhone, 2026-10-08)
+
+- [x] Scan-to-join: the camera opened the app from the Android's QR and nothing
+      followed. The scene delegate built the `ais/deeplink` channel from the
+      window's root view controller at connect time, which is not reliably the
+      Flutter controller yet, so no handler was installed and Dart's
+      getInitialLink failed into its silent catch. Fixed: the channel is made in
+      AppDelegate from the engine bridge's messenger, the scene only stores and
+      forwards (`SceneDelegate.swift`). Unverified until the next TestFlight build.
+- [ ] Host on the iPhone, join from Android: the join never reached the iPhone
+      (its SYNs were dropped; the iPhone waited out its five minutes). Same
+      Wi-Fi. Likeliest cause: the app took the first private address on any
+      interface, and with cellular on the carrier's 10.x address can list
+      before Wi-Fi. Fixed: the Wi-Fi interface (en0, wlan0) is tried first.
+      Unverified; if it recurs, compare Settings > Wi-Fi > (i) with the QR,
+      and consider router isolation between the two phones.
+- [ ] Review of the scan fix found the held link was still pushed before Dart
+      ran; a cold-start scan reached the app only through Flutter's own
+      deep-link fallback, about 3 s late. Now the link waits for Dart's first
+      ask and that fallback is off. To confirm: force-quit AIS, scan the
+      Android's code, tap the banner: the filled-in Join must appear at once.
+- [ ] The first join from the iPhone triggers the "allow local network
+      access" alert, which can use up the join's 10 s; the Join dialog comes
+      back once with a note to tap Sync again. Confirm it does, and that the
+      second attempt connects.
+
+## 9. App Store
 
 - [ ] Distribution tab: pick the build, screenshots from the phone, category
       Productivity, age rating.

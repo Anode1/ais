@@ -9,8 +9,7 @@ keywords. Think of a private search box over your own stuff.
 OPEN IT
 -------
 
-  Windows   Run the Linux build under WSL and type  ais --serve  there; the
-            page opens in your Windows browser (README, Download)
+  Windows   Double-click  ais-web.bat  (or type  ais --serve  in a terminal)
   macOS     Double-click  ais-web.command
             (the first time: right-click it, choose Open, and confirm once)
   Linux     Double-click  ais-web.desktop , or type  ais --serve  in a terminal

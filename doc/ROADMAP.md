@@ -137,7 +137,7 @@ with the reason for each.
 
 ### 1. Publishing is not finished
 
-A tag publishes seven artifacts, each with a checksum, and uploads a signed
+A tag publishes eight artifacts, each with a checksum, and uploads a signed
 iOS build to TestFlight. Reaching the two stores is manual:
 
 - Upload `ais-v0.3.33-android.aab` to the Play Console as a new release on the
@@ -150,10 +150,10 @@ iOS build to TestFlight. Reaching the two stores is manual:
   `.SRCINFO`. `packaging/aur/PKGBUILD` here is the reference copy, not the one
   users install.
 
-### 2. Three things are barely verified
+### 2. Four things are barely verified
 
-One has been run once, by hand; the other two have never been run at all. Each
-needs hardware or time rather than code:
+One has been run once, by hand; the other three have never been run at all.
+Each needs hardware or time rather than code:
 
 - **A real arm64 phone on a real Wi-Fi network.** One pass exists: on 2026-08-24
   an Android phone on build 425 paired by QR with `ais --serve` on a laptop over
@@ -166,6 +166,10 @@ needs hardware or time rather than code:
   a week of use, clock skew between two machines, or an index that grew.
 - **Backgrounding mid-sync, and doze during the 300-second host wait.** The
   screen-awake flag is set on the host screen and the rest is unknown.
+- **The native Windows window and `ais-web.bat`.** `native-windows.yml` runs
+  the CLI and sync suites against `ais.exe` on a Windows runner; the window
+  only cross-compiles there, and the batch launcher is run nowhere. Neither
+  developer has a Windows machine or wine.
 
 ### 3. The desktop UI test cannot see
 

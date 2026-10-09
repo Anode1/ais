@@ -134,9 +134,10 @@ build_win() {
     cp c/ais.exe "$stage/ais.exe"
     cp win32/*.exe "$stage/"
     cp gui/ais-web.bat "$stage/"
-    # Leave no Windows object behind: the next plain `make` here would link
-    # them into the Linux binary and fail on every symbol.
-    make -C c clean >/dev/null; make -C win32 clean >/dev/null
+    # Leave no Windows object or exe behind: the next plain `make` here would
+    # link the objects into the Linux binary and fail on every symbol. The
+    # mingw CC is what makes clean name the .exe targets.
+    make -C c CC="$cc" clean >/dev/null; make -C win32 CC="$cc" clean >/dev/null
     [ -f COPYING ]       && cp COPYING       "$stage/"
     [ -f doc/about.txt ] && cp doc/about.txt "$stage/"
     [ -f doc/USING.txt ] && cp doc/USING.txt "$stage/"

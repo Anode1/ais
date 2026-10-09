@@ -15,7 +15,8 @@ covers what every other platform gets.
   `LDFLAGS=-static` folds in libgcc so the exe stands alone.
 - `c/win.h` / `c/win.c` are the shims: Winsock init, `poll` as `WSAPoll`,
   `flock` as `LockFileEx`, `rename` as `MoveFileEx`, `fsync` as `_commit`,
-  `realpath` as `_fullpath`, a temp file in the user's temp dir (MSVCRT's
+  `realpath` as `_fullpath` plus `GetLongPathNameA` with forward slashes, a
+  temp file in the user's temp dir (MSVCRT's
   `tmpfile()` opens one in the drive root, which a user cannot write), and the
   `SOCK_READ`/`SOCK_WRITE`/`SOCK_CLOSE` macros both platforms use, since a
   Winsock `SOCKET` is not a file descriptor. `sync.c` keeps its POSIX
@@ -23,13 +24,14 @@ covers what every other platform gets.
 - `serve.c`'s Host forks a child on POSIX; on Windows it is a thread with a
   fresh handle to the same index, serialised by the store's per-handle file lock.
 - `native-windows.yml` cross-compiles both exes on every push and PR touching
-  `c/` or `win32/`, then runs `tests/cli.sh` and `tests/sync.sh` against
+  `c/`, `win32/`, the two suites or itself, then runs `tests/cli.sh` and `tests/sync.sh` against
   `ais.exe` on a Windows runner. That job is the only place the Windows binary
   is ever executed: the developers' machines have no Windows and no wine. The
   engine's in-process tests (`c/tests.c`) fork and exec, so they are not built
   for Windows.
 - `release.yml`'s `windows` job runs `scripts/dist.sh win`, which cross-compiles
-  and packages the zip.
+  and packages the zip. The MCP bundle (`mcpb/`) still carries the Linux and
+  macOS binaries only; `ais.exe` has `--mcp` but is not listed in its manifest.
 
 ## Known limits on Windows
 
@@ -42,7 +44,14 @@ covers what every other platform gets.
   test is skipped.
 - A confirmation prompt (`--del` without `-y`, `-i`) asks at the console only
   when one of the standard streams is a console; a script with everything
-  redirected gets the "no terminal to confirm on" exit instead of a hang.
+  redirected gets the "no terminal to confirm on" exit instead of a hang. Under
+  mintty (Git Bash) the standard streams are pipes, so the prompt refuses there
+  too; cmd, PowerShell and Windows Terminal are consoles.
+- A rename over a file another handle has open fails (POSIX replaces it): a
+  put that lands while another process reads the same store is refused with
+  an error, not corrupted. Run one writer at a time beside `--serve`.
+- The store, `off` and `mts` are limited to 2 GiB: `long` is 32 bits there and
+  every offset goes through it.
 
 ## Sync: a file bundle beside the sockets
 
@@ -122,7 +131,7 @@ No `SIGNPATH_*` variable is set on the repository and there is no `sign-windows`
 job; the jobs below are still to be added.
 
 Unsigned Windows downloads trigger SmartScreen's "Windows protected your PC /
-Unknown publisher". The release workflow *would* sign the installer with
+Unknown publisher". The release workflow *would* sign the two exes in the zip with
 **SignPath.io**, which offers free code signing for OSS projects, a good fit for
 AIS (GPL, on GitHub). Signing is meant to be **optional and additive**: a
 `sign-windows` job would run only when SignPath is configured (the repository
@@ -136,7 +145,7 @@ then and nothing breaks.
 2. Install the **SignPath GitHub app** and connect this repository, so SignPath
    can fetch the build artifact to sign.
 3. In SignPath create a **project** (e.g. slug `ais`), an **artifact
-   configuration** that signs the `*-windows-x86_64-installer.exe` inside the
+   configuration** that signs `ais.exe` and the window's exe inside the
    `ais-windows-x86_64` artifact (Authenticode), and a **signing policy** (e.g.
    slug `release-signing`).
 4. Create a SignPath **API token** for a CI user.
@@ -156,18 +165,17 @@ Variables:
 
 ### How it would flow in release.yml
 
-1. `build-windows` builds the installer and uploads it as `ais-windows-x86_64`,
+1. The `windows` job uploads the unzipped exes as `ais-windows-x86_64`,
    exposing the artifact id.
 2. `sign-windows` submits that artifact to SignPath, downloads the **signed**
-   installer, refreshes its `.sha256`, and uploads `ais-windows-signed`.
-3. `publish` assembles the release, **overlaying the signed installer** over the
+   exes, re-zips them and refreshes the `.sha256`, and uploads
+   `ais-windows-signed`.
+3. `publish` assembles the release, **overlaying the signed zip** over the
    unsigned one, then attaches everything.
 
-Two notes. SmartScreen reputation still builds over time with a standard
-(OV-style) certificate, which is what SignPath's OSS certificate is; an EV
-certificate clears the warning immediately. And signing covers the **installer**
-here: to sign the bundled executable as well, so running it directly never warns,
-add it to the SignPath artifact configuration.
+SmartScreen reputation still builds over time with a standard (OV-style)
+certificate, which is what SignPath's OSS certificate is; an EV certificate
+clears the warning immediately.
 
 ## Packaging: the installer and winget
 
