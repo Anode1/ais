@@ -56,10 +56,11 @@ Steps 2 and 3 need the account holder's own sign-in (IOS_RELEASE.md step 1).
       uploads need 15.0 or later.
 - [x] Screenshots: `scripts/appstore-shots.sh` makes the four 6.9-inch
       frames (1320x2868) in `fastlane/metadata/ios/en-US/images/phoneScreenshots/`
-      from the Android captures with the status and gesture bars cropped off
-      (2026-10-08). Review may still read them as not-iOS; captures from the
-      TestFlight install on Marina's iPhone would replace them, same script.
-- [ ] 1.0: upload the four screenshots, attach build 526, Submit for Review.
+      from `screenshots/iphone_*.png`, Marina's captures on the 0.3.33 build
+      (2026-10-08): timeline, add, search, encrypt. The encrypt capture
+      predates the eye on the Repeat field; retake it on the next build.
+- [ ] 1.0: rename the version to the build's, upload the four screenshots,
+      attach the build, Submit for Review.
 - [x] Build 526 Ready to Submit in TestFlight (2026-10-08), auto-distributed
       to the `Family` group.
 - [x] Device family: iPhone only (`TARGETED_DEVICE_FAMILY = "1"`,

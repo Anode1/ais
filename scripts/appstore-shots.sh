@@ -1,9 +1,9 @@
 #!/bin/sh
-# appstore-shots.sh: the App Store screenshots, from the same captures as
-# play-shots.sh. App Store Connect wants one set at the 6.9-inch iPhone size,
-# 1320x2868, 24-bit, no alpha. The Android status bar (top 95 px of a capture)
-# and the gesture bar (bottom 60 px) are cropped off, so the frame shows the
-# app alone. Output: fastlane/metadata/ios/en-US/images/phoneScreenshots/N.png.
+# appstore-shots.sh: the App Store screenshots, framed like play-shots.sh's.
+# App Store Connect wants one set at the 6.9-inch iPhone size, 1320x2868,
+# 24-bit, no alpha. The captures are screenshots/iphone_*.png from an iPhone
+# 11 (828x1792); the status bar (top 88 px) is cropped off, so the frame shows
+# the app alone. Output: fastlane/metadata/ios/en-US/images/phoneScreenshots/N.png.
 # Needs ImageMagick and Roboto. The captions are the table at the end.
 set -e
 root=$(cd "$(dirname "$0")/.." && pwd)
@@ -14,8 +14,8 @@ brand='#1A0DAB'
 mkdir -p "$out"
 
 shot() { # shot N NAME TITLE SUBTITLE
-    convert "$cap/android-$2.png" -crop 1080x2245+0+95 +repage \
-        -resize 1140x2370 \
+    convert "$cap/iphone_$2.png" -depth 8 -crop 828x1704+0+88 +repage \
+        -resize 1140x2346 \
         \( +clone -alpha extract -fill black -colorize 100 -fill white \
            -draw 'roundrectangle 0,0 1139,2500 48,48' \) \
         -alpha off -compose CopyOpacity -composite "$out/.shot.png"
@@ -32,4 +32,4 @@ shot() { # shot N NAME TITLE SUBTITLE
 shot 1 timeline 'Everything you want to find again' 'Links, notes, passwords. No account, no cloud.'
 shot 2 add      'Save it under your own tags'       'The words you will think of later.'
 shot 3 search   'Find it by those tags'             'Any combination, typed or spoken.'
-shot 4 tags     'Every tag you have used'           'Plain text on your phone, yours to export.'
+shot 4 encrypt  'Keep a secret in it'               'Sealed with a passphrase only you know.'

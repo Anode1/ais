@@ -3443,7 +3443,7 @@ class _AddSheetState extends State<AddSheet> {
   final _keysFocus = FocusNode();
   bool _encrypt = false; // off by default
   bool _saving = false;  // true while the off-isolate encrypt runs
-  bool _ppShow = false;  // reveal toggle for the sealing passphrase (both fields)
+  bool _ppShow = false;  // the sealing passphrase revealed, both fields at once
   String? _error;        // in-sheet feedback so a save never fails silently
 
   @override
@@ -3477,88 +3477,111 @@ class _AddSheetState extends State<AddSheet> {
     Navigator.of(context).pop();
   }
 
+  // One toggle on each passphrase field, sharing one state: tapping either eye
+  // reveals both, and a field with no eye reads as a field that cannot be shown.
+  Widget _eye() => IconButton(
+        icon: Icon(_ppShow ? Icons.visibility_off : Icons.visibility),
+        tooltip: _ppShow ? 'Hide' : 'Show',
+        onPressed: () => setState(() => _ppShow = !_ppShow),
+      );
+
   @override
   Widget build(BuildContext context) => Padding(
         padding: EdgeInsets.only(
             bottom: MediaQuery.of(context).viewInsets.bottom + 16,
             left: 16, right: 16, top: 4),
-        // Scrolls: with the keyboard up and Encrypt on, the fixed Column
-        // overflowed the sheet.
-        child: SingleChildScrollView(
-          child: Column(
+        child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Text('Add to your memory',
                 style: Theme.of(context).textTheme.titleMedium),
             const SizedBox(height: 14),
-            // The thing being saved comes first, then how to find it again. The
-            // other order asked for the label before the thing it labels, which
-            // is not how anyone describes what they are doing.
-            TextField(
-              controller: _valCtrl,
-              autofocus: true,
-              minLines: 1,
-              maxLines: 3,
-              decoration: const InputDecoration(
-                labelText: 'What to remember',
-                hintText: 'a link, a note, a phone number…',
-                border: OutlineInputBorder(),
-              ),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _keysCtrl,
-              focusNode: _keysFocus,
-              decoration: const InputDecoration(
-                labelText: 'Tags (space-separated, optional)',
-                hintText: 'e.g. venice italy hotel',
-                border: OutlineInputBorder(),
-              ),
-            ),
-            TagSuggestRow(
-              controller: _keysCtrl,
-              focusNode: _keysFocus,
-              lookup: widget.suggest,
-            ),
-            const SizedBox(height: 4),
-            Row(children: [
-              Switch(
-                value: _encrypt,
-                onChanged: (b) => setState(() => _encrypt = b),
-              ),
-              const Text('Encrypt'),
-            ]),
-            if (_encrypt) ...[
-              TextField(
-                controller: _ppCtrl,
-                obscureText: !_ppShow,
-                decoration: InputDecoration(
-                  labelText: 'Passphrase',
-                  border: const OutlineInputBorder(),
-                  suffixIcon: IconButton(
-                    icon: Icon(_ppShow ? Icons.visibility_off : Icons.visibility),
-                    tooltip: _ppShow ? 'Hide' : 'Show',
-                    onPressed: () => setState(() => _ppShow = !_ppShow),
-                  ),
+            // The fields scroll; Save below them does not, so it stays above
+            // the keyboard however tall the note and the Encrypt fields get.
+            // With Save inside the scroll view a three-line note on a phone
+            // pushed it under the keyboard, out of sight until the user
+            // guessed to scroll.
+            Flexible(
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    // The thing being saved comes first, then how to find it
+                    // again. The other order asked for the label before the
+                    // thing it labels, which is not how anyone describes what
+                    // they are doing.
+                    TextField(
+                      controller: _valCtrl,
+                      autofocus: true,
+                      minLines: 1,
+                      maxLines: 3,
+                      decoration: const InputDecoration(
+                        labelText: 'What to remember',
+                        hintText: 'a link, a note, a phone number…',
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: _keysCtrl,
+                      focusNode: _keysFocus,
+                      decoration: const InputDecoration(
+                        labelText: 'Tags (space-separated, optional)',
+                        hintText: 'e.g. venice italy hotel',
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                    TagSuggestRow(
+                      controller: _keysCtrl,
+                      focusNode: _keysFocus,
+                      lookup: widget.suggest,
+                    ),
+                    const SizedBox(height: 4),
+                    Row(children: [
+                      Switch(
+                        value: _encrypt,
+                        onChanged: (b) => setState(() => _encrypt = b),
+                      ),
+                      const Text('Encrypt'),
+                    ]),
+                    if (_encrypt) ...[
+                      TextField(
+                        controller: _ppCtrl,
+                        obscureText: !_ppShow,
+                        decoration: InputDecoration(
+                          labelText: 'Passphrase',
+                          border: const OutlineInputBorder(),
+                          suffixIcon: _eye(),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      TextField(
+                        controller: _pp2Ctrl,
+                        obscureText: !_ppShow,
+                        decoration: InputDecoration(
+                          labelText: 'Repeat passphrase',
+                          border: const OutlineInputBorder(),
+                          suffixIcon: _eye(),
+                        ),
+                      ),
+                      Padding(
+                        padding: const EdgeInsets.only(top: 6, bottom: 4),
+                        child: Text('A lost passphrase cannot be recovered.',
+                            style: Theme.of(context)
+                                .textTheme
+                                .bodySmall
+                                ?.copyWith(
+                                    color: Theme.of(context)
+                                        .colorScheme
+                                        .onSurfaceVariant)),
+                      ),
+                    ],
+                  ],
                 ),
               ),
-              const SizedBox(height: 8),
-              TextField(
-                controller: _pp2Ctrl,
-                obscureText: !_ppShow,
-                decoration: const InputDecoration(
-                  labelText: 'Repeat passphrase',
-                  border: OutlineInputBorder(),
-                ),
-              ),
-              Padding(
-                padding: const EdgeInsets.only(top: 6, bottom: 4),
-                child: Text('A lost passphrase cannot be recovered.',
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: Theme.of(context).colorScheme.onSurfaceVariant)),
-              ),
-            ],
+            ),
             if (_error != null)
               Padding(
                 padding: const EdgeInsets.only(top: 2, bottom: 6),
@@ -3576,7 +3599,6 @@ class _AddSheetState extends State<AddSheet> {
               onPressed: _saving ? null : _save,
             ),
           ],
-        ),
         ),
       );
 }

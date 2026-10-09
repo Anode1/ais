@@ -123,4 +123,49 @@ void main() {
     expect(saved.length, 1);
     expect(find.text('Add to your memory'), findsNothing);
   });
+
+  testWidgets('both passphrase fields carry the reveal toggle; either reveals both',
+      (tester) async {
+    await openSheet(tester);
+    await tester.tap(find.byType(Switch));
+    await tester.pump();
+    final first = find.widgetWithText(TextField, 'Passphrase');
+    final repeat = find.widgetWithText(TextField, 'Repeat passphrase');
+    final eyes = find.descendant(
+        of: find.byType(TextField), matching: find.byIcon(Icons.visibility));
+    expect(eyes, findsNWidgets(2));
+    expect(find.descendant(of: repeat, matching: eyes), findsOneWidget);
+    await tester.tap(find.descendant(of: repeat, matching: eyes));
+    await tester.pump();
+    expect(tester.widget<TextField>(first).obscureText, isFalse);
+    expect(tester.widget<TextField>(repeat).obscureText, isFalse);
+    expect(find.byIcon(Icons.visibility_off), findsNWidgets(2));
+  });
+
+  // A phone-sized view with the keyboard taking most of it: the fields no
+  // longer fit, so they scroll, and Save must still sit above the keyboard
+  // without scrolling. Before the pinned footer it was the last thing inside
+  // the scroll view, hidden until the user guessed to scroll.
+  testWidgets('Save stays above the keyboard however tall the fields grow',
+      (tester) async {
+    tester.view.physicalSize = const Size(800, 1000);
+    tester.view.devicePixelRatio = 1;
+    tester.view.viewInsets = const FakeViewPadding(bottom: 620);
+    addTearDown(tester.view.reset);
+    await openSheet(tester);
+    await tester.tap(find.byType(Switch));
+    await tester.pumpAndSettle();
+    final save = find.widgetWithText(FilledButton, 'Save');
+    expect(save, findsOneWidget);
+    expect(tester.getRect(save).bottom, lessThanOrEqualTo(1000 - 620));
+    // the fields above it are what scroll
+    final scroll = tester.state<ScrollableState>(find.byType(Scrollable).first);
+    expect(scroll.position.maxScrollExtent, greaterThan(0));
+    await fill(tester, 'What to remember', 'x');
+    await fill(tester, 'Passphrase', 'pw');
+    await fill(tester, 'Repeat passphrase', 'pw');
+    await tester.tap(save);
+    await tester.pumpAndSettle();
+    expect(saved.length, 1);
+  });
 }
