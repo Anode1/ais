@@ -45,12 +45,16 @@ Steps 2 and 3 need the account holder's own sign-in (IOS_RELEASE.md step 1).
 - [x] App record made 2026-10-08: iOS, bundle `com.aisindex.ais`, SKU
       `ais-ios`. `AIS` was taken; the store name is **AIS Index**. The bundle
       id and the name under the icon stay `AIS`.
-- [x] 2026-10-08: category Productivity/Utilities, age rating 4+, content
-      rights none, free in all countries, App Privacy "no data collected"
-      published, privacy policy URL, 1.0 text (description from the fastlane
-      folder, keywords, support and marketing URLs, manual release),
-      TestFlight internal group `Family` with Marina as tester. Vas was not
-      invited: he has no working Apple ID; CI and the API key need none.
+- [x] 2026-10-08: category Productivity/Utilities, age rating 4+, free in
+      all countries, 1.0 text (description from the fastlane folder, keywords,
+      support and marketing URLs, manual release), TestFlight internal group
+      `Family` with Marina as tester. Vas was not invited: he has no working
+      Apple ID; CI and the API key need none. Content rights, the privacy
+      policy URL and App Privacy were entered that day but not saved: Add for
+      Review refused on all three on 2026-10-09. App Privacy is under App
+      Store > Trust & Safety (not General), each field has its own Save in
+      its Edit dialog, and the data-types answer needs Publish as well;
+      Content Rights is at the bottom of App Information.
 - [x] First build uploaded by CI from the v0.3.30 tag (0.3.30, build 526,
       2026-10-08). altool warned: deployment target iOS 13.0; from April 2027
       uploads need 15.0 or later.
@@ -68,7 +72,8 @@ Steps 2 and 3 need the account holder's own sign-in (IOS_RELEASE.md step 1).
       `app/flutter/assets/icon/ais.png`, corners filled with the artwork's
       blue (Apple masks it itself and refuses alpha). The listing shows the
       new icon once the next tagged build is attached.
-- [ ] Attach the first build with the AIS icon, Submit for Review.
+- [x] 2026-10-09: build 556 (v0.3.36, the first with the AIS icon) attached
+      and submitted, promotional text set, review contact Vas.
 - [x] Build 526 Ready to Submit in TestFlight (2026-10-08), auto-distributed
       to the `Family` group.
 - [x] Device family: iPhone only (`TARGETED_DEVICE_FAMILY = "1"`,
@@ -167,9 +172,8 @@ A sync between the iPhone (0.3.34) and an Android phone (0.3.29) succeeded on
 
 ## 9. App Store
 
-- [ ] Distribution tab: attach the build (screenshots, category and age
-      rating are done, section 4).
-- [ ] Review notes: no account to sign into, nothing reaches a server, sync
-      needs a second device and the reviewer can skip it.
-- [ ] Submit. A rejection comes with a guideline number and a reply box;
-      answer there first.
+- [x] Submitted 2026-10-09: build 556, review notes say no account, nothing
+      reaches a server, sync needs a second phone and the reviewer can skip
+      it, voice is on-device, encryption protects the user's own data.
+- [ ] Review verdict. A rejection comes with a guideline number and a reply
+      box; answer there first. Release is manual after approval.

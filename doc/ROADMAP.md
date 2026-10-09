@@ -151,8 +151,9 @@ iOS build to TestFlight. Reaching the stores is manual:
   to review on 2026-09-15, so every later build is another upload by hand. The
   listing text and graphics are `fastlane/metadata/android/en-US/`
   (`doc/public-text.txt` says what goes where).
-- Submit the iOS build for App Store review: the app is in TestFlight only
-  ([`dev/IOS_TODO.md`](dev/IOS_TODO.md) section 9).
+- The iOS build is in App Store review (submitted 2026-10-09, build 556,
+  [`dev/IOS_TODO.md`](dev/IOS_TODO.md) section 9); release it by hand after
+  approval, then put the App Store link in the README.
 - Publish the release to the official MCP Registry
   ([`dev/VERSIONING.md`](dev/VERSIONING.md), step 5).
 - The AUR package does not exist yet. The first step is claiming the name;
