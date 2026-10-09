@@ -120,14 +120,14 @@ Why keys beat search is in [`about.txt`](doc/about.txt), and [above](#why).
 curl -fsSL https://raw.githubusercontent.com/Anode1/ais/main/scripts/install.sh | sh
 ```
 
-It downloads the build for your OS and CPU, checks it against the published `.sha256`, and installs into `~/.local` (`PREFIX=/usr/local` to put it elsewhere). It compiles nothing and needs no root. Read [`scripts/install.sh`](scripts/install.sh) first if you would rather not pipe a script to a shell. The Mac build is Apple silicon only; on an Intel Mac the script says so, and the [quick start](#quick-start-from-source) below builds one in a minute.
+It downloads the build for your OS and CPU, checks it against the published `.sha256`, and installs into `~/.local` (`PREFIX=/usr/local` to put it elsewhere). It compiles nothing and needs no root. Read [`scripts/install.sh`](scripts/install.sh) first if you would rather not pipe a script to a shell. The Mac build is Apple silicon only; on an Intel Mac the script says so, and the [quick start](#quick-start-from-source) below builds one in a minute. Then `ais --serve` opens the GUI in your browser, and `ais` alone is the CLI.
 
 Or take the files by hand. The link below always points at the current release, never an old one:
 
 > **<https://github.com/Anode1/ais/releases/latest>**
 
 - **Android without Play**: the `.apk` on the release page, or add `https://github.com/Anode1/ais` in [Obtainium](https://github.com/ImranR98/Obtainium), which installs each release as it appears; when it asks which APK, the `…-arm64-v8a.apk` fits a modern phone.
-- **macOS / Linux**: unzip the `…-<os>-<arch>.zip`, then `./ais --serve` opens the GUI in your browser (or use the `ais` CLI; add it to your PATH to use it anywhere).
+- **macOS / Linux without the script**: unzip the `…-<os>-<arch>.zip` and run the `ais` inside it from there, or copy it onto your PATH.
 - **Windows**: unzip the `…-windows-x86_64.zip`, then double-click `ais-web.bat`, which opens the GUI in your browser (if nothing opens, go to `http://127.0.0.1:8765`); syncing a phone by QR code works as on Linux. The `ais.exe` beside it is the CLI, and the other `.exe` is a small native window for search and add. Nothing to install, no runtime.
 
 The desktop binaries are not code-signed, so the first run is flagged as an unrecognized download (macOS Gatekeeper "could not verify"). That is a new-and-unsigned notice, not a malware finding: on macOS run `xattr -dr com.apple.quarantine .` in the unzipped folder. A copy you build yourself is never flagged. The Android package **is** signed, with the project's own upload key.
