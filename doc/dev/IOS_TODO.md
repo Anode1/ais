@@ -54,11 +54,12 @@ Steps 2 and 3 need the account holder's own sign-in (IOS_RELEASE.md step 1).
 - [x] First build uploaded by CI from the v0.3.30 tag (0.3.30, build 526,
       2026-10-08). altool warned: deployment target iOS 13.0; from April 2027
       uploads need 15.0 or later.
-- [x] Screenshots: `scripts/appstore-shots.sh` makes the four 6.9-inch
-      frames (1320x2868) in `fastlane/metadata/ios/en-US/images/phoneScreenshots/`
+- [x] Screenshots: `scripts/appstore-shots.sh` resizes the four captures
+      to 1206x2622, unframed, for the "Dynamic Island (medium)" slot (the only
+      iPhone slot App Store Connect offers), into `fastlane/metadata/ios/en-US/images/phoneScreenshots/`
       from `screenshots/iphone_*.png`, Marina's captures on the 0.3.33 build
-      (2026-10-08): timeline, add, search, encrypt. The encrypt capture
-      predates the eye on the Repeat field; retake it on the next build.
+      (2026-10-08): timeline, add, search; encrypt retaken 2026-10-09 with
+      the eye on both passphrase fields.
 - [ ] 1.0: rename the version to the build's, upload the four screenshots,
       attach the build, Submit for Review.
 - [x] Build 526 Ready to Submit in TestFlight (2026-10-08), auto-distributed
@@ -138,6 +139,18 @@ Steps 2 and 3 need the account holder's own sign-in (IOS_RELEASE.md step 1).
       access" alert, which can use up the join's 10 s; the Join dialog comes
       back once with a note to tap Sync again. Confirm it does, and that the
       second attempt connects.
+- [ ] Speech (0.3.34, 2026-10-09): each phrase arrived appended to the earlier
+      ones, even with the field cleared between ("1 3", then "Movies", gave
+      "1 3 Movies"). iOS keeps one recognition session open until it is
+      stopped and reports the transcript since it began; the app never
+      stopped it. Fixed: a 3 s pause or 30 s in all ends the session, a tap on
+      the live mic stops it, and the icon shows which state it is in.
+      Unverified until the next TestFlight build.
+- [ ] Speech, both platforms (Android, 2026-10-09): the phrase landed in the
+      field and the search ran, but the body stayed on the timeline, so the
+      Recent list showed unfiltered. The speech path called `_recall()`, which
+      fills the results without switching the view; typing goes through
+      `_recallLive()`. Fixed: speech goes through `_recallLive()` too.
 
 ## 9. App Store
 

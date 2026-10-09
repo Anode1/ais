@@ -652,6 +652,14 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
   }
 
   Future<void> _listen() async {
+    // A tap while listening ends the session. iOS keeps one open until it is
+    // stopped and reports the transcript since it began, so without a stop the
+    // next phrase lands after the earlier ones, even in a field cleared between.
+    if (_speech.isListening) {
+      await _speech.stop();
+      if (mounted) setState(() {});
+      return;
+    }
     // First tap: init the recognizer, which triggers the runtime mic-permission
     // prompt on Android/iOS. _voice stays false on desktop or if denied.
     if (!_voice) {
@@ -659,7 +667,9 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
         // onError carries the case that matters most: a device with no OFFLINE
         // language model refuses an on-device session rather than falling back to
         // the cloud, and with no listener that arrives as silence.
-        _voice = await _speech.initialize(onError: (e) {
+        _voice = await _speech.initialize(
+            onStatus: (_) { if (mounted) setState(() {}); }, // repaint the mic
+            onError: (e) {
           if (!mounted) return;
           final noModel = e.errorMsg.contains('language') ||
               e.errorMsg.contains('no_match') ||
@@ -682,13 +692,19 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
     // ON-DEVICE ONLY. The package default is onDevice: false, which streams the
     // audio to the platform's cloud recogniser -- Google's, on Android. A device
     // with no local recogniser gets no dictation and is told why.
+    // A pause of 3 s, or 30 s in all, ends the session, so each tap transcribes
+    // one phrase and the final result (and the search) arrives without a stop.
     await _speech.listen(
       onResult: (r) {
-        _q.text = r.recognizedWords;
-        if (r.finalResult) _recall();
+        _q.text = r.recognizedWords;  // programmatic: onChanged does not fire
+        if (r.finalResult) _recallLive(); // and bring the Search tab forward
       },
-      listenOptions: SpeechListenOptions(onDevice: true),
+      listenOptions: SpeechListenOptions(
+          onDevice: true,
+          pauseFor: const Duration(seconds: 3),
+          listenFor: const Duration(seconds: 30)),
     );
+    if (mounted) setState(() {});
   }
 
   bool _isUrl(String v) => v.startsWith('http://') || v.startsWith('https://');
@@ -2197,8 +2213,15 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
                               suffixIcon:
                                   (_voice || Platform.isAndroid || Platform.isIOS)
                                       ? IconButton(
-                                          icon: const Icon(Icons.mic),
-                                          tooltip: 'Voice search',
+                                          icon: Icon(_speech.isListening
+                                              ? Icons.mic
+                                              : Icons.mic_none),
+                                          color: _speech.isListening
+                                              ? cs.primary
+                                              : null,
+                                          tooltip: _speech.isListening
+                                              ? 'Stop listening'
+                                              : 'Voice search',
                                           onPressed: _listen)
                                       : null,
                             ),
