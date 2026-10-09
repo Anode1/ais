@@ -819,7 +819,7 @@ static AIS_NOINLINE void tool_find(ais *a, const jdoc *d, int args, const struct
     /* ais_find prints to a stream, so it lands in a temporary one and is
      * escaped back out: opened BEFORE the reply, since a failure here still
      * has somewhere to go. */
-    tmp = tmpfile();
+    tmp = ais_tmpfile();
     if (tmp == NULL) {
         text_reply(q, "find: no temporary file", 1);
         return;

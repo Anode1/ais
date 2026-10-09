@@ -5,6 +5,7 @@
 #ifdef _WIN32
 
 #include <fcntl.h>      /* _O_BINARY, _fmode */
+#include <io.h>         /* _isatty, _setmode */
 #include <stdlib.h>     /* _fullpath */
 #include <string.h>
 #include "common.h"     /* AIS_PATH_MAX: the realpath buffer contract */
@@ -21,7 +22,10 @@ static void ais_force_binary_mode(void)
     /* The standard streams are already open when this runs, so _fmode does not
      * reach them: --dump and --export to stdout came out CRLF, and a dump
      * imported elsewhere would carry a CR in every value. */
-    _setmode(_fileno(stdin),  _O_BINARY);
+    /* stdin only when it is not the console: a binary console loses Ctrl-Z as
+     * end of input, so a value typed at cmd could only be ended by Ctrl-C. */
+    if (!_isatty(_fileno(stdin)))
+        _setmode(_fileno(stdin), _O_BINARY);
     _setmode(_fileno(stdout), _O_BINARY);
     _setmode(_fileno(stderr), _O_BINARY);
 }

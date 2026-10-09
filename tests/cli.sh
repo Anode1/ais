@@ -352,8 +352,8 @@ longkey=$(printf 'z%.0s' $(seq 1 200))
 aid=$("$AIS" -f "$AT" -v "$big" only)
 "$AIS" -f "$AT" --update "$aid" alpha "$longkey" >/dev/null 2>&1   # 'alpha' fits, the pair does not
 okeq    "atomic: the keys field is unchanged when the rewrite cannot fit" "only" "$(cut -d'|' -f3 "$AT/store")"
-fi
 okempty "atomic: no phantom posting for the rejected keys"  "$(find "$AT/idx" -name 'alpha' -o -name "$longkey")"
+fi
 rm -rf "$AT"
 
 # 17f. --set refuses what breaks value-identity: a deleted id, and a value another

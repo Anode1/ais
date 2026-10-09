@@ -219,7 +219,7 @@ static int feed_take_blob(ais *a, const char *rel, long want, FILE *in,
         return -1;
     mkdir(dirp, 0777);      /* win.h maps this to _mkdir */
     if (snprintf(tmp, sizeof tmp, "%s/blobs/.incoming-%ld.tmp", a->dir,
-                 (long)getpid()) >= (int)sizeof tmp)
+                 AIS_WRITER_TAG()) >= (int)sizeof tmp)
         return -1;
     out = fopen(tmp, "wb");
     while (left > 0) {                          /* consume the bytes either way, so
@@ -415,7 +415,7 @@ static long import_run(ais *a, FILE *in, ais_blobmap *map, long *skipped)
     struct abatch padd[AIS_MERGE_BATCH];  /* A| lines likewise (abatch_flush) */
     int  nadd = 0;
     long lost = 0;                        /* spooled lines that could not be replayed */
-    FILE *spool = tmpfile();              /* NULL: no batching, a put per line */
+    FILE *spool = ais_tmpfile();          /* NULL: no batching, a put per line */
     int  hasedits = (edits_active(a) > 0);   /* one stat, not a file open per line */
     struct edits_mem edmem;                  /* the edit log, loaded on first need */
     int  edstate = 0;                        /* 0 not loaded, 1 loaded, -1 failed */
@@ -1277,7 +1277,7 @@ void feed_encrypt(ais *a, const char *keys, int from_stdin)
         vn = secret_prompt("secret value: ", 0, val, sizeof val);
     }
     if (vn < 0)
-        die("-e: no value (or crypto not built; run crypto/vendor-monocypher.sh)");
+        die("-e: no value: no terminal to prompt on (pass -v, or set AIS_TTY=FILE), or crypto not built");
 
     if (secret_prompt("passphrase: ", 1, pw, sizeof pw) < 0) {
         secret_wipe(val, sizeof val);

@@ -119,7 +119,11 @@ static int find_local(char *out, size_t outsz)
     for (;;) {
         char *slash;
         int n;
+#ifdef _WIN32
+        if (have_home && _stricmp(dir, home) == 0)   /* getcwd and the shell can differ in case */
+#else
         if (have_home && strcmp(dir, home) == 0)
+#endif
             return 0;                 /* at home: stop (don't treat ~/.ais as local) */
         n = snprintf(cand, sizeof(cand), "%s/.ais", dir);
         if (n < 0 || (size_t)n >= sizeof(cand))

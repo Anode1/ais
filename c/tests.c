@@ -6555,10 +6555,9 @@ static void test_sync_url(void)
           && strcmp(host, "192.168.1.5") == 0 && port == AIS_SYNC_PORT, "url: bare host -> default port");
     CHECK(sync_parse_url("https://10.0.0.2:80/sync/x", host, sizeof host, &port) == 0
           && strcmp(host, "10.0.0.2") == 0 && port == 80, "url: https + path dropped");
-    CHECK(sync_parse_url("h:99999", host, sizeof host, &port) == 0 && port == AIS_SYNC_PORT,
-          "url: out-of-range port -> default");
-    CHECK(sync_parse_url("h:0", host, sizeof host, &port) == 0 && port == AIS_SYNC_PORT,
-          "url: zero port -> default");
+    CHECK(sync_parse_url("h:99999", host, sizeof host, &port) == -1,
+          "url: out-of-range port rejected");
+    CHECK(sync_parse_url("h:0", host, sizeof host, &port) == -1, "url: zero port rejected");
     CHECK(sync_parse_url("http://", host, sizeof host, &port) == -1, "url: empty host rejected");
 }
 

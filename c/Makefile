@@ -104,6 +104,15 @@ static   : LDFLAGS  += -static
 
 all release debug pedantic: $(BIN)
 
+# The define reaches main.o only through a rebuild, so version.stamp holds the
+# string, is rewritten only when it changes, and main.o depends on it. Without
+# it a commit or a tag followed by a plain make kept the previous string.
+version.stamp: FORCE
+	@printf '%s\n' '$(AIS_VERSION)' | cmp -s - $@ 2>/dev/null || printf '%s\n' '$(AIS_VERSION)' > $@
+main.o: version.stamp
+.PHONY: FORCE
+FORCE:
+
 # static: a fully self-contained binary. This target is for Linux; the native
 # Windows build links -static too (via MinGW, see native-windows.yml). Blocked on
 # macOS, which has no static libSystem.
@@ -179,6 +188,6 @@ wasm:
 	@echo "built $(WASM_OUT) (+ ais.wasm)"
 
 clean:
-	-rm -f $(BIN) $(TESTBIN) $(TESTBIN)_asan $(TESTBIN)_ubsan $(OBJS) $(OBJS:.o=.d) libais.a libais.so
+	-rm -f $(BIN) $(TESTBIN) $(TESTBIN)_asan $(TESTBIN)_ubsan $(OBJS) $(OBJS:.o=.d) libais.a libais.so version.stamp
 
 -include $(OBJS:.o=.d)

@@ -18,6 +18,7 @@
 #include "doc.h"       /* ais_put_value: a multi-line note becomes a blob */
 #include "feed.h"      /* feed_import_stream, feed_import_report */
 #include "import.h"
+#include "win.h"      /* ais_tmpfile */
 #include "key.h"       /* key_encode: keys carry the engine's own normalization */
 #include "log.h"
 
@@ -247,7 +248,7 @@ long import_bookmarks(ais *a, const char *path)
     in = fopen(path, "r");
     if (in == NULL)
         die("--import-bookmarks: cannot open '%s'", path);
-    sp = tmpfile();
+    sp = ais_tmpfile();
     if (sp == NULL) {
         fclose(in);
         die("--import-bookmarks: cannot make a temp file");
@@ -514,7 +515,7 @@ long import_keep(ais *a, const char *dir)
     d = opendir(dir);
     if (d == NULL)
         die("--import-keep: cannot read '%s'", dir);
-    sp = tmpfile();
+    sp = ais_tmpfile();
     if (sp == NULL) {
         closedir(d);
         die("--import-keep: cannot make a temp file");

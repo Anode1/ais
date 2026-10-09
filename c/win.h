@@ -3,7 +3,7 @@
  * the three socket macros remain. Safe to include anywhere. Each shim is only
  * the subset AIS actually uses, not a general implementation:
  *   - Winsock init (ais_net_init) for serve.c and sync.c
- *   - poll(2)   -> WSAPoll            (sync.c's accept timeout)
+ *   - poll(2)   -> WSAPoll            (sync.c's accept timeout; connect uses select)
  *   - flock(2)  -> LockFileEx         (store.c index lock)
  *   - mkdir(p,mode) -> _mkdir(p)      (mode ignored on Windows)
  *   - rename(2) -> MoveFileEx         (POSIX replace-existing; MSVCRT rename fails)
@@ -11,7 +11,14 @@
  *   - fsync -> _commit                (sync.c's atomic bundle write)
  *   - realpath -> _fullpath           (main.c / mcp.c: is -f the home index?)
  *   - ais_tmpfile: a temp FILE in the user's temp dir, deleted on close.
- *     MSVCRT's tmpfile() opens it in the drive root, which a user cannot write.
+ *     MSVCRT's tmpfile() opens it in the drive root, which a user cannot write,
+ *     so every temp FILE in the engine goes through it (tmpfile() on POSIX).
+ *   - AIS_WRITER_TAG: a number two concurrent writers of one index never
+ *     share, for temp names: the thread id (the Host is a thread) on Windows,
+ *     the pid (it is a child) on POSIX.
+ *   - AIS_SO_REUSE: SO_EXCLUSIVEADDRUSE. Winsock's SO_REUSEADDR lets a second
+ *     socket bind a port another process is listening on, so "port busy"
+ *     would never be reported.
  * The MinGW build is cross-compiled from Linux; see native-windows.yml. */
 #ifndef AIS_WIN_H
 #define AIS_WIN_H
@@ -76,6 +83,10 @@ char *ais_realpath(const char *path, char *resolved);
 /* A read/write temp FILE that disappears when closed. */
 FILE *ais_tmpfile(void);
 
+#define AIS_WRITER_TAG() ((long)GetCurrentThreadId())
+#define AIS_SO_REUSE SO_EXCLUSIVEADDRUSE
+#define SOCK_INTR()  (WSAGetLastError() == WSAEINTR)
+
 /* Initialise Winsock once (WSAStartup); no-op after the first call. */
 void ais_net_init(void);
 
@@ -95,6 +106,10 @@ int ais_console_present(void);
 #define SOCK_READ(fd, b, n)  read((fd), (b), (n))
 #define SOCK_WRITE(fd, b, n) write((fd), (b), (n))
 #define SOCK_CLOSE(fd)       close((fd))
+#define SOCK_INTR()          (errno == EINTR)
+#define ais_tmpfile()        tmpfile()
+#define AIS_WRITER_TAG()     ((long)getpid())
+#define AIS_SO_REUSE         SO_REUSEADDR
 
 #endif /* _WIN32 */
 #endif /* AIS_WIN_H */

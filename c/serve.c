@@ -36,9 +36,9 @@
 #include "win.h"          /* Winsock + socket shims on native Windows; empty on POSIX */
 #include "serve.h"
 
-/* LAN sync (the GUI's Host/Join, mirroring the mobile Sync feature): available only
- * where the sync transport is -- POSIX plus the vendored crypto module, the same
- * guard sync.c uses. Elsewhere the routes report that the build lacks it. */
+/* LAN sync (the GUI's Host/Join, mirroring the mobile Sync feature): available
+ * where the sync transport is, which is wherever the vendored crypto module is,
+ * the same guard sync.c uses. Elsewhere the routes report that the build lacks it. */
 #if defined(__has_include) && __has_include("crypto/monocypher.h")
 #  define SERVE_HAVE_SYNC 1
 #  ifdef _WIN32
@@ -1215,9 +1215,12 @@ static int serve_asset(int fd, const char *name)
 #ifdef _WIN32
 /* The Host is a thread with a FRESH handle to the same dir. The store's
  * LockFileEx lock is per OS handle, so it serialises that merge against this
- * loop's writes as separate processes would, and the engine keeps no mutable
- * file-scope state the two could race on (the one static is locate.c's home
- * override, set once at startup). The outcome codes are the POSIX child's. */
+ * loop's writes as separate processes would. The engine's file-scope state
+ * (locate.c's home override, secret.c's prompt buffers, this file's route
+ * buffers, mcp.c's) is reached by one side only: the Host path touches none
+ * of it. What the two DID share was the incoming-blob temp name, built from
+ * the pid; it now carries the thread id (AIS_WRITER_TAG). The outcome codes
+ * are the POSIX child's. */
 static HANDLE sync_thread = NULL;               /* live Host thread, or NULL (one at a time) */
 static volatile LONG sync_last = -2;            /* last Host outcome: 0 served, 1 half, else not */
 static struct { char dir[AIS_PATH_MAX]; char token[33]; int port; } sync_args;
@@ -1667,7 +1670,7 @@ static void handle(ais *a, int fd)
          * /api/get emits, straight from ais_find (case-insensitive, as
          * --find). Captured via a tmpfile, as /api/stats is, because ais_find
          * writes to a FILE; bounded by the result, not the store. */
-        FILE *fp = tmpfile();
+        FILE *fp = ais_tmpfile();
         send_head(fd, "text/plain");
         if (fp != NULL) {
             char fb[8192];
@@ -1800,7 +1803,7 @@ static void handle(ais *a, int fd)
     } else if (strcmp(method, "GET") == 0 && strcmp(path, "/api/stats") == 0) {
         /* The same three lines as `ais --stats`. The GUI needs the deleted count to
          * say what "clean up" would reclaim. */
-        FILE *sp = tmpfile();
+        FILE *sp = ais_tmpfile();
         send_head(fd, "text/plain");
         if (sp != NULL) {
             char sbuf[512];
@@ -2083,7 +2086,7 @@ int ais_serve(ais *a, int port)
     sfd = socket(AF_INET, SOCK_STREAM, 0);
     if (sfd < 0)
         return -1;
-    setsockopt(sfd, SOL_SOCKET, SO_REUSEADDR, (const char *)&yes, sizeof(yes));
+    setsockopt(sfd, SOL_SOCKET, AIS_SO_REUSE, (const char *)&yes, sizeof(yes));
 
     memset(&addr, 0, sizeof(addr));
     addr.sin_family = AF_INET;

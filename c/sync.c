@@ -75,7 +75,9 @@ int sync_parse_url(const char *url, char *host, size_t hostsz, int *port)
     memcpy(host, p, plen);
     host[plen] = '\0';
     colon = strrchr(host, ':');
-    if (colon) { *colon = '\0'; *port = atoi(colon + 1); if (*port <= 0 || *port > 65535) *port = AIS_SYNC_PORT; }
+    /* A port outside 1..65535 is a typo (the digits were read off another
+     * screen), not a request for the default: say so, as --serve does. */
+    if (colon) { *colon = '\0'; *port = atoi(colon + 1); if (*port <= 0 || *port > 65535) return -1; }
     return (host[0] == '\0') ? -1 : 0;
 }
 
@@ -210,7 +212,7 @@ static int import_one_blob(const char *dir, const char *relpath,
         return -1;
     if (mkdir(blobsdir, 0777) != 0 && errno != EEXIST)
         return -1;
-    if (snprintf(tmp, sizeof tmp, "%s/.incoming-%ld.tmp", blobsdir, (long)getpid())
+    if (snprintf(tmp, sizeof tmp, "%s/.incoming-%ld.tmp", blobsdir, AIS_WRITER_TAG())
             >= (int)sizeof tmp)
         return -1;
     f = fopen(tmp, "wb");
@@ -348,7 +350,7 @@ static int write_all(int fd, const void *buf, size_t n) {
     const char *p = (const char *)buf;
     while (n > 0) {
         ssize_t w = SOCK_WRITE(fd, p, n);
-        if (w < 0) { if (errno == EINTR) continue; return -1; }
+        if (w < 0) { if (SOCK_INTR()) continue; return -1; }
         if (w == 0) return -1;
         p += w; n -= (size_t)w;
     }
@@ -359,7 +361,7 @@ static int read_all(int fd, void *buf, size_t n) {
     char *p = (char *)buf;
     while (n > 0) {
         ssize_t r = SOCK_READ(fd, p, n);
-        if (r < 0) { if (errno == EINTR) continue; return -1; }
+        if (r < 0) { if (SOCK_INTR()) continue; return -1; }
         if (r == 0) return -1;                  /* EOF before n bytes */
         p += r; n -= (size_t)r;
     }
@@ -406,7 +408,9 @@ static int set_blocking(int fd, int blocking) {
  * Join on a phone spun for that long before reporting anything. The socket is
  * blocking again on return, so the rest of the transport is unchanged. */
 static int connect_bounded(int fd, const struct sockaddr *sa, socklen_t len, int ms) {
+#ifndef _WIN32
     struct pollfd pfd;
+#endif
     int err = 0;
     socklen_t elen = sizeof err;
 
@@ -417,8 +421,23 @@ static int connect_bounded(int fd, const struct sockaddr *sa, socklen_t len, int
 #else
     if (errno != EINPROGRESS) return -1;
 #endif
+#ifdef _WIN32
+    /* select, not WSAPoll: before Windows 10 2004 WSAPoll reports nothing for a
+     * refused non-blocking connect, and the attempt would wait out MS instead
+     * of retrying in 100 ms. Winsock's select has always flagged it in exceptfds. */
+    {
+        fd_set wr, ex;
+        struct timeval tv;
+        FD_ZERO(&wr); FD_ZERO(&ex);
+        FD_SET((SOCKET)fd, &wr); FD_SET((SOCKET)fd, &ex);
+        tv.tv_sec = ms / 1000; tv.tv_usec = (ms % 1000) * 1000;
+        if (select(0, NULL, &wr, &ex, &tv) <= 0) return -1;     /* nobody answered in time */
+        if (FD_ISSET((SOCKET)fd, &ex)) return -1;               /* refused, unreachable */
+    }
+#else
     pfd.fd = fd; pfd.events = POLLOUT; pfd.revents = 0;
     if (poll(&pfd, 1, ms) <= 0) return -1;          /* nobody answered in time */
+#endif
     if (getsockopt(fd, SOL_SOCKET, SO_ERROR, (char *)&err, &elen) != 0 || err != 0)
         return -1;                                  /* refused, unreachable, reset */
     return set_blocking(fd, 1);
@@ -437,7 +456,7 @@ int sync_serve(ais *a, int port, const char *token, int timeout_s, int bidir) {
     net_init();
     srv = socket(AF_INET, SOCK_STREAM, 0);
     if (srv < 0) return -1;
-    setsockopt(srv, SOL_SOCKET, SO_REUSEADDR, (const char *)&one, sizeof one);
+    setsockopt(srv, SOL_SOCKET, AIS_SO_REUSE, (const char *)&one, sizeof one);
     memset(&addr, 0, sizeof addr);
     addr.sin_family = AF_INET;
     addr.sin_addr.s_addr = htonl(INADDR_ANY);   /* LAN, not 127.0.0.1 -- a peer must reach it */
@@ -663,6 +682,24 @@ static int sync_local_ip(char *buf, size_t n) {
     return (inet_ntop(AF_INET, &me.sin_addr, buf, n) == NULL) ? -1 : 0;
 }
 
+/* 1 when PORT can be bound now. A probe socket, bound and closed unconnected,
+ * leaves no TIME_WAIT behind, so the listener that follows binds the same port. */
+static int port_free(int port) {
+    struct sockaddr_in addr;
+    int s, ok;
+
+    net_init();
+    s = socket(AF_INET, SOCK_STREAM, 0);
+    if (s < 0) return 0;
+    memset(&addr, 0, sizeof addr);
+    addr.sin_family = AF_INET;
+    addr.sin_addr.s_addr = htonl(INADDR_ANY);
+    addr.sin_port = htons((unsigned short)port);
+    ok = bind(s, (struct sockaddr *)&addr, sizeof addr) == 0;
+    SOCK_CLOSE(s);
+    return ok;
+}
+
 int sync_serve_lan(ais *a, int port, int timeout_s, int bidir) {
     char token[33], ip[64];
 
@@ -675,6 +712,13 @@ int sync_serve_lan(ais *a, int port, int timeout_s, int bidir) {
     }
     if (sync_local_ip(ip, sizeof ip) != 0)
         snprintf(ip, sizeof ip, "<this-device-ip>");
+    if (!port_free(port)) {
+        /* Before the banner: a token printed for a port another host holds
+         * sends the other device to that host, which refuses it. */
+        fprintf(stderr, "sync: port %d is in use (another host? pick another port)\n", port);
+        aisc_wipe(token, sizeof token);
+        return -1;
+    }
 
     printf("AIS LAN sync: serving one peer for up to %ds. On the other device run:\n\n", timeout_s);
     printf("    ais %s http://%s:%d --token %s\n\n",
@@ -1201,13 +1245,13 @@ int sync_pull(ais *a, const char *host, int port, const char *token, int timeout
 int sync_serve_lan(ais *a, int port, int timeout_s, int bidir)
 {
     (void)a; (void)port; (void)timeout_s; (void)bidir;
-    fprintf(stderr, "sync: this build lacks LAN sync support (needs POSIX + the crypto module)\n");
+    fprintf(stderr, "sync: this build lacks LAN sync support (needs the crypto module)\n");
     return -1;
 }
 int sync_pull_url(ais *a, const char *url, const char *token, int timeout_s, int bidir)
 {
     (void)a; (void)url; (void)token; (void)timeout_s; (void)bidir;
-    fprintf(stderr, "sync: this build lacks LAN sync support (needs POSIX + the crypto module)\n");
+    fprintf(stderr, "sync: this build lacks LAN sync support (needs the crypto module)\n");
     return -1;
 }
 int sync_export_framed(ais *a, const uint8_t nonce[16], uint64_t seq, uint8_t **out, size_t *out_len)

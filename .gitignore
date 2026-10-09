@@ -19,6 +19,7 @@ b~*.ad[bs]
 /c/ais_ut_ubsan
 /c/libais.a
 /c/libais.so
+/c/version.stamp
 
 # ---- native Win32 GUI (win32/): cross-compiled exe (win32/*.res.o is *.o above)
 /win32/*.exe

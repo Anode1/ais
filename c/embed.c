@@ -12,6 +12,7 @@
 
 #include "ais.h"
 #include "common.h"
+#include "win.h"      /* ais_tmpfile */
 #include "doc.h"
 #include "embed.h"
 #include "stats.h"   /* ais_count_live: the record count a front-end shows after a sync */
@@ -400,7 +401,7 @@ char *ais_embed_find(void *handle, const char *needle)
 
     if (a == NULL || needle == NULL)
         return NULL;
-    tmp = tmpfile();
+    tmp = ais_tmpfile();
     if (tmp == NULL)
         return NULL;
     if (ais_find(a, needle, tmp) < 0) { fclose(tmp); return NULL; }
