@@ -56,8 +56,11 @@ Steps 2 and 3 need the account holder's own sign-in (IOS_RELEASE.md step 1).
       its Edit dialog, and the data-types answer needs Publish as well;
       Content Rights is at the bottom of App Information.
 - [x] First build uploaded by CI from the v0.3.30 tag (0.3.30, build 526,
-      2026-10-08). altool warned: deployment target iOS 13.0; from April 2027
-      uploads need 15.0 or later.
+      2026-10-08). altool warned (ITMS-90068): deployment target iOS 13.0;
+      from April 2027 uploads need 15.0 or later. Raised to 15.0 on
+      2026-10-09 (Podfile, ais_engine.podspec, the three
+      IPHONEOS_DEPLOYMENT_TARGET lines in project.pbxproj); iOS 15 runs on
+      every phone iOS 13 did, so no device is lost.
 - [x] Screenshots: `scripts/appstore-shots.sh` resizes the four captures
       to 1206x2622, unframed, for the "Dynamic Island (medium)" slot (the only
       iPhone slot App Store Connect offers), into `fastlane/metadata/ios/en-US/images/phoneScreenshots/`

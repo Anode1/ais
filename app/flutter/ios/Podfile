@@ -3,7 +3,7 @@
 # ../../../ais_engine.podspec builds c/*.c into the app, which is what makes
 # DynamicLibrary.process() in lib/ais_ffi.dart find anything. Without that line
 # the app builds, launches, and fails on the first engine call.
-platform :ios, '13.0'
+platform :ios, '15.0'
 
 # CocoaPods analytics sends network stats synchronously, delaying the build.
 ENV['COCOAPODS_DISABLE_STATS'] = 'true'

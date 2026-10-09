@@ -27,7 +27,7 @@ Pod::Spec.new do |s|
   s.license  = { :type => 'GPL-2.0-or-later OR MIT', :file => 'COPYING' }
   s.author   = { 'AIS' => 'https://github.com/Anode1/ais' }
   s.source   = { :path => '.' }
-  s.platform = :ios, '13.0'
+  s.platform = :ios, '15.0'
 
   s.requires_arc = false        # C, not Objective-C
 
