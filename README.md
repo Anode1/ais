@@ -120,7 +120,7 @@ Why keys beat search is in [`about.txt`](doc/about.txt), and [above](#why).
 curl -fsSL https://raw.githubusercontent.com/Anode1/ais/main/scripts/install.sh | sh
 ```
 
-It downloads the build for your OS and CPU, checks it against the published `.sha256`, and installs into `~/.local` (`PREFIX=/usr/local` to put it elsewhere). It compiles nothing, needs no root, and edits no shell profile: if `~/.local/bin` is not on your PATH, it prints the one line to add. Read [`scripts/install.sh`](scripts/install.sh) first if you would rather not pipe a script to a shell. The Mac build is Apple silicon only; on an Intel Mac the script says so, and the [quick start](#quick-start-from-source) below builds one in a minute. Then `ais --serve` opens the GUI in your browser, and `ais` alone is the CLI.
+It downloads the build for your OS and CPU, checks it against the published `.sha256`, and installs into `~/.local` (`PREFIX=/usr/local` to put it elsewhere). It compiles nothing, needs no root, and edits no shell profile: if `~/.local/bin` is not on your PATH, it prints the one line to add. Read [`scripts/install.sh`](scripts/install.sh) first if you would rather not pipe a script to a shell. Then `ais --serve` opens the GUI in your browser, and `ais` alone is the CLI.
 
 Or take the files by hand. The link below always points at the current release:
 
