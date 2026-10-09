@@ -114,13 +114,13 @@ Why keys beat search is in [`about.txt`](doc/about.txt), and [above](#why).
 
 **iPhone**: the same app, built for iOS and in TestFlight; the App Store link lands here once the listing is approved.
 
-On Linux or macOS, one line puts the current release on your PATH:
+**macOS and Linux**: one line installs the current release, and the same line updates it later:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/Anode1/ais/main/scripts/install.sh | sh
 ```
 
-It downloads the build for your OS and CPU, checks it against the published `.sha256`, and installs into `~/.local` (`PREFIX=/usr/local` to put it elsewhere). It compiles nothing and needs no root. Read [`scripts/install.sh`](scripts/install.sh) first if you would rather not pipe a script to a shell.
+It downloads the build for your OS and CPU, checks it against the published `.sha256`, and installs into `~/.local` (`PREFIX=/usr/local` to put it elsewhere). It compiles nothing and needs no root. Read [`scripts/install.sh`](scripts/install.sh) first if you would rather not pipe a script to a shell. The Mac build is Apple silicon only; on an Intel Mac the script says so, and the [quick start](#quick-start-from-source) below builds one in a minute.
 
 Or take the files by hand. The link below always points at the current release, never an old one:
 
