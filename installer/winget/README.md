@@ -1,59 +1,50 @@
 # winget manifests
 
-> **STATUS: stale, and not submittable as they stand.** The only version
-> directory here is `0.2.3`, twelve releases behind, and its `InstallerUrl`
-> points at `v0.2.3/...-windows-x86_64-installer.exe`, which no longer exists --
-> no Windows artifact was published between then and v0.3.31, and the release
-> since is a zip, `ais-<tag>-windows-x86_64.zip`, not an installer (see
-> `doc/dev/WINDOWS.md`). Submitting these would give winget a 404. They are kept
-> as the TEMPLATE for a future submission: a winget manifest can point at a zip
-> (`InstallerType: zip` with a `NestedInstallerFiles` entry for `ais.exe`), so
-> copy the directory to the new version and update all three files, per the
-> instructions below.
+The submission payload for the Windows Package Manager community repository
+([microsoft/winget-pkgs](https://github.com/microsoft/winget-pkgs)), kept here
+per version, so users can `winget install Anode1.AIS`. The build does not use
+these files.
 
-Source for submitting AIS to the Windows Package Manager community repo
-([microsoft/winget-pkgs](https://github.com/microsoft/winget-pkgs)), so users can
-`winget install Anode1.AIS`. These files are NOT used by the build, they are the
-submission payload, kept here per version.
+The package is the release zip, `ais-v<x.y.z>-windows-x86_64.zip`, declared as
+`InstallerType: zip` with `NestedInstallerType: portable`: winget unpacks the
+whole zip under its packages folder and puts `ais` and `ais-gui` on the PATH
+through the two `PortableCommandAlias` entries. `ais-web.bat`, `USING.txt` and
+the man page land in the same folder. No installer runs, so there is no
+product code and nothing to uninstall but the folder, which `winget uninstall`
+removes.
 
-`PackageIdentifier` is `Anode1.AIS` (Publisher.Package). Change it if you want a
-different publisher token (it must match across all three files and the repo path).
+`0.2.3/` is the Inno Setup installer manifest from before the Windows build was
+dropped and recovered; it is kept as history only. Its `InstallerUrl` is dead.
 
-## Validate locally (on Windows, with winget installed)
+## Regenerate for a new version
+
+Copy the newest directory to `<x.y.z>/` and change, in all three files,
+`PackageVersion`; in the installer file, the two `RelativeFilePath` entries (the
+folder inside the zip carries the version), `ReleaseDate`, `ReleaseNotesUrl`,
+`InstallerUrl` and `InstallerSha256` (the value in the release's `.zip.sha256`
+asset, uppercased); in the locale file, `ReleaseNotesUrl`.
+
+## Validate (on Windows, with winget installed)
 
 ```
-winget validate --manifest installer\winget\0.2.3
-winget install  --manifest installer\winget\0.2.3   # installs from these files
+winget validate --manifest installer\winget\<x.y.z>
+winget install  --manifest installer\winget\<x.y.z>
 ```
 
 ## Submit
 
-Easiest is `wingetcreate` (it fills the hash and opens the PR for you):
+A pull request to microsoft/winget-pkgs that adds the three files at
+`manifests/a/Anode1/AIS/<x.y.z>/`. `wingetcreate` does the fork, the branch
+and the PR:
 
 ```
-wingetcreate update Anode1.AIS --version 0.2.3 ^
-  --urls https://github.com/Anode1/ais/releases/download/v0.2.3/ais-v0.2.3-windows-x86_64-installer.exe ^
-  --submit
+wingetcreate update Anode1.AIS --version <x.y.z> --urls <InstallerUrl> --submit
 ```
 
-Or by hand: copy the three YAML files into a fork of winget-pkgs at
-`manifests/a/Anode1/AIS/0.2.3/` and open a PR. Microsoft's CI validates the
-installer download, the SHA256, and silent-install, then merges.
+The first version of a package goes through `wingetcreate new` or a PR by hand.
+Microsoft's CI downloads the zip, checks the hash and the nested paths, and a
+moderator merges. Later versions of the same package are checked by the
+automation alone.
 
-(Reputation note: winget's own install flow is a less alarming path than a raw
-browser download, but a SmartScreen prompt can still appear until the installer
-is code-signed, see the SignPath track on the roadmap.)
-
-## Regenerate for a new version
-
-For each release, copy `0.2.3/` to the new `<x.y.z>/` and update:
-
-- `PackageVersion` (all three files) -> the new version
-- `InstallerUrl` -> `.../releases/download/v<x.y.z>/ais-v<x.y.z>-windows-x86_64-installer.exe`
-- `InstallerSha256` -> the value in that release's
-  `ais-v<x.y.z>-windows-x86_64-installer.exe.sha256` asset, uppercased
-- `ReleaseDate` -> the release date
-
-The `ProductCode` (`{BE2750EB-72A2-4016-AFD0-98818CBB51E7}_is1`) is the Inno
-`AppId` + `_is1`; it stays constant across versions (don't change the AppId in
-`ais.iss`, or winget upgrade detection breaks).
+The binaries are not code-signed, so SmartScreen can still warn on the first
+run of `ais-gui.exe`; the roadmap's SignPath item covers that.

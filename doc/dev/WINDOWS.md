@@ -164,7 +164,6 @@ clears the warning immediately.
 
 ## Packaging: the installer and winget
 
-`installer/winget/` holds the winget manifests, the template for a future
-submission. As they stand they cannot be submitted: the only version directory is
-twelve releases old and its `InstallerUrl` points at an artifact that no longer
-exists. That directory's README has the regeneration steps.
+`installer/winget/` holds the winget manifests, one directory per version,
+declaring the release zip as a portable package (`ais` and `ais-gui` on the
+PATH). That directory's README has the regeneration and submission steps.
