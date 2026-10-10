@@ -181,10 +181,12 @@ Each needs hardware or time rather than code:
   a week of use, clock skew between two machines, or an index that grew.
 - **Backgrounding mid-sync, and doze during the 300-second host wait.** The
   screen-awake flag is set on the host screen and the rest is unknown.
-- **The native Windows window and `ais-web.bat`.** `native-windows.yml` runs
-  the CLI and sync suites against `ais.exe` on a Windows runner; the window
-  only cross-compiles there, and the batch launcher is run nowhere. Neither
-  developer has a Windows machine or wine.
+- **The native Windows window.** `native-windows.yml` runs the CLI and sync
+  suites against `ais.exe` on a Windows runner; the window only
+  cross-compiles there. The release zip was run by hand on a Windows PC on
+  2026-10-09: `ais-web.bat` opened the web GUI and a sync with an iPhone
+  converged. Neither developer has a Windows machine, so the window stays
+  unrun by a person.
 
 ### 3. The desktop UI test cannot see
 
