@@ -159,11 +159,13 @@ iOS build to TestFlight. Reaching the stores is manual:
 - winget: the first manifest (0.3.36, the release zip as a portable package)
   is microsoft/winget-pkgs pull request 449881, opened 2026-10-09; the
   pipeline passed the same night (Azure-Pipeline-Passed,
-  Validation-Completed) and it waits for a moderator's merge, days for a
-  first package. After the merge: a `winget install Anode1.AIS` line in the
-  README's Download section, and every later tag needs a new version
-  directory under `installer/winget/` and an update pull request (its
-  README).
+  Validation-Completed) and it waits for a moderator's merge. Measured on
+  2026-10-13 over the last two weeks of merges, a New-Package pull request
+  merges 29 days after opening at the median, 39 at the 90th percentile, so
+  expect 5-17 November 2026. After the merge: a `winget install Anode1.AIS`
+  line in the README's Download section, and every later tag needs a new
+  version directory under `installer/winget/` and an update pull request
+  (its README).
 - The AUR package does not exist yet. The first step is claiming the name;
   `packaging/aur/PKGBUILD` here is the reference copy for it.
 
