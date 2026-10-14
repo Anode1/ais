@@ -178,5 +178,17 @@ A sync between the iPhone (0.3.34) and an Android phone (0.3.29) succeeded on
 - [x] Submitted 2026-10-09: build 556, review notes say no account, nothing
       reaches a server, sync needs a second phone and the reviewer can skip
       it, voice is on-device, encryption protects the user's own data.
-- [ ] Review verdict. A rejection comes with a guideline number and a reply
-      box; answer there first. Release is manual after approval.
+- [x] Review verdict 2026-10-12: rejected under Guideline 2.1, Information
+      Needed, the standard request to an account with little review history.
+      It asks for a screen recording from a physical iPhone on the latest
+      iOS (launch to typical use) plus a written description: purpose,
+      setup, external services (none), regional differences (none),
+      regulated content (none). The text is
+      `fastlane/metadata/ios/en-US/review_information/notes.txt`; it goes
+      both in the reply and in App Information > Notes.
+- [x] Recorded 2026-10-14 on Marina's iPhone: launch, save a recipe under
+      tags, search by one tag and by two, Host a sync with the Android,
+      open a record's Details. Trimmed before the lock screen and sped up
+      1.5x (1:40): `~/temp/ais-review-recording-1.5x.mp4`, off git.
+- [ ] Attach the video in the reply, paste the notes text there and in
+      App Information > Notes, Resubmit. Release is manual after approval.
