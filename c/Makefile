@@ -132,8 +132,12 @@ $(BIN): $(OBJS)
 
 # Test binary: all sources with -DUNIT_TEST; rebuilt only when a source changes.
 # `ut`/`check` are .PHONY, so they ALWAYS run (rebuilding first if needed).
+# It takes CFLAGS only when a packager set them (environment or command line),
+# because a hardening pair like -fPIE/-pie must match between compile and
+# link; the default -O2 stays off it, at -O0 the inner loop compiles 4x faster.
+UT_CFLAGS = $(if $(filter environment command,$(origin CFLAGS)),$(CFLAGS))
 $(TESTBIN): $(SOURCES.c)
-	$(CC) $(AIS_CFLAGS) -g -DUNIT_TEST $(CPPFLAGS) $(LDFLAGS) $(SOURCES.c) -o $(TESTBIN) $(LDLIBS) $(AIS_LIBS)
+	$(CC) $(AIS_CFLAGS) -g -DUNIT_TEST $(CPPFLAGS) $(UT_CFLAGS) $(LDFLAGS) $(SOURCES.c) -o $(TESTBIN) $(LDLIBS) $(AIS_LIBS)
 
 # TIMEOUT so an engine test that SPINS reports a failure instead of wedging the
 # run: a lost loop guard is exactly the kind of regression these tests exist for,

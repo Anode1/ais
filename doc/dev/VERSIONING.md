@@ -130,7 +130,7 @@ the hook). Build from a clean tree: `AIS_VERSION` is stamped at compile time, so
 an object file left from before the tag keeps the old string and `make` has no
 reason to relink. `make clean` first, then check `./ais --version`.
 
-**2. The bump commit,** `release: vX.Y.Z`, moving the five places that carry the
+**2. The bump commit,** `release: vX.Y.Z`, moving the six places that carry the
 number in text:
 
 | File | What |
@@ -139,10 +139,11 @@ number in text:
 | `app/flutter/pubspec.yaml` | `version: X.Y.Z+BUILD` |
 | `doc/dev/PACKAGING.md` | the `make AIS_VERSION=` line and the tarball URL |
 | `packaging/aur/PKGBUILD` | `pkgver` |
+| `packaging/obs/` | `sh packaging/obs/release.sh X.Y.Z` rewrites `ais.spec`, `ais.dsc` and both changelogs once the tag tarball exists |
 | `doc/ROADMAP.md` | the "Known gaps, as of" heading and the release chores under it |
 
 `flutter.yml` fails the build if the first two disagree with each other. Nothing
-checks the other three.
+checks the other four.
 
 The same commit carries the release notes: `scripts/release-notes.sh vX.Y.Z`
 prepends the commit subjects since the previous tag to `doc/RELEASE_NOTES.md`;
@@ -185,7 +186,8 @@ jobs, and the publish step then runs with the artifacts the first attempt kept.
 **5. What stays manual.** Uploading the `.aab` to Play (`ANDROID_RELEASE.md`),
 and the AUR: the reference `PKGBUILD` moves with this repo, the copy users
 install lives in the AUR repository and needs the same `pkgver`, `pkgrel=1` and a
-regenerated `.SRCINFO`. And the official MCP Registry, once the release is up:
+regenerated `.SRCINFO`; and the OBS checkout, which takes the files
+`packaging/obs/release.sh` wrote (`packaging/obs/README.md`). And the official MCP Registry, once the release is up:
 `sh scripts/registry.sh vX.Y.Z > server.json`, then
 `MCP_GITHUB_TOKEN=$(gh auth token) mcp-publisher login github` (as Anode1) and
 `mcp-publisher publish`. The token form is the one that works: the plain

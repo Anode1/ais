@@ -118,7 +118,11 @@ For a source package, prefer the tag tarball:
 
     https://github.com/Anode1/ais/archive/refs/tags/v0.3.36.tar.gz
 
-## Reference PKGBUILD
+## Reference packaging
+
+`packaging/obs/` holds the spec and the Debian source for the openSUSE Build
+Service project, which builds `.deb` and `.rpm` repositories for Debian, Ubuntu,
+Fedora and openSUSE from the tag tarball; its `README.md` is the procedure.
 
 `packaging/aur/PKGBUILD` in this repo is the Arch reference, kept next to the
 build system so the two stay in step. The AUR copy is the one users install; when

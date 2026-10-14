@@ -1,0 +1,17 @@
+#!/usr/bin/make -f
+export DEB_BUILD_MAINT_OPTIONS = hardening=+all
+# Upstream version, for AIS_VERSION: the tarball has no .git to describe.
+VERSION := $(shell dpkg-parsechangelog -SVersion | sed 's/-[^-]*$$//')
+
+%:
+	dh $@
+
+override_dh_auto_build:
+	$(MAKE) AIS_VERSION=$(VERSION)
+
+override_dh_auto_test:
+	$(MAKE) AIS_VERSION=$(VERSION) codeut
+	$(MAKE) AIS_VERSION=$(VERSION) cliut
+
+override_dh_auto_install:
+	$(MAKE) AIS_VERSION=$(VERSION) prefix=/usr DESTDIR=$(CURDIR)/debian/ais install install-desktop

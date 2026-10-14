@@ -166,8 +166,19 @@ iOS build to TestFlight. Reaching the stores is manual:
   line in the README's Download section, and every later tag needs a new
   version directory under `installer/winget/` and an update pull request
   (its README).
-- The AUR package does not exist yet. The first step is claiming the name;
-  `packaging/aur/PKGBUILD` here is the reference copy for it.
+- The AUR package does not exist yet. The name `ais` was free on 2026-10-13
+  (only `ais-catcher`, a marine receiver, is near it), and that day the AUR
+  had closed new-account registration against automated sign-ups, with no
+  date given; aur-general announces the reopening. `packaging/aur/PKGBUILD`
+  here is the reference copy for it.
+- The openSUSE Build Service project, which gives Debian, Ubuntu, Fedora and
+  openSUSE users a repository, is not created yet. `packaging/obs/README.md`
+  is the procedure; its spec and Debian source built and passed both test
+  layers on Fedora 44 and Debian 12 in Docker on 2026-10-13. The account
+  `Anode1` exists in the SUSE identity portal since 2026-10-14 and accepts
+  its password there, while build.opensuse.org and the API answered 401 to
+  the same pair all that day; `osc api /person/Anode1` is the check, and
+  admin@opensuse.org the contact if it stays 401.
 
 ### 2. Five things are barely verified
 

@@ -1,0 +1,17 @@
+Source: ais
+Section: utils
+Priority: optional
+Maintainer: Vasili Gavrilov <gavr144@gmail.com>
+Build-Depends: debhelper-compat (= 13)
+Standards-Version: 4.6.2
+Homepage: https://github.com/Anode1/ais
+Rules-Requires-Root: no
+
+Package: ais
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends}
+Description: associative index: file anything under your own keys, recall it by keys
+ A plain-text associative index. File a note, link, path or command under any
+ keys you choose and recall it later by any subset of them. One C99 binary with
+ no daemon and no dependencies; the store is text files you can grep and repair.
+ "ais --serve" opens a local web page on 127.0.0.1 for the same index.

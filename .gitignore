@@ -86,3 +86,6 @@ err.log
 PRIVATE/
 # scripts/registry.sh output, remade per release
 server.json
+
+# the tarball packaging/obs/release.sh downloads for the OBS checkout
+packaging/obs/*.tar.gz
