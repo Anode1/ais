@@ -48,6 +48,13 @@ const helpSections = <(String, String)>[
         'empty start screen brings it back.'
   ),
   (
+    'Links from another app',
+    "Menu, Import bookmarks takes a browser's bookmarks file, or the CSV that "
+        'Pocket, Instapaper or Raindrop export. Each link is filed under its own '
+        'tags and folder words plus one key naming the source (pocket, bookmark), '
+        'so the batch is found, or undone, as one.'
+  ),
+  (
     'Other devices',
     'Menu, Sync & backup. Host a sync on one device shows a code; on the '
         'other, point the camera at it and tap the link, or choose Join and '

@@ -8,3 +8,7 @@
 # files it stores with CRLF, so every fresh checkout looked modified -- which is
 # what made `git describe --dirty` stamp release binaries "0.3.x-dirty".
 legacy/** -text
+
+# The links-import fixtures are what Pocket and Instapaper wrote, CRLF rows and a
+# BOM included: that is what the test checks, so git must not normalise them.
+tests/fixtures/*.csv -text

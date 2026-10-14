@@ -452,6 +452,31 @@ int main(int argc, char **argv) {
     ok("the Edit sheet carries a suggestion row", cdp_wait_bool(c,
         "!!document.getElementById('edsuggest')", 3000) == 0);
 
+    /* Import bookmarks: the Sync sheet's links button feeds a file to
+     * /api/import-links; afterwards the page shows the batch under its marker
+     * key. The file is built in the page (a File object) so no picker is
+     * needed; alert() is stubbed, since a real one would block the protocol. */
+    cdp_eval_bool(c, "(function(){openSync();return true})()", &(int){0});
+    ok("the Sync sheet offers Import bookmarks", cdp_wait_bool(c,
+        "(function(){var b=document.getElementById('linksbtn');"
+        "return !!b&&b.textContent==='Import bookmarks'})()", 3000) == 0);
+    ok("its file input takes csv and html", cdp_eval_bool(c,
+        "(function(){var a=document.getElementById('filelinks').accept;"
+        "return a.indexOf('.csv')>=0&&a.indexOf('.html')>=0})()", &(int){0}) == 0);
+    cdp_eval_bool(c, "(function(){window.__msg=null;window.alert=function(m){window.__msg=m};"
+        "var f=new File(['title,url,time_added,tags,status\\n"
+        "Bread,https://bread.example/,1690000000,baking|rye,unread\\n'],'part_000000.csv');"
+        "linksImport([f]);return true})()", &(int){0});
+    ok("a Pocket csv imports and says so", cdp_wait_bool(c,
+        "!!window.__msg&&window.__msg.indexOf('Imported 1 link under \\'pocket\\'')===0", 5000) == 0);
+    ok("the page then shows the batch under its marker", cdp_wait_bool(c,
+        "document.getElementById('q').value==='pocket'&&"
+        "document.getElementById('out').innerText.indexOf('bread.example')>=0", 5000) == 0);
+    ok("a file with no link column is refused by name", cdp_eval_bool(c,
+        "(function(){window.__msg=null;var f=new File(['name,age\\nbob,3\\n'],'people.csv');"
+        "linksImport([f]);return true})()", &(int){0}) == 0 &&
+        cdp_wait_bool(c, "!!window.__msg&&window.__msg.indexOf('people.csv: no link column')>=0", 5000) == 0);
+
     cdp_close(c);
     printf("cdp: %d passed, %d failed\n", pass, fail);
     return fail ? 1 : 0;

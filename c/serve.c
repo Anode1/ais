@@ -34,6 +34,7 @@
 #include "stats.h"       /* ais_stats: the GUI shows what clean-up would reclaim */
 #include "locate.h"       /* store_persist: the chosen store is the default next run */
 #include "win.h"          /* Winsock + socket shims on native Windows; empty on POSIX */
+#include "import.h"       /* import_links_fp: POST /api/import-links */
 #include "serve.h"
 
 /* LAN sync (the GUI's Host/Join, mirroring the mobile Sync feature): available
@@ -205,6 +206,10 @@ static const char PAGE[] =
  * (move it by Drive / USB / email). Mirrors the app's Export / Import. */
 "<div id=syncfile><p class=muted style='margin:1rem 0 .5rem;font-size:.85rem'>Or a file &mdash; move it by Drive, USB or email:</p>"
 "<div class=actions style='justify-content:center'><button id=impbtn class=ghost>Import</button><button id=expbtn class=primary>Export</button></div>"
+/* Links from another app: a browser's bookmarks file, or the CSV Pocket, Instapaper
+ * and Raindrop export (POST /api/import-links; the record shape is import.h's). */
+"<p class=muted style='margin:1rem 0 .5rem;font-size:.85rem'>Or links from another app &mdash; Pocket, Instapaper, Raindrop, or a browser&#39;s bookmarks file:</p>"
+"<div class=actions style='justify-content:center'><button id=linksbtn class=ghost>Import bookmarks</button></div>"
 /* Auto-sync a shared folder (Syncthing / a cloud folder). One tap runs a pass; the
  * path is remembered and a pass also runs on load and after each change. */
 "<p class=muted style='margin:1rem 0 .4rem;font-size:.85rem'>Or auto-sync a shared folder. Best with Syncthing; a versioning cloud may keep deleted items:</p>"
@@ -213,6 +218,7 @@ static const char PAGE[] =
 "<p id=syncfldmsg class=muted style='margin:.4rem 0 0;font-size:.8rem'></p>"
 "<button id=syncfldany class=getbtn style='display:none;margin-top:.4rem'>Sync with it anyway</button></div>"
 "<input id=fileimp type=file accept='.aisb' hidden>"
+"<input id=filelinks type=file accept='.csv,.html,.htm,text/csv,text/html' multiple hidden>"
 /* Host pane: address + token to read off, a QR to scan, and a live status line. */
 "<div id=synchost hidden>"
 "<p style='margin:.2rem 0 .6rem;font-size:.9rem'>Scan with the phone's camera, or on the other device choose Join and enter:</p>"
@@ -598,6 +604,7 @@ static const char PAGE[] =
  * (and reachable by a screenshot or a UI test, which cannot click before load). */
 "var h=(location.hash||'').slice(1);"
 "setView(h=='tags'||h=='recall'||h=='timeline'?h:'timeline');"   /* else open on content, not a blank search */
+"if(h=='sync')openSync();"                                      /* #sync: the sheet, for a screenshot or a UI test */
 /* ---- Sync (Host / Join), mirroring the mobile Sync feature ---------------
  * qrGen: a small pure-JS byte-mode QR encoder (ECC level L, mask 0, versions 1-5)
  * so a phone can scan the url+token with no server-side or network dependency.
@@ -694,6 +701,15 @@ static const char PAGE[] =
 "function fileExport(){var a=document.createElement('a');a.href='/api/export-bundle';a.download='ais-export.aisb';document.body.appendChild(a);a.click();a.remove()}"
 "async function fileImport(f){var b=await f.arrayBuffer();var r=await fetch('/api/import-bundle',{method:'POST',body:b});"
 "if((await r.text()).trim()=='merged'){closeSync();setView(view);alert('Imported. Records merged.')}else{alert('Import failed. Is it an .aisb file from Export?')}}"
+/* links import: one POST per file (Pocket's zip holds several part files); then show
+ * the batch under its marker key, the last key of the newest record. */
+"async function linksImport(fs){var n=0,bad=[];for(var k=0;k<fs.length;k++){var f=fs[k];"
+"var r=await fetch('/api/import-links',{method:'POST',body:await f.arrayBuffer()});var t=(await r.text()).trim();"
+"if(r.ok){n+=parseInt(t.split(' ')[1],10)||0}else{bad.push(f.name+': '+t)}}"
+"closeSync();if(!n){setView(view);alert(bad.length?bad.join('\\n'):'No links found in the file.');return}"
+"var L=(await(await fetch('/api/timeline?count=1')).text()).split('\\n')[0]||'',p=L.split('|'),ks=p.length>3?p[2].trim().split(' '):[],m=ks.length?ks[ks.length-1]:'';"
+"if(m)$('q').value=m;setView('recall');"
+"alert('Imported '+n+' link'+(n==1?'':'s')+(m?' under \\''+m+'\\'':'')+'. A link already here merged into its record.'+(bad.length?'\\n'+bad.join('\\n'):''))}"
 /* folder auto-sync: remember the path, run a pass on demand + on load + after a save */
 /* The saved folder comes from the SERVER (<index>/syncfolder), not localStorage:
  * clearing browser data must not switch off the user's backup, and the app and the
@@ -744,6 +760,8 @@ static const char PAGE[] =
 "$('synchostbtn').onclick=syncHost;$('syncjoinbtn').onclick=syncJoinPane;$('jgo').onclick=syncJoinGo;"
 "$('expbtn').onclick=fileExport;$('impbtn').onclick=function(){$('fileimp').click()};"
 "$('fileimp').onchange=function(){if(this.files[0])fileImport(this.files[0]);this.value=''};"
+"$('linksbtn').onclick=function(){$('filelinks').click()};"
+"$('filelinks').onchange=function(){if(this.files.length)linksImport(this.files);this.value=''};"
 "$('syncfldbtn').onclick=function(){syncFolderRun(false,0)};"
 "$('syncfldany').onclick=function(){syncFolderRun(false,1)};"
 "syncFolderLoad();"
@@ -1613,10 +1631,14 @@ static void handle(ais *a, int fd)
 
         /* The body did not fit the request buffer. Reading only what fits TRUNCATES
          * the value, and leaving the tail unread RSTs the peer on close. Drain the
-         * remainder off the socket and refuse with 413. The one large-body route,
-         * /api/import-bundle, streams its own body (reads Content-Length directly),
-         * so exempt it; its path is still intact in the header block. */
-        if (have < body_len && strstr(buf, "/api/import-bundle") == NULL) {
+         * remainder off the socket and refuse with 413. The two large-body routes,
+         * /api/import-bundle and /api/import-links, stream their own body (read
+         * Content-Length directly), so exempt them: matched on the request line,
+         * not anywhere in the buffer, or a value holding that text would be saved
+         * truncated. */
+        if (have < body_len &&
+            strncmp(buf, "POST /api/import-bundle ", 24) != 0 &&
+            strncmp(buf, "POST /api/import-links ", 23) != 0) {
             char sink[4096];
             while (have < body_len) {
                 ssize_t k = SOCK_READ(fd, sink, sizeof(sink));
@@ -2090,6 +2112,55 @@ static void handle(ais *a, int fd)
             }
         }
 #endif
+    } else if (strcmp(method, "POST") == 0 && strcmp(path, "/api/import-links") == 0) {
+        /* Upload a bookmarks HTML or a links CSV and file its links (import.h).
+         * The body streams into a temp file in 4 KB pieces, so a megabyte export
+         * costs no buffer, and the importer reads a FILE. "imported N skipped M",
+         * or 400 with the reason. */
+        long clen = body_len;
+        if (clen <= 0 || clen > 64L * 1024 * 1024) {
+            static const char e[] = "HTTP/1.0 400 Bad Request\r\n"
+                "Connection: close\r\n\r\nbad upload\n";
+            write_all(fd, e, sizeof(e) - 1);
+        } else {
+            FILE *tf = ais_tmpfile();
+            size_t have = (size_t)(n - (body - buf));   /* body bytes already read */
+            size_t got = have < (size_t)clen ? have : (size_t)clen;
+            long put = -1, skipped = 0;
+            if (tf != NULL && fwrite(body, 1, got, tf) == got) {
+                char chunk[4096];
+                while (got < (size_t)clen) {
+                    size_t want = (size_t)clen - got;
+                    ssize_t k;
+                    if (want > sizeof chunk) want = sizeof chunk;
+                    k = SOCK_READ(fd, chunk, want);
+                    if (k <= 0 || fwrite(chunk, 1, (size_t)k, tf) != (size_t)k) break;
+                    got += (size_t)k;
+                }
+                if (got == (size_t)clen) {
+                    rewind(tf);
+                    put = import_links_fp(a, tf, &skipped);
+                }
+            }
+            if (tf != NULL) fclose(tf);
+            if (put >= 0) {
+                char line[64];
+                int w = snprintf(line, sizeof line, "imported %ld skipped %ld\n", put, skipped);
+                send_head(fd, "text/plain");
+                write_all(fd, line, (size_t)w);
+            } else {
+                static const char h[] = "HTTP/1.0 400 Bad Request\r\nConnection: close\r\n\r\n";
+                const char *why =
+                    (put == AIS_IMPORT_NOURL) ? "no link column: expected a Pocket, Instapaper or "
+                                                "Raindrop .csv, or a bookmarks .html" :
+                    (put == AIS_IMPORT_UTF16) ? "UTF-16 text: save it as UTF-8 first" :
+                    (put == AIS_IMPORT_ZIP)   ? "a zip: open it and pick the .csv inside" :
+                                                "import failed";
+                write_all(fd, h, sizeof(h) - 1);
+                write_all(fd, why, strlen(why));
+                write_all(fd, "\n", 1);
+            }
+        }
     } else if (strcmp(method, "GET") == 0) {
         /* an external asset (e.g. /style.css) if $AIS_WEB (else gui/web) has it;
          * the root falls back to the embedded page so the binary still works

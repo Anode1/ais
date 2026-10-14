@@ -68,10 +68,11 @@ COMMANDS (--word; operands are bare args, values via -v; an ID is the number
                                  Pre-v2 '|' lines still read, with a warning)
   ais --import-interactively     like --import, but confirm each record [y/N]
                                  (default N); review each before it is stored
-  ais --import-bookmarks FILE    file each link in a browser's exported bookmarks
-                                 HTML (Chrome/Firefox/Safari) under its folder
-                                 names' words plus the marker key 'bookmark'
-                                 (undo: ais --del-under bookmark)
+  ais --import-bookmarks FILE    file each link in a browser's bookmarks HTML, or
+                                 in a Pocket, Instapaper, Raindrop or other CSV with
+                                 a url column, under its folder and tag words plus
+                                 one marker key per source: bookmark, pocket,
+                                 instapaper, raindrop, link (undo: --del-under KEY)
   ais --import-keep DIR          file each note in an extracted Takeout Keep
                                  folder of .json files under its label names'
                                  words plus the marker key 'keep'; trashed notes

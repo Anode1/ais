@@ -16,6 +16,7 @@
 #include "win.h"      /* ais_tmpfile */
 #include "doc.h"
 #include "embed.h"
+#include "import.h"   /* import_links_fp: the links file importer */
 #include "stats.h"   /* ais_count_live: the record count a front-end shows after a sync */
 #include "find.h"
 #include "locate.h"
@@ -274,6 +275,33 @@ int ais_embed_import_bundle(void *handle, const char *path)
     if (rc == 0)  return 0;
     if (rc == -2) return -2;                    /* version mismatch */
     return -1;                                  /* malformed / I/O */
+}
+
+long ais_embed_import_links(void *handle, const char *path)
+{
+    ais *a = handle;
+    FILE *in;
+    long n, skipped = 0;
+
+    if (a == NULL || path == NULL)
+        return -1;
+    in = fopen(path, "rb");
+    if (in == NULL)
+        return -1;
+    n = import_links_fp(a, in, &skipped);
+    fclose(in);
+    if (n == AIS_IMPORT_TMP)
+        return -1;                              /* -2, -4, -5 pass through as named */
+    return n;
+}
+
+long ais_embed_next_id(void *handle)
+{
+    ais *a = handle;
+
+    if (a == NULL || store_load_next_id(a) != 0)
+        return -1;
+    return a->next_id;
 }
 
 int ais_embed_sync_folder(void *handle, const char *folder)

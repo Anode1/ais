@@ -7152,6 +7152,361 @@ static void test_import_parse_helpers(void)
     test_import_json_string();
 }
 
+/* ---- foreign importers: import_links_fp over CSV and bookmarks HTML ----- */
+
+/* A tmpfile holding the N bytes at S, rewound: the importer's input. */
+static FILE *links_in(const char *s, size_t n)
+{
+    FILE *f = tmpfile();
+    if (f != NULL) {
+        fwrite(s, 1, n, f);
+        rewind(f);
+    }
+    return f;
+}
+
+/* Import the C string S into A; *SK gets the skipped count. */
+static long links_import(ais *a, const char *s, long *sk)
+{
+    FILE *f = links_in(s, strlen(s));
+    long n;
+    *sk = 0;
+    if (f == NULL)
+        return -100;
+    n = import_links_fp(a, f, sk);
+    fclose(f);
+    return n;
+}
+
+/* The timeline row whose value starts with PREFIX, or NULL. */
+static const struct tlrow *tl_row(ais *a, struct tlvec *v, const char *prefix)
+{
+    int i;
+    v->n = 0;
+    ais_timeline(a, 0, 64, "", "", collect_tl, v);
+    for (i = 0; i < v->n; i++)
+        if (strncmp(v->r[i].value, prefix, strlen(prefix)) == 0)
+            return &v->r[i];
+    return NULL;
+}
+
+/* Is TOK one of the blank-separated words in KEYS? */
+static int has_tok(const char *keys, const char *tok)
+{
+    size_t tl = strlen(tok);
+    const char *p = keys;
+    while ((p = strstr(p, tok)) != NULL) {
+        if ((p == keys || p[-1] == ' ') && (p[tl] == '\0' || p[tl] == ' '))
+            return 1;
+        p++;
+    }
+    return 0;
+}
+
+/* The number of live records. */
+static int live_count(ais *a)
+{
+    struct tlvec v;
+    v.n = 0;
+    ais_timeline(a, 0, 64, "", "", collect_tl, &v);
+    return v.n;
+}
+
+/* Pocket (BOM, CRLF, a|b tags, status, epoch time_added; a title equal to the
+ * URL): keys are the tags + "pocket", the status is dropped, the time lands. */
+static void test_import_links_pocket(void)
+{
+    const char *dir = "/tmp/ais_ut_lnk_pocket";
+    const char *csv =
+        "\xEF\xBB\xBFtitle,url,time_added,tags,status\r\n"
+        "Example Page,https://example.com/a,1690000000,a|b,unread\r\n"
+        "https://example.com/b,https://example.com/b,1690000060,,archive\r\n";
+    struct tlvec v;
+    const struct tlrow *r;
+    long n, sk;
+    ais a;
+
+    scratch_rm(dir);
+    ais_open(&a, dir);
+    n = links_import(&a, csv, &sk);
+    CHECK(n == 2 && sk == 0, "links pocket: BOM + CRLF, 2 rows import, none skipped");
+    r = tl_row(&a, &v, "https://example.com/a");
+    CHECK(r != NULL && strcmp(r->value, "https://example.com/a Example Page") == 0,
+          "links pocket: value is 'URL title'");
+    CHECK(r != NULL && has_tok(r->keys, "a") && has_tok(r->keys, "b") &&
+          has_tok(r->keys, "pocket"), "links pocket: tags a|b give keys a b, marker pocket");
+    CHECK(r != NULL && !has_tok(r->keys, "unread"), "links pocket: the status is not a key");
+    CHECK(r != NULL && strncmp(r->ts, "2023-07-22T04:26:40", 19) == 0,
+          "links pocket: time_added 1690000000 is 2023-07-22T04:26:40 UTC");
+    r = tl_row(&a, &v, "https://example.com/b");
+    CHECK(r != NULL && strcmp(r->value, "https://example.com/b") == 0,
+          "links pocket: a title equal to the URL leaves the URL alone");
+    CHECK(r != NULL && strcmp(r->keys, "pocket") == 0 && !has_tok(r->keys, "archive"),
+          "links pocket: untagged row has only the marker");
+
+    n = links_import(&a, "title,url,time_added,cursor,tags,status\n"
+                         "C,https://example.com/c,1690000000,12345,x,unread\n", &sk);
+    r = tl_row(&a, &v, "https://example.com/c");
+    CHECK(n == 1 && r != NULL && has_tok(r->keys, "x") && !has_tok(r->keys, "12345"),
+          "links pocket: an extra cursor column still imports, tags still found");
+
+    n = links_import(&a, csv, &sk);
+    CHECK(n == 2 && live_count(&a) == 3,
+          "links pocket: re-import reports 2 again, live records stay 3");
+    ais_close(&a);
+    scratch_rm(dir);
+}
+
+/* Instapaper: Unread/Archive/Starred are buckets (no key), a user folder is a
+ * key, marker instapaper, Timestamp sets the save time. */
+static void test_import_links_instapaper(void)
+{
+    const char *dir = "/tmp/ais_ut_lnk_insta";
+    const char *csv =
+        "URL,Title,Selection,Folder,Timestamp\r\n"
+        "https://i.example/1,One,,Unread,1690000000\r\n"
+        "https://i.example/2,\"Two, quoted \"\"x\"\"\",,Archive,1690000000\r\n"
+        "https://i.example/3,Three,some selection,Starred,1690000000\r\n"
+        "https://i.example/4,Four,,Cooking,1700000000\r\n";
+    struct tlvec v;
+    const struct tlrow *r;
+    long n, sk;
+    ais a;
+
+    scratch_rm(dir);
+    ais_open(&a, dir);
+    n = links_import(&a, csv, &sk);
+    CHECK(n == 4 && sk == 0, "links instapaper: 4 rows import");
+    r = tl_row(&a, &v, "https://i.example/1");
+    CHECK(r != NULL && strcmp(r->keys, "instapaper") == 0,
+          "links instapaper: Unread is no key, marker instapaper");
+    r = tl_row(&a, &v, "https://i.example/2");
+    CHECK(r != NULL && strcmp(r->keys, "instapaper") == 0 &&
+          strcmp(r->value, "https://i.example/2 Two, quoted \"x\"") == 0,
+          "links instapaper: Archive no key; RFC 4180 quoted title decodes");
+    r = tl_row(&a, &v, "https://i.example/3");
+    CHECK(r != NULL && strcmp(r->keys, "instapaper") == 0, "links instapaper: Starred is no key");
+    r = tl_row(&a, &v, "https://i.example/4");
+    CHECK(r != NULL && has_tok(r->keys, "cooking") && has_tok(r->keys, "instapaper"),
+          "links instapaper: a user folder is a key");
+    CHECK(r != NULL && strncmp(r->ts, "2023-11-14T22:13:20", 19) == 0,
+          "links instapaper: Timestamp sets the save time");
+    ais_close(&a);
+    scratch_rm(dir);
+}
+
+/* Raindrop: "a, b" tags, a Parent/Child folder, a multi-line quoted note that
+ * must not split the row, ISO created. */
+static void test_import_links_raindrop(void)
+{
+    const char *dir = "/tmp/ais_ut_lnk_rain";
+    const char *csv =
+        "title,note,excerpt,url,folder,tags,created\n"
+        "Rain One,\"line one\nline two, with comma\",An excerpt,https://r.example/1,"
+        "Parent/Child,\"a, b\",2023-09-01T12:34:56.789Z\n"
+        "Rain Two,,,https://r.example/2,Unsorted,,2023-09-02T00:00:00.000Z\n";
+    struct tlvec v;
+    const struct tlrow *r;
+    long n, sk;
+    ais a;
+
+    scratch_rm(dir);
+    ais_open(&a, dir);
+    n = links_import(&a, csv, &sk);
+    CHECK(n == 2 && sk == 0, "links raindrop: a multi-line note does not split the row");
+    r = tl_row(&a, &v, "https://r.example/1");
+    CHECK(r != NULL && strcmp(r->value, "https://r.example/1 Rain One") == 0,
+          "links raindrop: value is URL and title");
+    CHECK(r != NULL && has_tok(r->keys, "a") && has_tok(r->keys, "b") &&
+          has_tok(r->keys, "parent") && has_tok(r->keys, "child") &&
+          has_tok(r->keys, "raindrop"),
+          "links raindrop: tags a b, folder parent child, marker raindrop");
+    CHECK(r != NULL && strncmp(r->ts, "2023-09-01T12:34:56", 19) == 0,
+          "links raindrop: created ISO gives 2023-09-01T12:34:56");
+    r = tl_row(&a, &v, "https://r.example/2");
+    CHECK(r != NULL && strcmp(r->keys, "raindrop") == 0,
+          "links raindrop: the row after the note imports; Unsorted is no key");
+    ais_close(&a);
+    scratch_rm(dir);
+}
+
+/* Header shapes: semicolons, no url column, header only, UTF-16, a zip. */
+static void test_import_links_shapes(void)
+{
+    const char *dir = "/tmp/ais_ut_lnk_shape";
+    static const char u16[] = "\xFF\xFEu\0r\0l\0\n\0";
+    static const char zip[] = "PK\x03\x04\x14\0\0\0";
+    struct tlvec v;
+    const struct tlrow *r;
+    FILE *f;
+    long n, sk;
+    ais a;
+
+    scratch_rm(dir);
+    ais_open(&a, dir);
+    n = links_import(&a, "Name;URL;Tags\nSemi;https://s.example/1;x;\n", &sk);
+    r = tl_row(&a, &v, "https://s.example/1");
+    CHECK(n == 1 && r != NULL && has_tok(r->keys, "x") && has_tok(r->keys, "link"),
+          "links shapes: a semicolon header imports, marker link");
+    CHECK(links_import(&a, "title,tags\nA,b\n", &sk) == AIS_IMPORT_NOURL &&
+          live_count(&a) == 1, "links shapes: no url column is -2 and puts nothing");
+    CHECK(links_import(&a, "title,url,time_added\r\n", &sk) == 0,
+          "links shapes: a header alone imports 0");
+    CHECK(links_import(&a, "title,url\n", &sk) == 0 && live_count(&a) == 1,
+          "links shapes: a header alone (no CR) imports 0");
+    f = links_in(u16, sizeof u16 - 1);
+    CHECK(f != NULL && import_links_fp(&a, f, &sk) == AIS_IMPORT_UTF16,
+          "links shapes: UTF-16 text is -4");
+    if (f) fclose(f);
+    f = links_in(zip, sizeof zip - 1);
+    CHECK(f != NULL && import_links_fp(&a, f, &sk) == AIS_IMPORT_ZIP,
+          "links shapes: a zip is -5");
+    if (f) fclose(f);
+    ais_close(&a);
+    scratch_rm(dir);
+}
+
+/* A field cannot forge a stream line: "\nD|ts|hash" and "\nA||evil|..." in a
+ * quoted title fold to spaces; an over-long or spaced URL is skipped. */
+static void test_import_links_injection(void)
+{
+    const char *dir = "/tmp/ais_ut_lnk_inject";
+    static char csv[12000];
+    char h[17];
+    struct tlvec v;
+    struct idvec iv;
+    const struct tlrow *r;
+    size_t o;
+    long n, sk, pre;
+    ais a;
+
+    scratch_rm(dir);
+    ais_open(&a, dir);
+    pre = ais_put(&a, "victim", "https://victim.example/");
+    content_hash("https://victim.example/", h);
+    snprintf(csv, sizeof csv,
+             "title,url\n"
+             "\"T\nD|2026-01-01T00:00:00Z|%s\",https://j.example/1\n"
+             "\"U\nA||evil|http://evil\",https://j.example/2\n", h);
+    n = links_import(&a, csv, &sk);
+    CHECK(n == 2 && sk == 0, "links inject: two rows, two records");
+    r = tl_row(&a, &v, "https://j.example/1");
+    {
+        char want[128];
+        snprintf(want, sizeof want, "https://j.example/1 T D|2026-01-01T00:00:00Z|%s", h);
+        CHECK(r != NULL && strcmp(r->value, want) == 0,
+              "links inject: the newline became a space inside one value");
+    }
+    query(&a, AIS_AND, &iv, 1, "victim");
+    CHECK(iv.n == 1 && iv.ids[0] == pre, "links inject: the pre-existing record is still live");
+    query(&a, AIS_AND, &iv, 1, "evil");
+    CHECK(iv.n == 0 && tl_row(&a, &v, "http://evil") == NULL,
+          "links inject: no evil record");
+
+    o = (size_t)snprintf(csv, sizeof csv, "title,url\nlong,https://x.example/");
+    memset(csv + o, 'a', 9000);
+    o += 9000;
+    snprintf(csv + o, sizeof csv - o,
+             "\nsp,https://x.example/a b\nok,https://x.example/ok\n");
+    n = links_import(&a, csv, &sk);
+    CHECK(n == 1 && sk == 2 && tl_row(&a, &v, "https://x.example/ok") != NULL,
+          "links inject: an 8 KB+ URL and a spaced URL are skipped, the rest import");
+    CHECK(live_count(&a) == 4, "links inject: nothing else was put");
+    ais_close(&a);
+    scratch_rm(dir);
+}
+
+/* Bookmarks HTML through import_links_fp: TAGS and ADD_DATE, folders as keys. */
+static void test_import_links_html(void)
+{
+    const char *dir = "/tmp/ais_ut_lnk_html";
+    const char *html =
+        "<!DOCTYPE NETSCAPE-Bookmark-file-1>\n<DL><p>\n"
+        "<DT><H3>Travel Plans</H3>\n<DL><p>\n"
+        "<DT><A HREF=\"https://h.example/1\" ADD_DATE=\"1690000000\" TAGS=\"x,y\">One &amp; Two</A>\n"
+        "</DL><p>\n"
+        "<DT><A HREF=\"https://h.example/2\">https://h.example/2</A>\n"
+        "</DL><p>\n";
+    struct tlvec v;
+    const struct tlrow *r;
+    long n, sk;
+    ais a;
+
+    scratch_rm(dir);
+    ais_open(&a, dir);
+    n = links_import(&a, html, &sk);
+    CHECK(n == 2 && sk == 0, "links html: two bookmarks import");
+    r = tl_row(&a, &v, "https://h.example/1");
+    CHECK(r != NULL && strcmp(r->value, "https://h.example/1 One & Two") == 0,
+          "links html: value is URL and decoded title");
+    CHECK(r != NULL && has_tok(r->keys, "travel") && has_tok(r->keys, "plans") &&
+          has_tok(r->keys, "x") && has_tok(r->keys, "y") && has_tok(r->keys, "bookmark"),
+          "links html: folder words, TAGS x y, marker bookmark");
+    CHECK(r != NULL && strncmp(r->ts, "2023-07-22T04:26:40", 19) == 0,
+          "links html: ADD_DATE sets the save time");
+    r = tl_row(&a, &v, "https://h.example/2");
+    CHECK(r != NULL && strcmp(r->value, "https://h.example/2") == 0 &&
+          strcmp(r->keys, "bookmark") == 0,
+          "links html: after </DL> the folder is gone; a URL title is dropped");
+    ais_close(&a);
+    scratch_rm(dir);
+}
+
+/* The FFI pair: import_links by path, next_id brackets the new ids, and
+ * deleting [before, after) undoes the import alone. */
+static void test_import_links_embed(void)
+{
+    const char *dir = "/tmp/ais_ut_lnk_embed";
+    const char *csv = "/tmp/ais_ut_lnk_embed.csv";
+    void *h;
+    long pre, before, after, id;
+    int ok = 1;
+    char *r;
+    FILE *f;
+
+    scratch_rm(dir);
+    f = fopen(csv, "w");
+    if (f) {
+        fputs("title,url,time_added,tags,status\n"
+              "A,https://e.example/1,1690000000,t,unread\n"
+              "B,https://e.example/2,1690000000,t,unread\n"
+              "C,https://e.example/3,1690000000,t,unread\n", f);
+        fclose(f);
+    }
+    h = ais_embed_open(dir);
+    CHECK(h != NULL, "links embed: open");
+    if (h == NULL)
+        return;
+    pre = ais_embed_store(h, "keepme", "https://pre.example/");
+    CHECK(ais_embed_import_links(h, "/tmp/ais_ut_no_such_file.csv") == -1,
+          "links embed: a missing path is -1");
+    before = ais_embed_next_id(h);
+    CHECK(ais_embed_import_links(h, csv) == 3, "links embed: a CSV returns the count");
+    after = ais_embed_next_id(h);
+    CHECK(before > pre && after - before == 3, "links embed: next_id advanced by the import");
+    for (id = before; id < after; id++) {
+        char *k = ais_embed_keys(h, id);
+        if (k == NULL || strstr(k, "pocket") == NULL)
+            ok = 0;
+        ais_embed_free(k);
+    }
+    CHECK(ok, "links embed: every id in [before, after) is an imported record");
+    for (id = before; id < after; id++)
+        if (ais_embed_del(h, id) != 0)
+            ok = 0;
+    CHECK(ok, "links embed: each new id deletes");
+    r = ais_embed_recall(h, "pocket", 0);
+    CHECK(r != NULL && r[0] == '\0', "links embed: the import is gone");
+    ais_embed_free(r);
+    r = ais_embed_recall(h, "keepme", 0);
+    CHECK(r != NULL && strstr(r, "https://pre.example/") != NULL,
+          "links embed: the pre-existing record stays");
+    ais_embed_free(r);
+    ais_embed_close(h);
+    remove(csv);
+    scratch_rm(dir);
+}
+
 int main(void)
 {
     serialise_runs();
@@ -7387,6 +7742,13 @@ int main(void)
     /* -- foreign importers block (appended as one unit) -- */
     printf("foreign importers (import.c): the separable parse helpers:\n");
     test_import_parse_helpers();
+    test_import_links_pocket();
+    test_import_links_instapaper();
+    test_import_links_raindrop();
+    test_import_links_shapes();
+    test_import_links_injection();
+    test_import_links_html();
+    test_import_links_embed();
     printf("----\n%d passed, %d failed\n", ut_pass, ut_fail);
     return ut_fail == 0 ? 0 : 1;
 }

@@ -149,6 +149,12 @@
         <button id="impbtn" class="ghost">Import</button>
         <button id="expbtn" class="primary">Export</button>
       </div>
+      <!-- Links from another app: a browser's bookmarks file, or the CSV Pocket,
+           Instapaper and Raindrop export (POST /api/import-links). -->
+      <p class="muted" style="margin:1rem 0 .5rem;font-size:.85rem">Or links from another app &mdash; Pocket, Instapaper, Raindrop, or a browser&#39;s bookmarks file:</p>
+      <div class="actions" style="justify-content:center">
+        <button id="linksbtn" class="ghost">Import bookmarks</button>
+      </div>
       <!-- Shared folder (Syncthing / a cloud folder): one tap runs a pass, and the
            path is remembered by the server, so a pass also runs on load and after
            each change. -->
@@ -161,6 +167,7 @@
       <button id="syncfldany" class="getbtn" style="display:none;margin-top:.4rem">Sync with it anyway</button>
     </div>
     <input id="fileimp" type="file" accept=".aisb" hidden>
+    <input id="filelinks" type="file" accept=".csv,.html,.htm,text/csv,text/html" multiple hidden>
     <!-- Host pane: address + token to read off, a QR to scan, a live status line -->
     <div id="synchost" hidden>
       <p style="margin:.2rem 0 .6rem;font-size:.9rem">Scan with the phone's camera, or on the other device choose Join and enter:</p>
@@ -845,6 +852,7 @@ loadStore();
 // (and reachable by a screenshot or a UI test, which cannot click before load).
 var h0 = (location.hash || '').slice(1);
 setView(h0 == 'tags' || h0 == 'recall' || h0 == 'timeline' ? h0 : 'timeline'); // else open on content, not a blank search
+if (h0 == 'sync') openSync(); // #sync: the sheet, for a screenshot or a UI test
 
 // ---- Sync (nearby device / a file / a shared folder) ----------------------
 // The same feature, the same ids and the same wording as the embedded page:
@@ -1089,6 +1097,25 @@ async function fileImport(f) {
     closeSync(); setView(view); alert('Imported. Records merged.');
   } else alert('Import failed. Is it an .aisb file from Export?');
 }
+// links import: one POST per file (Pocket's zip holds several part files); then
+// show the batch under its marker key, the last key of the newest record.
+async function linksImport(fs) {
+  var n = 0, bad = [];
+  for (var k = 0; k < fs.length; k++) {
+    var f = fs[k];
+    var r = await fetch('/api/import-links', { method:'POST', body: await f.arrayBuffer() });
+    var t = (await r.text()).trim();
+    if (r.ok) n += parseInt(t.split(' ')[1], 10) || 0; else bad.push(f.name + ': ' + t);
+  }
+  closeSync();
+  if (!n) { setView(view); alert(bad.length ? bad.join('\n') : 'No links found in the file.'); return; }
+  var L = (await (await fetch('/api/timeline?count=1')).text()).split('\n')[0] || '';
+  var p = L.split('|'), ks = p.length > 3 ? p[2].trim().split(' ') : [], m = ks.length ? ks[ks.length - 1] : '';
+  if (m) $('q').value = m;
+  setView('recall');
+  alert('Imported ' + n + ' link' + (n == 1 ? '' : 's') + (m ? " under '" + m + "'" : '') +
+        '. A link already here merged into its record.' + (bad.length ? '\n' + bad.join('\n') : ''));
+}
 // folder auto-sync. The saved path comes from the SERVER (<index>/syncfolder),
 // not localStorage: clearing browser data must not switch off the user's backup,
 // and the CLI and the app have to see the same setting.
@@ -1161,6 +1188,8 @@ $('jgo').onclick = syncJoinGo;
 $('expbtn').onclick = fileExport;
 $('impbtn').onclick = function () { $('fileimp').click(); };
 $('fileimp').onchange = function () { if (this.files[0]) fileImport(this.files[0]); this.value = ''; };
+$('linksbtn').onclick = function () { $('filelinks').click(); };
+$('filelinks').onchange = function () { if (this.files.length) linksImport(this.files); this.value = ''; };
 $('syncfldbtn').onclick = function () { syncFolderRun(false, 0); };
 $('syncfldany').onclick = function () { syncFolderRun(false, 1); };
 $('syncsheet').addEventListener('click', function (e) { if (e.target == $('syncsheet')) closeSync(); });

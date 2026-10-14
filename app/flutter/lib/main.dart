@@ -1517,10 +1517,122 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
         msg = 'This file is from an incompatible version.';
         break;
       default:
-        msg = 'Couldn’t read the file.';
+        // A bookmarks or links file fed to the bundle import: point at the
+        // import that reads it, rather than leaving "couldn't read".
+        final lower = file.name.toLowerCase();
+        msg = (lower.endsWith('.csv') || lower.endsWith('.html') || lower.endsWith('.htm'))
+            ? 'This is not an AIS file. For Pocket, Raindrop or browser bookmarks, use Menu, Import bookmarks.'
+            : 'Couldn’t read the file.';
     }
     messenger.showSnackBar(SnackBar(content: Text(msg)));
     if (rc == 0) _setView(_view); // refresh with merged records
+  }
+
+  // Links from another app: a browser's bookmarks file, or the CSV that Pocket,
+  // Instapaper or Raindrop export. One record per link under the user's own tag
+  // and folder words plus one key naming the source (pocket, bookmark, ...), so
+  // the batch recalls as one. Undo deletes only the ids this import created
+  // (the id counter read either side of the call); a link that was already
+  // here merged into its record and stays. Runs on a background isolate with
+  // the shared handle, so other writes are held off meanwhile, as for a sync.
+  Future<void> _importLinks() async {
+    if (_ais == null || _syncBlocks()) return;
+    final messenger = ScaffoldMessenger.of(context);
+    final mobile = Platform.isAndroid || Platform.isIOS;
+    // Several files at once: Pocket's zip holds one part_NNNNNN.csv per few
+    // thousand links. No type filter on mobile, for the reason in _importFile.
+    final files = await openFiles(
+      acceptedTypeGroups: mobile
+          ? const []
+          : const [
+              XTypeGroup(label: 'Bookmarks or links', extensions: ['html', 'htm', 'csv'])
+            ],
+      initialDirectory: mobile ? null : (await getDownloadsDirectory())?.path,
+    );
+    if (files.isEmpty || _ais == null) return;
+    final eng = _ais!;
+    _flushPendingDeletes();
+    final before = eng.countLive();
+    final firstId = eng.nextId();
+    var put = 0;
+    final problems = <String>[];
+    _syncBusy = true;
+    try {
+      for (final f in files) {
+        final rc = await eng.importLinksAsync(f.path);
+        if (rc >= 0) {
+          put += rc;
+        } else {
+          problems.add(_linksProblem(rc, f.name));
+        }
+      }
+    } finally {
+      _syncBusy = false;
+    }
+    if (!mounted) return;
+    final lastId = eng.nextId();
+    final fresh = eng.countLive() - before;
+    final String msg;
+    if (put == 0) {
+      msg = problems.isNotEmpty ? problems.join('\n') : 'No links found in the file.';
+    } else if (fresh <= 0) {
+      msg = 'Nothing new. These links are already here.';
+    } else {
+      _backupDirty = true;
+      // The marker is the last key of the newest record: tags, folder, source.
+      final ks = _keysFor(lastId - 1).split(' ');
+      final marker = ks.isNotEmpty ? ks.last : '';
+      final already = put - fresh;
+      msg = 'Imported $fresh link${fresh == 1 ? '' : 's'}'
+          '${marker.isNotEmpty ? ' under "$marker"' : ''}'
+          '${already > 0 ? ' ($already already here)' : ''}.'
+          '${problems.isNotEmpty ? '\n${problems.join('\n')}' : ''}';
+      if (marker.isNotEmpty) {
+        _q.text = marker; // show the batch where it landed
+        _setView('recall'); // runs the recall: the query is non-empty
+      }
+    }
+    messenger.showSnackBar(SnackBar(
+      content: Text(msg),
+      duration: const Duration(seconds: 8),
+      action: (put > 0 && fresh > 0 && lastId > firstId)
+          ? SnackBarAction(
+              label: 'Undo', onPressed: () => _undoImport(firstId, lastId))
+          : null,
+    ));
+  }
+
+  String _linksProblem(int rc, String name) {
+    switch (rc) {
+      case -2:
+        return 'No link column in $name. Pick a Pocket, Instapaper or Raindrop '
+            '.csv, or a bookmarks .html.';
+      case -4:
+        return '$name is UTF-16 text. Save it as UTF-8 CSV first.';
+      case -5:
+        return '$name is a zip. Open it, then pick the .csv inside.';
+      default:
+        return 'Couldn’t read $name.';
+    }
+  }
+
+  // Delete the run of ids an import created, nothing else: a record the import
+  // merged into has an older id and keeps the key it gained.
+  Future<void> _undoImport(int from, int to) async {
+    if (_ais == null || _syncBlocks()) return;
+    final messenger = ScaffoldMessenger.of(context);
+    _syncBusy = true;
+    int n;
+    try {
+      n = await _ais!.delRangeAsync(from, to);
+    } finally {
+      _syncBusy = false;
+    }
+    if (!mounted) return;
+    _backupDirty = true;
+    _setView(_view);
+    messenger.showSnackBar(SnackBar(
+        content: Text('Import undone. $n link${n == 1 ? '' : 's'} removed.')));
   }
 
   // Join: connect to a device that is hosting; both converge (bidirectional).
@@ -2098,6 +2210,9 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
                             case 'sync':
                               await _syncSheet();
                               break;
+                            case 'links':
+                              await _importLinks();
+                              break;
                             case 'cleanup':
                               await _cleanUp();
                               break;
@@ -2136,6 +2251,17 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
                               subtitle: _lastSync == null
                                   ? const Text('Not backed up yet')
                                   : null,
+                            ),
+                          ),
+                          PopupMenuItem(
+                            value: 'links',
+                            enabled: _ais != null,
+                            child: const ListTile(
+                              contentPadding: EdgeInsets.zero,
+                              leading: Icon(Icons.bookmark_add_outlined),
+                              title: Text('Import bookmarks'),
+                              subtitle: Text(
+                                  "Pocket, Instapaper, Raindrop, or a browser's bookmarks file"),
                             ),
                           ),
                           PopupMenuItem(

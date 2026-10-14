@@ -222,7 +222,7 @@ reports instead of gating (see the note in `.github/workflows/flutter.yml`), and
 the Android layers carry the real UI coverage. Fixing it would be worth it: the
 desktop harness needs no device and runs in seconds.
 
-### 4. Four limits are knowingly left
+### 4. Five limits are knowingly left
 
 Each is understood, loses no data, and is left for a stated reason.
 
@@ -256,6 +256,12 @@ Each is understood, loses no data, and is left for a stated reason.
   copies beside the record kept and deletes what is confirmed. Automatic it
   cannot be, because by design two records pointing at identical bytes are two
   notes.
+
+- **Import bookmarks refuses Pocket's zip; the user opens it and picks the
+  `part_NNNNNN.csv` files inside.** Reading the zip in place means an inflate
+  routine of a few hundred lines in the engine, for a download nobody can make
+  anew since Pocket's export window closed in October 2025. The pickers take
+  several files at once, so a library split across parts is one import.
 
 ## Not planned (non-goals)
 

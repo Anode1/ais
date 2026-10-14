@@ -1,0 +1,4 @@
+title,note,excerpt,url,folder,tags,created
+Rain A,"first line
+second line, with comma",Excerpt A,https://rain.example/a,Parent/Child,"alpha, beta",2023-09-01T12:34:56.789Z
+Rain B,,,https://rain.example/b,Unsorted,,2023-09-02T08:00:00.000Z

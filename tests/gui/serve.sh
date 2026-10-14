@@ -396,5 +396,37 @@ ok "csrf: cross-site import-bundle refused"        "cross-origin request refused
    "$(curl -s -H 'Sec-Fetch-Site: cross-site' -X POST --data-binary @"$IDX/in.aisb" \
         "$B/api/import-bundle")"
 
+# --- /api/import-links: "Import bookmarks" (a Pocket CSV, a bookmarks HTML) ---
+#     the second route allowed to arrive in a later packet; it streams the body
+#     into a temp file and runs the links importer (c/import.c).
+printf '\357\273\277title,url,time_added,tags,status\r\n"Pie, baked",https://pie.example/,1690000000,recipes|baking,unread\r\n,https://nolink.example/x y,1,,unread\r\n' > "$IDX/pocket.csv"
+ok "import-links: pocket csv reports the counts"   "imported 1 skipped 1" \
+   "$(curl -s -X POST --data-binary @"$IDX/pocket.csv" "$B/api/import-links")"
+ok "import-links: the link recalls under its tag"  "https://pie.example/ Pie, baked" \
+   "$(curl -s "$B/api/get?keys=baking")"
+ok "import-links: and under the pocket marker"     "pie.example" \
+   "$(curl -s "$B/api/get?keys=pocket")"
+printf '<!DOCTYPE NETSCAPE-Bookmark-file-1>\n<DL><p>\n<DT><A HREF="https://bread.example/" TAGS="rye,sourdough">Bread</A>\n</DL><p>\n' > "$IDX/bm.html"
+ok "import-links: bookmarks html, TAGS become keys" "https://bread.example/ Bread" \
+   "$(curl -s -X POST --data-binary @"$IDX/bm.html" "$B/api/import-links" >/dev/null; curl -s "$B/api/get?keys=sourdough")"
+ok "import-links: a csv with no url column is 400"  "no link column" \
+   "$(printf 'name,age\nbob,3\n' | curl -s -X POST --data-binary @- "$B/api/import-links")"
+ok "import-links: a zip is told to extract"         "a zip" \
+   "$(printf 'PK\003\004rest' | curl -s -X POST --data-binary @- "$B/api/import-links")"
+ok "import-links: an empty body is a bad upload"    "bad upload" \
+   "$(curl -s -X POST -H 'Content-Length: 0' "$B/api/import-links")"
+# a body bigger than the request buffer must stream in whole, not be 413'd
+awk 'BEGIN{print "title,url,time_added,tags,status"; for(i=0;i<3000;i++) printf "row %d,https://big.example/%d,1690000000,bulk,unread\n", i, i}' > "$IDX/big.csv"
+ok "import-links: a 150 KB upload streams in whole" "imported 3000 skipped 0" \
+   "$(curl -s -X POST --data-binary @"$IDX/big.csv" "$B/api/import-links")"
+ok "csrf: cross-site import-links refused"          "cross-origin request refused" \
+   "$(curl -s -H 'Sec-Fetch-Site: cross-site' -X POST --data-binary @"$IDX/pocket.csv" \
+        "$B/api/import-links")"
+# the large-body exemption keys off the request line: a /api/put whose VALUE names
+# the route still gets the 413 instead of a truncated save
+ok "put: a value naming /api/import-links still 413s when oversized" "413" \
+   "$(head -c 80000 /dev/zero | tr '\0' 'x' | { printf 'see /api/import-links '; cat; } | \
+      curl -s -o /dev/null -w '%{http_code}' -X POST --data-binary @- "$B/api/put?keys=oversize")"
+
 echo "serve: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]

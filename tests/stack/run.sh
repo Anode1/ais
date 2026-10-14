@@ -57,6 +57,15 @@ done
 "$root/c/ais" -f "$src" --del 5 -y >/dev/null                 # and a delete (D|)
 "$root/c/ais" -f "$src" --sync-folder "$folder" >/dev/null
 
+# A 50-row Pocket-shaped CSV for the links import.
+links="$work/pocket.csv"
+printf 'title,url,time_added,tags,status\n' > "$links"
+i=1
+while [ $i -le 50 ]; do
+    printf 'Page %d,https://x.example/%d,1690000000,alpha|beta,unread\n' $i $i >> "$links"
+    i=$((i + 1))
+done
+
 rc=0
 check() {                       # check <mode> <label> <limit-KB>
     mode=$1; label=$2; limit=$3; idx="$work/idx.$mode"
@@ -70,7 +79,8 @@ check() {                       # check <mode> <label> <limit-KB>
         "$root/c/ais" -f "$idx" --init >/dev/null
         m=$mode
     fi
-    if "$bin" "$limit" "$idx" "$folder" "$m" >/dev/null 2>&1; then
+    arg=$folder; [ "$mode" = links ] && arg=$links
+    if "$bin" "$limit" "$idx" "$arg" "$m" >/dev/null 2>&1; then
         echo "  ok   $label fits ${limit}KB (budget ${BUDGET_KB}KB)"
     else
         echo "  FAIL $label needs more than ${limit}KB of stack"
@@ -80,12 +90,14 @@ check() {                       # check <mode> <label> <limit-KB>
     fi
 }
 
-# Measured floors today: 224 / 288 / 352 KB. Each limit is one 64 KB step above
-# its floor -- exactly one AIS_LINE_MAX buffer of room -- so re-adding a
-# line-sized buffer to any of these paths trips it, which is the regression that
-# went unnoticed and the whole reason this exists.
+# Measured floors today: 224 / 288 / 352 / 340 KB (links: a CSV and an HTML
+# alike, since each parser's frame is gone before the store pass runs). Each
+# limit is one 64 KB step above its floor -- exactly one AIS_LINE_MAX buffer of
+# room -- so re-adding a line-sized buffer to any of these paths trips it, which
+# is the regression that went unnoticed and the whole reason this exists.
 check store     "save a record"            272   # the primary command  (floor 224)
 check resurrect "re-save a deleted record" 336   # the longer save branch (floor 288)
 check folder    "import a shared folder"   400   # the app's auto-sync   (floor 352)
+check links     "import a links file"      404   # a bookmarks/CSV import (floor 340)
 
 exit $rc

@@ -13,6 +13,7 @@
  * asserts the answer is inside the budget.
  *
  *   ffi_stack <KB> <index-dir> <folder-dir> store|resurrect|folder
+ *   ffi_stack <KB> <index-dir> <links-file> links
  *
  * Exit 0 = it fit, 139/other = it did not (the thread died on the guard page).
  */
@@ -40,6 +41,10 @@ static void *work(void *unused)
         /* the app's auto-sync: import a shared folder's bundles. The deepest
          * chain in the engine -- import -> put -> post_keys -> a store seek. */
         g_rc = (ais_embed_sync_folder_force(h, g_folder, 0) < -1) ? 4 : 0;
+    } else if (strcmp(g_mode, "links") == 0) {
+        /* the app's links import: a bookmarks HTML or a links CSV, parsed in
+         * its own frame, then the batched store pass. */
+        g_rc = (ais_embed_import_links(h, g_folder) <= 0) ? 6 : 0;
     } else {
         /* store: the primary save. "resurrect" is the same call against an index
          * whose record is tombstoned, which takes the longer branch. */
@@ -56,7 +61,7 @@ int main(int argc, char **argv)
     size_t kb;
 
     if (argc < 5) {
-        fprintf(stderr, "usage: %s KB INDEX FOLDER store|resurrect|folder\n", argv[0]);
+        fprintf(stderr, "usage: %s KB INDEX FOLDER|LINKS store|resurrect|folder|links\n", argv[0]);
         return 2;
     }
     kb = (size_t)atol(argv[1]);

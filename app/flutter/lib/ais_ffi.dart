@@ -35,6 +35,10 @@ typedef _ServeC = Int32 Function(Pointer<Void>, Int32, Pointer<Utf8>);
 typedef _ServeD = int Function(Pointer<Void>, int, Pointer<Utf8>);
 typedef _BundleC = Int32 Function(Pointer<Void>, Pointer<Utf8>);   // (handle, path)
 typedef _BundleD = int Function(Pointer<Void>, Pointer<Utf8>);
+typedef _LinksC = Int64 Function(Pointer<Void>, Pointer<Utf8>);    // (handle, path)
+typedef _LinksD = int Function(Pointer<Void>, Pointer<Utf8>);
+typedef _NextIdC = Int64 Function(Pointer<Void>);                 // (handle)
+typedef _NextIdD = int Function(Pointer<Void>);
 typedef _FoldC = Int32 Function(Pointer<Void>, Pointer<Utf8>, Int32); // (handle, path, force)
 typedef _FoldD = int Function(Pointer<Void>, Pointer<Utf8>, int);
 typedef _CountC = Int64 Function(Pointer<Void>);                  // (handle)
@@ -178,6 +182,8 @@ class AisEngine {
   late final _BundleD _syncFolder =
       _lib.lookupFunction<_BundleC, _BundleD>('ais_embed_sync_folder');
   late final _CountD _count = _lib.lookupFunction<_CountC, _CountD>('ais_embed_count');
+  late final _NextIdD _nextId =
+      _lib.lookupFunction<_NextIdC, _NextIdD>('ais_embed_next_id');
   late final _CompactD _compact = _lib.lookupFunction<_CompactC, _CompactD>('ais_embed_compact');
 
   AisEngine(String indexDir) {
@@ -489,6 +495,45 @@ class AisEngine {
     } finally {
       calloc.free(p);
     }
+  }
+
+  /// The id the next new record gets; -1 on error. Read before and after an
+  /// import, the two bound the ids it created (see [importLinksAsync]).
+  int nextId() => _nextId(_h);
+
+  /// File the links in [path] (a browser's bookmarks file, or the CSV Pocket,
+  /// Instapaper or Raindrop export) off the UI isolate: a big export blocks for
+  /// seconds. Returns the records put (>= 0; a link already here merges and
+  /// still counts), or -1 unreadable, -2 no link column, -4 UTF-16 text, -5 a
+  /// zip.
+  Future<int> importLinksAsync(String path) {
+    final addr = _h.address;
+    return Isolate.run(() {
+      final lib = _load();
+      final fn = lib.lookupFunction<_LinksC, _LinksD>('ais_embed_import_links');
+      final p = path.toNativeUtf8();
+      try {
+        return fn(Pointer<Void>.fromAddress(addr), p);
+      } finally {
+        calloc.free(p);
+      }
+    });
+  }
+
+  /// Delete every record whose id is in [from, to), off the UI isolate: the
+  /// undo of an import, whose ids are one contiguous run. Returns how many
+  /// were deleted.
+  Future<int> delRangeAsync(int from, int to) {
+    final addr = _h.address;
+    return Isolate.run(() {
+      final lib = _load();
+      final fn = lib.lookupFunction<_DelC, _DelD>('ais_embed_del');
+      var n = 0;
+      for (var id = from; id < to; id++) {
+        if (fn(Pointer<Void>.fromAddress(addr), id) == 0) n++;
+      }
+      return n;
+    });
   }
 
   /// One folder-sync pass over [folder] (a Syncthing / cloud folder): import every

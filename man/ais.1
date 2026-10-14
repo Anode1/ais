@@ -364,12 +364,24 @@ ais \-\-import-interactively < project-knowledge.txt
 .TP
 .B \-\-import-bookmarks \fIFILE\fR
 File each link in a browser's exported bookmarks HTML (what Chrome, Firefox and
-Safari write). The value is the URL and the link's title; the keys are the words
-of its folder names plus the constant marker key
-.BR bookmark
-(a root-level link gets just that), so the whole batch is reversible:
-.BR "ais \-\-del-under bookmark" .
-No tag is guessed; only names the user made carry over.
+Safari write), or in a CSV with a url column: what Pocket, Instapaper and
+Raindrop export, or any spreadsheet. The value is the URL and the link's title;
+the keys are the words of its folder names and tags (a bookmark's TAGS
+attribute, a CSV's tags and folder columns; an app's own buckets, Unread,
+Archive, Starred and Unsorted, are dropped) plus one constant marker key per
+source:
+.B bookmark
+for HTML,
+.BR pocket ", " instapaper " or " raindrop
+when the CSV header names that exporter, and
+.B link
+for any other CSV. So one batch recalls and deletes as one:
+.BR "ais \-\-del-under pocket" ,
+which also takes any record the user had filed under that key, or whose value
+the import merged into. The save time is the export's own (time_added,
+Timestamp, created, ADD_DATE) when it has one. No tag is guessed; only names
+the user made carry over. A zip (Pocket's download) is refused: extract it
+first.
 .TP
 .B \-\-import-keep \fIDIR\fR
 File each note in an extracted Takeout Keep folder of .json files. The value is

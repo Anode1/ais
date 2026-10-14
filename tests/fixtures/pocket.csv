@@ -1,0 +1,4 @@
+﻿title,url,time_added,tags,status
+Ais Home,https://pocket.example/one,1690000000,tag1|tag2,unread
+No Link Here,,1690000100,tag3,archive
+https://pocket.example/two,https://pocket.example/two,1690000200,,archive

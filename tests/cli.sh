@@ -1408,7 +1408,7 @@ rm -rf "$EE"
 FIX="$(dirname "$0")/fixtures"
 FI=$(mktemp -d "${TMPDIR:-/tmp}/ais_fimp.XXXXXX") || exit 2
 bmout=$("$AIS" -f "$FI" --import-bookmarks "$FIX/bookmarks.html" 2>&1); bmrc=$?
-ok      "bookmarks: 4 imported, the malformed <A> skipped" "imported 4, skipped 1" "$bmout"
+ok      "bookmarks: 5 imported (incl. the TAGS link), the malformed <A> skipped" "imported 5, skipped 1" "$bmout"
 okeq    "bookmarks: exit 0 when something imported"        "0" "$bmrc"
 bmdump=$("$AIS" -f "$FI" --dump)
 ok      "bookmarks: root entry gets just 'bookmark'"       "^bookmark -v http://root.example/ Root Link" "$bmdump"
@@ -1417,6 +1417,33 @@ ok      "bookmarks: nested folder inherits the path"       "^old recipes baking 
 ok      "bookmarks: entities decode in URL and title"      "?a=1&b=2 Grandma's Pie & Cake" "$bmdump"
 ok      "bookmarks: untitled entry is the URL alone"       "^bookmark -v http://untitled.example/$" "$bmdump"
 ok      "bookmarks: recall by a folder word"               "bread" "$("$AIS" -f "$FI" baking)"
+ok      "bookmarks: TAGS words + marker key"               "^read later tools bookmark -v http://tagged.example/ Tagged$" "$bmdump"
+ok      "bookmarks: ADD_DATE is the save time"             "^2023-11-14 22:13Z.*tagged.example" "$("$AIS" -f "$FI" --timeline)"
+# Links CSVs: Pocket (BOM, CRLF, a row without a url), Instapaper, Raindrop.
+pkout=$("$AIS" -f "$FI" --import-bookmarks "$FIX/pocket.csv" 2>&1); pkrc=$?
+ok      "pocket: 2 imported, the url-less row skipped"     "imported 2, skipped 1" "$pkout"
+okeq    "pocket: exit 0 when something imported"           "0" "$pkrc"
+ipout=$("$AIS" -f "$FI" --import-bookmarks "$FIX/instapaper.csv" 2>&1)
+ok      "instapaper: 3 imported"                           "imported 3$" "$ipout"
+rdout=$("$AIS" -f "$FI" --import-bookmarks "$FIX/raindrop.csv" 2>&1)
+ok      "raindrop: 2 imported, the multi-line note one row" "imported 2$" "$rdout"
+lkdump=$("$AIS" -f "$FI" --dump)
+ok      "pocket: pipe tags + marker, status dropped"       "^tag1 tag2 pocket -v https://pocket.example/one Ais Home$" "$lkdump"
+ok      "pocket: a title equal to the URL is dropped"      "^pocket -v https://pocket.example/two$" "$lkdump"
+ok      "instapaper: Unread is no key"                     "^instapaper -v https://insta.example/a Insta A$" "$lkdump"
+ok      "instapaper: a user folder is a key, quotes decode" "^recipes instapaper -v https://insta.example/b Insta B, with \"quotes\"$" "$lkdump"
+ok      "raindrop: quoted tags, folder path + marker"      "^alpha beta parent child raindrop -v https://rain.example/a Rain A$" "$lkdump"
+ok      "raindrop: Unsorted is no key"                     "^raindrop -v https://rain.example/b Rain B$" "$lkdump"
+ok      "pocket: time_added is the save time"              "^2023-07-22 04:26Z.*pocket.example/one" "$("$AIS" -f "$FI" --timeline)"
+ok      "pocket: recall by a tag word"                     "pocket.example/one" "$("$AIS" -f "$FI" tag2)"
+"$AIS" -f "$FI" --del-under pocket -y >/dev/null 2>&1
+okempty "pocket: --del-under pocket removes that batch"    "$("$AIS" -f "$FI" pocket 2>/dev/null)"
+ok      "pocket: and leaves the browser import alone"      "tagged.example" "$("$AIS" -f "$FI" bookmark)"
+printf 'title,tags\nA,b\n' > "$FI.nourl.csv"
+nuout=$("$AIS" -f "$FI" --import-bookmarks "$FI.nourl.csv" 2>&1); nurc=$?
+ok      "links: a CSV without a url column is refused"     "no url column" "$nuout"
+okeq    "links: and exits 1 (die)"                         "1" "$nurc"
+rm -f "$FI.nourl.csv"
 "$AIS" -f "$FI" --del-under bookmark -y >/dev/null 2>&1
 okempty "bookmarks: --del-under bookmark reverses it all"  "$("$AIS" -f "$FI" bookmark 2>/dev/null)"
 printf '<p>no anchors here</p>\n' > "$FI.none.html"
