@@ -191,6 +191,6 @@ A sync between the iPhone (0.3.34) and an Android phone (0.3.29) succeeded on
       open a record's Details. Trimmed before the lock screen and sped up
       1.5x (1:40): `~/temp/ais-review-recording-1.5x.mp4`, off git.
 - [x] Reply sent 2026-10-14 with the notes text and the video.
-- [ ] The same text and video under App Review Information > Notes. If the
-      status still reads Rejected a day later, Resubmit for Review. Release
-      is manual after approval.
+- [x] The same text and video under App Review Information > Notes;
+      resubmitted 2026-10-14, Waiting for Review.
+- [ ] Verdict. Release is manual after approval.
