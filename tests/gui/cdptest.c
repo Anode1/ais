@@ -72,6 +72,19 @@ int main(int argc, char **argv) {
     cdp_eval_bool(c, "(function(){document.getElementById('anyk').click();return true})()", &(int){0});
     ok("and releases it", cdp_wait_bool(c,
         "document.getElementById('anyk').getAttribute('aria-pressed')==='false'", 3000) == 0);
+    /* each chip shows only on the view it acts on: Any tag on Search, Date on
+     * Recent, neither on Tags */
+    ok("on Search the Date chip is hidden", cdp_wait_bool(c,
+        "view==='recall'&&document.getElementById('anyk').hidden===false"
+        "&&document.getElementById('datebtn').parentNode.hidden===true", 3000) == 0);
+    cdp_eval_bool(c, "(function(){setView('tags');return true})()", &(int){0});
+    ok("on Tags the filter row is hidden", cdp_wait_bool(c,
+        "document.getElementById('filters').hidden===true", 3000) == 0);
+    cdp_eval_bool(c, "(function(){setView('timeline');return true})()", &(int){0});
+    ok("on Recent the Date chip shows and Any tag is hidden", cdp_wait_bool(c,
+        "document.getElementById('filters').hidden===false"
+        "&&document.getElementById('datebtn').parentNode.hidden===false"
+        "&&document.getElementById('anyk').hidden===true", 3000) == 0);
     ok("the date inputs start closed", cdp_wait_bool(c,
         "document.getElementById('tlrange').hidden===true", 3000) == 0);
     cdp_eval_bool(c, "(function(){document.getElementById('datebtn').click();return true})()", &(int){0});

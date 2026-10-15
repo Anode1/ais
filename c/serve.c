@@ -182,7 +182,7 @@ static const char PAGE[] =
 "<div class=searchrow><input id=q type=search placeholder='type tags to filter' autocomplete=off autofocus>"
 "<button id=seg-recall class=getbtn>Search</button></div>"
 "<div id=qsuggest class=chips></div>"   /* tag-autocomplete chips for #q */
-"<div class=filters><button id=anyk class=fchip aria-pressed=false>Any tag</button>"
+"<div id=filters class=filters><button id=anyk class=fchip aria-pressed=false>Any tag</button>"
 "<span class=fchipg><button id=datebtn class=fchip aria-expanded=false>Date</button>"
 "<button id=tlclear class='fchip on fx' aria-label='Clear dates' hidden>&#x2715;</button></span></div>"
 "<div id=tlrange hidden><label>From <input id=tlfrom type=date></label>"
@@ -295,9 +295,12 @@ static const char PAGE[] =
 "function dayLbl(d,mon,yr){var p=d.split('-');return(+p[2])+(mon?' '+MON[+p[1]-1]:'')+(yr?' '+p[0]:'')}"
 "function rangeLbl(f,t){if(f&&t){if(f==t)return dayLbl(f,1,0);var sy=f.slice(0,4)==t.slice(0,4),sm=sy&&f.slice(5,7)==t.slice(5,7);"
 "return dayLbl(f,!sm,!sy)+'\\u2013'+dayLbl(t,1,!sy)}return f?'From '+dayLbl(f,1,0):'Until '+dayLbl(t,1,0)}"
+/* The chips act on one view each: Any tag on Search, Date on Recent (the range
+ * filters nothing else); Tags has none, so its row is hidden. */
 "function dateChip(){var f=$('tlfrom').value,t=$('tlto').value,b=$('datebtn'),on=!!(f||t);"
 "b.textContent=on?rangeLbl(f,t):'Date';b.className='fchip'+(on||dateOpen?' on':'');"
-"b.setAttribute('aria-expanded',dateOpen?'true':'false');$('tlclear').hidden=!on}"
+"b.setAttribute('aria-expanded',dateOpen?'true':'false');$('tlclear').hidden=!on;"
+"$('anyk').hidden=view!='recall';b.parentNode.hidden=view!='timeline';$('filters').hidden=view=='tags'}"
 /* menus: one open at a time; near the bottom of the window a menu opens upward */
 "function closePops(){[].forEach.call(document.querySelectorAll('.pop'),function(p){p.hidden=true});$('menubtn').setAttribute('aria-expanded','false')}"
 "function popToggle(btn,box){var was=box.hidden;closePops();if(!was)return;"
@@ -469,7 +472,7 @@ static const char PAGE[] =
 "var L=(await(await fetch(u)).text()).split('\\n').filter(function(s){return s.length});"
 "if(g!=viewGen)return;"                                  /* the view moved on: drop it */
 "var mb=$('tlmore');if(mb)mb.remove();"
-"if(!tlN&&!L.length){o.innerHTML=emptyCTA;$('count').textContent='';return}"
+"if(!tlN&&!L.length){o.innerHTML=(f||tt)?'<div class=empty><p>Nothing in that range.</p></div>':emptyCTA;$('count').textContent='';return}"
 "L.forEach(function(ln){var r=parseTL(ln),lt=locDT(r.ts),d=lt?lt.day:'';"
 "if(d!==tlDay){tlDay=d;var h=document.createElement('div');h.className='daygroup';"
 "h.textContent=d?fmtDay(d):'(undated)';o.appendChild(h)}"
@@ -609,9 +612,10 @@ static const char PAGE[] =
 "$('seg-recall').onclick=function(){setView('recall')};"
 "[].forEach.call(document.querySelectorAll('#bnav button'),function(b){b.onclick=function(){setView(b.dataset.v)}});"
 "$('tlfrom').onchange=$('tlto').onchange=function(){dateChip();loadTimeline()};"
-"$('tlclear').onclick=function(){$('tlfrom').value='';$('tlto').value='';dateOpen=false;setView('timeline')};"
-"$('datebtn').onclick=function(){dateOpen=!dateOpen;setView('timeline')};"
-"$('anyk').onclick=function(){this.setAttribute('aria-pressed',anyTag()?'false':'true');if($('q').value.trim())setView('recall')};"
+/* no setView here: that would commit a delete still inside its Undo window */
+"$('tlclear').onclick=function(){$('tlfrom').value='';$('tlto').value='';dateOpen=false;$('tlrange').hidden=true;dateChip();loadTimeline()};"
+"$('datebtn').onclick=function(){dateOpen=!dateOpen;$('tlrange').hidden=!dateOpen;dateChip()};"
+"$('anyk').onclick=function(){this.setAttribute('aria-pressed',anyTag()?'false':'true');if($('q').value.trim())recall()};"
 "$('menubtn').onclick=function(){popToggle(this,$('menu'))};"
 "$('menu').onclick=function(){closePops()};"
 "document.addEventListener('click',function(e){[].forEach.call(document.querySelectorAll('.pop'),function(p){if(!p.hidden&&!p.parentNode.contains(e.target))p.hidden=true})});"

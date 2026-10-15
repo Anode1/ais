@@ -73,6 +73,21 @@ void main() {
     expect(find.textContaining(' ms'), findsNothing);
   });
 
+  // Text left in the field by an earlier search is a query, not a filter on
+  // the cloud: arriving on Tags shows every tag.
+  testWidgets('arriving on Tags with a query in the field shows every tag',
+      (tester) async {
+    await pumpPage(tester);
+    await openTab(tester, 'Search');
+    await type(tester, 'recipe chicken');
+    expect(find.text('2 results'), findsOneWidget);
+    await openTab(tester, 'Tags');
+    for (final t in cloud) {
+      expect(find.widgetWithText(ListTile, t.key), findsOneWidget);
+    }
+    expect(find.textContaining('No tag starts with'), findsNothing);
+  });
+
   // Typing on the Tags view narrows the list by prefix, case-insensitive,
   // and stays on Tags instead of jumping to Search.
   testWidgets('the Tags view filters by the search text', (tester) async {

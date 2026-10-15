@@ -48,7 +48,7 @@
     <button id="mic" class="iconbtn" title="Speak" hidden>&#127908;</button>
   </div>
   <div id="qsuggest" class="chips"></div>  <!-- tag-autocomplete chips for #q -->
-  <div class="filters">
+  <div id="filters" class="filters">
     <button id="anyk" class="fchip" aria-pressed="false">Any tag</button>
     <span class="fchipg"><button id="datebtn" class="fchip" aria-expanded="false">Date</button><button id="tlclear" class="fchip on fx" aria-label="Clear dates" hidden>&#x2715;</button></span>
   </div>
@@ -228,12 +228,17 @@ function rangeLbl(f, t) {
   }
   return f ? 'From ' + dayLbl(f, 1, 0) : 'Until ' + dayLbl(t, 1, 0);
 }
+// The chips act on one view each: Any tag on Search, Date on Recent (the range
+// filters nothing else); Tags has none, so its row is hidden.
 function dateChip() {
   var f = $('tlfrom').value, t = $('tlto').value, b = $('datebtn'), on = !!(f || t);
   b.textContent = on ? rangeLbl(f, t) : 'Date';
   b.className = 'fchip' + (on || dateOpen ? ' on' : '');
   b.setAttribute('aria-expanded', dateOpen ? 'true' : 'false');
   $('tlclear').hidden = !on;
+  $('anyk').hidden = view != 'recall';
+  b.parentNode.hidden = view != 'timeline';
+  $('filters').hidden = view == 'tags';
 }
 // menus: one open at a time; near the bottom of the window a menu opens upward
 function closePops() {
@@ -564,7 +569,7 @@ async function loadTimeline(more) {
   var lines = (await (await fetch(u)).text()).split('\n').filter(function (s){ return s.length; });
   if (g != gen) return;                 // the view moved on: drop it
   var mb = $('tlmore'); if (mb) mb.remove();
-  if (!tlN && !lines.length) { out.innerHTML = emptyCTA; $('count').textContent = ''; return; }
+  if (!tlN && !lines.length) { out.innerHTML = (f || tt) ? '<div class="empty"><p>Nothing in that range.</p></div>' : emptyCTA; $('count').textContent = ''; return; }
   lines.forEach(function (ln) {
     var r = parseTL(ln), lt = locDT(r.ts), d = lt ? lt.day : '';
     if (d !== tlDay) {
@@ -807,13 +812,15 @@ $('q').addEventListener('keydown', function (e){ if (e.key=='Enter') setView('re
   b.onclick = function () { setView(b.dataset.v); };
 });
 $('tlfrom').onchange = $('tlto').onchange = function () { dateChip(); loadTimeline(); };
+// no setView here: that would commit a delete still inside its Undo window
 $('tlclear').onclick = function () {
-  $('tlfrom').value = ''; $('tlto').value = ''; dateOpen = false; setView('timeline');
+  $('tlfrom').value = ''; $('tlto').value = ''; dateOpen = false; $('tlrange').hidden = true;
+  dateChip(); loadTimeline();
 };
-$('datebtn').onclick = function () { dateOpen = !dateOpen; setView('timeline'); };
+$('datebtn').onclick = function () { dateOpen = !dateOpen; $('tlrange').hidden = !dateOpen; dateChip(); };
 $('anyk').onclick = function () {
   this.setAttribute('aria-pressed', anyTag() ? 'false' : 'true');
-  if ($('q').value.trim()) setView('recall');
+  if ($('q').value.trim()) recall();
 };
 $('menubtn').onclick = function () { popToggle(this, $('menu')); };
 $('menu').onclick = function () { closePops(); };

@@ -595,9 +595,12 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
     }
   }
 
-  // Fresh tag-cloud load: page one from the busiest, resetting the cursor.
+  // Fresh tag-cloud load: page one from the busiest, resetting the cursor and
+  // the typed filter: text left in the field by an earlier search is a query,
+  // not a filter on the cloud.
   void _loadTags() {
     _tagFilter = null;
+    _tagsTyped = '';
     final page = widget.tagCloud?.call() ??
         _ais?.tagsPage(afterCount: 0, afterKey: '', count: _tagsPage) ??
         const [];
@@ -2367,7 +2370,7 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
                               _debounce?.cancel();
                               // The Tags view filters its own list as you type.
                               if (_view == 'tags') {
-                                setState(() {});
+                                setState(() => _tagsTyped = v);
                                 return;
                               }
                               if (v.trim().isEmpty) {
@@ -3457,6 +3460,7 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
   // it, case-insensitive, from the WHOLE cloud (the paged list may not hold the
   // match yet). Cached per text: build runs on every keystroke and scroll.
   (String, List<TagRow>)? _tagFilter;
+  String _tagsTyped = ''; // what was typed while ON the Tags view
   List<TagRow> _filteredTags(String text) {
     final p = text.trim().toLowerCase();
     final cached = _tagFilter;
@@ -3469,14 +3473,14 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
   }
 
   // Tags: every key with its count, busiest first; tap a key to recall it.
-  // Text in the search field narrows the list by prefix.
+  // Text typed here narrows the list by prefix.
   Widget _tagsBody(ColorScheme cs) {
-    final filtering = _q.text.trim().isNotEmpty;
-    final tags = filtering ? _filteredTags(_q.text) : _tags;
+    final filtering = _tagsTyped.trim().isNotEmpty;
+    final tags = filtering ? _filteredTags(_tagsTyped) : _tags;
     final more = !filtering && _tagsMore;
     if (tags.isEmpty) {
       return _centerMsg(
-          filtering ? 'No tag starts with "${_q.text.trim()}".' : 'No tags yet.',
+          filtering ? 'No tag starts with "${_tagsTyped.trim()}".' : 'No tags yet.',
           cs);
     }
     return NotificationListener<ScrollNotification>(
