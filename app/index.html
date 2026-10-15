@@ -34,55 +34,74 @@
 
 <!-- frosted header: title + count, then a rounded search row (recall-first) -->
 <header id="bar">
-  <div class="titlerow"><span class="brand">AIS</span><span id="count" class="muted"></span></div>
+  <div class="titlerow"><span class="brand">AIS</span><span id="count" class="muted"></span>
+    <button id="menubtn" class="iconbtn" aria-label="More" aria-haspopup="menu" aria-expanded="false"><svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><path d="M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z"/></svg></button>
+    <div id="menu" class="pop" role="menu" hidden>
+      <button id="cleanbtn" role="menuitem">Free up space</button>
+      <button id="syncbtn" role="menuitem">Sync &amp; backup</button>
+      <button id="storebtn" role="menuitem">Switch library</button>
+    </div>
+  </div>
   <div class="searchrow">
     <span class="sicon">&#128269;</span>
     <input id="q" type="search" enterkeyhint="search" placeholder="type tags to filter" autocomplete="off" autofocus>
     <button id="mic" class="iconbtn" title="Speak" hidden>&#127908;</button>
   </div>
   <div id="qsuggest" class="chips"></div>  <!-- tag-autocomplete chips for #q -->
-  <label style="display:flex;align-items:center;gap:.4rem;font-size:.85rem;color:var(--muted);margin-top:.45rem">
-    <input id="anyk" type="checkbox" style="width:auto"> Match any tag</label>
-  <div id="tlrange" style="display:none;gap:.4rem;align-items:center;margin-top:.5rem;font-size:.85rem;color:var(--muted)">
-    <span>from</span><input id="tlfrom" type="date" style="font:inherit">
-    <span>to</span><input id="tlto" type="date" style="font:inherit">
-    <button id="tlclear" class="link">clear</button>
+  <div class="filters">
+    <button id="anyk" class="fchip" aria-pressed="false">Any tag</button>
+    <span class="fchipg"><button id="datebtn" class="fchip" aria-expanded="false">Date</button><button id="tlclear" class="fchip on fx" aria-label="Clear dates" hidden>&#x2715;</button></span>
   </div>
-  <div class="storerow"><span id="store" class="muted"></span><button id="cleanbtn" class="link">clean up</button><button id="syncbtn" class="link">sync</button><button id="storebtn" class="link">change</button></div>
-  <div id="storeedit" class="storerow" style="display:none;margin-top:.4rem">
-    <input id="storepath" placeholder="Index folder (full path)" autocomplete="off" style="flex:1;font:inherit">
-    <button id="storeok" class="link">open</button><button id="storecancel" class="link">cancel</button></div>
+  <div id="tlrange" hidden>
+    <label>From <input id="tlfrom" type="date"></label>
+    <label>To <input id="tlto" type="date"></label>
+  </div>
 </header>
 
-<main id="out"><p class="empty">Loading...</p></main>
+<main id="out"><p class="empty">Loading&hellip;</p></main>
 
-<button id="addbtn" class="fab">+ Add</button>
+<button id="addbtn" class="fab"><svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>Add</button>
 
 <!-- bottom nav, matching the Flutter NavigationBar (Search / Recent / Tags) and
-     the embedded page: reachable by thumb, and the same three destinations -->
+     the embedded page. Material Symbols search, schedule and label: .o is the
+     outlined icon, .f the filled one shown while that view is up. -->
 <nav id="bnav">
-  <button data-v="recall"><span class="ic">&#128269;</span>Search</button>
-  <button data-v="timeline" class="on"><span class="ic">&#128336;</span>Recent</button>
-  <button data-v="tags"><span class="ic">&#127991;</span>Tags</button>
+  <button data-v="recall"><span class="ic"><svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><path d="M15.5 14h-.79l-.28-.27A6.47 6.47 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg></span>Search</button>
+  <button data-v="timeline" class="on"><span class="ic"><svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><path class="o" d="M11.99 2C6.47 2 2 6.48 2 12s4.47 10 9.99 10C17.52 22 22 17.52 22 12S17.52 2 11.99 2zM12 20c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm.5-13H11v6l5.25 3.15.75-1.23-4.5-2.67z"/><path class="f" d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10 10-4.5 10-10S17.5 2 12 2zm4.2 14.2L11 13V7h1.5v5.2l4.5 2.7-.8 1.3z"/></svg></span>Recent</button>
+  <button data-v="tags"><span class="ic"><svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><path class="o" d="M17.63 5.84C17.27 5.33 16.67 5 16 5L5 5.01C3.9 5.01 3 5.9 3 7v10c0 1.1.9 1.99 2 1.99L16 19c.67 0 1.27-.33 1.63-.84L22 12l-4.37-6.16zM16 17H5V7h11l3.55 5L16 17z"/><path class="f" d="M17.63 5.84C17.27 5.33 16.67 5 16 5L5 5.01C3.9 5.01 3 5.9 3 7v10c0 1.1.9 1.99 2 1.99L16 19c.67 0 1.27-.33 1.63-.84L22 12l-4.37-6.16z"/></svg></span>Tags</button>
 </nav>
+
+<!-- Switch library: the only place the library's path is shown -->
+<div id="storesheet" hidden role="dialog" aria-modal="true" aria-labelledby="storetitle">
+  <div class="card">
+    <h2 id="storetitle">Switch library</h2>
+    <p class="muted" style="font-size:.85rem;margin:0 0 .2rem">Open now:</p>
+    <p id="store"></p>
+    <label for="storepath" class="muted" style="font-size:.85rem">Library folder (full path)</label>
+    <input id="storepath" autocomplete="off" autocapitalize="off" spellcheck="false">
+    <div class="actions">
+      <button id="storecancel" class="ghost">Cancel</button>
+      <button id="storeok" class="primary">Open</button>
+    </div>
+  </div>
+</div>
 
 <div id="toast" hidden><span>Deleted</span><button id="toastundo">Undo</button></div>
 
 <!-- value-first Add sheet: what to remember, then optional tags -->
-<div id="sheet" hidden>
+<div id="sheet" hidden role="dialog" aria-modal="true" aria-labelledby="addtitle">
   <div class="card">
-    <h2>Add to your memory</h2>
-    <textarea id="v" rows="3" placeholder="What to remember &mdash; a link, a note, a number&hellip;"></textarea>
-    <input id="vk" placeholder="Tags (space or comma separated, optional)">
+    <h2 id="addtitle">New item</h2>
+    <textarea id="v" rows="3" aria-label="Text" placeholder="A link, a note, a number..."></textarea>
+    <input id="vk" aria-label="Tags" placeholder="Tags">
+    <p class="hint">Separate with spaces</p>
     <div id="vksuggest" class="chips"></div>  <!-- tag-autocomplete chips for #vk -->
-    <!-- Encrypt: the passphrase field stays hidden until it is asked for, and the
-         passphrase rides the POST body, never the URL -->
-    <div class="encrow">
-      <label><input id="enc" type="checkbox"> Encrypt</label>
-      <input id="pp" type="password" placeholder="Passphrase" hidden>
-    </div>
-    <input id="pp2" type="password" placeholder="Repeat passphrase" hidden>
-    <p id="ppnote" class="muted" style="font-size:.85rem;margin:.1rem 0" hidden>A lost passphrase cannot be recovered.</p>
+    <!-- the password fields stay hidden until the switch asks for them, and the
+         password rides the POST body, never the URL -->
+    <label class="switch"><input id="enc" type="checkbox" role="switch"> Lock with a password</label>
+    <input id="pp" type="password" placeholder="Password" hidden>
+    <input id="pp2" type="password" placeholder="Repeat password" hidden>
+    <p id="ppnote" class="muted" style="font-size:.85rem;margin:.1rem 0 .8rem" hidden>Forget this password and the note is gone for good.</p>
     <div class="actions">
       <button id="cancel" class="ghost">Cancel</button>
       <button id="save" class="primary">Save</button>
@@ -96,7 +115,7 @@
   <div class="card" tabindex="-1">
     <h2 id="edtitle">Edit</h2>
     <div id="edvalwrap">
-      <label class="muted" style="font-size:.8rem" for="edval">Value</label>
+      <label class="muted" style="font-size:.8rem" for="edval">Text</label>
       <textarea id="edval" rows="3"></textarea>
     </div>
     <label class="muted" style="font-size:.8rem" for="edtag">Tags</label>
@@ -115,11 +134,11 @@
      alternative, and gates the confirm behind typing the tag name -->
 <div id="dsheet" hidden role="dialog" aria-modal="true" aria-labelledby="dstitle">
   <div class="card" tabindex="-1">
-    <h2 id="dstitle">Delete records?</h2>
-    <p class="lead">This deletes the records, not the tag.</p>
+    <h2 id="dstitle">Delete these items?</h2>
+    <p class="lead">This deletes the items, not the tag.</p>
     <p id="dsbody" class="muted" style="font-size:.9rem"></p>
     <ul id="dsprev" class="prev"></ul>
-    <p><button id="dskeep" class="link">Keep the records: remove just the tag</button></p>
+    <p><button id="dskeep" class="link">Keep the items, remove only the tag</button></p>
     <label for="dsname" style="font-size:.85rem;color:var(--muted)">Type the tag name to confirm</label>
     <input id="dsname" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false">
     <div class="actions">
@@ -135,16 +154,16 @@
      The ids match the embedded page's so one driver tests both. -->
 <div id="syncsheet" hidden role="dialog" aria-modal="true" aria-labelledby="synctitle">
   <div class="card" tabindex="-1">
-    <h2 id="synctitle">Sync with another device</h2>
-    <p class="muted" style="margin:.2rem 0 1rem;font-size:.9rem">Both devices end up with the same records. One hosts and waits; the other joins it. Same Wi-Fi.</p>
+    <h2 id="synctitle">Sync &amp; backup</h2>
+    <p class="muted" style="margin:.2rem 0 1rem;font-size:.9rem">Both devices end up with the same items. One shows a code, the other scans or types it. Same Wi-Fi.</p>
     <div id="syncpick" class="actions" style="justify-content:center">
-      <button id="syncjoinbtn" class="ghost">Join</button>
-      <button id="synchostbtn" class="primary">Host</button>
+      <button id="syncjoinbtn" class="ghost">Scan or type a code</button>
+      <button id="synchostbtn" class="primary">Show a code</button>
     </div>
     <!-- File transfer: no network at all. Export the whole Library to a file, or
          merge one in (moved by Drive, USB or email). -->
     <div id="syncfile">
-      <p class="muted" style="margin:1rem 0 .5rem;font-size:.85rem">Or a file &mdash; move it by Drive, USB or email:</p>
+      <p class="muted" style="margin:1rem 0 .5rem;font-size:.85rem">Or a file, moved by Drive, USB or email:</p>
       <div class="actions" style="justify-content:center">
         <button id="impbtn" class="ghost">Import</button>
         <button id="expbtn" class="primary">Export</button>
@@ -158,7 +177,7 @@
       <!-- Shared folder (Syncthing / a cloud folder): one tap runs a pass, and the
            path is remembered by the server, so a pass also runs on load and after
            each change. -->
-      <p class="muted" style="margin:1rem 0 .4rem;font-size:.85rem">Or auto-sync a shared folder. Best with Syncthing; a versioning cloud may keep deleted items:</p>
+      <p class="muted" style="margin:1rem 0 .4rem;font-size:.85rem">Or keep a shared folder in sync (Syncthing, a cloud drive):</p>
       <div class="fldrow">
         <input id="syncfld" placeholder="/path/to/shared/folder" autocomplete="off">
         <button id="syncfldbtn" class="getbtn">Sync</button>
@@ -170,7 +189,7 @@
     <input id="filelinks" type="file" accept=".csv,.html,.htm,text/csv,text/html" multiple hidden>
     <!-- Host pane: address + token to read off, a QR to scan, a live status line -->
     <div id="synchost" hidden>
-      <p style="margin:.2rem 0 .6rem;font-size:.9rem">Scan with the phone's camera, or on the other device choose Join and enter:</p>
+      <p style="margin:.2rem 0 .6rem;font-size:.9rem">Scan with the phone's camera, or on the other device choose Scan or type a code and enter:</p>
       <div id="qr"></div>
       <div class="pair"><div id="hostaddr"></div><div id="hosttok" class="muted"></div></div>
       <p id="hoststatus" class="muted" style="margin:.6rem 0 0;font-size:.9rem">Waiting for the other device...</p>
@@ -178,8 +197,8 @@
     <!-- Join pane: address + token inputs and a status line -->
     <div id="syncjoin" hidden>
       <input id="jaddr" placeholder="Address" value="http://">
-      <input id="jtok" placeholder="Token">
-      <p class="muted" style="margin:0 0 .6rem;font-size:.85rem">On the other device: open Sync, choose Host, and read off its address and token.</p>
+      <input id="jtok" placeholder="Code">
+      <p class="muted" style="margin:0 0 .6rem;font-size:.85rem">On the other device, choose Show a code. Type its address and code here.</p>
       <div class="actions"><button id="jgo" class="primary">Sync</button></div>
       <p id="joinstatus" class="muted" style="margin:.6rem 0 0;font-size:.9rem"></p>
     </div>
@@ -194,6 +213,39 @@ var $ = function (i) { return document.getElementById(i); };
 // over the new one. Loaders capture gen before their fetch and drop a stale result.
 var view = 'recall', gen = 0;
 var tlBefore = 0, tlDay = null, tlN = 0, tlPage = 100;  // timeline keyset paging
+var dateOpen = false, MON = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+function anyTag() { return $('anyk').getAttribute('aria-pressed') == 'true'; }
+// once a range is set the Date chip names it: "12–20 Aug", "From 3 Sep"
+function dayLbl(d, mon, yr) {
+  var p = d.split('-');
+  return (+p[2]) + (mon ? ' ' + MON[+p[1] - 1] : '') + (yr ? ' ' + p[0] : '');
+}
+function rangeLbl(f, t) {
+  if (f && t) {
+    if (f == t) return dayLbl(f, 1, 0);
+    var sy = f.slice(0, 4) == t.slice(0, 4), sm = sy && f.slice(5, 7) == t.slice(5, 7);
+    return dayLbl(f, !sm, !sy) + '\u2013' + dayLbl(t, 1, !sy);
+  }
+  return f ? 'From ' + dayLbl(f, 1, 0) : 'Until ' + dayLbl(t, 1, 0);
+}
+function dateChip() {
+  var f = $('tlfrom').value, t = $('tlto').value, b = $('datebtn'), on = !!(f || t);
+  b.textContent = on ? rangeLbl(f, t) : 'Date';
+  b.className = 'fchip' + (on || dateOpen ? ' on' : '');
+  b.setAttribute('aria-expanded', dateOpen ? 'true' : 'false');
+  $('tlclear').hidden = !on;
+}
+// menus: one open at a time; near the bottom of the window a menu opens upward
+function closePops() {
+  [].forEach.call(document.querySelectorAll('.pop'), function (p) { p.hidden = true; });
+  $('menubtn').setAttribute('aria-expanded', 'false');
+}
+function popToggle(btn, box) {
+  var was = box.hidden; closePops(); if (!was) return;
+  var up = btn.getBoundingClientRect().bottom > window.innerHeight - 200;
+  box.style.top = up ? 'auto' : ''; box.style.bottom = up ? '100%' : '';
+  box.hidden = false; btn.setAttribute('aria-expanded', 'true');
+}
 
 // fillVal: append V to NODE, turning every embedded http(s) URL into a real link
 // -- not only values that are wholly a URL, so a "Title - https://..." value gets
@@ -212,8 +264,8 @@ function fillVal(node, v) {
 // than the marker itself. The cleartext lives until the next render, no longer.
 function fillSecret(node, v) {
   var s = document.createElement('span'); s.className = 'lockline';
-  s.textContent = '🔒 encrypted ';
-  var b = document.createElement('button'); b.className = 'actbtn'; b.textContent = 'Reveal';
+  s.textContent = '🔒 locked ';
+  var b = document.createElement('button'); b.className = 'actbtn'; b.textContent = 'Unlock';
   b.onclick = function () { revealSecret(node, v); };
   node.appendChild(s); node.appendChild(b);
 }
@@ -222,30 +274,31 @@ function fillSecret(node, v) {
 async function revealSecret(node, v) {
   node.innerHTML = '';
   var i = document.createElement('input');
-  i.type = 'password'; i.placeholder = 'Passphrase'; i.autocomplete = 'off';
+  i.type = 'password'; i.placeholder = 'Password'; i.autocomplete = 'off';
   i.className = 'ppinline';
   var b = document.createElement('button'); b.className = 'actbtn revbtn'; b.textContent = 'Show';
   var x = document.createElement('button'); x.className = 'actbtn revbtn'; x.textContent = 'cancel';
   x.onclick = function () { node.innerHTML = ''; fillSecret(node, v); };
+  var er = document.createElement('span'); er.className = 'muted revbtn';
   async function go() {
     var pp = i.value; if (!pp) return;
-    // passphrase in the body, never the URL: a URL lands in history and logs
+    // password in the body, never the URL: a URL lands in history and logs
     var r = await fetch('/api/reveal', { method:'POST', body: pp + '\n' + v });
     var t = await r.text();
+    // a wrong password keeps the field, so the retry is one more try, not a restart
+    if (!t) { i.value = ''; er.textContent = 'Wrong password. Try again.'; i.focus(); return; }
     node.innerHTML = '';
-    if (t) {
-      fillVal(node, t);
-      var c = document.createElement('button'); c.className = 'actbtn revbtn';
-      c.textContent = 'copy'; c.onclick = function () { copyText(t, c); };
-      node.appendChild(c);
-    } else node.textContent = '(cannot decrypt)';
+    fillVal(node, t);
+    var c = document.createElement('button'); c.className = 'actbtn revbtn';
+    c.textContent = 'copy'; c.onclick = function () { copyText(t, c); };
+    node.appendChild(c);
   }
   b.onclick = go;
   i.onkeydown = function (e) {
     if (e.key === 'Enter') go();
     else if (e.key === 'Escape') { node.innerHTML = ''; fillSecret(node, v); }
   };
-  node.appendChild(i); node.appendChild(b); node.appendChild(x); i.focus();
+  node.appendChild(i); node.appendChild(b); node.appendChild(x); node.appendChild(er); i.focus();
 }
 // A document blob comes over the wire as "aisdoc:<base64 of "path\ncontent">", so
 // the multi-line content survives the line-based record split. The first line
@@ -271,9 +324,9 @@ function fillDoc(node, v) {
   d.textContent = docText(v); node.appendChild(d);
 }
 
-function render(text, q, ms) {
+function render(text, q) {
   var lines = text.split('\n').filter(function (s){ return s.length; });
-  $('count').textContent = lines.length + ' result' + (lines.length==1?'':'s') + ' · ' + ms.toFixed(0) + ' ms';
+  $('count').textContent = lines.length + ' result' + (lines.length==1?'':'s');
   var out = $('out'); out.innerHTML = '';
   if (!lines.length) {
     // textContent, not innerHTML: a tag name reaches q via the tag list, so the
@@ -324,7 +377,7 @@ async function copyText(t, btn) {
     await navigator.clipboard.writeText(t);
     var o = btn.textContent; btn.textContent = 'copied';
     setTimeout(function () { btn.textContent = o; }, 1200);
-  } catch (err) { alert('copy needs https or localhost'); }
+  } catch (err) { alert("Can't copy here. Select the text and copy it yourself."); }
 }
 // Deferred delete + Undo, matching the embedded page. The engine call only fires
 // when the 5s window lapses OR another action flushes it -- never on Undo, which
@@ -435,11 +488,11 @@ async function edSave() {
 var lastTagN = 0;                       // the tag half of the last search; openSheet reads it
 async function recall() {
   var q = $('q').value.trim(); if (!q) return;
-  var t0 = performance.now(), g = gen;
-  var oo = $('anyk') && $('anyk').checked ? '&or=1' : '';
+  var g = gen;
+  var oo = anyTag() ? '&or=1' : '';
   var t = await (await fetch('/api/get?keys=' + encodeURIComponent(q) + oo)).text();
   if (g != gen) return;                 // the view moved on: drop it
-  var tagN = lastTagN = render(t, q, performance.now() - t0);
+  var tagN = lastTagN = render(t, q);
   await findAppend(g, tagN);
   if (g != gen) return;
   // tags matched nothing but values did: the value section stands alone
@@ -467,7 +520,7 @@ async function findAppend(g, tagN) {
       // must read the same on both pages
       var s = document.createElement('div'); s.id = 'vsep'; s.className = 'daygroup';
       s.style.textTransform = 'none';
-      s.textContent = 'matched in the value'; o.appendChild(s);
+      s.textContent = 'Found in the text'; o.appendChild(s);
     }
     var r = document.createElement('div'); r.className = 'hit'; r.dataset.id = id;
     (v.indexOf('aisc:') == 0 ? fillSecret(r, v)
@@ -476,7 +529,7 @@ async function findAppend(g, tagN) {
     o.appendChild(r); added++;
   });
   if (added) $('count').textContent = tagN
-    ? tagN + ' result' + (tagN == 1 ? '' : 's') + ' + ' + added + ' in the value'
+    ? tagN + ' result' + (tagN == 1 ? '' : 's') + ' + ' + added + ' in the text'
     : added + ' result' + (added == 1 ? '' : 's');
 }
 
@@ -511,7 +564,7 @@ async function loadTimeline(more) {
   var lines = (await (await fetch(u)).text()).split('\n').filter(function (s){ return s.length; });
   if (g != gen) return;                 // the view moved on: drop it
   var mb = $('tlmore'); if (mb) mb.remove();
-  if (!tlN && !lines.length) { out.innerHTML = '<div class="empty"><p>Nothing saved yet.</p>' + addCTA + '</div>'; return; }
+  if (!tlN && !lines.length) { out.innerHTML = emptyCTA; $('count').textContent = ''; return; }
   lines.forEach(function (ln) {
     var r = parseTL(ln), lt = locDT(r.ts), d = lt ? lt.day : '';
     if (d !== tlDay) {
@@ -532,7 +585,7 @@ async function loadTimeline(more) {
     out.appendChild(row);
   });
   tlN += lines.length;
-  setCount(tlN + ' record' + (tlN == 1 ? '' : 's'));
+  setCount(tlN + ' item' + (tlN == 1 ? '' : 's'));
   if (lines.length == tlPage) {
     var b = document.createElement('button'); b.id = 'tlmore'; b.className = 'loadmore';
     b.textContent = 'Load more'; b.onclick = function () { loadTimeline(true); };
@@ -562,39 +615,39 @@ async function loadTags() {
     var b = document.createElement('button'); b.className = 'taglink'; b.textContent = key;
     b.onclick = function () { $('q').value = key; setView('recall'); };
     var n = document.createElement('span'); n.className = 'tagcount'; n.textContent = count;
-    row.appendChild(b); row.appendChild(n);
-    out.appendChild(row);
-    // safe first, destructive far right; the labels name different objects
-    var acts = document.createElement('div'); acts.className = 'tagacts';
-    var u = document.createElement('button'); u.className = 'actbtn';
+    // both tag actions sit behind the row's menu; the delete opens the typed confirm
+    var m = document.createElement('button'); m.className = 'iconbtn tagmenu';
+    m.innerHTML = $('menubtn').innerHTML;
+    m.setAttribute('aria-label', 'Actions for ' + key); m.setAttribute('aria-haspopup', 'menu');
+    var box = document.createElement('div'); box.className = 'pop';
+    box.setAttribute('role', 'menu'); box.hidden = true;
+    var u = document.createElement('button'); u.setAttribute('role', 'menuitem');
     u.textContent = 'Remove tag';
-    u.onclick = function () { untagKey(key); };
-    var g = document.createElement('button'); g.className = 'actbtn danger';
-    g.textContent = 'Delete ' + count + ' record' + (+count==1 ? '' : 's');
-    g.onclick = function () { openDelUnder(key); };
-    acts.appendChild(u); acts.appendChild(g);
-    out.appendChild(acts);
+    u.onclick = function () { closePops(); untagKey(key); };
+    var x = document.createElement('button'); x.setAttribute('role', 'menuitem'); x.className = 'danger';
+    x.textContent = 'Delete ' + count + ' item' + (+count==1 ? '' : 's');
+    x.onclick = function () { closePops(); openDelUnder(key); };
+    box.appendChild(u); box.appendChild(x);
+    m.onclick = function () { popToggle(m, box); };
+    row.appendChild(b); row.appendChild(n); row.appendChild(m); row.appendChild(box);
+    out.appendChild(row);
   });
 }
 
 // UNTAG: reversible and destroys nothing, so it gets the undo window rather than
 // a modal -- the records are never at risk, and the tag can be re-added anyway.
 function untagKey(key) {
-  var row = null, acts = null;
+  var row = null;
   [].forEach.call(document.querySelectorAll('.taglink'), function (b) {
-    if (b.textContent == key) { row = b.parentNode; acts = row.nextSibling; }
+    if (b.textContent == key) row = b.parentNode;
   });
   if (row) row.style.display = 'none';
-  if (acts) acts.style.display = 'none';
   delPending("Removed tag '" + key + "'",
     function () {
       fetch('/api/untag?keys=' + encodeURIComponent(key), { method:'POST' })
         .then(function () { if (view == 'tags') loadTags(); });
     },
-    function () {
-      if (row) row.style.display = '';
-      if (acts) acts.style.display = '';
-    });
+    function () { if (row) row.style.display = ''; });
 }
 
 // DELETE-UNDER: recompute at open time -- the row badge can be stale, and a
@@ -614,14 +667,13 @@ async function openDelUnder(key) {
   });
   if (!recs.length) { $('count').textContent = "Nothing is filed under '" + key + "'"; loadTags(); return; }
   dsKey = key;
-  var n = recs.length, w = n + ' record' + (n==1?'':'s');
-  $('dstitle').textContent = 'Delete ' + w + '?';
+  var n = recs.length, w = n + ' item' + (n==1?'':'s');
   $('dsbody').textContent = 'All ' + w + " filed under '" + key
     + "' are deleted, and each disappears from every other tag it is filed under too.";
   var ul = $('dsprev'); ul.innerHTML = '';
   recs.slice(0,10).forEach(function (r) {
     var li = document.createElement('li');
-    li.textContent = r.v + (r.extra ? ' (+' + r.extra + ' more link' + (r.extra==1?'':'s') + ' on this record)' : '');
+    li.textContent = r.v + (r.extra ? ' (+' + r.extra + ' more link' + (r.extra==1?'':'s') + ' on this item)' : '');
     ul.appendChild(li);
   });
   if (n > 10) {
@@ -641,7 +693,8 @@ function setView(v) {
   [].forEach.call(document.querySelectorAll('#bnav button'), function (b) {
     b.className = (b.dataset.v == v) ? 'on' : '';
   });
-  $('tlrange').style.display = (v == 'timeline') ? 'flex' : 'none';  // date range: Timeline only
+  $('tlrange').hidden = !(v == 'timeline' && dateOpen);  // the range filters Recent only
+  dateChip();
   if (v == 'recall') {
     if ($('q').value.trim()) recall();
     else { $('out').innerHTML = '<div class="empty"><p>Type tags, then Search.</p>' + addCTA + '</div>'; $('count').textContent = ''; }
@@ -651,7 +704,10 @@ function setView(v) {
 
 // The empty views offer the Add the fab would otherwise be the only route to;
 // app.css hides the fab while this is on screen, so only one Add ever shows.
-var addCTA = '<button class="primary addcta" style="margin-top:1rem" onclick="openSheet()">+ Add</button>';
+var addCTA = '<button class="primary addcta" style="margin-top:1rem" onclick="openSheet()">Add</button>';
+// the first-run screen: what AIS is for, and the one thing to do
+var emptyCTA = '<div class="empty"><p class="emptyh">Nothing saved yet</p>'
+  + '<p>Save a link, note or password under your own tags.</p>' + addCTA + '</div>';
 // That CSS rule is a :has(), which WebKit before 15.4 does not have; there both
 // Adds would show. Same rule, said in JS, for those.
 new MutationObserver(function () {
@@ -671,15 +727,17 @@ function openSheet(){
 function closeSheet(){ $('sheet').hidden = true; $('v').value = ''; $('pp').value = ''; $('pp2').value = ''; }
 
 async function save() {
-  var value = $('v').value.trim(); if (!value) return;
+  var value = $('v').value.trim();
+  if (!value) { alert('Type something first.'); return; }
+  if (value.indexOf('\0') >= 0) { alert("The text has a hidden character AIS can't store. Retype it and save again."); return; }
   var keys = $('vk').value.trim();
   var enc = $('enc').checked, pp = $('pp').value, pp2 = $('pp2').value;
-  // refuse rather than save in the clear: a ticked Encrypt box with no passphrase
+  // refuse rather than save in the clear: the lock switched on with no password
   // is the one case where doing the obvious thing would leak the secret
-  if (enc && !pp) { alert('Enter a passphrase to encrypt'); return; }
-  // exact match, no trimming: a stray space would encrypt under a passphrase the
-  // user cannot retype, and a lost passphrase cannot be recovered
-  if (enc && pp !== pp2) { alert('Passphrases do not match'); return; }
+  if (enc && !pp) { alert('Enter a password to lock it.'); return; }
+  // exact match, no trimming: a stray space would encrypt under a password the
+  // user cannot retype, and a lost password cannot be recovered
+  if (enc && pp !== pp2) { alert("The passwords don't match."); return; }
   // on a failed or unreachable put, say so and KEEP the sheet, so the value the
   // user typed is still there to retry with
   try {
@@ -687,13 +745,13 @@ async function save() {
                         { method:'POST', body: enc ? (pp + '\n' + value) : value });
     if (!r.ok) throw new Error('server ' + r.status);
     var rt = await r.text();
-  } catch (e) { alert('Save failed (' + e.message + '). Nothing was saved.'); return; }
+  } catch (e) { alert("Couldn't save. Check AIS is still running, then try again."); return; }
   closeSheet();
   // same text, same record: the reply says the save merged (restamped to today,
   // keys attached); silence here reads as the first note vanishing. The toast
   // is skipped while a delete's Undo owns it.
   if (rt.indexOf('merged') == 0 && !delTimer) {
-    $('toast').firstChild.textContent = 'Already in your memory: kept as one entry, dated today';
+    $('toast').firstChild.textContent = 'Already saved. Moved to today.';
     $('toastundo').hidden = true;
     $('toast').hidden = false;
     setTimeout(function () { if (!delTimer) hideToast(); }, 4000);
@@ -748,9 +806,22 @@ $('q').addEventListener('keydown', function (e){ if (e.key=='Enter') setView('re
 [].forEach.call(document.querySelectorAll('#bnav button'), function (b) {
   b.onclick = function () { setView(b.dataset.v); };
 });
-$('tlfrom').onchange = function (){ loadTimeline(); };
-$('tlto').onchange = function (){ loadTimeline(); };
-$('tlclear').onclick = function (){ $('tlfrom').value = ''; $('tlto').value = ''; loadTimeline(); };
+$('tlfrom').onchange = $('tlto').onchange = function () { dateChip(); loadTimeline(); };
+$('tlclear').onclick = function () {
+  $('tlfrom').value = ''; $('tlto').value = ''; dateOpen = false; setView('timeline');
+};
+$('datebtn').onclick = function () { dateOpen = !dateOpen; setView('timeline'); };
+$('anyk').onclick = function () {
+  this.setAttribute('aria-pressed', anyTag() ? 'false' : 'true');
+  if ($('q').value.trim()) setView('recall');
+};
+$('menubtn').onclick = function () { popToggle(this, $('menu')); };
+$('menu').onclick = function () { closePops(); };
+document.addEventListener('click', function (e) {
+  [].forEach.call(document.querySelectorAll('.pop'), function (p) {
+    if (!p.hidden && !p.parentNode.contains(e.target)) p.hidden = true;
+  });
+});
 $('addbtn').onclick = openSheet;
 $('enc').onchange = function () {
   $('pp').hidden = $('pp2').hidden = $('ppnote').hidden = !$('enc').checked;
@@ -781,12 +852,14 @@ $('dsgo').onclick = async function () {
   var k = dsKey; closeDel();
   var r = await (await fetch('/api/del-under?keys=' + encodeURIComponent(k), { method:'POST' })).text();
   var m = +(r.match(/\d+/) || [0])[0];
-  note('Deleted ' + m + ' record' + (m==1?'':'s'));
+  note('Deleted ' + m + ' item' + (m==1?'':'s'));
   loadTags();
 };
 document.addEventListener('keydown', function (e) {
   if (e.key != 'Escape') return;
+  closePops();
   if (!$('dsheet').hidden) closeDel();
+  else if (!$('storesheet').hidden) $('storesheet').hidden = true;
   else if (!$('editsheet').hidden) $('editsheet').hidden = true;
   else if (!$('sheet').hidden) closeSheet();
   else if (!$('syncsheet').hidden) closeSync();
@@ -802,23 +875,21 @@ if (SR) {
   rec.onresult = function(e){ $('q').value = e.results[0][0].transcript; recall(); };
 }
 
-// show the current store, and let the user point at a different index
-async function loadStore(){ $('store').textContent = 'Library: ' + await (await fetch('/api/where')).text(); }
-// inline field, not prompt(): an installed PWA silently disables prompt(), so
-// the "change" button did nothing at all there.
+// Switch library: the only place the path is shown. A field, not prompt(): an
+// installed PWA silently disables prompt().
 async function changeStore(){
   var cur = (await (await fetch('/api/where')).text()).trim();
+  $('store').textContent = cur;
   $('storepath').value = cur;
-  $('storeedit').style.display = 'flex';
+  $('storesheet').hidden = false;
   $('storepath').focus();
 }
 async function storeApply(){
   var d = $('storepath').value.trim();
-  $('storeedit').style.display = 'none';
   if (!d) return;
   var r = await fetch('/api/store', { method:'POST', body:d });
-  if (r.ok) { $('q').value=''; $('out').innerHTML='<p class="empty">Type tags, then Search.</p>'; $('count').textContent=''; loadStore(); }
-  else alert('Could not open that index');
+  if (r.ok) { $('storesheet').hidden = true; $('q').value = ''; setView('timeline'); }
+  else alert('No AIS library in that folder.');
 }
 // Reclaim deleted records. There is no CLI on a phone, so without this the store
 // grows forever and the tags of deleted records linger in the index. The second
@@ -827,26 +898,20 @@ async function storeApply(){
 async function cleanUp() {
   var st = await (await fetch('/api/stats')).text();
   var d = (st.match(/deleted:\s*(\d+)/) || [0, '0'])[1];
-  if (d == '0') { $('count').textContent = 'Nothing to clean up'; return; }
-  if (!confirm('Reclaim the space of ' + d + ' deleted record' + (d == '1' ? '' : 's') + '?')) return;
-  var f = confirm('Also FORGET what was deleted?\n\n'
-    + 'They stay deleted here, but this device can no longer tell your other '
-    + 'devices about them, and nothing is left for anyone to test a guess against.\n\n'
-    + 'Sync your other devices FIRST -- one that has not seen these deletions '
-    + 'can send them back.\n\nOK = forget.  Cancel = just reclaim the space.');
+  if (d == '0') { $('count').textContent = 'Nothing to free up'; return; }
+  if (!confirm('Free the space used by ' + d + ' deleted item' + (d == '1' ? '' : 's') + '?')) return;
+  var f = confirm('Also erase the record of what you deleted? Sync your other devices '
+    + 'first, or they may bring those items back.\n\nOK: erase. Cancel: keep.');
   var r = await (await fetch('/api/compact' + (f ? '?forget=1' : ''), { method:'POST' })).text();
-  note(r.trim() == 'cleaned and forgotten' ? 'Cleaned up, deletions forgotten' : 'Cleaned up');
+  note(r.trim() == 'cleaned and forgotten' ? 'Space freed, record erased' : 'Space freed');
   setView(view);
 }
 $('cleanbtn').onclick = cleanUp;
 $('storebtn').onclick = changeStore;
 $('storeok').onclick = storeApply;
-$('storecancel').onclick = function(){ $('storeedit').style.display = 'none'; };
-$('storepath').onkeydown = function (e) {
-  if (e.key === 'Enter') storeApply();
-  else if (e.key === 'Escape') $('storeedit').style.display = 'none';
-};
-loadStore();
+$('storecancel').onclick = function(){ $('storesheet').hidden = true; };
+$('storesheet').addEventListener('click', function (e) { if (e.target == $('storesheet')) $('storesheet').hidden = true; });
+$('storepath').onkeydown = function (e) { if (e.key === 'Enter') storeApply(); };
 
 // #tags / #recall / #timeline opens that view directly, so a view is linkable
 // (and reachable by a screenshot or a UI test, which cannot click before load).
@@ -1003,7 +1068,7 @@ function closeSync() {
 function hostShow(url, tok) {
   hostUrl = url; hostTok = tok;
   $('hostaddr').textContent = url;
-  $('hosttok').textContent = 'token: ' + tok;
+  $('hosttok').textContent = 'code: ' + tok;
   qrDraw($('qr'), 'ais://sync?host=' + encodeURIComponent(url.split('://')[1]) + '&token=' + tok);
 }
 function hostClear() {
@@ -1015,7 +1080,11 @@ async function syncHost() {
   $('synchost').hidden = false;
   $('hoststatus').textContent = 'Starting...';
   var r = await fetch('/api/sync/host', { method:'POST' });
-  // Refused means the host started a moment ago is still waiting, and ITS code is
+  if (r.status != 409 && !r.ok) {
+    hostClear(); $('hoststatus').textContent = "Couldn't start a sync. Try again in a moment.";
+    return;
+  }
+  // 409 means the host started a moment ago is still waiting, and ITS code is
   // still good: show that one rather than a dead one, or nothing.
   if (!r.ok) {
     var w = (await (await fetch('/api/sync/status')).text()).trim();
@@ -1027,7 +1096,7 @@ async function syncHost() {
     }
     hostClear();
     $('hoststatus').textContent = 'A sync started here a moment ago is still running. '
-      + 'Let it finish, then press Host again.';
+      + 'Let it finish, then press Show a code again.';
     return;
   }
   var t = (await r.text()).split('\n');
@@ -1044,19 +1113,17 @@ function hostPoll() {
     clearInterval(syncPoll); syncPoll = null;
     hostClear();
     if (s == 'synced') {
-      $('hoststatus').textContent = 'Synced. Both devices now have the same records.';
+      $('hoststatus').textContent = 'Synced. Both devices now have the same items.';
       setView(view);
     } else if (s == 'half') {
-      $('hoststatus').textContent = 'They got your records, but theirs did not come back. '
-        + 'Nothing was lost -- sync again to finish.';
+      $('hoststatus').textContent = 'Half done. Nothing was lost. Sync again to finish.';
       setView(view);
     } else if (s == 'again') {
-      $('hoststatus').textContent = 'Synced, but one more round is needed to match exactly. '
-        + 'Nothing was lost -- sync again.';
+      $('hoststatus').textContent = 'Almost done. Sync once more to finish.';
       setView(view);
     } else {
       $('hoststatus').textContent = 'That code expired before anyone joined. '
-        + 'Press Host again for a fresh one.';
+        + 'Press Show a code again for a fresh one.';
     }
   }, 1500);
 }
@@ -1066,22 +1133,21 @@ function syncJoinPane() {
 }
 async function syncJoinGo() {
   var url = $('jaddr').value.trim(), tok = $('jtok').value.trim();
-  if (!url || !tok) { $('joinstatus').textContent = 'Enter an address and a token.'; return; }
+  if (!url || !tok) { $('joinstatus').textContent = 'Enter an address and a code.'; return; }
   $('joinstatus').textContent = 'Syncing...';
   var r = await fetch('/api/sync/join', { method:'POST', body: url + '\n' + tok });
   var s = (await r.text()).trim();
   if (s == 'merged') {
-    $('joinstatus').textContent = 'Synced. Both devices now have the same records.';
+    $('joinstatus').textContent = 'Synced. Both devices now have the same items.';
     setView(view);
   } else if (s == 'half') {
-    $('joinstatus').textContent = 'Got their records, but yours did not reach them. '
-      + 'Nothing was lost -- sync again to finish.';
+    $('joinstatus').textContent = 'Half done. Nothing was lost. Sync again to finish.';
     setView(view);
   } else if (s == 'bad url') {
     $('joinstatus').textContent = 'That address looks wrong. Use http://host:port.';
   } else {
-    $('joinstatus').textContent = 'Could not sync. Same Wi-Fi? '
-      + 'Check the host is waiting and the token is right.';
+    $('joinstatus').textContent = "Couldn't connect. Check both devices are on the same Wi-Fi "
+      + 'and the code is still showing.';
   }
 }
 // file export/import: no network at all -- the whole Library as one .aisb file
@@ -1094,8 +1160,8 @@ async function fileImport(f) {
   var b = await f.arrayBuffer();
   var r = await fetch('/api/import-bundle', { method:'POST', body: b });
   if ((await r.text()).trim() == 'merged') {
-    closeSync(); setView(view); alert('Imported. Records merged.');
-  } else alert('Import failed. Is it an .aisb file from Export?');
+    closeSync(); setView(view); alert('Imported.');
+  } else alert("Couldn't read that file. Pick one made with Export.");
 }
 // links import: one POST per file (Pocket's zip holds several part files). The
 // reply "imported N skipped M new K under MARKER" gives the count and the marker

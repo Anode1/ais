@@ -9,7 +9,7 @@ import 'package:ais/ais_ffi.dart';
 import 'package:ais/main.dart';
 import 'package:ais/survival.dart';
 
-const _hintBit = 'private storage';
+const _hintBit = 'Uninstalling AIS';
 
 class _FakeStore {
   final rows = <TlRow>[];
@@ -109,6 +109,17 @@ void main() {
     final other = Directory.systemTemp.createTempSync('ais_survival_other');
     addTearDown(() => other.deleteSync(recursive: true));
     expect(KeepHintFlag(other.path).shown, isFalse, reason: 'per store');
+  });
+
+  // The menu and the Sync sheet share one status line; before any backup it
+  // admits there is none.
+  testWidgets('the menu says Not backed up yet before any backup',
+      (tester) async {
+    await pumpApp(tester, harness(_FakeStore()));
+    await tester.tap(find.byIcon(Icons.more_vert));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(find.text('Not backed up yet'), findsOneWidget);
   });
 
   testWidgets('the empty state offers Restore from a folder on mobile',

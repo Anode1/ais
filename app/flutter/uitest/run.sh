@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Xvfb UI test for the Flutter desktop app: drives the real Host/Join sync UI in a
+# Xvfb UI test for the Flutter desktop app: drives the real nearby-sync UI in a
 # headless X server and asserts a record crosses to/from a CLI peer. Renderer-
 # agnostic (pixels in, X events out), where uiautomator is blind to Flutter's
 # single Skia surface.
@@ -31,10 +31,10 @@ PROOF_APP="PROOF-from-app-99"                  # seeded on the app, must reach t
 # when the layout does. The remaining coordinates sit inside the dialogs, centred
 # on the pinned 1280x720 window -- re-tune from $SHOTS if a dialog changes, or
 # graduate to integration_test Keys (see README).
-JOIN_BTN="831 405"                             # "Join / scan a nearby device" in the sheet
+JOIN_BTN="831 405"                             # "Scan or type a code" in the sheet
 ADDR_FIELD="640 327"                           # "Address" field (pre-filled "http://")
-TOKEN_FIELD="640 367"                          # "Token" field
-SYNC_CONFIRM="823 456"                          # "Sync" (confirm) in the Join dialog
+TOKEN_FIELD="640 367"                          # "Code" field
+SYNC_CONFIRM="823 456"                          # "Sync" (confirm) in the code dialog
 
 # --- teardown ---------------------------------------------------------------
 PIDS=()
@@ -106,11 +106,11 @@ tap()  { xdotool mousemove --sync $1 click 1; sleep 0.6; shot "$2"; }
 
 shot start
 xdotool key --clearmodifiers ctrl+shift+s; sleep 0.6; shot sync-sheet   # open Sync & backup
-tap "$JOIN_BTN"    join-dialog         # choose Join
+tap "$JOIN_BTN"    join-dialog         # choose Scan or type a code
 tap "$ADDR_FIELD"  addr-focus          # focus Address (pre-filled "http://")
 xdotool key --clearmodifiers ctrl+a    # select-all so the type replaces, not appends
 xdotool type --delay 20 "http://127.0.0.1:$PORT"; shot addr-typed
-tap "$TOKEN_FIELD" token-focus         # focus Token
+tap "$TOKEN_FIELD" token-focus         # focus Code
 xdotool type --delay 20 "$TOKEN"; shot token-typed
 tap "$SYNC_CONFIRM" syncing            # confirm -> pull + merge
 sleep "$((TIMEOUT>10?10:TIMEOUT))"; shot done

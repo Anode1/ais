@@ -89,7 +89,8 @@ void main() {
         'Restore from a folder', 'sync folder']) {
       expect(text, isNot(contains(absent)), reason: 'iOS help names $absent');
     }
-    for (final present in ['Export to a file', 'Import from a file', 'Host a sync']) {
+    for (final present in ['Export to a file', 'Import from a file',
+        'Import a backup file', 'Show a code']) {
       expect(text, contains(present), reason: 'iOS help lost $present');
     }
   });
@@ -99,13 +100,13 @@ void main() {
     final src = File('lib/main.dart').readAsStringSync();
     final text = helpSections.map((s) => s.$2).join(' ');
     for (final label in [
-      'Match any tag',
-      'Search note text instead',
-      'Encrypt',
+      'Any tag',
+      'Lock with a password',
       'Sync & backup',
       'Keep a copy in a folder',
       'Restore from a folder',
-      'Host a sync',
+      'Show a code',
+      'Scan or type a code',
       'Recent',
       'Tags',
     ]) {

@@ -57,6 +57,60 @@ int main(int argc, char **argv) {
      * says 3 here. The delete modal counts RECORDS and says 2 -- see below. */
     ok("count shows the results", cdp_wait_bool(c,
         "document.getElementById('count').textContent.indexOf('3 result')>=0", 3000) == 0);
+    /* the count is the count: no timing figure beside it */
+    ok("the count carries no ms figure", cdp_wait_bool(c,
+        "document.getElementById('count').textContent==='3 results'", 3000) == 0);
+
+    /* ---- the filter row: two chips under the search field --------------- */
+    ok("the filter row holds Any tag and Date", cdp_wait_bool(c,
+        "document.getElementById('anyk').tagName==='BUTTON'"
+        "&&document.getElementById('anyk').textContent==='Any tag'"
+        "&&document.getElementById('datebtn').textContent==='Date'", 3000) == 0);
+    cdp_eval_bool(c, "(function(){document.getElementById('anyk').click();return true})()", &(int){0});
+    ok("Any tag shows its pressed state", cdp_wait_bool(c,
+        "document.getElementById('anyk').getAttribute('aria-pressed')==='true'", 3000) == 0);
+    cdp_eval_bool(c, "(function(){document.getElementById('anyk').click();return true})()", &(int){0});
+    ok("and releases it", cdp_wait_bool(c,
+        "document.getElementById('anyk').getAttribute('aria-pressed')==='false'", 3000) == 0);
+    ok("the date inputs start closed", cdp_wait_bool(c,
+        "document.getElementById('tlrange').hidden===true", 3000) == 0);
+    cdp_eval_bool(c, "(function(){document.getElementById('datebtn').click();return true})()", &(int){0});
+    ok("Date opens the date inputs", cdp_wait_bool(c,
+        "document.getElementById('tlrange').hidden===false&&view==='timeline'", 3000) == 0);
+    cdp_eval_bool(c, "(function(){var f=document.getElementById('tlfrom'),t=document.getElementById('tlto');"
+                     "f.value='2026-08-12';t.value='2026-08-20';t.dispatchEvent(new Event('change'));return true})()",
+                  &(int){0});
+    ok("a set range names itself on the chip", cdp_wait_bool(c,
+        "document.getElementById('datebtn').textContent==='12\u201320 Aug'"
+        "&&document.getElementById('tlclear').hidden===false", 3000) == 0);
+    cdp_eval_bool(c, "(function(){document.getElementById('tlclear').click();return true})()", &(int){0});
+    ok("its clear button resets the chip", cdp_wait_bool(c,
+        "document.getElementById('datebtn').textContent==='Date'"
+        "&&document.getElementById('tlclear').hidden===true"
+        "&&document.getElementById('tlfrom').value===''", 3000) == 0);
+    ok("and the timeline lists everything again", cdp_wait_bool(c, HIT, 5000) == 0);
+
+    /* ---- the header menu: the library path only in its dialog ------------ */
+    ok("the main view shows no library path", cdp_wait_bool(c,
+        "document.getElementById('storesheet').hidden===true"
+        "&&document.getElementById('storesheet').contains(document.getElementById('store'))", 3000) == 0);
+    ok("the header menu starts closed", cdp_wait_bool(c,
+        "document.getElementById('menu').hidden===true", 3000) == 0);
+    cdp_eval_bool(c, "(function(){document.getElementById('menubtn').click();return true})()", &(int){0});
+    ok("the header menu opens with its three items", cdp_wait_bool(c,
+        "(function(){var m=document.getElementById('menu');if(m.hidden)return false;var t=m.innerText;"
+        "return t.indexOf('Free up space')>=0&&t.indexOf('Sync & backup')>=0&&t.indexOf('Switch library')>=0})()",
+        3000) == 0);
+    ok("its button is a 48px target", cdp_wait_bool(c,
+        "document.getElementById('menubtn').getBoundingClientRect().height>=48", 3000) == 0);
+    cdp_eval_bool(c, "(function(){document.getElementById('storebtn').click();return true})()", &(int){0});
+    ok("Switch library shows the path in its dialog", cdp_wait_bool(c,
+        "document.getElementById('menu').hidden===true"
+        "&&document.getElementById('storesheet').hidden===false"
+        "&&document.getElementById('store').textContent.charAt(0)==='/'", 5000) == 0);
+    cdp_eval_bool(c, "(function(){document.getElementById('storecancel').click();return true})()", &(int){0});
+    ok("and Cancel closes it", cdp_wait_bool(c,
+        "document.getElementById('storesheet').hidden===true", 3000) == 0);
 
     /* ---- the two tag-level actions ------------------------------------
      * They sit one tap apart and are opposite in consequence, so the guard on
@@ -66,20 +120,34 @@ int main(int argc, char **argv) {
     cdp_eval_bool(c, "(function(){location.hash='#tags';setView('tags');return true})()", &(int){0});
     ok("tags view lists the tag", cdp_wait_bool(c,
         "document.getElementById('out').innerText.indexOf('venice')>=0", 5000) == 0);
-    /* the labels are the defence: safe one names the TAG, destructive one the RECORDS */
-    ok("safe action is labelled 'Remove tag'", cdp_wait_bool(c,
-        "document.getElementById('out').innerText.indexOf('Remove tag')>=0", 3000) == 0);
+    /* both tag actions sit behind the row's trailing menu, closed until asked */
+#define VROW "(function(){var r=null;[].forEach.call(document.querySelectorAll('.taglink'),function(b){" \
+             "if(b.textContent==='venice')r=b.parentNode});return r})()"
+    ok("the row's actions start hidden", cdp_wait_bool(c,
+        VROW ".querySelector('.pop').hidden===true", 3000) == 0);
+    ok("the row is 56px tall", cdp_wait_bool(c,
+        VROW ".getBoundingClientRect().height>=56", 3000) == 0);
+    cdp_eval_bool(c, "(function(){" VROW ".querySelector('.tagmenu').click();return true})()", &(int){0});
+    /* the labels are the defence: safe one names the TAG, destructive one the ITEMS */
+    ok("the row menu opens with 'Remove tag'", cdp_wait_bool(c,
+        VROW ".querySelector('.pop').hidden===false"
+        "&&" VROW ".querySelector('.pop').innerText.indexOf('Remove tag')>=0", 3000) == 0);
     /* the tag badge and the destructive label both count RECORDS (2), not the 3
-     * links recall shows -- a destructive label must match what actually goes */
-    ok("destructive action names the records", cdp_wait_bool(c,
-        "document.getElementById('out').innerText.indexOf('Delete 2 records')>=0", 3000) == 0);
+     * links recall shows: a destructive label must match what actually goes */
+    ok("its destructive item names the items", cdp_wait_bool(c,
+        VROW ".querySelector('.pop').innerText.indexOf('Delete 2 items')>=0", 3000) == 0);
 
-    cdp_eval_bool(c, "(function(){openDelUnder('venice');return true})()", &(int){0});
+    /* the destructive item deletes nothing by itself: it opens the typed confirm */
+    cdp_eval_bool(c, "(function(){" VROW ".querySelector('.pop .danger').click();return true})()", &(int){0});
     ok("delete sheet opens", cdp_wait_bool(c,
         "!document.getElementById('dsheet').hidden", 5000) == 0);
-    ok("its title names the records, not the tag", cdp_wait_bool(c,
-        "document.getElementById('dstitle').textContent==='Delete 2 records?'", 3000) == 0);
-    ok("it says the records go, not the tag", cdp_wait_bool(c,
+    ok("and the menu closed behind it", cdp_wait_bool(c,
+        VROW ".querySelector('.pop').hidden===true", 3000) == 0);
+    ok("its title asks about the items", cdp_wait_bool(c,
+        "document.getElementById('dstitle').textContent==='Delete these items?'", 3000) == 0);
+    ok("its button counts them", cdp_wait_bool(c,
+        "document.getElementById('dsgo').textContent==='Delete 2 items'", 3000) == 0);
+    ok("it says the items go, not the tag", cdp_wait_bool(c,
         "document.querySelector('#dsheet .lead').textContent.indexOf('not the tag')>=0", 3000) == 0);
     ok("it warns about the OTHER tags", cdp_wait_bool(c,
         "document.getElementById('dsbody').textContent.indexOf('every other tag')>=0", 3000) == 0);
@@ -278,19 +346,27 @@ int main(int argc, char **argv) {
         printf("  skip secrets (crypto module not built)\n");
     } else {
         cdp_eval_bool(c, "(function(){setView('timeline');return true})()", &(int){0});
-        ok("a secret says it is encrypted", cdp_wait_bool(c,
-            "document.getElementById('out').innerText.indexOf('encrypted')>=0", 5000) == 0);
+        ok("a secret says it is locked", cdp_wait_bool(c,
+            "document.getElementById('out').innerText.indexOf('locked')>=0", 5000) == 0);
         ok("its ciphertext never reaches the screen", cdp_wait_bool(c,
             "document.getElementById('out').innerText.indexOf('aisc:')<0", 3000) == 0);
-        /* the row offers Reveal, and Reveal asks for the passphrase INLINE:
+        /* the row offers Unlock, and Unlock asks for the password INLINE:
          * prompt() is disabled in an installed PWA, so a prompt would do nothing */
-        ok("Reveal opens a passphrase field", cdp_eval_bool(c,
+        ok("Unlock opens a password field", cdp_eval_bool(c,
             "(function(){var h=document.querySelectorAll('.hit');"
             "for(var i=0;i<h.length;i++){var b=h[i].querySelector('button');"
-            "if(b&&b.textContent==='Reveal'){b.click();return true}}return false})()",
+            "if(b&&b.textContent==='Unlock'){b.click();return true}}return false})()",
             &(int){0}) == 0 &&
             cdp_wait_bool(c, "!!document.querySelector('.hit input[type=password]')", 3000) == 0);
-        ok("the right passphrase shows the cleartext", cdp_eval_bool(c,
+        /* a wrong password says so and keeps the field for another try */
+        ok("a wrong password says so and keeps the field", cdp_eval_bool(c,
+            "(function(){var p=document.querySelector('.hit input[type=password]');"
+            "p.value='nope';var bs=p.parentNode.querySelectorAll('button');"
+            "for(var i=0;i<bs.length;i++)if(bs[i].textContent==='Show'){bs[i].click();return true}"
+            "return false})()", &(int){0}) == 0 &&
+            cdp_wait_bool(c, "document.getElementById('out').innerText.indexOf('Wrong password. Try again.')>=0"
+                             "&&!!document.querySelector('.hit input[type=password]')", 5000) == 0);
+        ok("the right password shows the cleartext", cdp_eval_bool(c,
             "(function(){var p=document.querySelector('.hit input[type=password]');"
             "p.value='pw123';var bs=p.parentNode.querySelectorAll('button');"
             "for(var i=0;i<bs.length;i++)if(bs[i].textContent==='Show'){bs[i].click();return true}"
@@ -311,16 +387,16 @@ int main(int argc, char **argv) {
                          "var e=document.getElementById('enc');e.checked=true;"
                          "e.dispatchEvent(new Event('change'));"
                          "document.getElementById('save').click();return true})()", &(int){0});
-        ok("Encrypt reveals the passphrase field", cdp_wait_bool(c,
+        ok("the lock switch shows the password field", cdp_wait_bool(c,
             "document.getElementById('pp').hidden===false", 3000) == 0);
         ok("and its confirmation field", cdp_wait_bool(c,
             "document.getElementById('pp2').hidden===false", 3000) == 0);
-        ok("and says a lost passphrase is gone", cdp_wait_bool(c,
+        ok("and says a forgotten password loses the note", cdp_wait_bool(c,
             "document.getElementById('ppnote').hidden===false"
-            "&&document.getElementById('ppnote').textContent==='A lost passphrase cannot be recovered.'",
+            "&&document.getElementById('ppnote').textContent==='Forget this password and the note is gone for good.'",
             3000) == 0);
-        ok("no passphrase is refused, in those words", cdp_wait_bool(c,
-            "window.__alert==='Enter a passphrase to encrypt'", 3000) == 0);
+        ok("no password is refused, in those words", cdp_wait_bool(c,
+            "window.__alert==='Enter a password to lock it.'", 3000) == 0);
         ok("the sheet stays open to retry", cdp_wait_bool(c,
             "document.getElementById('sheet').hidden===false", 3000) == 0);
         ok("and nothing was saved in the clear",
@@ -336,8 +412,8 @@ int main(int argc, char **argv) {
                          "document.getElementById('pp').value='pw123';"
                          "document.getElementById('pp2').value='pw123 ';"
                          "document.getElementById('save').click();return true})()", &(int){0});
-        ok("mismatched passphrases are refused, in those words", cdp_wait_bool(c,
-            "window.__alert==='Passphrases do not match'", 3000) == 0);
+        ok("mismatched passwords are refused, in those words", cdp_wait_bool(c,
+            "window.__alert==='The passwords don\\'t match.'", 3000) == 0);
         ok("the mismatch keeps the sheet open", cdp_wait_bool(c,
             "document.getElementById('sheet').hidden===false", 3000) == 0);
         ok("and saved nothing",
@@ -349,7 +425,7 @@ int main(int argc, char **argv) {
 
         cdp_eval_bool(c, "(function(){document.getElementById('pp2').value='pw123';"
                          "document.getElementById('save').click();return true})()", &(int){0});
-        ok("matching passphrases save and close", cdp_wait_bool(c,
+        ok("matching passwords save and close", cdp_wait_bool(c,
             "document.getElementById('sheet').hidden===true", 5000) == 0);
         /* what landed is the marker, not the value: the whole point of the box */
         ok("the stored value is encrypted, not the cleartext",
@@ -362,7 +438,7 @@ int main(int argc, char **argv) {
 
     /* ---- value-ranked search + tag autocomplete -------------------------
      * The search's second half: records whose VALUE holds the query rank
-     * after the tag matches, under one "matched in the value" separator,
+     * after the tag matches, under one "Found in the text" separator,
      * deduped by id, and the value match is case-insensitive end to end.
      * Seed three records over the API: one findable only by a value word,
      * one matching a query both ways, one matching that query by value only. */
@@ -390,7 +466,7 @@ int main(int argc, char **argv) {
         "document.getElementById('out').innerText.indexOf('plumber Mario')>=0", 5000) == 0);
     ok("it renders after the value separator", cdp_wait_bool(c,
         "!!document.getElementById('vsep')"
-        "&&document.getElementById('out').innerText.indexOf('matched in the value')"
+        "&&document.getElementById('out').innerText.indexOf('Found in the text')"
         "<document.getElementById('out').innerText.indexOf('plumber Mario')", 3000) == 0);
     ok("no tag matched, so no rows precede the separator", cdp_wait_bool(c,
         "document.getElementById('out').querySelectorAll('.hit').length===1", 3000) == 0);
@@ -415,16 +491,16 @@ int main(int argc, char **argv) {
                      "setView('recall');return true})()", &(int){0});
     ok("the tag match renders before the separator", cdp_wait_bool(c,
         "(function(){var t=document.getElementById('out').innerText;"
-        "return t.indexOf('dorsoduro')>=0&&t.indexOf('matched in the value')>t.indexOf('dorsoduro')})()",
+        "return t.indexOf('dorsoduro')>=0&&t.indexOf('Found in the text')>t.indexOf('dorsoduro')})()",
         5000) == 0);
     ok("the value-only record renders after it", cdp_wait_bool(c,
         "(function(){var t=document.getElementById('out').innerText;"
-        "return t.indexOf('best gelato in rome')>t.indexOf('matched in the value')})()", 3000) == 0);
+        "return t.indexOf('best gelato in rome')>t.indexOf('Found in the text')})()", 3000) == 0);
     ok("the both-ways record is not duplicated", cdp_wait_bool(c,
         "document.getElementById('out').innerText.split('dorsoduro').length===2", 3000) == 0);
     ok("the count names both halves", cdp_wait_bool(c,
         "document.getElementById('count').textContent"
-        ".indexOf('1 result + 1 in the value')>=0", 3000) == 0);
+        ".indexOf('1 result + 1 in the text')>=0", 3000) == 0);
     cdp_eval_bool(c, "(function(){openSheet();return true})()", &(int){0});
     ok("a tag-matched prefill keeps focus on the value", cdp_wait_bool(c,
         "document.activeElement&&document.activeElement.id==='v'", 3000) == 0);

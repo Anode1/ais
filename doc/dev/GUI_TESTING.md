@@ -146,7 +146,7 @@ scan-to-pair path can be triggered with:
     adb shell am start -a android.intent.action.VIEW \
         -d "ais://sync?host=10.0.2.2%3A$PORT\&token=$tok"
 
-That lands on a **prefilled** Join dialog and reduces the whole flow to one
+That lands on a **prefilled** "Scan or type a code" dialog and reduces the whole flow to one
 confirming tap. Scale that tap from the real display so it survives a different
 device size:
 

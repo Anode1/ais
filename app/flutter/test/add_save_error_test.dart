@@ -8,7 +8,7 @@ void main() {
     test('empty value asks for content', () {
       expect(
         addSaveError(value: '', engineReady: true, syncing: false, encrypt: false, passphrase: ''),
-        'Type something to remember first.');
+        'Type something first.');
     });
     test('sync in progress tells the user to wait (the bug you hit)', () {
       expect(
@@ -18,7 +18,7 @@ void main() {
     test('encrypt without passphrase asks for one', () {
       expect(
         addSaveError(value: 'x', engineReady: true, syncing: false, encrypt: true, passphrase: ''),
-        'Enter a passphrase to encrypt.');
+        'Enter a password to lock it.');
     });
     test('valid plain save proceeds (null)', () {
       expect(
@@ -33,12 +33,12 @@ void main() {
     test('encrypt with a mismatched confirmation is blocked', () {
       expect(
         addSaveError(value: 'x', engineReady: true, syncing: false, encrypt: true, passphrase: 'a', passphraseRepeat: 'b'),
-        'Passphrases do not match');
+        'Passwords do not match');
     });
     test('the match is on the RAW strings: a trailing space differs', () {
       expect(
         addSaveError(value: 'x', engineReady: true, syncing: false, encrypt: true, passphrase: 'a', passphraseRepeat: 'a '),
-        'Passphrases do not match');
+        'Passwords do not match');
       expect(
         addSaveError(value: 'x', engineReady: true, syncing: false, encrypt: true, passphrase: 'a ', passphraseRepeat: 'a '),
         isNull);
@@ -56,7 +56,7 @@ void main() {
     test('whitespace-only value is treated as empty', () {
       expect(
         addSaveError(value: '   ', engineReady: true, syncing: false, encrypt: false, passphrase: ''),
-        'Type something to remember first.');
+        'Type something first.');
     });
   });
 
@@ -68,7 +68,7 @@ void main() {
     });
     test('a NUL in the value is rejected with a specific message', () {
       expect(contentError(value: 'a\u0000b', keys: ''),
-          'Remove the special (null) character before saving.');
+          "The text has a hidden character AIS can't store. Retype it and save again.");
     });
     test('an over-long tag is rejected by length', () {
       final longKey = 'k' * (kAisKeyMax + 1);
@@ -87,7 +87,7 @@ void main() {
     });
     test('a long encrypted value is rejected: it would not seal', () {
       expect(contentError(value: 'v' * (kAisEncryptedMax + 1), keys: '', encrypt: true),
-          startsWith('An encrypted note holds at most'));
+          startsWith('A locked note holds at most'));
       expect(contentError(value: 'v' * kAisEncryptedMax, keys: '', encrypt: true), isNull);
     });
     test('addSaveError surfaces a content problem too', () {
@@ -117,7 +117,7 @@ void main() {
     });
     test('a merged save says so, never "Saved"', () {
       expect(saveOutcomeMessage(3, 'note', merged: true),
-          'Already in your memory: kept as one entry, dated today');
+          'Already saved. Moved to today.');
     });
     test('a failed save stays a failure even if flagged merged', () {
       expect(saveOutcomeMessage(-1, 'note', merged: true),

@@ -26,11 +26,11 @@ String? addSaveError({
   String keys = '',
 }) {
   if (!engineReady) return null; // the Add button is disabled; nothing to report
-  if (value.trim().isEmpty) return 'Type something to remember first.';
+  if (value.trim().isEmpty) return 'Type something first.';
   if (syncing) return 'A sync is running. Try again in a moment.';
-  if (encrypt && passphrase.isEmpty) return 'Enter a passphrase to encrypt.';
+  if (encrypt && passphrase.isEmpty) return 'Enter a password to lock it.';
   if (encrypt && passphraseRepeat != null && passphrase != passphraseRepeat) {
-    return 'Passphrases do not match';
+    return 'Passwords do not match';
   }
   final content = contentError(value: value, keys: keys, encrypt: encrypt);
   if (content != null) return content;
@@ -45,7 +45,7 @@ String? addSaveError({
 String? contentError(
     {required String value, required String keys, bool encrypt = false}) {
   if (value.contains('\u0000') || keys.contains('\u0000')) {
-    return 'Remove the special (null) character before saving.';
+    return "The text has a hidden character AIS can't store. Retype it and save again.";
   }
   for (final k in keys.split(RegExp(r'\s+')).where((k) => k.isNotEmpty)) {
     if (utf8.encode(k).length > kAisKeyMax) {
@@ -53,8 +53,8 @@ String? contentError(
     }
   }
   if (encrypt && utf8.encode(value).length > kAisEncryptedMax) {
-    return 'An encrypted note holds at most $kAisEncryptedMax characters. '
-        'Shorten it, or save it unencrypted.';
+    return 'A locked note holds at most $kAisEncryptedMax characters. '
+        'Shorten it, or save it without a password.';
   }
   return null;
 }
@@ -72,7 +72,7 @@ String saveOutcomeMessage(int id, String keys, {bool merged = false}) =>
     !saveSucceeded(id)
         ? 'Could not save. Check storage and try again.'
         : merged
-            ? 'Already in your memory: kept as one entry, dated today'
+            ? 'Already saved. Moved to today.'
             : (keys.isEmpty ? 'Saved (no tags)' : 'Saved under: $keys');
 
 /// The message after an in-place tag edit; the engine's update() bool decides.

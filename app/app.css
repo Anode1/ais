@@ -1,6 +1,7 @@
 /* app.css -- AIS phone web app, styled close to the Flutter client:
    a frosted recall header, a clean results list, and a value-first Add sheet. */
-:root { --accent: #1a0dab; --line: #e3e3ea; --muted: #6b6b75; --bg: #efeff6; --danger: #a3281c; }
+:root { --accent: #1a0dab; --line: #e3e3ea; --muted: #6b6b75; --bg: #efeff6; --danger: #a3281c;
+  --tint: rgba(26, 13, 171, .1); }
 * { box-sizing: border-box; }
 body { font: 16px/1.45 system-ui, sans-serif; color: #14141a; background: var(--bg); margin: 0; }
 
@@ -12,11 +13,43 @@ body { font: 16px/1.45 system-ui, sans-serif; color: #14141a; background: var(--
   backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
   border-bottom: 1px solid var(--line);
 }
-.titlerow { display: flex; align-items: baseline; gap: .5rem; }
+.titlerow { position: relative; display: flex; align-items: center; gap: .5rem; }
 .brand { font-size: 1.35rem; font-weight: 700; }
 .muted { color: var(--muted); }
 #count { margin-left: auto; font-size: .8rem; }
-.storerow { font-size: .72rem; margin-top: .45rem; display: flex; gap: .4rem; align-items: center; }
+svg { fill: currentColor; flex: none; }
+.iconbtn { border: 0; background: none; color: #14141a; width: 48px; height: 48px;
+  margin: -8px -12px -8px 0; border-radius: 24px; display: inline-flex; align-items: center;
+  justify-content: center; cursor: pointer; flex: none; }
+.iconbtn:active { background: var(--tint); }
+/* one popup menu for the header and every tag row; buttons are 48px targets */
+.pop { position: absolute; right: 0; top: 100%; z-index: 8; min-width: 200px; background: #fff;
+  border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 6px 20px rgba(0,0,0,.18);
+  padding: .3rem 0; display: flex; flex-direction: column; }
+.pop[hidden] { display: none; }
+.pop button { border: 0; background: none; font: inherit; color: #14141a; text-align: left;
+  padding: 0 1rem; min-height: 48px; cursor: pointer; white-space: nowrap; }
+.pop button:active { background: var(--tint); }
+.pop button.danger { color: var(--danger); }
+/* the filter row under the search field: Any tag (a toggle) and Date (opens the range) */
+.filters { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: .6rem; }
+.fchip { display: inline-flex; align-items: center; gap: .3rem; min-height: 32px; padding: 0 .8rem;
+  border: 1px solid var(--line); border-radius: 8px; background: #fff; color: #14141a;
+  font: inherit; font-size: .85rem; cursor: pointer; }
+.fchip[hidden] { display: none; }
+.fchip[aria-pressed="true"], .fchip.on { background: var(--tint); color: var(--accent); border-color: transparent; }
+.fchip[aria-pressed="true"]::before { content: '\2713'; }
+.fchipg { display: inline-flex; }
+.fchipg .fchip.on { border-radius: 8px 0 0 8px; }
+.fchipg .fx { border-radius: 0 8px 8px 0; padding: 0 .6rem; border-left: 1px solid var(--line); }
+#tlrange { display: flex; flex-wrap: wrap; gap: .6rem; align-items: center; margin-top: .5rem;
+  font-size: .85rem; color: var(--muted); }
+#tlrange[hidden] { display: none; }
+#tlrange label { display: flex; align-items: center; gap: .4rem; }
+#tlrange input { font: inherit; border: 1px solid var(--line); background: #fff; border-radius: 10px;
+  padding: .3rem .5rem; }
+#store { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: .85rem;
+  word-break: break-all; margin: 0 0 .9rem; }
 .link { border: 0; background: none; color: var(--accent); cursor: pointer; font: inherit; text-decoration: underline; padding: 0; }
 
 .searchrow { display: flex; align-items: center; gap: .4rem; margin-top: .6rem;
@@ -49,58 +82,57 @@ body { font: 16px/1.45 system-ui, sans-serif; color: #14141a; background: var(--
 .loadmore { display: block; width: 100%; margin: 1rem 0; padding: .7rem; border: 1px solid var(--line);
   background: #fff; color: var(--accent); border-radius: 8px; cursor: pointer; font: inherit; }
 .empty { color: var(--muted); text-align: center; margin-top: 3rem; }
+.emptyh { color: #14141a; font-size: 1.25rem; font-weight: 600; margin: 0 0 .4rem; }
 
 /* timeline day headers + per-row meta */
 .daygroup { font-size: .74rem; color: var(--muted); text-transform: uppercase;
   letter-spacing: .04em; margin: 1.1rem 0 .2rem; padding-bottom: .2rem; border-bottom: 1px solid var(--line); }
 .meta { font-size: .74rem; color: var(--muted); margin-top: .2rem; }
 
-/* tags list. The rule closes the GROUP (tag + its two actions): on .tagrow it
-   fell between a tag and its own actions, so they read as the next tag's. */
-.tagrow { display: flex; align-items: center; justify-content: space-between;
-  padding: .55rem .2rem .1rem; }
-/* The two tag actions are opposite in consequence and one tap apart, so they sit
-   at the two ENDS of their own line at a 44px touch target. The labels carry the
-   distinction unaided: the safe one names the TAG, the destructive one names the
-   RECORDS and their count, so neither depends on colour being perceived. */
-.tagacts { display: flex; justify-content: space-between; align-items: center;
-  gap: 3rem; padding: 0 .2rem .3rem; border-bottom: 1px solid var(--line); }
-.tagacts .actbtn { min-height: 44px; display: inline-flex; align-items: center;
-  touch-action: manipulation; }
+/* tags list: a 56px row, the count right-aligned, its two actions behind a
+   trailing menu. The labels carry the distinction unaided: the safe one names
+   the TAG, the destructive one the ITEMS and their count. */
+.tagrow { position: relative; display: flex; align-items: center; gap: .5rem; min-height: 56px;
+  padding-left: .2rem; border-bottom: 1px solid var(--line); }
+.tagrow .iconbtn { margin: 0 -4px 0 0; color: var(--muted); }
 .actbtn.danger { color: var(--danger); }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .actbtn.danger:focus-visible { outline-color: var(--danger); }
-.taglink { border: 0; background: none; color: var(--accent); font: inherit;
+.taglink { flex: 1; align-self: stretch; border: 0; background: none; color: var(--accent); font: inherit;
   cursor: pointer; padding: 0; text-align: left; word-break: break-word; }
-.tagcount { font-size: .8rem; color: var(--muted); background: #fff; border: 1px solid var(--line);
-  border-radius: 10px; padding: .1rem .5rem; min-width: 2rem; text-align: center; }
+.tagcount { font-size: .85rem; color: var(--muted); text-align: right; font-variant-numeric: tabular-nums; }
 
 /* the Add FAB */
 .fab {
-  position: fixed; right: 18px; bottom: calc(env(safe-area-inset-bottom) + 68px);
-  border: 0; border-radius: 30px; padding: .9rem 1.3rem; cursor: pointer;
+  position: fixed; right: 18px; bottom: calc(env(safe-area-inset-bottom) + 78px);
+  display: inline-flex; align-items: center; gap: .4rem;
+  border: 0; border-radius: 30px; padding: .9rem 1.3rem .9rem 1rem; cursor: pointer;
   font: inherit; font-weight: 600; color: #fff; background: var(--accent);
   box-shadow: 0 4px 14px rgba(0, 0, 0, .25);
 }
 
 /* value-first Add sheet */
-#sheet { position: fixed; inset: 0; z-index: 10; background: rgba(0, 0, 0, .35);
+#sheet, #storesheet { position: fixed; inset: 0; z-index: 10; background: rgba(0, 0, 0, .35);
   display: flex; align-items: flex-end; justify-content: center; }
-#sheet[hidden] { display: none; }   /* the `hidden` attr must win over display:flex */
+#sheet[hidden], #storesheet[hidden] { display: none; }   /* the `hidden` attr must win over display:flex */
 .card { width: 100%; max-width: 560px; background: #fff;
   border-radius: 18px 18px 0 0; padding: 1.2rem 1.2rem calc(env(safe-area-inset-bottom) + 1.2rem); }
-@media (min-width: 600px) { #sheet { align-items: center; } .card { border-radius: 18px; } }
+@media (min-width: 600px) { #sheet, #storesheet { align-items: center; } .card { border-radius: 18px; } }
 .card h2 { margin: 0 0 1rem; font-size: 1.15rem; }
 .card textarea, .card input { width: 100%; font: inherit; padding: .7rem .8rem;
   border: 1px solid var(--line); border-radius: 10px; margin-bottom: .8rem; background: #fafafc; }
 .card textarea { resize: vertical; }
-/* Encrypt sits on one line with its passphrase, which appears only when ticked */
-.encrow { display: flex; align-items: center; gap: .5rem; margin: .1rem 0 .8rem; }
-.encrow label { display: flex; align-items: center; gap: .35rem; font-size: .85rem;
-  color: var(--muted); white-space: nowrap; }
-.encrow input { margin-bottom: 0; }
-.encrow #enc { width: auto; }
-.encrow #pp { flex: 1; }
+.hint { font-size: .8rem; color: var(--muted); margin: -.55rem 0 .8rem .2rem; }
+/* the lock switch: a checkbox drawn as a switch; its password fields follow it */
+.card .switch { display: flex; align-items: center; gap: .7rem; cursor: pointer; margin: .1rem 0 .8rem; }
+.card .switch input { appearance: none; -webkit-appearance: none; position: relative; flex: none;
+  width: 44px; height: 26px; margin: 0; padding: 0; border: 0; border-radius: 13px;
+  background: var(--line); cursor: pointer; }
+.card .switch input::before { content: ''; position: absolute; top: 3px; left: 3px; width: 20px;
+  height: 20px; border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.3);
+  transition: left .15s; }
+.card .switch input:checked { background: var(--accent); }
+.card .switch input:checked::before { left: 21px; }
 .actions { display: flex; justify-content: flex-end; gap: .6rem; margin-top: .3rem; }
 .actions button { font: inherit; padding: .6rem 1.1rem; border-radius: 10px; cursor: pointer; }
 .ghost { border: 1px solid var(--line); background: #fff; }
@@ -109,12 +141,17 @@ body { font: 16px/1.45 system-ui, sans-serif; color: #14141a; background: var(--
 #bnav { position: fixed; left: 0; right: 0; bottom: 0; z-index: 6; display: flex;
   background: #fff; border-top: 1px solid var(--line); box-shadow: 0 -2px 12px rgba(0,0,0,.05);
   padding-bottom: env(safe-area-inset-bottom); }
-#bnav button { flex: 1; border: 0; background: none; padding: .5rem 0 .62rem; font: inherit;
-  font-size: .72rem; color: var(--muted); cursor: pointer; display: flex;
-  flex-direction: column; align-items: center; gap: .12rem; min-height: 52px;
+#bnav button { flex: 1; border: 0; background: none; padding: 0; font: inherit;
+  font-size: .75rem; color: var(--muted); cursor: pointer; display: flex; height: 64px;
+  flex-direction: column; align-items: center; justify-content: center; gap: 4px;
   touch-action: manipulation; }
-#bnav button .ic { font-size: 1.3rem; line-height: 1; }
-#bnav button.on { color: var(--accent); }
+#bnav .ic { display: flex; align-items: center; justify-content: center; width: 56px;
+  height: 32px; border-radius: 16px; }
+#bnav button.on { color: #14141a; font-weight: 600; }
+#bnav button.on .ic { background: var(--tint); color: var(--accent); }
+/* outlined icon at rest, filled when its view is the one showing */
+#bnav .f, #bnav .on .o { display: none; }
+#bnav .on .f { display: inline; }
 
 /* Undo toast: a reversible action gets a 5s window instead of a modal. Nothing
    has been sent to the engine while it is up, so the Undo is honest. */

@@ -6,7 +6,7 @@
 # running desktop's Wayland libraries. An APK is also what users install.
 #
 # What it proves, end to end, on the shipped artifact:
-#   - the ais:// deep link opens the app and prefills Join (the scan-to-pair path)
+#   - the ais:// deep link opens the app and prefills the code dialog (the scan-to-pair path)
 #   - the FFI seam, the sync isolate and the merge all work on a real device
 #   - records cross in BOTH directions against a CLI peer on the host
 #
@@ -106,7 +106,7 @@ sleep 12
        -d "ais://sync?host=10.0.2.2%3A$PORT\&token=$tok" >/dev/null 2>&1
 sleep 6
 
-# Confirm the prefilled Join dialog. Centred on the dialog, so it moves with the
+# Confirm the prefilled code dialog. Centred on the dialog, so it moves with the
 # screen size rather than with the page layout; recompute from the real display.
 size=$("$ADB" shell wm size | tr -d '\r' | awk '{print $3}')
 sw=${size%x*}; sh=${size#*x}
@@ -137,7 +137,7 @@ if [ -z "${AIS_ANDROID_CLEAR:-}" ]; then
 fi
 
 if [ "$rc" = 0 ]; then
-    echo "  ok   flutter sync on Android (deep link -> Join -> both directions converge)"
+    echo "  ok   flutter sync on Android (deep link -> code dialog -> both directions converge)"
 else
     "$ADB" exec-out screencap -p > "$work/fail.png" 2>/dev/null
     echo "       peer log:"; sed 's/^/       /' "$work/peer.log"

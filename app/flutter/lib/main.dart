@@ -5,6 +5,7 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:ui';
 import 'dart:math';
+import 'package:flutter/foundation.dart' show defaultTargetPlatform;
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -74,27 +75,72 @@ Future<void> saveThemeMode(ThemeMode m) async {
   }
 }
 
+const kMonths = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+/// The Date chip's label for a "YYYY-MM-DD" range: "12\u201320 Aug" within a
+/// month, "28 Jul \u2013 3 Aug" across months, the year added when it is not
+/// this year's or the range spans two.
+String dateRangeLabel(String from, String to, {DateTime? now}) {
+  final a = DateTime.tryParse(from), b = DateTime.tryParse(to);
+  if (a == null || b == null) return '$from \u2013 $to';
+  final year = (now ?? DateTime.now()).year;
+  String m(DateTime t) => kMonths[t.month - 1];
+  if (a.year != b.year) {
+    return '${a.day} ${m(a)} ${a.year} \u2013 ${b.day} ${m(b)} ${b.year}';
+  }
+  final y = a.year == year ? '' : ' ${a.year}';
+  if (a.month != b.month) return '${a.day} ${m(a)} \u2013 ${b.day} ${m(b)}$y';
+  if (a.day == b.day) return '${a.day} ${m(a)}$y';
+  return '${a.day}\u2013${b.day} ${m(a)}$y';
+}
+
+/// [t] with letterSpacing 0 on every style.
+TextTheme untrackedTextTheme(TextTheme t) {
+  TextStyle? z(TextStyle? s) => s?.copyWith(letterSpacing: 0);
+  return t.copyWith(
+    displayLarge: z(t.displayLarge),
+    displayMedium: z(t.displayMedium),
+    displaySmall: z(t.displaySmall),
+    headlineLarge: z(t.headlineLarge),
+    headlineMedium: z(t.headlineMedium),
+    headlineSmall: z(t.headlineSmall),
+    titleLarge: z(t.titleLarge),
+    titleMedium: z(t.titleMedium),
+    titleSmall: z(t.titleSmall),
+    bodyLarge: z(t.bodyLarge),
+    bodyMedium: z(t.bodyMedium),
+    bodySmall: z(t.bodySmall),
+    labelLarge: z(t.labelLarge),
+    labelMedium: z(t.labelMedium),
+    labelSmall: z(t.labelSmall),
+  );
+}
+
 class AisApp extends StatelessWidget {
   const AisApp({super.key});
   @override
   Widget build(BuildContext context) {
     // One seed, two schemes; every surface comes from the ColorScheme.
     const seed = Color(0xFF1A0DAB);
+    ThemeData themed(Brightness b) {
+      final t = ThemeData(
+        useMaterial3: true,
+        colorScheme: ColorScheme.fromSeed(seedColor: seed, brightness: b),
+      );
+      // San Francisco brings its own tracking; Roboto's letterSpacing on top
+      // of it spreads iOS text out.
+      return defaultTargetPlatform == TargetPlatform.iOS
+          ? t.copyWith(textTheme: untrackedTextTheme(t.textTheme))
+          : t;
+    }
+
     return ValueListenableBuilder<ThemeMode>(
       valueListenable: themeModeNotifier,
       builder: (context, mode, _) => MaterialApp(
         title: 'AIS',
         debugShowCheckedModeBanner: false,
-        theme: ThemeData(
-          useMaterial3: true,
-          colorScheme: ColorScheme.fromSeed(
-              seedColor: seed, brightness: Brightness.light),
-        ),
-        darkTheme: ThemeData(
-          useMaterial3: true,
-          colorScheme:
-              ColorScheme.fromSeed(seedColor: seed, brightness: Brightness.dark),
-        ),
+        theme: themed(Brightness.light),
+        darkTheme: themed(Brightness.dark),
         themeMode: mode,
         home: const RecallPage(),
       ),
@@ -111,6 +157,8 @@ class RecallPage extends StatefulWidget {
   // search tests run engine-less too. Null = the real engine.
   final List<Hit> Function(String keys, bool orMode)? recallLookup;
   final List<Hit> Function(String needle)? findLookup;
+  // Same seam for the Tags view: the whole tag cloud, busiest first.
+  final List<TagRow> Function()? tagCloud;
   // Same seam for the uninstall-survival flow (survival.dart): a fake mobile
   // store the tests save into and restore from. Null = the real engine.
   final SurvivalHarness? survival;
@@ -119,6 +167,7 @@ class RecallPage extends StatefulWidget {
       this.tagLookup,
       this.recallLookup,
       this.findLookup,
+      this.tagCloud,
       this.survival});
   @override
   State<RecallPage> createState() => _RecallPageState();
@@ -140,7 +189,7 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
   Map<int, String> _resultKeys = const {};
   // Ids in _results that matched the query only in their VALUE (via find()),
   // not by tag. They sit at the tail of _results, rendered under one
-  // "matched in the value" separator. Empty = no value section.
+  // "Found in the text" separator. Empty = no value section.
   Set<int> _valueOnly = const {};
   List<TlRow> _tl = const [];
   List<TagRow> _tags = const [];
@@ -180,10 +229,9 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
   // value half); this re-runs find() alone on the normalized query. Reset on any
   // new key search, clear, or view change.
   bool _textSearch = false;
-  String _status = 'opening index…';
+  String _status = 'Loading…';
   String _query = '';
   String _dir = '';
-  int _ms = 0;
   // One sync at a time: a scanned deep link arrives off the platform channel, not
   // through the barrier dialog, so it could otherwise start a second sync on the
   // shared engine handle mid-sync (data race). This gates every sync entry point.
@@ -325,8 +373,8 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
     } catch (e) {
       // The likeliest cause is a shared index folder (Syncthing) a newer AIS has
       // upgraded: the engine refuses it rather than resolve deletes the old way.
-      _status = 'This library was written by a newer version of AIS. '
-          'Your data is safe and unchanged: update this app to open it.\n($e)';
+      _status = 'Your notes were saved by a newer version of AIS. '
+          'They are safe and unchanged: update this app to open them.\n($e)';
     }
     // Speech initializes on the first mic tap (see _listen), tying the permission
     // prompt to a user gesture rather than app launch.
@@ -384,7 +432,7 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
             content: Text('That pairing link is incomplete. Ask the other device '
-                'to show it again, or type the address and code in Join.')));
+                'to show it again, or type the address and code yourself.')));
       }
     }
 
@@ -426,7 +474,6 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
   void _recall() {
     final keys = _normKeys(_q.text);
     if ((_ais == null && widget.recallLookup == null) || keys.isEmpty) return;
-    final t0 = DateTime.now();
     // Page one only. The cursor/more come from the RAW page, so the Undo-window
     // filter below cannot make the page look short and stop pagination early.
     final page = _recallHits(keys);
@@ -448,7 +495,6 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
       _query = keys;
       _searched = true;
       _textSearch = false; // a fresh key search leaves the text-fallback mode
-      _ms = DateTime.now().difference(t0).inMilliseconds;
       _resultExtra = {...g.extra, ...gv.extra};
       _results = [...r, ...v];
       _valueOnly = {for (final h in v) h.id};
@@ -506,7 +552,6 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
   // submit, or view change.
   void _findText() {
     if (_ais == null || _query.isEmpty) return;
-    final t0 = DateTime.now();
     final r = _ais!
         .find(_query)
         .where((h) => !_pendingDelete.contains(h.id))
@@ -515,7 +560,6 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
     setState(() {
       _searched = true;
       _textSearch = true;
-      _ms = DateTime.now().difference(t0).inMilliseconds;
       _results = r;
       _valueOnly = const {}; // one flat list here, no separator
       _resultKeys = keysMap;
@@ -553,7 +597,10 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
 
   // Fresh tag-cloud load: page one from the busiest, resetting the cursor.
   void _loadTags() {
-    final page = _ais?.tagsPage(afterCount: 0, afterKey: '', count: _tagsPage) ?? const [];
+    _tagFilter = null;
+    final page = widget.tagCloud?.call() ??
+        _ais?.tagsPage(afterCount: 0, afterKey: '', count: _tagsPage) ??
+        const [];
     setState(() {
       _tags = page;
       if (page.isNotEmpty) {
@@ -645,7 +692,7 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
     _loadTimeline();
   }
 
-  static const _months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  static const _months = kMonths;
   String _fmtDay(String d) {
     final p = d.split('-');
     if (p.length < 3) return d;
@@ -716,7 +763,7 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
       s.replaceAll(',', ' ').trim().replaceAll(RegExp(r'\s+'), ' ');
 
   // A blob-backed value holds only an internal "blobs/<ts>.txt" path; the
-  // content lives in that file. "Edit value" on such a row edits the CONTENT
+  // content lives in that file. "Edit text" on such a row edits the CONTENT
   // (docRead/setValueText), never the path.
   bool _isBlob(String v) => v.startsWith('blobs/');
 
@@ -846,7 +893,7 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
       );
 
   // Sync & backup. Three clearly-separated ways in, so they can't be confused:
-  //   * A NEARBY DEVICE, live over Wi-Fi (Host / Join+scan) -- QR/camera.
+  //   * A NEARBY DEVICE, live over Wi-Fi (Show a code / Scan or type a code).
   //   * A FILE you move by Drive / USB / email (Export / Import) -- no network.
   //   * A FOLDER another tool syncs (Keep a copy in a folder / Restore from one).
   Future<void> _syncSheet() async {
@@ -907,21 +954,21 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
               child: Text(
-                  'Keep both devices awake. Tap Host on one; on the other, scan '
-                  'its code with the camera, or tap Join and type it. Nothing '
+                  'Keep both devices awake. Tap Show a code on one; on the other, '
+                  'scan it with the camera, or tap Scan or type a code. Nothing '
                   'leaves your Wi-Fi.',
                   style: Theme.of(ctx).textTheme.bodySmall),
             ),
             ListTile(
               leading: const Icon(Icons.wifi_tethering),
-              title: const Text('Host a sync'),
-              subtitle: const Text('This device shows a code and waits. Start here.'),
+              title: const Text('Show a code'),
+              subtitle: const Text('Start here. The other device scans it.'),
               onTap: () => Navigator.pop(ctx, 'host'),
             ),
             ListTile(
               leading: const Icon(Icons.qr_code_scanner),
-              title: const Text('Join / scan a nearby device'),
-              subtitle: const Text('For the OTHER device: type what the host shows, or scan it with the camera'),
+              title: const Text('Scan or type a code'),
+              subtitle: const Text('Use this on the second device.'),
               onTap: () => Navigator.pop(ctx, 'join'),
             ),
             const Divider(height: 24),
@@ -929,7 +976,7 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
             ListTile(
               leading: const Icon(Icons.save_alt),
               title: const Text('Export to a file'),
-              subtitle: const Text('Save a copy of the whole index to a file'),
+              subtitle: const Text('Save all your notes to a file'),
               onTap: () => Navigator.pop(ctx, 'export'),
             ),
             ListTile(
@@ -949,7 +996,7 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
                 subtitle: Text(_syncFolder.isEmpty
                     // I5: a versioning cloud keeps old plaintext copies, which can
                     // defeat tombstones (a delete reappears); Syncthing does not.
-                    ? 'Best with Syncthing. A versioning cloud (e.g. Dropbox) may keep deleted items.'
+                    ? 'A folder that Syncthing or a cloud drive copies to your other devices.'
                     : folderLabel(_syncFolder)),
                 onTap: () => Navigator.pop(ctx, 'folder'),
               ),
@@ -957,7 +1004,7 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
                 ListTile(
                   leading: const Icon(Icons.sync),
                   title: const Text('Sync now'),
-                  subtitle: const Text('Pull peer changes and push yours'),
+                  subtitle: const Text('Get changes from your other devices and send yours'),
                   onTap: () => Navigator.pop(ctx, 'folder-sync'),
                 ),
               if (_syncFolder.isNotEmpty)
@@ -977,7 +1024,7 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
                     ? 'Keep a copy in a folder'
                     : 'Keeping a copy in a folder'),
                 subtitle: Text(_backupTree.isEmpty
-                    ? 'The copy survives uninstalling the app'
+                    ? 'Survives uninstalling. Pick a cloud or Syncthing folder to survive losing the phone.'
                     : 'Refreshed after every change. Tap to move it.'),
                 onTap: () => Navigator.pop(ctx, 'keep'),
               ),
@@ -1081,6 +1128,7 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
     _writeBackupCopy().then((ok) {
       if (ok) {
         _backupDirty = false;
+        _stampBackup();
         return;
       }
       if (!mounted || _backupSaid) return;
@@ -1113,16 +1161,19 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
     await _saveBackupTree(uri);
     _backupSaid = false;
     final ok = await _writeBackupCopy();
-    if (ok) _backupDirty = false;
+    if (ok) {
+      _backupDirty = false;
+      _stampBackup();
+    }
     if (!mounted) return;
     if (!ok) {
       _backupTree = '';
       await _saveBackupTree('');
     }
+    setState(() {}); // the menu and the sheet read _lastSync
     messenger.showSnackBar(SnackBar(
         content: Text(ok
-            ? 'A copy of your index now lives in that folder. '
-                'It survives uninstalling the app.'
+            ? 'Your notes are now copied to that folder.'
             : 'Could not write a copy there. Pick another folder.')));
   }
 
@@ -1137,13 +1188,14 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
     }
     flag.markShown();
     // iOS has no SAF; until the native side grows a directory picker, the
-    // honest action there is the existing export share-sheet.
+    // honest action there is the existing export share-sheet. The index is
+    // opted out of iCloud backup (_excludeFromICloud), so the hint says so.
     final android = widget.survival != null || Platform.isAndroid;
     messenger.showSnackBar(SnackBar(
         duration: const Duration(seconds: 12),
-        content: const Text(
-            "Your index lives in this app's private storage and is removed "
-            'if the app is uninstalled. Keep a copy in a folder to survive that.'),
+        content: Text(android
+            ? 'Uninstalling AIS deletes your notes. Keep a copy in a folder to be safe.'
+            : 'Nothing here is in iCloud. Export a copy now and then.'),
         action: SnackBarAction(
             label: android ? 'Set folder' : 'Export a copy',
             onPressed: android ? _pickBackupFolder : _exportFile)));
@@ -1230,6 +1282,11 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
   // Every converging route calls this: Host, Join, a folder pass, a file import.
   void _markSynced() {
     _backupDirty = true; // every converging route can change the index
+    _stampBackup();
+  }
+
+  // A refreshed keep-a-copy is a backup too, but changes nothing here.
+  void _stampBackup() {
     _lastSync = DateTime.now();
     try {
       File('${_dir}_lastsync').writeAsStringSync(_lastSync!.toIso8601String());
@@ -1238,20 +1295,21 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
 
   void _saveLastSync() => _markSynced();
 
-  // "just now" / "3 hours ago" / "12 Mar 2026": vague near, exact far.
+  // "just now" / "3 hours ago" / "12 Mar 2026": vague near, exact far. The
+  // menu and the Sync sheet both show this, so they never disagree.
   String get _lastSyncLabel {
     final t = _lastSync;
-    if (t == null) return 'Never synced on this device';
+    if (t == null) return 'Not backed up yet';
     final d = DateTime.now().difference(t);
-    if (d.inMinutes < 2) return 'Last synced just now';
-    if (d.inMinutes < 60) return 'Last synced ${d.inMinutes} minutes ago';
+    if (d.inMinutes < 2) return 'Last backed up just now';
+    if (d.inMinutes < 60) return 'Last backed up ${d.inMinutes} minutes ago';
     if (d.inHours < 24) {
-      return 'Last synced ${d.inHours} hour${d.inHours == 1 ? '' : 's'} ago';
+      return 'Last backed up ${d.inHours} hour${d.inHours == 1 ? '' : 's'} ago';
     }
     if (d.inDays < 30) {
-      return 'Last synced ${d.inDays} day${d.inDays == 1 ? '' : 's'} ago';
+      return 'Last backed up ${d.inDays} day${d.inDays == 1 ? '' : 's'} ago';
     }
-    return 'Last synced ${t.day} ${_months[t.month - 1]} ${t.year}';
+    return 'Last backed up ${t.day} ${_months[t.month - 1]} ${t.year}';
   }
 
   // Pick a shared folder and run the first pass. The folder is REMEMBERED ONLY IF
@@ -1509,12 +1567,11 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
     final String msg;
     switch (rc) {
       case 0:
-        msg = 'Merged. This index now includes the file’s records.'
-            '${_mergeDetail(before)}';
+        msg = 'Imported.${_mergeDetail(before)}';
         _markSynced();
         break;
       case -2:
-        msg = 'This file is from an incompatible version.';
+        msg = 'This file was made by a newer AIS. Update the app and try again.';
         break;
       default:
         // A bookmarks or links file fed to the bundle import: point at the
@@ -1522,7 +1579,7 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
         final lower = file.name.toLowerCase();
         msg = (lower.endsWith('.csv') || lower.endsWith('.html') || lower.endsWith('.htm'))
             ? 'This is not an AIS file. For Pocket, Raindrop or browser bookmarks, use Menu, Import bookmarks.'
-            : 'Couldn’t read the file.';
+            : 'Couldn’t read that file. Pick one made with Export.';
     }
     messenger.showSnackBar(SnackBar(content: Text(msg)));
     if (rc == 0) _setView(_view); // refresh with merged records
@@ -1642,7 +1699,7 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
       builder: (ctx) => _OwnedFields(
         owned: [urlCtrl, tokCtrl],
         child: AlertDialog(
-        title: const Text('Join a sync'),
+        title: const Text('Scan or type a code'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -1652,12 +1709,12 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
               decoration: const InputDecoration(
                   labelText: 'Address',
                   hintText: 'http://192.168.1.5:8766',
-                  helperText: 'As shown under the code on the hosting device'),
+                  helperText: 'As shown under the code on the other device'),
             ),
             TextField(
               controller: tokCtrl,
               onSubmitted: (_) => Navigator.pop(ctx, true), // Enter = Sync
-              decoration: const InputDecoration(labelText: 'Token'),
+              decoration: const InputDecoration(labelText: 'Code'),
             ),
             const SizedBox(height: 8),
             Text(
@@ -1667,7 +1724,7 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
                     : scanned
                     ? 'Scanned from the other device. Tap Sync to connect.'
                     : "These come from the OTHER device: open AIS there, tap Sync, "
-                        "choose Host, and it shows both. Scanning its code with your "
+                        "choose Show a code, and it shows both. Scanning it with your "
                         "camera fills them in for you.",
                 style: Theme.of(ctx).textTheme.bodySmall),
           ],
@@ -1706,7 +1763,7 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
       context: context,
       barrierDismissible: false,
       builder: (_) => _SyncWaitDialog(
-          title: 'Join a sync',
+          title: 'Scan or type a code',
           waiting: 'Syncing...',
           note: 'You can hide this; the result is still reported.',
           done: fut),
@@ -1722,26 +1779,25 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
     final String msg;
     switch (rc) {
       case 0:
-        msg = 'Synced. Both devices now have the same records.'
+        msg = 'Synced. Both devices now have the same notes.'
             '${_mergeDetail(before)}';
         _markSynced();
         break;
       case 1:
         // Half done: their records ARE here, so this is not a failure.
-        msg = 'Got their records, but yours did not reach them. '
-            'Nothing was lost. Sync again to finish.';
+        msg = 'Half done. Nothing was lost. Sync again to finish.';
         _markSynced();
         break;
       case 2:
-        msg = 'Synced, but one more round is needed to match exactly. '
-            'Nothing was lost. Sync again.';
+        msg = 'Almost done. Sync once more to finish.';
         _markSynced();
         break;
       case -1:
         msg = 'That address looks wrong. Use http://host:port.';
         break;
       default:
-        msg = 'Could not sync. Same Wi-Fi? Check the host is waiting and the token is right.';
+        msg = "Couldn't connect. Check both devices are on the same Wi-Fi "
+            'and the code is still showing.';
     }
     messenger.showSnackBar(SnackBar(content: Text(msg)));
     if (rc >= 0) _setView(_view); // a half-done sync still merged theirs
@@ -1777,7 +1833,7 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
     if (!mounted) return;
     if (port == 0) {
       messenger.showSnackBar(const SnackBar(
-          content: Text('No free port for syncing. Close any other sync and try again.')));
+          content: Text("Couldn't start a sync. Try again in a moment.")));
       return;
     }
     final token = _genToken();
@@ -1785,7 +1841,7 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
     // feeds the one deep-link handler (see _handleLink).
     final link =
         'ais://sync?host=${Uri.encodeQueryComponent('$ip:$port')}&token=$token';
-    final detail = 'http://$ip:$port\ntoken: $token\n\n'
+    final detail = 'http://$ip:$port\ncode: $token\n\n'
         'desktop:  ais --sync http://$ip:$port --token $token';
 
     _flushPendingDeletes(); // commit any in-flight delete BEFORE the sync isolate starts
@@ -1797,13 +1853,13 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
           context: context,
           barrierDismissible: false,
           builder: (_) => _SyncWaitDialog(
-              title: 'Host a sync',
+              title: 'Show a code',
               qrData: link,
-              commandLabel: 'Or type the address and token on the other device:',
+              commandLabel: 'Or type the address and code on the other device:',
               command: detail,
               intro: 'On your OTHER device: point its camera at this code and tap '
-                  'the link, or open AIS, tap Sync, choose Join and type what is '
-                  'below. Keep this screen open.',
+                  'the link, or open AIS, tap Sync, choose Scan or type a code and '
+                  'type what is below. Keep this screen open.',
               waiting: 'Waiting for the other device...',
               note: 'Keep AIS open until the other device has joined.',
               done: fut),
@@ -1819,24 +1875,22 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
     final String msg;
     switch (rc) {
       case 0:
-        msg = 'Synced. Both devices now have the same records.'
+        msg = 'Synced. Both devices now have the same notes.'
             '${_mergeDetail(before)}';
         _markSynced();
         break;
       case 1:
-        msg = 'They got your records, but theirs did not come back. '
-            'Nothing was lost. Sync again to finish.';
+        msg = 'Half done. Nothing was lost. Sync again to finish.';
         _markSynced();
         break;
       case 2:
         // A record here outlived a delete that arrived in this round; the news
         // of that could not go out until the next one (see AIS_SYNC_AGAIN).
-        msg = 'Synced, but one more round is needed to match exactly. '
-            'Nothing was lost. Sync again.';
+        msg = 'Almost done. Sync once more to finish.';
         _markSynced();
         break;
       case -3:
-        msg = 'The sync port was taken just as we started. Try again.';
+        msg = "Couldn't start a sync. Try again in a moment.";
         break;
       default:
         msg = 'That code expired before anyone joined. Tap Sync again for a fresh one.';
@@ -1853,13 +1907,15 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
     if (after < 0) return '';
     if (after > before) {
       final n = after - before;
-      return ' $n new record${n == 1 ? '' : 's'} arrived.';
+      return ' $n new item${n == 1 ? '' : 's'} arrived.';
     }
     if (after < before) {
       final n = before - after;
-      return ' $n record${n == 1 ? '' : 's'} deleted elsewhere were removed here.';
+      return n == 1
+          ? ' 1 item deleted on the other device was deleted here too.'
+          : ' $n items deleted on the other device were deleted here too.';
     }
-    return ' Nothing new: both devices were already in step.';
+    return ' Nothing new. Both devices already match.';
   }
 
   // A random 128-bit token as 32 hex chars (the peer must supply the same one).
@@ -1943,7 +1999,7 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
     return a == 10 || (a == 192 && b == 168) || (a == 172 && b >= 16 && b <= 31);
   }
 
-  // Clean up: rewrite the index without the records that were deleted, which is
+  // Free up space: rewrite the index without the records that were deleted, which is
   // how space comes back and how a document deleted before this app could
   // dispose of it finally leaves the phone. The web GUI has always offered this;
   // the phone, which has no CLI to fall back on, had no way to run it at all.
@@ -1958,13 +2014,13 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
     final go = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Clean up'),
+        title: const Text('Free up space'),
         content: const Text(
             'Removes what you have already deleted, for good, and frees the '
             'space it still takes. Nothing you can see is touched.'),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
-          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Clean up')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Free up space')),
         ],
       ),
     );
@@ -1979,7 +2035,7 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
     final ok = _ais!.compact() == 0;
     if (!mounted) return;
     messenger.showSnackBar(SnackBar(
-        content: Text(ok ? 'Cleaned up' : "Couldn't clean up")));
+        content: Text(ok ? 'Space freed' : "Couldn't free up space")));
     if (ok) _setView(_view);         // ids and counts moved: redraw the view
   }
 
@@ -2187,7 +2243,7 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
                       // wrong number over the Recent/Tags lists.
                       if (_view == 'recall' && _searched)
                         Text(
-                          '${_results.length} result${_results.length == 1 ? '' : 's'} · $_ms ms',
+                          '${_results.length} result${_results.length == 1 ? '' : 's'}',
                           style: Theme.of(context)
                               .textTheme
                               .bodySmall
@@ -2243,9 +2299,7 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
                                   ? Icons.sync_problem
                                   : Icons.sync),
                               title: const Text('Sync & backup'),
-                              subtitle: _lastSync == null
-                                  ? const Text('Not backed up yet')
-                                  : null,
+                              subtitle: Text(_lastSyncLabel),
                             ),
                           ),
                           PopupMenuItem(
@@ -2265,7 +2319,7 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
                             child: const ListTile(
                               contentPadding: EdgeInsets.zero,
                               leading: Icon(Icons.cleaning_services_outlined),
-                              title: Text('Clean up'),
+                              title: Text('Free up space'),
                             ),
                           ),
                           const PopupMenuItem(
@@ -2311,6 +2365,11 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
                             onChanged: (v) {
                               // Debounced live filter: run on the typing pause.
                               _debounce?.cancel();
+                              // The Tags view filters its own list as you type.
+                              if (_view == 'tags') {
+                                setState(() {});
+                                return;
+                              }
                               if (v.trim().isEmpty) {
                                 // cleared: fall back to the hint, don't search
                                 setState(() {
@@ -2361,27 +2420,18 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
                     // The completion row every tag field gets. Completing re-runs
                     // the search at once: a programmatic controller change never
                     // fires onChanged, so the debounce path above would sit idle.
-                    TagSuggestRow(
-                      controller: _q,
-                      focusNode: _qFocus,
-                      lookup: _tagMatches,
-                      onCompleted: () {
-                        _debounce?.cancel();
-                        _recallLive();
-                      },
-                    ),
-                    const SizedBox(height: 8),
-                    // "Match any tag" (OR) as a chip. The library path moved
-                    // off the home screen: it stays in About and in the Change
-                    // Library dialog, where it is actionable.
-                    Row(children: [
-                      FilterChip(
-                        label: const Text('Match any tag'),
-                        selected: _matchAny,
-                        onSelected: _setMatchAny,
-                        visualDensity: VisualDensity.compact,
+                    // Not on the Tags view, whose list is already the completions.
+                    if (_view != 'tags')
+                      TagSuggestRow(
+                        controller: _q,
+                        focusNode: _qFocus,
+                        lookup: _tagMatches,
+                        onCompleted: () {
+                          _debounce?.cancel();
+                          _recallLive();
+                        },
                       ),
-                    ]),
+                    ..._filterRow(),
                   ],
                 ),
               ),
@@ -2437,7 +2487,7 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
       );
 
   void _retryOpen() {
-    setState(() => _status = 'opening index…');
+    setState(() => _status = 'Loading…');
     _init();
   }
 
@@ -2639,14 +2689,23 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
                 label: const Text('Add something'),
               ),
               // Mobile: the store is empty, which is exactly what a fresh
-              // install looks like. Offer the way back to a kept copy.
+              // install looks like. Offer the way back to a kept copy: a folder
+              // on Android, an exported file on iOS (no folder picker there,
+              // and the index is opted out of iCloud backup).
               if (_mobile) ...[
                 const SizedBox(height: 8),
-                TextButton.icon(
-                  onPressed: _restoreFromFolder,
-                  icon: const Icon(Icons.restore),
-                  label: const Text('Restore from a folder'),
-                ),
+                if (Platform.isIOS)
+                  TextButton.icon(
+                    onPressed: _importFile,
+                    icon: const Icon(Icons.restore),
+                    label: const Text('Import a backup file'),
+                  )
+                else
+                  TextButton.icon(
+                    onPressed: _restoreFromFolder,
+                    icon: const Icon(Icons.restore),
+                    label: const Text('Restore from a folder'),
+                  ),
               ],
               // A fresh install is where the question "what is this for" is asked.
               TextButton.icon(
@@ -2672,7 +2731,7 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
   Future<void> _editKeys(Hit hit) async {
     if (_ais == null) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('Library is still opening. Try again in a moment.')));
+          content: Text('Still loading. Try again in a moment.')));
       return;
     }
     if (_syncBlocks()) {
@@ -2733,7 +2792,7 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
     final messenger = ScaffoldMessenger.of(context);
     if (_ais == null) {
       messenger.showSnackBar(const SnackBar(
-          content: Text('Library is still opening. Try again in a moment.')));
+          content: Text('Still loading. Try again in a moment.')));
       return null;
     }
     if (_syncBlocks()) {
@@ -2758,7 +2817,7 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
       builder: (ctx) => _OwnedFields(
         owned: [ctrl],
         child: AlertDialog(
-        title: const Text('Edit value'),
+        title: const Text('Edit text'),
         content: TextField(
           controller: ctrl,
           autofocus: true,
@@ -2779,7 +2838,7 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
     // Empty value: say so instead of silently closing the dialog. An unchanged
     // value is a genuine no-op and stays quiet. Don't trim into the stored value.
     if (newValue.trim().isEmpty) {
-      messenger.showSnackBar(const SnackBar(content: Text("Value can't be empty")));
+      messenger.showSnackBar(const SnackBar(content: Text('Type something first.')));
       return null;
     }
     if (newValue == orig) return null;
@@ -2788,7 +2847,8 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
     // text goes out-of-line, where no such limit exists.
     if (newValue.contains('\u0000')) {
       messenger.showSnackBar(const SnackBar(
-          content: Text('Remove the special (null) character before saving.')));
+          content: Text("The text has a hidden character AIS can't store. "
+              'Retype it and save again.')));
       return null;
     }
     if (!newValue.trimRight().contains('\n')) {
@@ -2806,12 +2866,12 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
     final done = rc == 0;
     messenger.showSnackBar(SnackBar(
         content: Text(done
-            ? 'Value updated'
+            ? 'Text updated'
             : rc == -2
-                ? 'A note already holds that text: this one as another link, or another note'
+                ? 'An item already holds that text: another one, or this one as another link.'
                 : rc == -3
-                    ? 'A deleted note still holds that text: run Clean up first'
-                    : "Couldn't update the value")));
+                    ? 'A deleted item still holds that text. Run Free up space first.'
+                    : "Couldn't update the text")));
     if (done) {
       _backupDirty = true;
       _setView(_view); // refresh whichever view is showing
@@ -2827,17 +2887,17 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
       builder: (ctx) => _OwnedFields(
         owned: [ctrl],
         child: AlertDialog(
-        title: const Text('Reveal'),
+        title: const Text('Unlock'),
         content: TextField(
           controller: ctrl,
           obscureText: true,
           autofocus: true,
           onSubmitted: (v) => Navigator.pop(ctx, v),
-          decoration: const InputDecoration(labelText: 'Passphrase'),
+          decoration: const InputDecoration(labelText: 'Password'),
         ),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
-          FilledButton(onPressed: () => Navigator.pop(ctx, ctrl.text), child: const Text('Reveal')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, ctrl.text), child: const Text('Unlock')),
         ],
         ),
       ),
@@ -2847,13 +2907,13 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
     if (!mounted) return;
     if (clear == null) {
       ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text('Could not decrypt')));
+          .showSnackBar(const SnackBar(content: Text('Wrong password. Try again.')));
       return;
     }
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Decrypted'),
+        title: const Text('Unlocked'),
         content: SelectableText(clear),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Close')),
@@ -2899,7 +2959,7 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
                   if (isSecret)
                     IconButton(
                       icon: const Icon(Icons.lock_open),
-                      tooltip: 'Reveal',
+                      tooltip: 'Unlock',
                       onPressed: () => _revealHit(Hit(id, curValue)),
                     ),
                   IconButton(
@@ -2937,7 +2997,7 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
                       // plain and document rows edit as text; encrypted/away rows omit this
                       if (!isSecret && !away)
                         const PopupMenuItem(
-                            value: 'value', child: Text('Edit value')),
+                            value: 'value', child: Text('Edit text')),
                       const PopupMenuItem(value: 'tags', child: Text('Edit tags')),
                       const PopupMenuItem(value: 'delete', child: Text('Delete')),
                     ],
@@ -2953,7 +3013,7 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
                       Icon(Icons.lock_outline, size: 18, color: cs.outline),
                       const SizedBox(width: 8),
                       Expanded(
-                        child: Text('encrypted, tap Reveal to read',
+                        child: Text('locked, tap Unlock to read',
                             style: TextStyle(color: cs.onSurfaceVariant)),
                       ),
                     ])
@@ -3082,7 +3142,7 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
               ? Row(mainAxisSize: MainAxisSize.min, children: [
                   Icon(Icons.lock_outline, size: 16, color: cs.outline),
                   const SizedBox(width: 6),
-                  Text('encrypted', style: TextStyle(color: cs.onSurfaceVariant)),
+                  Text('locked', style: TextStyle(color: cs.onSurfaceVariant)),
                 ])
               : _rowLabel(v, cs),
         ),
@@ -3109,7 +3169,7 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
           if (isSecret)
             IconButton(
               icon: const Icon(Icons.lock_open),
-              tooltip: 'Reveal',
+              tooltip: 'Unlock',
               onPressed: () => _revealHit(hit),
             ),
           PopupMenuButton<String>(
@@ -3132,12 +3192,12 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
             },
             itemBuilder: (_) => [
               const PopupMenuItem(value: 'copy', child: Text('Copy')),
-              // sharing ciphertext / a missing blob is useless; gate like Edit value
+              // sharing ciphertext / a missing blob is useless; gate like Edit text
               if (!isSecret && !away)
                 const PopupMenuItem(value: 'share', child: Text('Share')),
               // plain and document rows edit as text; encrypted/away rows omit this
               if (!isSecret && !away)
-                const PopupMenuItem(value: 'value', child: Text('Edit value')),
+                const PopupMenuItem(value: 'value', child: Text('Edit text')),
               const PopupMenuItem(value: 'edit', child: Text('Edit tags')),
               const PopupMenuItem(value: 'delete', child: Text('Delete')),
             ],
@@ -3193,7 +3253,7 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
           Icon(Icons.notes, size: 14, color: cs.onSurfaceVariant),
           const SizedBox(width: 6),
           Expanded(
-            child: Text('matched in the value',
+            child: Text('Found in the text',
                 style: Theme.of(context)
                     .textTheme
                     .bodySmall
@@ -3235,19 +3295,47 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
     });
   }
 
-  Widget _rangeBar(ColorScheme cs) {
-    final on = _tlFrom.isNotEmpty || _tlTo.isNotEmpty;
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
-      child: Row(children: [
-        InputChip(
-          avatar: Icon(Icons.date_range, size: 18, color: cs.onSurfaceVariant),
-          label: Text(on ? '$_tlFrom \u2013 $_tlTo' : 'Date range'),
-          visualDensity: VisualDensity.compact,
-          onPressed: _pickRange,
-          onDeleted: on ? _clearRange : null,
+  // The filters that act on the current view, one row of 34dp chips 16dp under
+  // the search bar. Any tag on Search only. Date on Recent only: a recall hit
+  // carries no timestamp, so a range has nothing to filter there. Tags has none.
+  List<Widget> _filterRow() {
+    final chips = <Widget>[
+      if (_view == 'recall')
+        FilterChip(
+          label: const Text('Any tag'),
+          tooltip: 'Match any tag',
+          selected: _matchAny,
+          onSelected: _setMatchAny,
+          padding: _chipPadding,
+          labelPadding: _chipLabelPadding,
+          visualDensity: _chipDensity,
         ),
-      ]),
+      if (_view == 'timeline') _dateChip(),
+    ];
+    if (chips.isEmpty) return const [];
+    // 9 here plus the 7 the chip's 48dp tap target adds above its face.
+    return [const SizedBox(height: 9), Wrap(spacing: 8, children: chips)];
+  }
+
+  // Material 3's chip face is 38dp; this padding floors it at 34, the least
+  // that keeps the 48dp tap target both platforms ask for.
+  static const _chipPadding = EdgeInsets.symmetric(horizontal: 8, vertical: 6);
+  static const _chipLabelPadding = EdgeInsets.symmetric(horizontal: 8);
+  static const _chipDensity = VisualDensity.standard;
+
+  Widget _dateChip() {
+    final on = _tlFrom.isNotEmpty && _tlTo.isNotEmpty;
+    return FilterChip(
+      label: Text(on ? dateRangeLabel(_tlFrom, _tlTo) : 'Date'),
+      selected: on,
+      showCheckmark: false,
+      onSelected: (_) => _pickRange(),
+      onDeleted: on ? _clearRange : null,
+      deleteIcon: const Icon(Icons.clear, size: 18),
+      deleteButtonTooltipMessage: 'Clear the dates',
+      padding: _chipPadding,
+      labelPadding: _chipLabelPadding,
+      visualDensity: _chipDensity,
     );
   }
 
@@ -3258,14 +3346,9 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
     if (gate != null) return gate;
     if (_tl.isEmpty) {
       assert(_emptyStateOffersAdd);   // the FAB stands down on exactly this branch
-      return Column(children: [
-        _rangeBar(cs),
-        Expanded(
-          child: _emptyState(cs,
-              icon: Icons.note_add_outlined,
-              line: 'Nothing saved yet. Add your first note or link.'),
-        ),
-      ]);
+      return _emptyState(cs,
+          icon: Icons.note_add_outlined,
+          line: 'Nothing saved yet. Add your first note or link.');
     }
     final items = <Widget>[];
     String? day;
@@ -3299,7 +3382,7 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
                 ? Row(mainAxisSize: MainAxisSize.min, children: [
                     Icon(Icons.lock_outline, size: 16, color: cs.outline),
                     const SizedBox(width: 6),
-                    Text('encrypted', style: TextStyle(color: cs.outline)),
+                    Text('locked', style: TextStyle(color: cs.outline)),
                   ])
                 : _rowLabel(r.value, cs),
           ),
@@ -3332,12 +3415,12 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
           },
           itemBuilder: (_) => [
             const PopupMenuItem(value: 'copy', child: Text('Copy')),
-            // sharing ciphertext / a missing blob is useless; gate like Edit value
+            // sharing ciphertext / a missing blob is useless; gate like Edit text
             if (!r.value.startsWith('aisc:') && !_notHere(r.value))
               const PopupMenuItem(value: 'share', child: Text('Share')),
             // plain and document rows edit as text; encrypted/away rows omit this
             if (!r.value.startsWith('aisc:') && !_notHere(r.value))
-              const PopupMenuItem(value: 'value', child: Text('Edit value')),
+              const PopupMenuItem(value: 'value', child: Text('Edit text')),
             const PopupMenuItem(value: 'edit', child: Text('Edit tags')),
             const PopupMenuItem(value: 'delete', child: Text('Delete')),
           ],
@@ -3356,56 +3439,76 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
         ),
       ));
     }
-    return Column(children: [
-      _rangeBar(cs),
-      Expanded(
-        // builder so only the on-screen rows of a large loaded range mount.
-        child: NotificationListener<ScrollNotification>(
-          onNotification: (n) {
-            if (_tlMore && _nearBottom(n)) _loadMoreTimeline();
-            return false;
-          },
-          child: ListView.builder(
-            padding: const EdgeInsets.only(bottom: 88),
-            itemCount: items.length,
-            itemBuilder: (_, i) => items[i],
-          ),
-        ),
+    // builder so only the on-screen rows of a large loaded range mount.
+    return NotificationListener<ScrollNotification>(
+      onNotification: (n) {
+        if (_tlMore && _nearBottom(n)) _loadMoreTimeline();
+        return false;
+      },
+      child: ListView.builder(
+        padding: const EdgeInsets.only(bottom: 88),
+        itemCount: items.length,
+        itemBuilder: (_, i) => items[i],
       ),
-    ]);
+    );
+  }
+
+  // The Tags view's list for the text in the search field: tags starting with
+  // it, case-insensitive, from the WHOLE cloud (the paged list may not hold the
+  // match yet). Cached per text: build runs on every keystroke and scroll.
+  (String, List<TagRow>)? _tagFilter;
+  List<TagRow> _filteredTags(String text) {
+    final p = text.trim().toLowerCase();
+    final cached = _tagFilter;
+    if (cached != null && cached.$1 == p) return cached.$2;
+    final cloud = widget.tagCloud?.call() ?? _ais?.tags() ?? const <TagRow>[];
+    final out =
+        cloud.where((t) => t.key.toLowerCase().startsWith(p)).toList();
+    _tagFilter = (p, out);
+    return out;
   }
 
   // Tags: every key with its count, busiest first; tap a key to recall it.
+  // Text in the search field narrows the list by prefix.
   Widget _tagsBody(ColorScheme cs) {
-    if (_tags.isEmpty) return _centerMsg('No tags yet.', cs);
+    final filtering = _q.text.trim().isNotEmpty;
+    final tags = filtering ? _filteredTags(_q.text) : _tags;
+    final more = !filtering && _tagsMore;
+    if (tags.isEmpty) {
+      return _centerMsg(
+          filtering ? 'No tag starts with "${_q.text.trim()}".' : 'No tags yet.',
+          cs);
+    }
     return NotificationListener<ScrollNotification>(
       onNotification: (n) {
-        if (_tagsMore && _nearBottom(n)) _loadMoreTags();
+        if (more && _nearBottom(n)) _loadMoreTags();
         return false;
       },
-      child: ListView.separated(
-      padding: const EdgeInsets.only(bottom: 88),
-      itemCount: _tags.length + (_tagsMore ? 1 : 0),
-      separatorBuilder: (_, __) => const Divider(height: 1, indent: 16, endIndent: 16),
-      itemBuilder: (_, i) {
-        if (i >= _tags.length) return _loadingFooter();
-        final t = _tags[i];
-        return ListTile(
-          visualDensity: const VisualDensity(vertical: -1),
-          leading: Icon(Icons.label_outline, color: cs.onSurfaceVariant),
-          title: Text(t.key),
-          trailing: Text('${t.count}',
-              style: Theme.of(context)
-                  .textTheme
-                  .labelLarge
-                  ?.copyWith(color: cs.onSurfaceVariant)),
-          onTap: () {
-            _q.text = t.key;
-            _setView('recall');
-          },
-        );
-      },
-    ),
+      child: ListView.builder(
+        padding: const EdgeInsets.only(bottom: 88),
+        itemCount: tags.length + (more ? 1 : 0),
+        itemBuilder: (_, i) {
+          if (i >= tags.length) return _loadingFooter();
+          final t = tags[i];
+          return ListTile(
+            // One-line rows at 56dp whatever the platform's density default.
+            visualDensity: VisualDensity.standard,
+            minTileHeight: 56,
+            leading: Icon(Icons.label_outline, color: cs.onSurfaceVariant),
+            title: Text(t.key, maxLines: 1, overflow: TextOverflow.ellipsis),
+            trailing: Text('${t.count}',
+                textAlign: TextAlign.right,
+                style: Theme.of(context)
+                    .textTheme
+                    .labelLarge
+                    ?.copyWith(color: cs.onSurfaceVariant)),
+            onTap: () {
+              _q.text = t.key;
+              _setView('recall');
+            },
+          );
+        },
+      ),
     );
   }
 
@@ -3454,7 +3557,7 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
     // disabled then), but the share intake opens this sheet without the FAB.
     final h = widget.survival;
     if (_ais == null && h == null) {
-      return 'Library is still opening. Try again in a moment.';
+      return 'Still loading. Try again in a moment.';
     }
     final messenger = ScaffoldMessenger.of(context);
     // Commit any armed swipe-delete BEFORE a background encrypt: a UI-isolate
@@ -3558,8 +3661,12 @@ class TagSuggestRow extends StatelessWidget {
         valueListenable: controller,
         builder: (context, v, _) {
           final tok = _token(v.text);
-          final tags = tok.isEmpty ? const <String>[] : lookup(tok).take(_max).toList();
+          // A tag already typed in full has nothing left to complete.
+          final tags = tok.isEmpty
+              ? const <String>[]
+              : lookup(tok).where((t) => t != tok).take(_max).toList();
           if (tags.isEmpty) return const SizedBox.shrink();
+          final cs = Theme.of(context).colorScheme;
           return Padding(
             padding: const EdgeInsets.only(top: 6),
             // One row, never a wrap: scrolls sideways instead of growing down
@@ -3570,9 +3677,15 @@ class TagSuggestRow extends StatelessWidget {
                 for (final t in tags)
                   Padding(
                     padding: const EdgeInsets.only(right: 6),
+                    // Filled and borderless, so a completion never reads as
+                    // the outlined filter chips under the search bar.
                     child: ActionChip(
                       label: Text(t),
                       visualDensity: VisualDensity.compact,
+                      backgroundColor: cs.secondaryContainer,
+                      labelStyle: TextStyle(color: cs.onSecondaryContainer),
+                      side: BorderSide.none,
+                      shape: const StadiumBorder(),
                       onPressed: () {
                         if (onPick != null) {
                           onPick!(t);
@@ -3654,7 +3767,7 @@ class _AddSheetState extends State<AddSheet> {
         encrypt: _encrypt,
         passphrase: _ppCtrl.text,
         repeat: _pp2Ctrl.text);
-    // The sheet is swipe-dismissible during "Encrypting…", and setState on a
+    // The sheet is swipe-dismissible during "Locking…", and setState on a
     // disposed element throws.
     if (!mounted) return;
     if (err != null) {
@@ -3671,7 +3784,7 @@ class _AddSheetState extends State<AddSheet> {
   // reveals both, and a field with no eye reads as a field that cannot be shown.
   Widget _eye() => IconButton(
         icon: Icon(_ppShow ? Icons.visibility_off : Icons.visibility),
-        tooltip: _ppShow ? 'Hide passphrases' : 'Show passphrases',
+        tooltip: _ppShow ? 'Hide passwords' : 'Show passwords',
         onPressed: () => setState(() => _ppShow = !_ppShow),
       );
 
@@ -3683,8 +3796,8 @@ class _AddSheetState extends State<AddSheet> {
         TextField(
           controller: _valCtrl,
           autofocus: true,
-          minLines: 1,
-          maxLines: 3,
+          minLines: 2,
+          maxLines: 5,
           decoration: const InputDecoration(
             labelText: 'What to remember',
             hintText: 'a link, a note, a phone number…',
@@ -3696,8 +3809,9 @@ class _AddSheetState extends State<AddSheet> {
           controller: _keysCtrl,
           focusNode: _keysFocus,
           decoration: const InputDecoration(
-            labelText: 'Tags (space-separated, optional)',
+            labelText: 'Tags',
             hintText: 'e.g. venice italy hotel',
+            helperText: 'Separate with spaces',
             border: OutlineInputBorder(),
           ),
         ),
@@ -3707,28 +3821,27 @@ class _AddSheetState extends State<AddSheet> {
           lookup: widget.suggest,
         ),
         const SizedBox(height: 4),
-        Row(children: [
-          Switch(
-            value: _encrypt,
-            // Off takes the stale state with it: a mismatch error that no
-            // longer applies, and a revealed passphrase that would come back
-            // revealed.
-            onChanged: (b) => setState(() {
-              _encrypt = b;
-              if (!b) {
-                _error = null;
-                _ppShow = false;
-              }
-            }),
-          ),
-          const Text('Encrypt'),
-        ]),
+        SwitchListTile(
+          contentPadding: EdgeInsets.zero,
+          title: const Text('Lock with a password'),
+          value: _encrypt,
+          // Off takes the stale state with it: a mismatch error that no
+          // longer applies, and a revealed password that would come back
+          // revealed.
+          onChanged: (b) => setState(() {
+            _encrypt = b;
+            if (!b) {
+              _error = null;
+              _ppShow = false;
+            }
+          }),
+        ),
         if (_encrypt) ...[
           TextField(
             controller: _ppCtrl,
             obscureText: !_ppShow,
             decoration: InputDecoration(
-              labelText: 'Passphrase',
+              labelText: 'Password',
               border: const OutlineInputBorder(),
               suffixIcon: _eye(),
             ),
@@ -3738,14 +3851,14 @@ class _AddSheetState extends State<AddSheet> {
             controller: _pp2Ctrl,
             obscureText: !_ppShow,
             decoration: InputDecoration(
-              labelText: 'Repeat passphrase',
+              labelText: 'Repeat password',
               border: const OutlineInputBorder(),
               suffixIcon: _eye(),
             ),
           ),
           Padding(
             padding: const EdgeInsets.only(top: 6, bottom: 4),
-            child: Text('A lost passphrase cannot be recovered.',
+            child: Text('Forget this password and the note is gone for good.',
                 style: Theme.of(context).textTheme.bodySmall?.copyWith(
                     color: Theme.of(context).colorScheme.onSurfaceVariant)),
           ),
@@ -3757,7 +3870,7 @@ class _AddSheetState extends State<AddSheet> {
   @override
   Widget build(BuildContext context) {
     final mq = MediaQuery.of(context);
-    final title = Text('Add to your memory',
+    final title = Text('New item',
         style: Theme.of(context).textTheme.titleMedium);
     final error = _error == null
         ? null
@@ -3772,8 +3885,12 @@ class _AddSheetState extends State<AddSheet> {
               width: 16, height: 16,
               child: CircularProgressIndicator(strokeWidth: 2))
           : const Icon(Icons.check),
-      label: Text(_saving ? (_encrypt ? 'Encrypting…' : 'Saving…') : 'Save'),
+      label: Text(_saving ? (_encrypt ? 'Locking…' : 'Saving…') : 'Save'),
       onPressed: _saving ? null : _save,
+    );
+    final cancel = TextButton(
+      onPressed: () => Navigator.of(context).pop(),
+      child: const Text('Cancel'),
     );
     return Padding(
       // Above the keyboard, or above the home indicator when it is down.
@@ -3782,7 +3899,7 @@ class _AddSheetState extends State<AddSheet> {
           left: 16, right: 16, top: 4),
       child: LayoutBuilder(builder: (context, box) {
         // Save is pinned under a scrolling field area, so it stays above the
-        // keyboard however tall the note and the Encrypt fields get. With Save
+        // keyboard however tall the note and the password fields get. With Save
         // inside the scroll view a three-line note on a phone pushed it under
         // the keyboard, out of sight until the user guessed to scroll. When
         // the keyboard leaves too little for that split (a phone in landscape
@@ -3801,6 +3918,7 @@ class _AddSheetState extends State<AddSheet> {
                 if (error != null) error,
                 const SizedBox(height: 16),
                 save,
+                cancel,
               ],
             ),
           );
@@ -3823,6 +3941,7 @@ class _AddSheetState extends State<AddSheet> {
             if (error != null) error,
             const SizedBox(height: 16),
             save,
+            cancel,
           ],
         );
       }),
@@ -4031,8 +4150,8 @@ class _SyncWaitDialogState extends State<_SyncWaitDialog> {
               ),
               const SizedBox(height: 8),
               Text(
-                  "If its camera won't open the code, copy the address and token "
-                  "below and type them into Join there instead.",
+                  "If its camera won't open the code, copy the address and code "
+                  "below and type them in under Scan or type a code there.",
                   style: Theme.of(context).textTheme.bodySmall),
               const SizedBox(height: 16),
             ],
@@ -4054,7 +4173,7 @@ class _SyncWaitDialogState extends State<_SyncWaitDialog> {
                   onPressed: () {
                     Clipboard.setData(ClipboardData(text: widget.command!));
                     ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-                        content: Text('Address and token copied')));
+                        content: Text('Address and code copied')));
                   },
                 ),
               ),

@@ -61,6 +61,14 @@ void main() {
       expect(find.byType(ActionChip), findsNothing);
     });
 
+    testWidgets('a tag already typed in full is not offered again',
+        (tester) async {
+      await pumpRow(tester, text: 'home recipe');
+      expect(find.widgetWithText(ActionChip, 'recipe'), findsNothing);
+      await pumpRow(tester, text: 'home rec');
+      expect(find.widgetWithText(ActionChip, 'recipe'), findsOneWidget);
+    });
+
     testWidgets('matching is case-insensitive', (tester) async {
       await pumpRow(tester, text: 'REC');
       expect(find.widgetWithText(ActionChip, 'recipe'), findsOneWidget);
@@ -75,14 +83,14 @@ void main() {
               body: AddSheet(
                   initialKeys: 'food ', suggest: lookup, onSave: saveNever))));
       await tester.enterText(
-          find.widgetWithText(TextField, 'Tags (space-separated, optional)'),
+          find.widgetWithText(TextField, 'Tags'),
           'food rec');
       await tester.pump();
       expect(find.widgetWithText(ActionChip, 'recipe'), findsOneWidget);
       await tester.tap(find.widgetWithText(ActionChip, 'recipe'));
       await tester.pump();
       final field = tester.widget<TextField>(find.widgetWithText(
-          TextField, 'Tags (space-separated, optional)'));
+          TextField, 'Tags'));
       expect(field.controller!.text, 'food recipe ');
       expect(find.byType(ActionChip), findsNothing);
     });

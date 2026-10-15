@@ -64,16 +64,16 @@ void main() {
     await tester.pump();
   }
 
-  testWidgets('Encrypt on shows Repeat passphrase and the no-recovery line',
+  testWidgets('Lock on shows Repeat password and the no-recovery line',
       (tester) async {
     await openSheet(tester);
-    expect(find.widgetWithText(TextField, 'Repeat passphrase'), findsNothing);
+    expect(find.widgetWithText(TextField, 'Repeat password'), findsNothing);
     await tester.tap(find.byType(Switch));
     await tester.pump();
-    final repeat = find.widgetWithText(TextField, 'Repeat passphrase');
+    final repeat = find.widgetWithText(TextField, 'Repeat password');
     expect(repeat, findsOneWidget);
     expect(tester.widget<TextField>(repeat).obscureText, isTrue);
-    expect(find.text('A lost passphrase cannot be recovered.'), findsOneWidget);
+    expect(find.text('Forget this password and the note is gone for good.'), findsOneWidget);
   });
 
   testWidgets('a mismatch blocks the save and says so inline', (tester) async {
@@ -81,14 +81,14 @@ void main() {
     await fill(tester, 'What to remember', 'the safe code');
     await tester.tap(find.byType(Switch));
     await tester.pump();
-    await fill(tester, 'Passphrase', 'secret');
-    await fill(tester, 'Repeat passphrase', 'secreT');
+    await fill(tester, 'Password', 'secret');
+    await fill(tester, 'Repeat password', 'secreT');
     await tester.tap(find.widgetWithText(FilledButton, 'Save'));
     await tester.pumpAndSettle();
-    expect(find.text('Passphrases do not match'), findsOneWidget);
+    expect(find.text('Passwords do not match'), findsOneWidget);
     expect(saved, isEmpty);
     // the sheet stays open for the correction
-    expect(find.text('Add to your memory'), findsOneWidget);
+    expect(find.text('New item'), findsOneWidget);
   });
 
   testWidgets('the check is raw: a trailing space is a mismatch',
@@ -97,11 +97,11 @@ void main() {
     await fill(tester, 'What to remember', 'x');
     await tester.tap(find.byType(Switch));
     await tester.pump();
-    await fill(tester, 'Passphrase', 'secret');
-    await fill(tester, 'Repeat passphrase', 'secret ');
+    await fill(tester, 'Password', 'secret');
+    await fill(tester, 'Repeat password', 'secret ');
     await tester.tap(find.widgetWithText(FilledButton, 'Save'));
     await tester.pumpAndSettle();
-    expect(find.text('Passphrases do not match'), findsOneWidget);
+    expect(find.text('Passwords do not match'), findsOneWidget);
     expect(saved, isEmpty);
   });
 
@@ -110,12 +110,12 @@ void main() {
     await fill(tester, 'What to remember', 'the safe code');
     await tester.tap(find.byType(Switch));
     await tester.pump();
-    await fill(tester, 'Passphrase', 'secret');
-    await fill(tester, 'Repeat passphrase', 'secret');
+    await fill(tester, 'Password', 'secret');
+    await fill(tester, 'Repeat password', 'secret');
     await tester.tap(find.widgetWithText(FilledButton, 'Save'));
     await tester.pumpAndSettle();
     expect(saved, [('the safe code', '', true, 'secret')]);
-    expect(find.text('Add to your memory'), findsNothing);
+    expect(find.text('New item'), findsNothing);
   });
 
   testWidgets('correcting the mismatch then saving works in one sheet',
@@ -124,25 +124,25 @@ void main() {
     await fill(tester, 'What to remember', 'x');
     await tester.tap(find.byType(Switch));
     await tester.pump();
-    await fill(tester, 'Passphrase', 'pw');
-    await fill(tester, 'Repeat passphrase', 'nope');
+    await fill(tester, 'Password', 'pw');
+    await fill(tester, 'Repeat password', 'nope');
     await tester.tap(find.widgetWithText(FilledButton, 'Save'));
     await tester.pumpAndSettle();
-    expect(find.text('Passphrases do not match'), findsOneWidget);
-    await fill(tester, 'Repeat passphrase', 'pw');
+    expect(find.text('Passwords do not match'), findsOneWidget);
+    await fill(tester, 'Repeat password', 'pw');
     await tester.tap(find.widgetWithText(FilledButton, 'Save'));
     await tester.pumpAndSettle();
     expect(saved.length, 1);
-    expect(find.text('Add to your memory'), findsNothing);
+    expect(find.text('New item'), findsNothing);
   });
 
-  testWidgets('both passphrase fields carry the reveal toggle; either reveals both',
+  testWidgets('both password fields carry the reveal toggle; either reveals both',
       (tester) async {
     await openSheet(tester);
     await tester.tap(find.byType(Switch));
     await tester.pump();
-    final first = find.widgetWithText(TextField, 'Passphrase');
-    final repeat = find.widgetWithText(TextField, 'Repeat passphrase');
+    final first = find.widgetWithText(TextField, 'Password');
+    final repeat = find.widgetWithText(TextField, 'Repeat password');
     final eyes = find.descendant(
         of: find.byType(TextField), matching: find.byIcon(Icons.visibility));
     expect(eyes, findsNWidgets(2));
@@ -165,6 +165,8 @@ void main() {
     tester.view.viewInsets = const FakeViewPadding(bottom: 620);
     addTearDown(tester.view.reset);
     await openSheet(tester);
+    await tester.ensureVisible(find.byType(Switch));   // below the fold here
+    await tester.pumpAndSettle();
     await tester.tap(find.byType(Switch));
     await tester.pumpAndSettle();
     final save = find.widgetWithText(FilledButton, 'Save');
@@ -174,8 +176,8 @@ void main() {
     final scroll = tester.state<ScrollableState>(find.byType(Scrollable).first);
     expect(scroll.position.maxScrollExtent, greaterThan(0));
     await fill(tester, 'What to remember', 'x');
-    await fill(tester, 'Passphrase', 'pw');
-    await fill(tester, 'Repeat passphrase', 'pw');
+    await fill(tester, 'Password', 'pw');
+    await fill(tester, 'Repeat password', 'pw');
     await tester.tap(save);
     await tester.pumpAndSettle();
     expect(saved.length, 1);
@@ -192,9 +194,16 @@ void main() {
     tester.view.viewInsets = const FakeViewPadding(bottom: 200);
     addTearDown(tester.view.reset);
     await openSheet(tester);
+    await tester.ensureVisible(find.byType(Switch));   // below the fold here
+    await tester.pumpAndSettle();
     await tester.tap(find.byType(Switch));
     await tester.pumpAndSettle();
+    await tester.ensureVisible(find.widgetWithText(FilledButton, 'Save'));
+    await tester.pumpAndSettle();
     await tester.tap(find.widgetWithText(FilledButton, 'Save'));   // empty: the error line shows
+    await tester.pumpAndSettle();
+    expect(find.text('Type something first.'), findsOneWidget);
+    await tester.ensureVisible(find.widgetWithText(TextField, 'What to remember'));
     await tester.pumpAndSettle();
     expect(tester.takeException(), isNull);
     final note = find.widgetWithText(TextField, 'What to remember');
@@ -205,6 +214,34 @@ void main() {
     expect(tester.getRect(find.widgetWithText(FilledButton, 'Save')).bottom,
         lessThanOrEqualTo(360 - 200));
     expect(tester.takeException(), isNull);
+  });
+
+  // The order a person reads it in, the same on every platform: title, the
+  // text (two lines tall), Tags with its helper, the lock, then Save and Cancel.
+  testWidgets('the sheet reads New item, text, Tags, lock, Save, Cancel',
+      (tester) async {
+    await openSheet(tester);
+    double y(Finder f) => tester.getTopLeft(f).dy;
+    final title = find.text('New item');
+    final text = find.widgetWithText(TextField, 'What to remember');
+    final tags = find.widgetWithText(TextField, 'Tags');
+    final lock = find.widgetWithText(SwitchListTile, 'Lock with a password');
+    final save = find.widgetWithText(FilledButton, 'Save');
+    final cancel = find.widgetWithText(TextButton, 'Cancel');
+    for (final f in [title, text, tags, lock, save, cancel]) {
+      expect(f, findsOneWidget);
+    }
+    expect(y(title), lessThan(y(text)));
+    expect(y(text), lessThan(y(tags)));
+    expect(y(tags), lessThan(y(lock)));
+    expect(y(lock), lessThan(y(save)));
+    expect(y(save), lessThan(y(cancel)));
+    expect(tester.widget<TextField>(text).minLines, 2);
+    expect(find.text('Separate with spaces'), findsOneWidget);
+    await tester.tap(cancel);
+    await tester.pumpAndSettle();
+    expect(title, findsNothing);
+    expect(saved, isEmpty);
   });
 
   // Two taps inside one frame, before the button disables, saved twice and
@@ -231,30 +268,30 @@ void main() {
     gate.complete();
     await tester.pumpAndSettle();
     expect(calls, 1);
-    expect(find.text('Add to your memory'), findsNothing);
+    expect(find.text('New item'), findsNothing);
     expect(find.text('open'), findsOneWidget);   // the page under the sheet survived
   });
 
-  testWidgets('the mismatch line goes when Encrypt is switched off or a save starts',
+  testWidgets('the mismatch line goes when the lock is switched off or a save starts',
       (tester) async {
     await openSheet(tester);
     await fill(tester, 'What to remember', 'x');
     await tester.tap(find.byType(Switch));
     await tester.pump();
-    await fill(tester, 'Passphrase', 'pw');
-    await fill(tester, 'Repeat passphrase', 'nope');
+    await fill(tester, 'Password', 'pw');
+    await fill(tester, 'Repeat password', 'nope');
     await tester.tap(find.widgetWithText(FilledButton, 'Save'));
     await tester.pumpAndSettle();
-    expect(find.text('Passphrases do not match'), findsOneWidget);
+    expect(find.text('Passwords do not match'), findsOneWidget);
     await tester.tap(find.byType(Switch));
     await tester.pump();
-    expect(find.text('Passphrases do not match'), findsNothing);
+    expect(find.text('Passwords do not match'), findsNothing);
     await tester.tap(find.byType(Switch));
     await tester.pump();
-    await fill(tester, 'Repeat passphrase', 'pw');
+    await fill(tester, 'Repeat password', 'pw');
     await tester.tap(find.widgetWithText(FilledButton, 'Save'));
     await tester.pump();   // the save is in flight: no stale error under the spinner
-    expect(find.text('Passphrases do not match'), findsNothing);
+    expect(find.text('Passwords do not match'), findsNothing);
     await tester.pumpAndSettle();
     expect(saved.length, 1);
   });

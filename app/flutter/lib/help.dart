@@ -1,7 +1,7 @@
 // help.dart -- the Help page: what the app is for and how to use it, for
 // someone who arrived from the store listing and never saw the README.
-// Static text, no engine. Every control it names ('Match any tag', 'Keep a
-// copy in a folder', ...) is a label in main.dart: when one is renamed, the
+// Static text, no engine. Every control it names ('Any tag', 'Keep a
+// copy in a folder', ...) is a label or tooltip in main.dart: when one is renamed, the
 // text here moves with it.
 import 'package:flutter/material.dart';
 
@@ -11,41 +11,51 @@ const kIssuesUrl = 'https://github.com/Anode1/ais/issues';
 
 // (title, body), the Android text. iOS differs where the app does: no share
 // intake, no folder picker (Export / Import to a file instead), no sync folder.
+const _whatAis = (
+  'What AIS is',
+  'Save things you want to find again. You save a link, a note, a file path or '
+      'a password under tags you choose, and find it later by those tags. '
+      'Everything stays on this phone as plain text. No account, no cloud, '
+      'no ads.'
+);
+
+const _find = (
+  'Find',
+  'Type one or more tags. Two tags find what has both.\n\n'
+      'The Any tag chip finds what has either. The microphone takes tags by voice.\n\n'
+      'Recent lists everything by date. Tags lists every tag you used.'
+);
+
+const _secrets = (
+  'Secrets',
+  'Turn on Lock with a password in the Add sheet and set a password. The text '
+      'is stored encrypted and shown only after you type the password. '
+      'Forget this password and the note is gone for good.'
+);
+
 const helpSections = <(String, String)>[
-  (
-    'What AIS is',
-    'An index of your own things. You save a link, a note, a file path or a '
-        'password under tags you choose, and find it later by those tags. '
-        'Everything stays on this phone as plain text. No account, no cloud, '
-        'no ads.'
-  ),
+  _whatAis,
   (
     'Save',
-    'Tap Add. Type what to remember, and the tags you would think of later, '
-        'separated by spaces. Example: tags "wifi guest", value the password. '
+    'Tap Add. Type the text, then the tags you would think of later, '
+        'separated by spaces. Example: tags "wifi guest", text the password. '
         'To save from another app, use its Share button and choose AIS.'
   ),
-  (
-    'Find',
-    'Type one or more tags. Two tags give what was saved under both. '
-        'Match any tag gives what was saved under either. The microphone '
-        'takes the tags by voice. Notes whose text contains what you typed '
-        'are listed too; Search note text instead, offered when nothing '
-        'matches, looks there alone. Recent lists everything by date, Tags '
-        'lists every tag you have used.'
-  ),
-  (
-    'Passwords',
-    'Turn on Encrypt in the Add sheet and set a passphrase. The value is '
-        'stored encrypted and shown only after you type the passphrase. '
-        'A lost passphrase cannot be recovered.'
-  ),
+  _find,
+  _secrets,
   (
     'Keep a copy',
-    "The index lives in this app's private storage and is removed if the app "
-        'is uninstalled. Menu, Sync & backup, Keep a copy in a folder '
-        'refreshes a copy after every change. Restore from a folder on the '
-        'empty start screen brings it back.'
+    'Uninstalling AIS deletes your notes. Menu, Sync & backup, Keep a copy in '
+        'a folder refreshes a copy after every change. Restore from a folder '
+        'on the empty start screen brings it back.'
+  ),
+  (
+    'Other devices',
+    'Menu, Sync & backup. Show a code on one device; on the other, point the '
+        'camera at it and tap the link, or choose Scan or type a code and type '
+        'what is under the code. The transfer goes directly between the two '
+        'devices on the same Wi-Fi, encrypted. A sync folder (Syncthing, a '
+        'cloud drive) works too.'
   ),
   (
     'Links from another app',
@@ -54,59 +64,29 @@ const helpSections = <(String, String)>[
         'tags and folder words plus one tag naming the source (pocket, bookmark), '
         'so the batch is found as one. Undo removes what the import added.'
   ),
-  (
-    'Other devices',
-    'Menu, Sync & backup. Host a sync on one device shows a code; on the '
-        'other, point the camera at it and tap the link, or choose Join and '
-        'type what is under the code. The transfer goes directly between the '
-        'two devices on the same Wi-Fi, encrypted. A sync folder (Syncthing, '
-        'a cloud drive) works too. The same index opens on Linux, macOS and '
-        'Windows, in a terminal or a browser.'
-  ),
 ];
 
 const helpSectionsIos = <(String, String)>[
-  (
-    'What AIS is',
-    'An index of your own things. You save a link, a note, a file path or a '
-        'password under tags you choose, and find it later by those tags. '
-        'Everything stays on this phone as plain text. No account, no cloud, '
-        'no ads.'
-  ),
+  _whatAis,
   (
     'Save',
-    'Tap Add. Type what to remember, and the tags you would think of later, '
-        'separated by spaces. Example: tags "wifi guest", value the password.'
+    'Tap Add. Type the text, then the tags you would think of later, '
+        'separated by spaces. Example: tags "wifi guest", text the password.'
   ),
-  (
-    'Find',
-    'Type one or more tags. Two tags give what was saved under both. '
-        'Match any tag gives what was saved under either. The microphone '
-        'takes the tags by voice. Notes whose text contains what you typed '
-        'are listed too; Search note text instead, offered when nothing '
-        'matches, looks there alone. Recent lists everything by date, Tags '
-        'lists every tag you have used.'
-  ),
-  (
-    'Passwords',
-    'Turn on Encrypt in the Add sheet and set a passphrase. The value is '
-        'stored encrypted and shown only after you type the passphrase. '
-        'A lost passphrase cannot be recovered.'
-  ),
+  _find,
+  _secrets,
   (
     'Keep a copy',
-    "The index lives in this app's private storage and is removed if the app "
-        'is uninstalled. Menu, Sync & backup, Export to a file saves a copy: '
-        'keep it in Files or send it somewhere safe. Import from a file '
-        'brings it back.'
+    'Nothing here is in iCloud. Menu, Sync & backup, Export to a file saves a '
+        'copy: keep it in Files or send it somewhere safe. Import from a file, '
+        'or Import a backup file on the empty start screen, brings it back.'
   ),
   (
     'Other devices',
-    'Menu, Sync & backup. Host a sync on one device shows a code; on the '
-        'other, point the camera at it and tap the link, or choose Join and '
-        'type what is under the code. The transfer goes directly between the '
-        'two devices on the same Wi-Fi, encrypted. The same index opens on '
-        'Linux, macOS and Windows, in a terminal or a browser.'
+    'Menu, Sync & backup. Show a code on one device; on the other, point the '
+        'camera at it and tap the link, or choose Scan or type a code and type '
+        'what is under the code. The transfer goes directly between the two '
+        'devices on the same Wi-Fi, encrypted.'
   ),
 ];
 

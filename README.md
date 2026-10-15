@@ -25,7 +25,7 @@ Because it is plain text, it outlives its own tools: your index survives decades
 <p align="center">
   <img src="screenshots/iphone_timeline.png" width="30%" alt="The timeline on an iPhone">
   <img src="screenshots/iphone_search.png" width="30%" alt="Search by tag on an iPhone">
-  <img src="screenshots/iphone_encrypt.png" width="30%" alt="Saving a secret under a passphrase on an iPhone">
+  <img src="screenshots/iphone_encrypt.png" width="30%" alt="Saving a secret under a password on an iPhone">
 </p>
 
 ## Why

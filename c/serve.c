@@ -73,7 +73,7 @@ static const char PAGE[] =
 "#bar{position:sticky;top:0;z-index:5;padding:12px 0;background:var(--barbg);"
 "backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border-bottom:1px solid var(--line)}"
 ".barin{max-width:720px;margin:0 auto;padding:0 1rem}"   /* same measure as #out: header controls line up with the rows */
-".titlerow{display:flex;align-items:baseline;gap:.5rem}"
+".titlerow{position:relative;display:flex;align-items:center;gap:.5rem}"
 ".brand{font-size:1.55rem;font-weight:700}.muted{color:var(--muted)}"
 "#count{margin-left:auto;font-size:.8rem}"
 ".searchrow{display:flex;align-items:center;margin-top:.6rem;background:var(--card);"
@@ -83,19 +83,36 @@ static const char PAGE[] =
 ".hit{position:relative;padding:.85rem 2.8rem .85rem .2rem;border-bottom:1px solid var(--line);word-break:break-word}"
 ".hit:last-child{border-bottom:0}.hit a{color:var(--accent);text-decoration:underline}"
 ".empty{color:var(--muted);text-align:center;margin-top:3rem}"
-".storerow{font-size:.72rem;margin-top:.45rem;display:flex;flex-wrap:wrap;gap:.4rem;align-items:center}"
-".storerow .link{white-space:nowrap}"
-"#store{flex:1 1 100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}"
+".emptyh{color:var(--fg);font-size:1.25rem;font-weight:600;margin:0 0 .4rem}"
+"#store{font-family:monospace;font-size:.85rem;word-break:break-all;margin:0 0 .9rem}"
+"svg{fill:currentColor;flex:none}"
+".iconbtn{border:0;background:none;color:var(--fg);width:48px;height:48px;margin:-8px -12px -8px 0;border-radius:24px;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;flex:none}"
+".iconbtn:hover{background:var(--field)}"
+/* one popup menu for the header and every tag row; buttons are 48px targets */
+".pop{position:absolute;right:0;top:100%;z-index:8;min-width:200px;background:var(--card);border:1px solid var(--line);border-radius:12px;box-shadow:0 6px 20px rgba(0,0,0,.18);padding:.3rem 0;display:flex;flex-direction:column}"
+".pop[hidden]{display:none}"
+".pop button{border:0;background:none;font:inherit;color:var(--fg);text-align:left;padding:0 1rem;min-height:48px;cursor:pointer;white-space:nowrap}"
+".pop button:hover{background:var(--field)}.pop button.danger{color:var(--danger)}"
+".filters{display:flex;flex-wrap:wrap;gap:.5rem;margin-top:.6rem}"
+".fchip{display:inline-flex;align-items:center;gap:.3rem;min-height:32px;padding:0 .8rem;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--fg);font:inherit;font-size:.85rem;cursor:pointer}"
+".fchip[aria-pressed=true],.fchip.on{background:var(--fabbg);color:var(--fabfg);border-color:var(--fabbg)}"
+".fchip[aria-pressed=true]::before{content:'\\2713'}"
+".fchip[hidden]{display:none}.fchipg{display:inline-flex}.fchipg .fchip.on{border-radius:8px 0 0 8px}"
+".fchipg .fx{border-radius:0 8px 8px 0;padding:0 .6rem;border-left-color:var(--line)}"
+"#tlrange{display:flex;flex-wrap:wrap;gap:.6rem;align-items:center;margin-top:.5rem;font-size:.85rem;color:var(--muted)}"
+"#tlrange[hidden]{display:none}#tlrange label{display:flex;align-items:center;gap:.4rem}"
 ".link{border:0;background:none;color:var(--accent);cursor:pointer;font:inherit;text-decoration:underline;padding:0}"
-".fab{position:fixed;right:18px;bottom:78px;border:0;border-radius:18px;padding:.9rem 1.3rem;"
-"cursor:pointer;font:inherit;font-weight:600;color:var(--fabfg);background:var(--fabbg);box-shadow:0 3px 10px rgba(0,0,0,.18)}"
+".fab{position:fixed;right:18px;bottom:78px;border:0;border-radius:18px;padding:.9rem 1.3rem .9rem 1rem;"
+"display:inline-flex;align-items:center;gap:.4rem;cursor:pointer;font:inherit;font-weight:600;color:var(--fabfg);background:var(--fabbg);box-shadow:0 3px 10px rgba(0,0,0,.18)}"
 "#out:has(.addcta)~.fab{display:none}"   /* an empty state that offers its own Add hides the floating one */
-"#bnav{position:fixed;left:0;right:0;bottom:0;z-index:6;display:flex;background:var(--card);border-top:1px solid var(--line);box-shadow:0 -2px 12px rgba(0,0,0,.05)}"
-"#bnav button{flex:1;border:0;background:none;padding:.5rem 0 .62rem;font:inherit;font-size:.75rem;color:var(--muted);cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:.12rem}"
-"#bnav button .ic{font-size:1.3rem;line-height:1;padding:.15rem .85rem;border-radius:14px}"
-"#bnav button.on{color:var(--accent)}#bnav button.on .ic{background:var(--fabbg);color:var(--fabfg)}"
-"#sheet,#syncsheet,#editsheet,#dsheet{position:fixed;inset:0;z-index:10;background:rgba(0,0,0,.35);display:flex;align-items:center;justify-content:center}"
-"#sheet[hidden],#syncsheet[hidden],#editsheet[hidden],#dsheet[hidden]{display:none}"
+"#bnav{position:fixed;left:0;right:0;bottom:0;z-index:6;height:64px;display:flex;background:var(--card);border-top:1px solid var(--line);box-shadow:0 -2px 12px rgba(0,0,0,.05)}"
+"#bnav button{flex:1;border:0;background:none;padding:0;font:inherit;font-size:.75rem;color:var(--muted);cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px}"
+"#bnav .ic{display:flex;align-items:center;justify-content:center;width:56px;height:32px;border-radius:16px}"
+"#bnav button.on{color:var(--fg);font-weight:600}#bnav button.on .ic{background:var(--fabbg);color:var(--fabfg)}"
+/* outlined icon at rest, filled when its view is the one showing */
+"#bnav .f,#bnav .on .o{display:none}#bnav .on .f{display:inline}"
+"#sheet,#syncsheet,#editsheet,#dsheet,#storesheet{position:fixed;inset:0;z-index:10;background:rgba(0,0,0,.35);display:flex;align-items:center;justify-content:center}"
+"#sheet[hidden],#syncsheet[hidden],#editsheet[hidden],#dsheet[hidden],#storesheet[hidden]{display:none}"
 ".card{width:100%;max-width:560px;background:var(--card);border-radius:18px;padding:1.2rem;margin:1rem}"
 ".card h2{margin:0 0 1rem;font-size:1.15rem}"
 ".card textarea,.card input{width:100%;font:inherit;padding:.7rem .8rem;border:1px solid var(--line);"
@@ -114,17 +131,16 @@ static const char PAGE[] =
 ".minibtn.active{background:var(--accent);color:#fff;border-color:var(--accent)}"
 ".daygroup{font-size:.95rem;color:var(--fg);font-weight:700;margin:1.1rem 0 .2rem}"
 ".meta{font-size:.8rem;color:var(--muted);margin-top:.2rem}"
-"#tlfrom,#tlto{border:1px solid var(--line);background:var(--card);color:var(--fg);border-radius:10px;padding:.3rem .5rem;font-size:.85rem}"
-".tagrow{display:flex;align-items:center;justify-content:space-between;padding:.55rem .2rem .1rem}"
-".taglink{border:0;background:none;color:var(--accent);font:inherit;cursor:pointer;padding:0;text-align:left;word-break:break-word}"
-".tagcount{font-size:.8rem;color:var(--muted);background:var(--card);border:1px solid var(--line);border-radius:10px;padding:.1rem .5rem;min-width:2rem;text-align:center}"
+"#tlfrom,#tlto{font:inherit;border:1px solid var(--line);background:var(--card);color:var(--fg);border-radius:10px;padding:.3rem .5rem;font-size:.85rem}"
+".tagrow{position:relative;display:flex;align-items:center;gap:.5rem;min-height:56px;padding-left:.2rem;border-bottom:1px solid var(--line)}"
+".taglink{flex:1;align-self:stretch;border:0;background:none;color:var(--accent);font:inherit;cursor:pointer;padding:0;text-align:left;word-break:break-word}"
+".tagcount{font-size:.85rem;color:var(--muted);text-align:right;font-variant-numeric:tabular-nums}"
+".tagrow .iconbtn{margin:0 -4px 0 0;color:var(--muted)}"
 ".act{position:absolute;right:0;top:50%;transform:translateY(-50%);display:flex;flex-direction:row-reverse;align-items:center;gap:.4rem}"
 ".actmenu{display:inline-flex;gap:.4rem;background:var(--bg)}.actmenu[hidden]{display:none}"
 ".actbtn{border:0;background:none;color:var(--muted);font:inherit;font-size:.8rem;cursor:pointer;padding:0;min-width:44px;min-height:44px;display:inline-flex;align-items:center;justify-content:center}"
 ".actbtn:hover{color:var(--accent)}"
 ".actbtn.del:hover{color:var(--danger)}"
-".tagacts{display:flex;justify-content:space-between;align-items:center;gap:3rem;padding:0 .2rem .3rem;border-bottom:1px solid var(--line)}"
-".tagacts .actbtn{min-height:44px;display:inline-flex;align-items:center;touch-action:manipulation}"
 ".actbtn.danger{color:var(--muted)}.actbtn.danger:hover{color:var(--danger)}"
 ":focus-visible{outline:2px solid var(--accent);outline-offset:2px}"
 ".actbtn.danger:focus-visible{outline-color:var(--danger)}"
@@ -149,46 +165,63 @@ static const char PAGE[] =
 ".chips:empty{display:none}"
 "#toast{position:fixed;left:50%;bottom:82px;transform:translateX(-50%);z-index:20;display:flex;align-items:center;gap:1rem;background:#2b2b33;color:#fff;padding:.65rem 1.1rem;border-radius:10px;box-shadow:0 4px 16px rgba(0,0,0,.35)}"
 "#toast[hidden]{display:none}#toast button{color:#bbc3ff;border:0;background:none;text-decoration:underline;cursor:pointer;font:inherit}"
-"@media(max-width:600px){#sheet,#editsheet,#syncsheet{align-items:flex-end}"
-"#sheet .card,#editsheet .card,#syncsheet .card{margin:0;max-width:none;border-radius:22px 22px 0 0;padding-bottom:1.4rem}"
+"@media(max-width:600px){#sheet,#editsheet,#syncsheet,#storesheet{align-items:flex-end}"
+"#sheet .card,#editsheet .card,#syncsheet .card,#storesheet .card{margin:0;max-width:none;border-radius:22px 22px 0 0;padding-bottom:1.4rem}"
 "#sheet .actions .primary{flex:1;border-radius:24px;padding:.8rem 1.1rem}}"
+".card .switch{display:flex;align-items:center;gap:.7rem;cursor:pointer;margin:.1rem 0 .8rem}"
+".card .switch input{appearance:none;-webkit-appearance:none;position:relative;flex:none;width:44px;height:26px;margin:0;padding:0;border:0;border-radius:13px;background:var(--line);cursor:pointer}"
+".card .switch input::before{content:'';position:absolute;top:3px;left:3px;width:20px;height:20px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.3);transition:left .15s}"
+".card .switch input:checked{background:var(--accent)}.card .switch input:checked::before{left:21px}"
+".hint{font-size:.8rem;color:var(--muted);margin:-.55rem 0 .8rem .2rem}"
 "</style>"
-"<header id=bar><div class=barin><div class=titlerow><span class=brand>AIS</span><span id=count class=muted></span></div>"
+"<header id=bar><div class=barin><div class=titlerow><span class=brand>AIS</span><span id=count class=muted></span>"
+"<button id=menubtn class=iconbtn aria-label='More' aria-haspopup=menu aria-expanded=false>"
+"<svg viewBox='0 0 24 24' width=24 height=24 aria-hidden=true><path d='M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z'/></svg></button>"
+"<div id=menu class=pop role=menu hidden><button id=cleanbtn role=menuitem>Free up space</button>"
+"<button id=syncbtn role=menuitem>Sync &amp; backup</button><button id=storebtn role=menuitem>Switch library</button></div></div>"
 "<div class=searchrow><input id=q type=search placeholder='type tags to filter' autocomplete=off autofocus>"
 "<button id=seg-recall class=getbtn>Search</button></div>"
 "<div id=qsuggest class=chips></div>"   /* tag-autocomplete chips for #q */
-"<label class=allk style='display:flex;align-items:center;gap:.4rem;font-size:.85rem;color:var(--muted);margin-top:.5rem'><input id=anyk type=checkbox style='width:auto'> Match any tag</label>"
-"<div class=storerow><span id=store class=muted></span><span style='flex:1'></span>"
-"<button id=cleanbtn class=link>clean up</button>""<button id=syncbtn class=link>sync</button><button id=storebtn class=link>change</button></div>"
-"<div id=storeedit class=storerow style='display:none;margin-top:.4rem'><input id=storepath placeholder='Library folder (full path)' autocomplete=off style='flex:1;font:inherit'><button id=storeok class=link>open</button><button id=storecancel class=link>cancel</button></div>"
-"<div id=tlrange style='display:none;gap:.4rem;align-items:center;margin-top:.5rem;font-size:.85rem;color:var(--muted)'>"
-"<span>from</span><input id=tlfrom type=date style='font:inherit'>"
-"<span>to</span><input id=tlto type=date style='font:inherit'>"
-"<button id=tlclear class=link>clear</button></div></div></header>"
-"<main id=out><p class=empty>Loading...</p></main>"
-"<button id=addbtn class=fab>+ Add</button>"
+"<div class=filters><button id=anyk class=fchip aria-pressed=false>Any tag</button>"
+"<span class=fchipg><button id=datebtn class=fchip aria-expanded=false>Date</button>"
+"<button id=tlclear class='fchip on fx' aria-label='Clear dates' hidden>&#x2715;</button></span></div>"
+"<div id=tlrange hidden><label>From <input id=tlfrom type=date></label>"
+"<label>To <input id=tlto type=date></label></div></div></header>"
+"<main id=out><p class=empty>Loading&hellip;</p></main>"
+"<button id=addbtn class=fab><svg viewBox='0 0 24 24' width=24 height=24 aria-hidden=true><path d='M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z'/></svg>Add</button>"
 "<div id=toast hidden><span>Deleted</span><button id=toastundo>Undo</button></div>"
-"<nav id=bnav><button data-v=recall><span class=ic>&#128269;</span>Search</button>"
-"<button data-v=timeline class=on><span class=ic>&#128336;</span>Recent</button>"
-"<button data-v=tags><span class=ic>&#127991;</span>Tags</button></nav>"
-"<div id=dsheet hidden role=dialog aria-modal=true aria-labelledby=dstitle>""<div class=card tabindex=-1><h2 id=dstitle>Delete records?</h2>""<p class=lead>This deletes the records, not the tag.</p>""<p id=dsbody class=muted style='font-size:.9rem'></p>""<ul id=dsprev class=prev></ul>""<p><button id=dskeep class=link>Keep the records: remove just the tag</button></p>""<label for=dsname style='font-size:.85rem;color:var(--muted)'>Type the tag name to confirm</label>""<input id=dsname autocomplete=off autocapitalize=off autocorrect=off spellcheck=false>""<div class=row style='display:flex;gap:.5rem;justify-content:flex-end;margin-top:.6rem'>""<button id=dscancel class=ghost>Cancel</button>""<button id=dsgo class=danger-btn disabled>Delete</button></div></div></div>""<div id=sheet hidden><div class=card><h2>Add to your memory</h2>"
+/* Material Symbols search, schedule and label; .o outlined, .f filled */
+"<nav id=bnav><button data-v=recall><span class=ic><svg viewBox='0 0 24 24' width=24 height=24 aria-hidden=true>"
+"<path d='M15.5 14h-.79l-.28-.27A6.47 6.47 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z'/></svg></span>Search</button>"
+"<button data-v=timeline class=on><span class=ic><svg viewBox='0 0 24 24' width=24 height=24 aria-hidden=true>"
+"<path class=o d='M11.99 2C6.47 2 2 6.48 2 12s4.47 10 9.99 10C17.52 22 22 17.52 22 12S17.52 2 11.99 2zM12 20c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm.5-13H11v6l5.25 3.15.75-1.23-4.5-2.67z'/>"
+"<path class=f d='M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10 10-4.5 10-10S17.5 2 12 2zm4.2 14.2L11 13V7h1.5v5.2l4.5 2.7-.8 1.3z'/></svg></span>Recent</button>"
+"<button data-v=tags><span class=ic><svg viewBox='0 0 24 24' width=24 height=24 aria-hidden=true>"
+"<path class=o d='M17.63 5.84C17.27 5.33 16.67 5 16 5L5 5.01C3.9 5.01 3 5.9 3 7v10c0 1.1.9 1.99 2 1.99L16 19c.67 0 1.27-.33 1.63-.84L22 12l-4.37-6.16zM16 17H5V7h11l3.55 5L16 17z'/>"
+"<path class=f d='M17.63 5.84C17.27 5.33 16.67 5 16 5L5 5.01C3.9 5.01 3 5.9 3 7v10c0 1.1.9 1.99 2 1.99L16 19c.67 0 1.27-.33 1.63-.84L22 12l-4.37-6.16z'/></svg></span>Tags</button></nav>"
+"<div id=storesheet hidden role=dialog aria-modal=true aria-labelledby=storetitle><div class=card>"
+"<h2 id=storetitle>Switch library</h2><p class=muted style='font-size:.85rem;margin:0 0 .2rem'>Open now:</p><p id=store></p>"
+"<label for=storepath class=muted style='font-size:.85rem'>Library folder (full path)</label>"
+"<input id=storepath autocomplete=off autocapitalize=off spellcheck=false>"
+"<div class=actions><button id=storecancel class=ghost>Cancel</button><button id=storeok class=primary>Open</button></div></div></div>"
+"<div id=dsheet hidden role=dialog aria-modal=true aria-labelledby=dstitle>""<div class=card tabindex=-1><h2 id=dstitle>Delete these items?</h2>""<p class=lead>This deletes the items, not the tag.</p>""<p id=dsbody class=muted style='font-size:.9rem'></p>""<ul id=dsprev class=prev></ul>""<p><button id=dskeep class=link>Keep the items, remove only the tag</button></p>""<label for=dsname style='font-size:.85rem;color:var(--muted)'>Type the tag name to confirm</label>""<input id=dsname autocomplete=off autocapitalize=off autocorrect=off spellcheck=false>""<div class=row style='display:flex;gap:.5rem;justify-content:flex-end;margin-top:.6rem'>""<button id=dscancel class=ghost>Cancel</button>""<button id=dsgo class=danger-btn disabled>Delete</button></div></div></div>"
+"<div id=sheet hidden role=dialog aria-modal=true aria-labelledby=addtitle><div class=card><h2 id=addtitle>New item</h2>"
 /* The thing being saved first, its tags under it: the same order as the app's
  * Add sheet, and the order anyone describes the action in. */
-"<textarea id=v rows=3 placeholder='What to remember: a link, a note, a number...'></textarea>"
-"<input id=vk placeholder='Tags (space or comma separated, optional)'>"
+"<textarea id=v rows=3 aria-label='Text' placeholder='A link, a note, a number...'></textarea>"
+"<input id=vk aria-label='Tags' placeholder='Tags'>"
+"<p class=hint>Separate with spaces</p>"
 "<div id=vksuggest class=chips></div>"   /* tag-autocomplete chips for #vk */
-"<div class=encrow style='display:flex;align-items:center;gap:.5rem;margin:.1rem 0'>"
-"<label style='display:flex;align-items:center;gap:.35rem;font-size:.85rem;color:var(--muted);white-space:nowrap'>"
-"<input id=enc type=checkbox style='width:auto'> Encrypt</label>"
-"<input id=pp type=password placeholder='Passphrase' hidden style='flex:1'></div>"
-"<input id=pp2 type=password placeholder='Repeat passphrase' hidden>"
-"<p id=ppnote class=muted style='font-size:.85rem;margin:.1rem 0' hidden>A lost passphrase cannot be recovered.</p>"
+"<label class=switch><input id=enc type=checkbox role=switch> Lock with a password</label>"
+"<input id=pp type=password placeholder='Password' hidden>"
+"<input id=pp2 type=password placeholder='Repeat password' hidden>"
+"<p id=ppnote class=muted style='font-size:.85rem;margin:.1rem 0 .8rem' hidden>Forget this password and the note is gone for good.</p>"
 "<div class=actions><button id=cancel class=ghost>Cancel</button><button id=save class=primary>Save</button></div>"
 "</div></div>"
 /* Edit modal: in-place value edit + a chip tag editor (Flutter parity). The value
  * box is hidden for encrypted/blob rows. */
 "<div id=editsheet hidden><div class=card><h2>Edit</h2>"
-"<div id=edvalwrap><label class=muted style='font-size:.8rem'>Value</label>"
+"<div id=edvalwrap><label class=muted style='font-size:.8rem'>Text</label>"
 "<textarea id=edval rows=3></textarea></div>"
 "<label class=muted style='font-size:.8rem'>Tags</label>"
 "<div id=edchips class=chips></div>"
@@ -199,13 +232,13 @@ static const char PAGE[] =
 /* Sync sheet: mirrors the mobile Sync (Host / Join). One device Hosts and waits;
  * the other Joins with its address + token. Both converge (bidirectional). */
 "<div id=syncsheet hidden><div class=card>"
-"<h2>Sync with another device</h2>"
-"<p class=muted style='margin:.2rem 0 1rem;font-size:.9rem'>Both devices end up with the same records. One hosts and waits; the other joins it. Same Wi-Fi.</p>"
+"<h2>Sync &amp; backup</h2>"
+"<p class=muted style='margin:.2rem 0 1rem;font-size:.9rem'>Both devices end up with the same items. One shows a code, the other scans or types it. Same Wi-Fi.</p>"
 "<div id=syncpick class=actions style='justify-content:center'>"
-"<button id=syncjoinbtn class=ghost>Join</button><button id=synchostbtn class=primary>Host</button></div>"
+"<button id=syncjoinbtn class=ghost>Scan or type a code</button><button id=synchostbtn class=primary>Show a code</button></div>"
 /* File transfer: no network -- export the whole index to a file, or merge one in
  * (move it by Drive / USB / email). Mirrors the app's Export / Import. */
-"<div id=syncfile><p class=muted style='margin:1rem 0 .5rem;font-size:.85rem'>Or a file &mdash; move it by Drive, USB or email:</p>"
+"<div id=syncfile><p class=muted style='margin:1rem 0 .5rem;font-size:.85rem'>Or a file, moved by Drive, USB or email:</p>"
 "<div class=actions style='justify-content:center'><button id=impbtn class=ghost>Import</button><button id=expbtn class=primary>Export</button></div>"
 /* Links from another app: a browser's bookmarks file, or the CSV Pocket, Instapaper
  * and Raindrop export (POST /api/import-links). */
@@ -213,7 +246,7 @@ static const char PAGE[] =
 "<div class=actions style='justify-content:center'><button id=linksbtn class=ghost>Import bookmarks</button></div>"
 /* Auto-sync a shared folder (Syncthing / a cloud folder). One tap runs a pass; the
  * path is remembered and a pass also runs on load and after each change. */
-"<p class=muted style='margin:1rem 0 .4rem;font-size:.85rem'>Or auto-sync a shared folder. Best with Syncthing; a versioning cloud may keep deleted items:</p>"
+"<p class=muted style='margin:1rem 0 .4rem;font-size:.85rem'>Or keep a shared folder in sync (Syncthing, a cloud drive):</p>"
 "<div style='display:flex;gap:.5rem'><input id=syncfld placeholder='/path/to/shared/folder' autocomplete=off style='flex:1'>"
 "<button id=syncfldbtn class=getbtn>Sync</button></div>"
 "<p id=syncfldmsg class=muted style='margin:.4rem 0 0;font-size:.8rem'></p>"
@@ -222,7 +255,7 @@ static const char PAGE[] =
 "<input id=filelinks type=file accept='.csv,.html,.htm,text/csv,text/html' multiple hidden>"
 /* Host pane: address + token to read off, a QR to scan, and a live status line. */
 "<div id=synchost hidden>"
-"<p style='margin:.2rem 0 .6rem;font-size:.9rem'>Scan with the phone's camera, or on the other device choose Join and enter:</p>"
+"<p style='margin:.2rem 0 .6rem;font-size:.9rem'>Scan with the phone's camera, or on the other device choose Scan or type a code and enter:</p>"
 "<div id=qr style='display:flex;justify-content:center;margin:.4rem 0 .8rem'></div>"
 "<div style='font-family:monospace;font-size:.85rem;word-break:break-all;background:var(--field);border:1px solid var(--line);border-radius:10px;padding:.6rem'>"
 "<div id=hostaddr></div><div id=hosttok class=muted></div></div>"
@@ -230,8 +263,8 @@ static const char PAGE[] =
 /* Join pane: address + token inputs and a status line. */
 "<div id=syncjoin hidden>"
 "<input id=jaddr placeholder='Address' value='http://' style='margin-bottom:.6rem'>"
-"<input id=jtok placeholder='Token' style='margin-bottom:.6rem'>"
-"<p class=muted style='margin:0 0 .6rem;font-size:.85rem'>On the other device: open Sync, choose Host, and read off its address and token.</p>"
+"<input id=jtok placeholder='Code' style='margin-bottom:.6rem'>"
+"<p class=muted style='margin:0 0 .6rem;font-size:.85rem'>On the other device, choose Show a code. Type its address and code here.</p>"
 "<div class=actions><button id=jgo class=primary>Sync</button></div>"
 "<p id=joinstatus class=muted style='margin:.6rem 0 0;font-size:.9rem'></p></div>"
 "<div class=actions style='margin-top:1rem'><button id=synccancel class=ghost>Close</button></div>"
@@ -243,7 +276,9 @@ static const char PAGE[] =
  * over the new. Each loader captures gen before its fetch and drops a stale result. */
 "var view='recall',viewGen=0;"
 /* empty-state call-to-action, reused by every empty view */
-"var addCTA='<button class=\"primary addcta\" style=\"margin-top:1rem\" onclick=openSheet()>+ Add</button>';"
+"var addCTA='<button class=\"primary addcta\" style=\"margin-top:1rem\" onclick=openSheet()>Add</button>';"
+/* the first-run screen: what AIS is for, and the one thing to do */
+"var emptyCTA='<div class=empty><p class=emptyh>Nothing saved yet</p><p>Save a link, note or password under your own tags.</p>'+addCTA+'</div>';"
 /* The CSS rule above hides the fab through :has(), which WebKit before 15.4 does
  * not have; there both Adds would show. Same rule, said in JS, for those. */
 "new MutationObserver(function(){$('addbtn').style.display=$('out').querySelector('.addcta')?'none':''})"
@@ -252,8 +287,22 @@ static const char PAGE[] =
  * \"home, wifi\" and \"home   wifi\" both mean the tags home + wifi (Flutter parity) */
 "function normkeys(s){return s.replace(/,/g,' ').trim().replace(/\\s+/g,' ')}"
 "var tlBefore=0,tlDay=null,tlN=0,tlPage=100;"   /* timeline keyset paging state */
-"var rcAfter=0,rcN=0,rcMore=false,rcQ='',rcOr='',rcT0=0;"   /* recall keyset paging */
+"var rcAfter=0,rcN=0,rcMore=false,rcQ='',rcOr='';"   /* recall keyset paging */
 "var tgAfterc=0,tgAfterk='',tgN=0,tgMore=false;"           /* tags keyset paging */
+"var dateOpen=false,MON=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];"
+"function anyTag(){return $('anyk').getAttribute('aria-pressed')=='true'}"
+/* once a range is set the Date chip names it: 12-20 Aug, From 3 Sep */
+"function dayLbl(d,mon,yr){var p=d.split('-');return(+p[2])+(mon?' '+MON[+p[1]-1]:'')+(yr?' '+p[0]:'')}"
+"function rangeLbl(f,t){if(f&&t){if(f==t)return dayLbl(f,1,0);var sy=f.slice(0,4)==t.slice(0,4),sm=sy&&f.slice(5,7)==t.slice(5,7);"
+"return dayLbl(f,!sm,!sy)+'\\u2013'+dayLbl(t,1,!sy)}return f?'From '+dayLbl(f,1,0):'Until '+dayLbl(t,1,0)}"
+"function dateChip(){var f=$('tlfrom').value,t=$('tlto').value,b=$('datebtn'),on=!!(f||t);"
+"b.textContent=on?rangeLbl(f,t):'Date';b.className='fchip'+(on||dateOpen?' on':'');"
+"b.setAttribute('aria-expanded',dateOpen?'true':'false');$('tlclear').hidden=!on}"
+/* menus: one open at a time; near the bottom of the window a menu opens upward */
+"function closePops(){[].forEach.call(document.querySelectorAll('.pop'),function(p){p.hidden=true});$('menubtn').setAttribute('aria-expanded','false')}"
+"function popToggle(btn,box){var was=box.hidden;closePops();if(!was)return;"
+"var up=btn.getBoundingClientRect().bottom>window.innerHeight-200;box.style.top=up?'auto':'';box.style.bottom=up?'100%':'';"
+"box.hidden=false;btn.setAttribute('aria-expanded','true')}"
 "var loadingMore=false;"                        /* one page fetch at a time (infinite scroll) */
 /* fillVal: append V to NODE, turning every embedded http(s) URL into a link, not
  * only values that are wholly a URL ("Title - https://..." keeps the title as text). */
@@ -266,20 +315,23 @@ static const char PAGE[] =
 /* An "aisc:" value shows as an opaque lock + a Reveal button; revealing prompts for
  * the passphrase and decrypts via /api/reveal (passphrase in the POST body, never
  * the URL). The cleartext is shown until the next render. */
-"function fillSecret(node,v){var s=document.createElement('span');s.textContent='\\uD83D\\uDD12 encrypted ';s.style.color='var(--muted)';"
-"var b=document.createElement('button');b.className='actbtn';b.textContent='Reveal';"
+"function fillSecret(node,v){var s=document.createElement('span');s.textContent='\\uD83D\\uDD12 locked ';s.style.color='var(--muted)';"
+"var b=document.createElement('button');b.className='actbtn';b.textContent='Unlock';"
 "b.onclick=function(){revealSecret(node,v)};node.appendChild(s);node.appendChild(b)}"
 /* inline password field, not prompt(): prompt() is silently disabled in an
  * installed PWA / app window. */
 "async function revealSecret(node,v){node.innerHTML='';"
-"var i=document.createElement('input');i.type='password';i.placeholder='Passphrase';i.autocomplete='off';i.style.cssText='font:inherit;padding:.2rem .4rem';"
+"var i=document.createElement('input');i.type='password';i.placeholder='Password';i.autocomplete='off';i.style.cssText='font:inherit;padding:.2rem .4rem';"
 "var b=document.createElement('button');b.className='actbtn';b.textContent='Show';b.style.marginLeft='.4rem';"
 "var x=document.createElement('button');x.className='actbtn';x.textContent='cancel';x.style.marginLeft='.4rem';x.onclick=function(){node.innerHTML='';fillSecret(node,v)};"
+"var er=document.createElement('span');er.className='muted';er.style.marginLeft='.4rem';"
+/* a wrong password keeps the field, so the retry is one more try, not a restart */
 "async function go(){var pp=i.value;if(!pp)return;"
 "var r=await fetch('/api/reveal',{method:'POST',body:pp+'\\n'+v});var t=await r.text();"
-"node.innerHTML='';if(t){fillVal(node,t);var c=document.createElement('button');c.className='actbtn';c.textContent='copy';c.style.marginLeft='.5rem';c.onclick=function(){copyText(t,c)};node.appendChild(c)}else{node.textContent='(cannot decrypt)'}}"
+"if(!t){i.value='';er.textContent='Wrong password. Try again.';i.focus();return}"
+"node.innerHTML='';fillVal(node,t);var c=document.createElement('button');c.className='actbtn';c.textContent='copy';c.style.marginLeft='.5rem';c.onclick=function(){copyText(t,c)};node.appendChild(c)}"
 "b.onclick=go;i.onkeydown=function(e){if(e.key==='Enter')go();else if(e.key==='Escape'){node.innerHTML='';fillSecret(node,v)}};"
-"node.appendChild(i);node.appendChild(b);node.appendChild(x);i.focus()}"
+"node.appendChild(i);node.appendChild(b);node.appendChild(x);node.appendChild(er);i.focus()}"
 /* A document blob comes over the wire as "aisdoc:<base64 of the content>", so the
  * (possibly multi-line) content survives the line-based record split. Decode as
  * UTF-8 bytes and show it verbatim (newlines preserved). */
@@ -303,7 +355,7 @@ static const char PAGE[] =
  * rcAfter) instead of reloading. Recall emits ascending, so rcAfter tracks the
  * largest id shown. */
 "async function recall(more){var o=$('out');var qq=normkeys($('q').value);var g=viewGen;"
-"if(!more){if(!qq)return;rcAfter=0;rcN=0;rcQ=qq;rcOr=($('anyk')&&$('anyk').checked)?'&or=1':'';rcT0=performance.now();o.className='';o.innerHTML=''}"
+"if(!more){if(!qq)return;rcAfter=0;rcN=0;rcQ=qq;rcOr=anyTag()?'&or=1':'';o.className='';o.innerHTML=''}"
 "if(!rcQ)return;"
 "var u='/api/get?keys='+encodeURIComponent(rcQ)+rcOr+'&meta=1&count='+tlPage+(rcAfter>0?'&after='+rcAfter:'');"
 "var L=(await(await fetch(u)).text()).split('\\n').filter(function(s){return s.length});"
@@ -320,14 +372,14 @@ static const char PAGE[] =
 "(v.indexOf('aisc:')==0?fillSecret(r,v):v.indexOf('aisdoc:')==0?fillDoc(r,v):fillVal(r,v));if(notHere(v))r.appendChild(awayBadge());"
 "var km=document.createElement('div');km.className='meta';km.textContent=ks||'(no tags)';r.appendChild(km);"
 "if(id){r.appendChild(rowActions(id,v));rcAfter=+id}o.appendChild(r)});"
-"rcN+=L.length;$('count').textContent=rcN+' result'+(rcN==1?'':'s')+' - '+(performance.now()-rcT0).toFixed(0)+' ms';"
+"rcN+=L.length;$('count').textContent=rcN+' result'+(rcN==1?'':'s');"
 "if(L.length==tlPage){rcMore=true;var b=document.createElement('button');b.id='rcmore';b.className='loadmore';b.textContent='Load more';b.onclick=pageMore;o.appendChild(b)}"
 "else{rcMore=false;await findAppend(g,rcN)}}"
 /* Value-ranked second half (both pages, mirrored): after the tag matches, ask
  * /api/find for records whose VALUE holds the trimmed query and append the
  * ones not already listed (deduped by id) under one separator row. The OR chip
  * governs only the tag half. TAGN is what that half listed; when the value
- * half adds rows the count line names both ("2 results + 1 in the value"). */
+ * half adds rows the count line names both ("2 results + 1 in the text"). */
 "async function findAppend(g,tagN){var o=$('out'),qraw=$('q').value.trim();if(!qraw||$('vsep'))return;"
 "var t=await(await fetch('/api/find?q='+encodeURIComponent(qraw))).text();"
 "if(g!=viewGen)return;"                                  /* the view moved on: drop it */
@@ -337,11 +389,11 @@ static const char PAGE[] =
 "if(!id||seen[id])return;seen[id]=1;"
 /* textTransform pinned: the PWA uppercases .daygroup, and the label must read
  * the same on both pages */
-"if(!added){var s=document.createElement('div');s.id='vsep';s.className='daygroup';s.style.textTransform='none';s.textContent='matched in the value';o.appendChild(s)}"
+"if(!added){var s=document.createElement('div');s.id='vsep';s.className='daygroup';s.style.textTransform='none';s.textContent='Found in the text';o.appendChild(s)}"
 "var r=document.createElement('div');r.className='hit';r.dataset.id=id;"
 "(v.indexOf('aisc:')==0?fillSecret(r,v):v.indexOf('aisdoc:')==0?fillDoc(r,v):fillVal(r,v));if(notHere(v))r.appendChild(awayBadge());"
 "r.appendChild(rowActions(id,v));o.appendChild(r);added++});"
-"if(added)$('count').textContent=tagN?tagN+' result'+(tagN==1?'':'s')+' + '+added+' in the value':added+' result'+(added==1?'':'s')}"
+"if(added)$('count').textContent=tagN?tagN+' result'+(tagN==1?'':'s')+' + '+added+' in the text':added+' result'+(added==1?'':'s')}"
 /* per-row edit (attach/detach keys by id), which refreshes the view, and delete,
  * which hides the row behind Undo */
 "function rowActions(id,v){var d=document.createElement('div');d.className='act';"
@@ -352,7 +404,7 @@ static const char PAGE[] =
 "var x=document.createElement('button');x.className='actbtn del';x.textContent='\\u2715 delete';x.onclick=function(){delRec(id)};"
 "box.appendChild(e);box.appendChild(x);m.onclick=function(){box.hidden=!box.hidden};"
 "d.appendChild(m);d.appendChild(box);return d}"
-"async function copyText(t,btn){try{await navigator.clipboard.writeText(t);if(btn){var o=btn.textContent;btn.textContent='copied';setTimeout(function(){btn.textContent=o},1200)}}catch(e){alert('copy needs https or localhost')}}"
+"async function copyText(t,btn){try{await navigator.clipboard.writeText(t);if(btn){var o=btn.textContent;btn.textContent='copied';setTimeout(function(){btn.textContent=o},1200)}}catch(e){alert('Can\\'t copy here. Select the text and copy it yourself.')}}"
 /* Deferred delete + Undo, as in Flutter: hide the row and start a 5 s window
  * (Flutter commits at 4.5 s behind a 4 s snackbar). The
  * engine del() only fires when the window lapses OR another action flushes it --
@@ -417,7 +469,7 @@ static const char PAGE[] =
 "var L=(await(await fetch(u)).text()).split('\\n').filter(function(s){return s.length});"
 "if(g!=viewGen)return;"                                  /* the view moved on: drop it */
 "var mb=$('tlmore');if(mb)mb.remove();"
-"if(!tlN&&!L.length){o.innerHTML='<div class=empty><p>Nothing saved yet.</p>'+addCTA+'</div>';return}"
+"if(!tlN&&!L.length){o.innerHTML=emptyCTA;$('count').textContent='';return}"
 "L.forEach(function(ln){var r=parseTL(ln),lt=locDT(r.ts),d=lt?lt.day:'';"
 "if(d!==tlDay){tlDay=d;var h=document.createElement('div');h.className='daygroup';"
 "h.textContent=d?fmtDay(d):'(undated)';o.appendChild(h)}"
@@ -426,7 +478,7 @@ static const char PAGE[] =
 "var tm=lt&&lt.time?lt.time+' \\u00b7 ':'';"
 "m.textContent=tm+(r.keys||'(no tags)');row.appendChild(m);"
 "if(r.id){row.appendChild(rowActions(r.id,r.value));tlBefore=r.id}o.appendChild(row)});"
-"tlN+=L.length;$('count').textContent=tlN+' record'+(tlN==1?'':'s');"
+"tlN+=L.length;$('count').textContent=tlN+' item'+(tlN==1?'':'s');"
 "if(L.length==tlPage){var b=document.createElement('button');b.id='tlmore';b.className='loadmore';"
 "b.textContent='Load more';b.onclick=pageMore;o.appendChild(b)}}"
 /* Tags keyset-paged too: the cursor is the (count, key) of the last row, in the
@@ -443,14 +495,17 @@ static const char PAGE[] =
 "var b=document.createElement('button');b.className='taglink';b.textContent=k;"
 "b.onclick=function(){$('q').value=k;setView('recall')};"
 "var n=document.createElement('span');n.className='tagcount';n.textContent=c;"
-"row.appendChild(b);row.appendChild(n);o.appendChild(row);"
-"var ac=document.createElement('div');ac.className='tagacts';"
-"var u=document.createElement('button');u.className='actbtn';u.textContent='Remove tag';"
-"u.onclick=function(){untagKey(k)};"
-"var g=document.createElement('button');g.className='actbtn danger';"
-"g.textContent='Delete '+c+' record'+(+c==1?'':'s');"
-"g.onclick=function(){openDelUnder(k)};"
-"ac.appendChild(u);ac.appendChild(g);o.appendChild(ac);tgAfterc=+c;tgAfterk=k});"
+/* both tag actions sit behind the row's menu; the delete opens the typed confirm */
+"var m=document.createElement('button');m.className='iconbtn tagmenu';m.innerHTML=$('menubtn').innerHTML;"
+"m.setAttribute('aria-label','Actions for '+k);m.setAttribute('aria-haspopup','menu');"
+"var box=document.createElement('div');box.className='pop';box.setAttribute('role','menu');box.hidden=true;"
+"var u=document.createElement('button');u.setAttribute('role','menuitem');u.textContent='Remove tag';"
+"u.onclick=function(){closePops();untagKey(k)};"
+"var x=document.createElement('button');x.setAttribute('role','menuitem');x.className='danger';"
+"x.textContent='Delete '+c+' item'+(+c==1?'':'s');"
+"x.onclick=function(){closePops();openDelUnder(k)};"
+"box.appendChild(u);box.appendChild(x);m.onclick=function(){popToggle(m,box)};"
+"row.appendChild(b);row.appendChild(n);row.appendChild(m);row.appendChild(box);o.appendChild(row);tgAfterc=+c;tgAfterk=k});"
 "tgN+=L.length;$('count').textContent=tgN+' tag'+(tgN==1?'':'s');"
 "if(L.length==tlPage){tgMore=true;var mo=document.createElement('button');mo.id='tgmore';mo.className='loadmore';mo.textContent='Load more';mo.onclick=pageMore;o.appendChild(mo)}else tgMore=false}"
 /* The two tag-level operations, opposite in consequence: untag reuses the record
@@ -460,13 +515,12 @@ static const char PAGE[] =
  * also disappears from every other tag it is filed under. */
 /* Finds its own row, so both web pages expose the same untagKey(key). */
 "function untagKey(k){delFlush();toastClaim();"
-"var row=null,acts=null;"
-"[].forEach.call(document.querySelectorAll('.taglink'),function(b){"
-"if(b.textContent==k){row=b.parentNode;acts=row.nextSibling}});"
-"if(row)row.style.display='none';if(acts)acts.style.display='none';delRow=null;"
+"var row=null;"
+"[].forEach.call(document.querySelectorAll('.taglink'),function(b){if(b.textContent==k)row=b.parentNode});"
+"if(row)row.style.display='none';delRow=null;"
 "$('toast').firstChild.textContent=\"Removed tag '\"+k+\"'\";"
 "delCommit=function(){fetch('/api/untag?keys='+encodeURIComponent(k),{method:'POST'}).then(function(){if(view=='tags')loadTags()})};"
-"delUndoFn=function(){if(row)row.style.display='';if(acts)acts.style.display=''};"
+"delUndoFn=function(){if(row)row.style.display=''};"
 "$('toast').hidden=false;delTimer=setTimeout(delFlush,5000)}"
 /* Recompute the count and the preview at OPEN time: the row badge can be stale,
  * and a number in a destructive confirmation has to be the number that will go. */
@@ -481,15 +535,13 @@ static const char PAGE[] =
 "var id=b<0?ln:ln.slice(0,b),v=b<0?ln:ln.slice(b+1);"
 "if(seen[id]===undefined){seen[id]=R.length;R.push({v:v,extra:0})}else R[seen[id]].extra++});"
 "if(!R.length){$('count').textContent=\"Nothing is filed under '\"+k+\"'\";loadTags();return}"
-"dsKey=k;var n=R.length,w=n+' record'+(n==1?'':'s');"
-"$('dstitle').textContent='Delete '+w+'?';"
+"dsKey=k;var n=R.length,w=n+' item'+(n==1?'':'s');"
 "$('dsbody').textContent='All '+w+\" filed under '\"+k+\"' are deleted, and each disappears from every other tag it is filed under too.\";"
 "var ul=$('dsprev');ul.innerHTML='';"
 "R.slice(0,10).forEach(function(r){var li=document.createElement('li');"
-"li.textContent=r.v+(r.extra?' (+'+r.extra+' more link'+(r.extra==1?'':'s')+' on this record)':'');"
+"li.textContent=r.v+(r.extra?' (+'+r.extra+' more link'+(r.extra==1?'':'s')+' on this item)':'');"
 "ul.appendChild(li)});"
 "if(n>10){var li=document.createElement('li');li.textContent='... and '+(n-10)+' more. To see them all, tap the tag.';ul.appendChild(li)}"
-"$('dskeep').textContent=\"Keep the records: remove just the tag\";"
 "$('dsname').value='';$('dsname').placeholder=k;"
 "$('dsgo').textContent='Delete '+w;$('dsgo').disabled=true;"
 "$('dsheet').hidden=false;$('dsheet').querySelector('.card').focus()}"
@@ -504,7 +556,7 @@ static const char PAGE[] =
 "if(document.querySelector('.loadmore'))pageMore()});"
 "function setView(v){delFlush();view=v;viewGen++;"
 "[].forEach.call(document.querySelectorAll('#bnav button'),function(b){b.className=(b.dataset.v==v)?'on':''});"
-"$('tlrange').style.display=(v=='timeline')?'flex':'none';"   /* date range only in Timeline */
+"$('tlrange').hidden=!(v=='timeline'&&dateOpen);dateChip();"   /* the range filters Recent only */
 "if(v=='recall'){var q=$('q').value.trim();if(q)recall();"
 "else{$('out').innerHTML='<div class=empty><p>Type tags, then Search.</p>'+addCTA+'</div>';$('out').className='';$('count').textContent=''}}"
 "else if(v=='timeline')loadTimeline();else loadTags()}"
@@ -513,21 +565,22 @@ static const char PAGE[] =
  * on the value); land on the tag field instead so the user meets it */
 "$('pp2').value='';$('pp2').hidden=true;$('ppnote').hidden=true;$('sheet').hidden=false;($('vk').value&&!rcN?$('vk'):$('v')).focus()}"
 "function closeSheet(){$('sheet').hidden=true;$('v').value='';$('pp').value='';$('pp2').value=''}"
-"async function save(){var v=$('v').value.trim();if(!v)return;var k=normkeys($('vk').value);"
+"async function save(){var v=$('v').value.trim();if(!v){alert('Type something first.');return}var k=normkeys($('vk').value);"
+"if(v.indexOf('\\0')>=0){alert('The text has a hidden character AIS can\\'t store. Retype it and save again.');return}"
 "var enc=$('enc').checked,pp=$('pp').value,pp2=$('pp2').value;"
-"if(enc&&!pp){alert('Enter a passphrase to encrypt');return}"
-/* exact match, no trimming: a stray space would encrypt under a passphrase the
- * user cannot retype, and a lost passphrase cannot be recovered */
-"if(enc&&pp!==pp2){alert('Passphrases do not match');return}"
+"if(enc&&!pp){alert('Enter a password to lock it.');return}"
+/* exact match, no trimming: a stray space would encrypt under a password the
+ * user cannot retype, and a lost password cannot be recovered */
+"if(enc&&pp!==pp2){alert('The passwords don\\'t match.');return}"
 /* On a failed or unreachable put, tell the user and KEEP the sheet so they can
  * retry: never a stuck, silent modal. */
 "try{var r=await fetch('/api/put?keys='+encodeURIComponent(k)+(enc?'&enc=1':''),{method:'POST',body:enc?(pp+'\\n'+v):v});"
-"if(!r.ok)throw new Error('server '+r.status);var rt=await r.text()}catch(e){alert('Save failed ('+e.message+'). Nothing was saved.');return}"
+"if(!r.ok)throw new Error('server '+r.status);var rt=await r.text()}catch(e){alert('Couldn\\'t save. Check AIS is still running, then try again.');return}"
 "closeSheet();setView('timeline');"
 /* same text, same record: the reply says the save merged (restamped to today,
  * keys attached); silence here reads as the first note vanishing. The toast is
  * skipped while a delete's Undo owns it. */
-"if(rt.indexOf('merged')==0&&!delTimer){$('toast').firstChild.textContent='Already in your memory: kept as one entry, dated today';"
+"if(rt.indexOf('merged')==0&&!delTimer){$('toast').firstChild.textContent='Already saved. Moved to today.';"
 "$('toastundo').hidden=true;$('toast').hidden=false;setTimeout(function(){if(!delTimer)hideToast()},4000)}"
 "if(syncFolderSaved())syncFolderRun(true)}"
 /* Tag autocomplete (Flutter parity): up to 6 existing tags (busiest first,
@@ -555,8 +608,13 @@ static const char PAGE[] =
 "$('q').addEventListener('keydown',function(e){if(e.key=='Enter')setView('recall')});"
 "$('seg-recall').onclick=function(){setView('recall')};"
 "[].forEach.call(document.querySelectorAll('#bnav button'),function(b){b.onclick=function(){setView(b.dataset.v)}});"
-"$('tlfrom').onchange=function(){loadTimeline()};$('tlto').onchange=function(){loadTimeline()};"
-"$('tlclear').onclick=function(){$('tlfrom').value='';$('tlto').value='';loadTimeline()};"
+"$('tlfrom').onchange=$('tlto').onchange=function(){dateChip();loadTimeline()};"
+"$('tlclear').onclick=function(){$('tlfrom').value='';$('tlto').value='';dateOpen=false;setView('timeline')};"
+"$('datebtn').onclick=function(){dateOpen=!dateOpen;setView('timeline')};"
+"$('anyk').onclick=function(){this.setAttribute('aria-pressed',anyTag()?'false':'true');if($('q').value.trim())setView('recall')};"
+"$('menubtn').onclick=function(){popToggle(this,$('menu'))};"
+"$('menu').onclick=function(){closePops()};"
+"document.addEventListener('click',function(e){[].forEach.call(document.querySelectorAll('.pop'),function(p){if(!p.hidden&&!p.parentNode.contains(e.target))p.hidden=true})});"
 "$('addbtn').onclick=openSheet;$('cancel').onclick=closeSheet;$('save').onclick=save;"
 "$('toastundo').onclick=delUndo;"
 "$('dscancel').onclick=closeDel;"
@@ -565,9 +623,9 @@ static const char PAGE[] =
 "$('dsname').oninput=function(){$('dsgo').disabled=this.value.trim()!==dsKey};"
 "$('dsgo').onclick=async function(){if(this.disabled)return;var k=dsKey;closeDel();"
 "var r=await(await fetch('/api/del-under?keys='+encodeURIComponent(k),{method:'POST'})).text();"
-"var m=+(r.match(/\\d+/)||[0])[0];$('count').textContent='Deleted '+m+' record'+(m==1?'':'s');"
+"var m=+(r.match(/\\d+/)||[0])[0];$('count').textContent='Deleted '+m+' item'+(m==1?'':'s');"
 "loadTags()};"
-"document.addEventListener('keydown',function(e){if(e.key=='Escape'&&!$('dsheet').hidden)closeDel()});"
+"document.addEventListener('keydown',function(e){if(e.key!='Escape')return;closePops();if(!$('dsheet').hidden)closeDel();else if(!$('storesheet').hidden)$('storesheet').hidden=true});"
 "$('edcancel').onclick=function(){$('editsheet').hidden=true};$('edsave').onclick=edSave;"
 "$('edtag').addEventListener('keydown',function(e){if(e.key=='Enter'||e.key==','){e.preventDefault();edAdd()}});"
 "$('edtag').addEventListener('blur',edAdd);"
@@ -575,32 +633,31 @@ static const char PAGE[] =
 "$('enc').onchange=function(){$('pp').hidden=$('pp2').hidden=$('ppnote').hidden=!$('enc').checked;"
 "if($('enc').checked)$('pp').focus()};"
 "$('sheet').addEventListener('click',function(e){if(e.target==$('sheet'))closeSheet()});"
-"async function loadStore(){$('store').textContent='Library: '+await(await fetch('/api/where')).text()}"
-/* inline field, not prompt(): prompt() is silently disabled in installed-PWA and
- * app windows. */
-"async function changeStore(){var cur=await(await fetch('/api/where')).text();"
-"$('storepath').value=cur;$('storeedit').style.display='flex';$('storepath').focus()}"
-"async function storeApply(){var d=$('storepath').value.trim();$('storeedit').style.display='none';if(!d)return;"
+/* the library path is shown only here, in the Switch library dialog. A field,
+ * not prompt(): prompt() is silently disabled in installed-PWA and app windows. */
+"async function changeStore(){var cur=(await(await fetch('/api/where')).text()).trim();"
+"$('store').textContent=cur;$('storepath').value=cur;$('storesheet').hidden=false;$('storepath').focus()}"
+"async function storeApply(){var d=$('storepath').value.trim();if(!d)return;"
 "var r=await fetch('/api/store',{method:'POST',body:d});"
-"if(r.ok){$('q').value='';$('out').innerHTML='';$('count').textContent='';loadStore()}"
-"else{alert('Could not open that index')}}"
+"if(r.ok){$('storesheet').hidden=true;$('q').value='';setView('timeline')}"
+"else{alert('No AIS library in that folder.')}}"
 /* Reclaim deleted records: with no CLI on a phone the store would grow forever and
  * deleted records' tags would linger in the index. The second, privacy question is
  * asked separately: forgetting is the one choice here another device can undo. */
 "async function cleanUp(){"
 "var st=await(await fetch('/api/stats')).text();"
 "var d=(st.match(/deleted:\\s*(\\d+)/)||[0,'0'])[1];"
-"if(d=='0'){$('count').textContent='Nothing to clean up';return}"
-"if(!confirm('Reclaim the space of '+d+' deleted record'+(d=='1'?'':'s')+'?'))return;"
-"var f=confirm('Also FORGET what was deleted?\\n\\nThey stay deleted here, but this device can no longer tell your other devices about them, and nothing is left for anyone to test a guess against.\\n\\nSync your other devices FIRST -- one that has not seen these deletions can send them back.\\n\\nOK = forget.  Cancel = just reclaim the space.');"
+"if(d=='0'){$('count').textContent='Nothing to free up';return}"
+"if(!confirm('Free the space used by '+d+' deleted item'+(d=='1'?'':'s')+'?'))return;"
+"var f=confirm('Also erase the record of what you deleted? Sync your other devices first, or they may bring those items back.\\n\\nOK: erase. Cancel: keep.');"
 "var r=await(await fetch('/api/compact'+(f?'?forget=1':''),{method:'POST'})).text();"
-"$('count').textContent=r.trim()=='cleaned and forgotten'?'Cleaned up, deletions forgotten':'Cleaned up';"
+"$('count').textContent=r.trim()=='cleaned and forgotten'?'Space freed, record erased':'Space freed';"
 "setView(view)}"
 "$('cleanbtn').onclick=cleanUp;"
 "$('storebtn').onclick=changeStore;$('storeok').onclick=storeApply;"
-"$('storecancel').onclick=function(){$('storeedit').style.display='none'};"
-"$('storepath').onkeydown=function(e){if(e.key==='Enter')storeApply();else if(e.key==='Escape')$('storeedit').style.display='none'};"
-"loadStore();"
+"$('storecancel').onclick=function(){$('storesheet').hidden=true};"
+"$('storesheet').addEventListener('click',function(e){if(e.target==$('storesheet'))$('storesheet').hidden=true});"
+"$('storepath').onkeydown=function(e){if(e.key==='Enter')storeApply()};"
 /* #tags / #recall / #timeline opens that view directly, so a view is linkable
  * (and reachable by a screenshot or a UI test, which cannot click before load). */
 "var h=(location.hash||'').slice(1);"
@@ -677,7 +734,7 @@ static const char PAGE[] =
 "function closeSync(){$('syncsheet').hidden=true;if(syncPoll){clearInterval(syncPoll);syncPoll=null}}"
 /* A code on screen is an invitation to scan it, so it is there only while it still
  * works: drawn when a host starts, wiped the moment that host is spent. */
-"function hostShow(url,tok){hostUrl=url;hostTok=tok;$('hostaddr').textContent=url;$('hosttok').textContent='token: '+tok;"
+"function hostShow(url,tok){hostUrl=url;hostTok=tok;$('hostaddr').textContent=url;$('hosttok').textContent='code: '+tok;"
 "qrDraw($('qr'),'ais://sync?host='+encodeURIComponent(url.split('://')[1])+'&token='+tok)}"
 "function hostClear(){hostUrl='';hostTok='';$('hostaddr').textContent='';$('hosttok').textContent='';$('qr').innerHTML=''}"
 "async function syncHost(){$('syncpick').style.display='none';$('syncfile').style.display='none';$('synchost').hidden=false;"
@@ -685,23 +742,24 @@ static const char PAGE[] =
 "var r=await fetch('/api/sync/host',{method:'POST'});"
 /* Refused means the host started a moment ago is still waiting, and ITS code is
  * still good: show that one rather than a dead one, or nothing. */
+"if(r.status!=409&&!r.ok){hostClear();$('hoststatus').textContent='Couldn\\'t start a sync. Try again in a moment.';return}"
 "if(!r.ok){var w=(await(await fetch('/api/sync/status')).text()).trim();"
 "if(w=='waiting'&&hostUrl){hostShow(hostUrl,hostTok);$('hoststatus').textContent='This code is still waiting. Scan it.';hostPoll();return}"
-"hostClear();$('hoststatus').textContent='A sync started here a moment ago is still running. Let it finish, then press Host again.';return}"
+"hostClear();$('hoststatus').textContent='A sync started here a moment ago is still running. Let it finish, then press Show a code again.';return}"
 "var t=(await r.text()).split('\\n');hostShow(t[0],t[1]);"
 "$('hoststatus').textContent='Waiting for the other device...';hostPoll()}"
 "function hostPoll(){if(syncPoll)clearInterval(syncPoll);"
 "syncPoll=setInterval(async function(){var s=(await(await fetch('/api/sync/status')).text()).trim();"
 "if(s=='waiting')return;clearInterval(syncPoll);syncPoll=null;hostClear();"
-"if(s=='synced'){$('hoststatus').textContent='Synced. Both devices now have the same records.';setView(view)}"
-"else if(s=='half'){$('hoststatus').textContent='They got your records, but theirs did not come back. Nothing was lost -- sync again to finish.';setView(view)}"
-"else if(s=='again'){$('hoststatus').textContent='Synced, but one more round is needed to match exactly. Nothing was lost -- sync again.';setView(view)}"
-"else{$('hoststatus').textContent='That code expired before anyone joined. Press Host again for a fresh one.'}},1500)}"
+"if(s=='synced'){$('hoststatus').textContent='Synced. Both devices now have the same items.';setView(view)}"
+"else if(s=='half'){$('hoststatus').textContent='Half done. Nothing was lost. Sync again to finish.';setView(view)}"
+"else if(s=='again'){$('hoststatus').textContent='Almost done. Sync once more to finish.';setView(view)}"
+"else{$('hoststatus').textContent='That code expired before anyone joined. Press Show a code again for a fresh one.'}},1500)}"
 "function syncJoinPane(){$('syncpick').style.display='none';$('syncfile').style.display='none';$('syncjoin').hidden=false;$('joinstatus').textContent='';$('jaddr').focus()}"
 /* file export/import: no network -- carry the whole index as one .aisb file */
 "function fileExport(){var a=document.createElement('a');a.href='/api/export-bundle';a.download='ais-export.aisb';document.body.appendChild(a);a.click();a.remove()}"
 "async function fileImport(f){var b=await f.arrayBuffer();var r=await fetch('/api/import-bundle',{method:'POST',body:b});"
-"if((await r.text()).trim()=='merged'){closeSync();setView(view);alert('Imported. Records merged.')}else{alert('Import failed. Is it an .aisb file from Export?')}}"
+"if((await r.text()).trim()=='merged'){closeSync();setView(view);alert('Imported.')}else{alert('Couldn\\'t read that file. Pick one made with Export.')}}"
 /* links import: one POST per file (Pocket's zip holds several part files). The
  * reply "imported N skipped M new K under MARKER" gives the count and the marker
  * key; the page then shows the batch under it. */
@@ -750,13 +808,13 @@ static const char PAGE[] =
 "if(syncFldTimer)clearTimeout(syncFldTimer);"
 "syncFldTimer=setTimeout(function(){syncFldTimer=null;t.hidden=true;$('toastundo').hidden=false},6000)}"
 "async function syncJoinGo(){var url=$('jaddr').value.trim(),tok=$('jtok').value.trim();"
-"if(!url||!tok){$('joinstatus').textContent='Enter an address and a token.';return}"
+"if(!url||!tok){$('joinstatus').textContent='Enter an address and a code.';return}"
 "$('joinstatus').textContent='Syncing...';"
 "var r=await fetch('/api/sync/join',{method:'POST',body:url+'\\n'+tok});var s=(await r.text()).trim();"
-"if(s=='merged'){$('joinstatus').textContent='Synced. Both devices now have the same records.';setView(view)}"
-"else if(s=='half'){$('joinstatus').textContent='Got their records, but yours did not reach them. Nothing was lost -- sync again to finish.';setView(view)}"
+"if(s=='merged'){$('joinstatus').textContent='Synced. Both devices now have the same items.';setView(view)}"
+"else if(s=='half'){$('joinstatus').textContent='Half done. Nothing was lost. Sync again to finish.';setView(view)}"
 "else if(s=='bad url')$('joinstatus').textContent='That address looks wrong. Use http://host:port.';"
-"else $('joinstatus').textContent='Could not sync. Same Wi-Fi? Check the host is waiting and the token is right.'}"
+"else $('joinstatus').textContent='Couldn\\'t connect. Check both devices are on the same Wi-Fi and the code is still showing.'}"
 "$('syncbtn').onclick=openSync;$('synccancel').onclick=closeSync;"
 "$('synchostbtn').onclick=syncHost;$('syncjoinbtn').onclick=syncJoinPane;$('jgo').onclick=syncJoinGo;"
 "$('expbtn').onclick=fileExport;$('impbtn').onclick=function(){$('fileimp').click()};"

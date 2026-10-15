@@ -1,5 +1,5 @@
 // Value-ranked search: a key search lists the tag matches first, then the
-// engine's value matches (find) under one "matched in the value" separator,
+// engine's value matches (find) under one "Found in the text" separator,
 // each record once. The page runs with no engine (CI builds no libais.so), so
 // RecallPage's recall/find lookups are injected. Bounded pump()s throughout:
 // the failed engine open leaves a perpetual spinner, never pumpAndSettle.
@@ -8,7 +8,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:ais/ais_ffi.dart';
 import 'package:ais/main.dart';
 
-const sep = 'matched in the value';
+const sep = 'Found in the text';
 
 void main() {
   // Pump the page, type [q] in the header field and sit out the 280ms debounce.

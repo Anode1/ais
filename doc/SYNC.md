@@ -112,9 +112,9 @@ and token as a QR that encodes a link:
 On the phone, scan that with the ordinary camera app. The phone recognizes the link, opens
 AIS, and AIS asks you to confirm the sync (a link can come from anywhere, and syncing shares
 this device's records) before it joins. The host waits five minutes for the join, then the
-code expires; press Host again for a fresh one. The app bundles no QR scanner: your phone's own
-camera does the reading, and AIS just registers the `ais://` link. If you would rather not
-scan, Join still accepts the address and token typed by hand, and the address
+code expires; press "Show a code" again for a fresh one. The app bundles no QR scanner: your
+phone's own camera does the reading, and AIS just registers the `ais://` link. If you would
+rather not scan, "Scan or type a code" also takes the address and code typed by hand, and the address
 may be a NAME as well as a number, so `http://mylaptop.local:8766` works wherever
 that name resolves (mDNS, your router's DHCP names, `/etc/hosts`). Android
 resolves no mDNS names, so from an Android phone type the number.
@@ -140,9 +140,9 @@ cannot reach it. Either of these fixes it:
     $ip = (wsl hostname -I).Trim().Split(' ')[0]
     netsh interface portproxy add v4tov4 listenport=8766 listenaddress=0.0.0.0 connectport=8766 connectaddress=$ip
     netsh advfirewall firewall add rule name="ais sync" dir=in action=allow protocol=TCP localport=8766
-    #    The code still carries the WSL address, so do not scan it: on the phone use
-    #    Join, type the laptop's Windows address (ipconfig: IPv4 Address) with :8766,
-    #    and the token shown beside the code.
+    #    The QR still carries the WSL address, so do not scan it: on the phone use
+    #    "Scan or type a code", type the laptop's Windows address (ipconfig: IPv4
+    #    Address) with :8766, and the code shown beside the QR.
 
 WSL1 shares the Windows network directly and needs neither.
 

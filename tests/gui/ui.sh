@@ -58,6 +58,9 @@ has "ui: save button (#save)"       'id="save"'
 has "ui: encrypt toggle (#enc)"     'id="enc"'
 has "ui: add button (#addbtn)"      'id="addbtn"'
 has "ui: index selector (#store)"   'id="store"'
+has "ui: header menu (#menubtn)"     'id="menubtn"'
+has "ui: the filter chips (#anyk)"   'id="anyk" class="fchip" aria-pressed="false"'
+has "ui: the Date chip (#datebtn)"   'id="datebtn"'
 has "ui: detail sheet (#sheet)"     'id="sheet"'
 has "ui: timeline range (#tlrange)" 'id="tlrange"'
 has "ui: nav has Timeline"          "Timeline"
@@ -81,8 +84,9 @@ tag() {  # tag LABEL NEEDLE
 }
 tag "ui: #tags opens the Tags view"      "tagrow"
 tag "ui: the safe action names the TAG"  "Remove tag"
-# the destructive label must name the RECORDS and their count, never the tag
-tag "ui: the destructive action names the RECORDS" "Delete 1 record"
+# the destructive label must name the ITEMS and their count, never the tag
+tag "ui: the destructive action names the ITEMS" "Delete 1 item"
+tag "ui: both sit behind a row menu"     "tagmenu"
 
 # --- the OTHER front end: app/index.html, served via $AIS_WEB -------------
 # A separate page from the embedded PAGE, with deliberately identical ids, so a
@@ -143,22 +147,24 @@ app "app: the chip key editor (#edchips)"   'id="edchips"'
 app "app: the store edit field (#storepath)" 'id="storepath"'
 app "app: the undo toast (#toast)"          'id="toast"'
 app "app: the clean-up control (#cleanbtn)" 'id="cleanbtn"'
-app "app: the clean-up control (#cleanbtn)" 'id="cleanbtn"'
 app "app: the Undo control (#toastundo)"    'id="toastundo"'
 app "app: the safe action names the TAG"    "Remove tag"
-app "app: the destructive one names RECORDS" "Delete 1 record"
+app "app: the destructive one names ITEMS" "Delete 1 item"
+app "app: header menu (#menubtn)"           'id="menubtn"'
+app "app: the filter chips (#anyk)"         'id="anyk" class="fchip" aria-pressed="false"'
+app "app: the switch-library dialog"        'id="storesheet"'
 # the Add sheet can encrypt, like the embedded page's
 app "app: encrypt toggle (#enc)"            'id="enc"'
-app "app: passphrase field (#pp)"           'id="pp"'
+app "app: password field (#pp)"             'id="pp"'
 # A DOCUMENT is stored base64-encoded and the page decodes it: assert the text on
 # screen and the base64 NOT on screen. Neither string exists in the page source.
 tl "app: a document renders its text"        "line one"
 tl "app: it keeps its line breaks"           "line three"
 tlno "app: the base64 never reaches the screen" "bGluZSBvbmU"
-# A SECRET renders as a lock + Reveal, never as its ciphertext. '>Reveal</button>'
+# A SECRET renders as a lock + Unlock, never as its ciphertext. '>Unlock</button>'
 # is the rendered button: the source only holds the string it is built from.
 if [ "$ENC" = yes ]; then
-    tl "app: a secret offers Reveal"             ">Reveal</button>"
+    tl "app: a secret offers Unlock"             ">Unlock</button>"
     tlno "app: the ciphertext never reaches the screen" "QUlTLUNSMQ"
 else
     echo "  skip app: secret rendering (crypto not built)"

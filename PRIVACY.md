@@ -11,7 +11,7 @@ personal data.
 
 Everything you enter (keys, entries, links, notes, and secrets) is stored
 **locally on your device**. Secrets are **encrypted** on the device with a
-passphrase you choose. Your index is your own plain-text files: you can open,
+password you choose. Your index is your own plain-text files: you can open,
 read and copy them yourself. That is deliberate, and it means anyone who can read
 those files can read everything in them that you did not encrypt. The app has no
 user accounts and no server, and nothing you store is sent to the developer.

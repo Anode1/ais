@@ -1,6 +1,6 @@
 #!/bin/sh
 # flutter-host-android.sh -- drive the REAL Android app as the sync HOST, the
-# half flutter-sync-android.sh (which drives Join) does not cover.
+# half flutter-sync-android.sh (which drives Scan or type a code) does not cover.
 #
 # The camera half needs a human; the HOST half does not: the app prints the
 # address and token as text beside the QR, so a CLI peer joins it exactly as a
@@ -119,7 +119,7 @@ tap_text 'Settings' 10       || { echo "  SKIP could not find the Settings menu"
 sleep 2
 tap_text 'Sync &amp; backup' 8 || tap_text 'Sync' 8 || { echo "  SKIP could not open the sync sheet"; exit 77; }
 sleep 2
-tap_text 'Host a sync' 8     || { echo "  SKIP could not find 'Host a sync'"; exit 77; }
+tap_text 'Show a code' 8     || { echo "  SKIP could not find 'Show a code'"; exit 77; }
 sleep 6
 
 # --- read the address and token the app is showing ---------------------------

@@ -214,7 +214,7 @@ empty "reveal (wrong passphrase fails closed)"   "$(printf 'nope\n%s'  "$MARKED"
 # The page carries the Sync controls (the sheet, the QR encoder, the routes).
 PAGE=$(curl -s "$B/")
 ok "page: sync control"      "syncbtn"                   "$PAGE"
-ok "page: sync sheet title"  "Sync with another device"  "$PAGE"
+ok "page: sync sheet title"  "Sync &amp; backup"  "$PAGE"
 ok "page: host label"        "synchostbtn"               "$PAGE"
 ok "page: join label"        "syncjoinbtn"               "$PAGE"
 ok "page: QR encoder (pure JS, no server dep)" "function qrGen" "$PAGE"

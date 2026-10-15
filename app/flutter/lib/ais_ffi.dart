@@ -588,10 +588,10 @@ class AisEngine {
         return 'Merged what was there, but could not write into that folder: '
             'it may be read-only or full.';
       case -7:
-        return 'Your records were written there, but every other copy in that '
+        return 'Your notes were written there, but every other copy in that '
             'folder comes from a newer AIS. Update this app to receive them.';
       case -8:
-        return 'Your records were written there, but the other copies are '
+        return 'Your notes were written there, but the other copies are '
             'damaged or half-written. If another device is writing now, try '
             'again in a moment.';
       default:

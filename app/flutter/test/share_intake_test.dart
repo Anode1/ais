@@ -30,21 +30,21 @@ void main() {
         .setMockMethodCallHandler(chan, null));
     await pumpApp(tester);
     await settleSheet(tester);
-    expect(find.text('Add to your memory'), findsOneWidget);
+    expect(find.text('New item'), findsOneWidget);
     expect(find.widgetWithText(TextField, 'milk eggs bread'), findsOneWidget);
   });
 
   testWidgets('warm: an onShared push opens the Add sheet prefilled',
       (tester) async {
     await pumpApp(tester);
-    expect(find.text('Add to your memory'), findsNothing);
+    expect(find.text('New item'), findsNothing);
     await tester.binding.defaultBinaryMessenger.handlePlatformMessage(
         'ais/share',
         const StandardMethodCodec()
             .encodeMethodCall(const MethodCall('onShared', 'a shared link')),
         (_) {});
     await settleSheet(tester);
-    expect(find.text('Add to your memory'), findsOneWidget);
+    expect(find.text('New item'), findsOneWidget);
     expect(find.widgetWithText(TextField, 'a shared link'), findsOneWidget);
   });
 
@@ -56,6 +56,6 @@ void main() {
             .encodeMethodCall(const MethodCall('onShared', 42)),
         (_) {});
     await settleSheet(tester);
-    expect(find.text('Add to your memory'), findsNothing);
+    expect(find.text('New item'), findsNothing);
   });
 }

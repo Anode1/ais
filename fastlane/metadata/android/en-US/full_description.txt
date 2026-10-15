@@ -4,20 +4,20 @@ Examples
 wifi guest: the guest Wi-Fi password
 recipe chicken: a link to the recipe
 passport documents: where the scan is
-tunnel prod ssh: the command you look up every time
+car insurance: the policy number
 
 Type "recipe" and you get every recipe. Type "recipe chicken" and you get what was saved under both.
 
 Private
-Everything stays on the phone. No account, no ads, no tracking, no server, and the app collects no data. Passwords and other secrets are encrypted with a passphrase only you know.
+Everything stays on the phone. No account, no ads, no tracking, no server, and the app collects no data. A password or other secret can be locked: it then shows only after you type the password you chose.
 
 Yours
-The index is plain text: you can read it, export it, and open it without AIS. Plain text has been readable since the 1960s on any machine, so the index outlives the app. The same index opens on Linux, macOS, Windows and iPhone, in a terminal and in a browser.
+Your notes are plain text: you can read them, export them, and open them without AIS. Plain text has been readable since the 1960s on any machine, so your notes outlive the app. The same notes open on an iPhone, and the desktop versions for Linux, macOS and Windows show them in your browser.
 
 Sync and backup, only when you ask
 - Between two of your devices on the same Wi-Fi: one shows a code, the other scans it. The transfer is direct and end-to-end encrypted.
 - Through a folder that Syncthing or a cloud drive carries.
-- Keep a copy in a folder, so the index survives uninstalling the app.
+- Keep a copy in a folder, so your notes survive uninstalling the app.
 
 Also
 - Share a link or text to AIS from any other app.
@@ -25,7 +25,7 @@ Also
 - A timeline of everything saved, with a date range.
 - A list of every tag you have used.
 - Search inside the saved text when no tag matches.
-- Voice input, recognised on the device.
+- Voice search, recognised on the device.
 - Light and dark theme.
 
 Free and open source (GPL 2 or later, or MIT). Source code, documentation and the desktop versions: https://github.com/Anode1/ais
