@@ -178,8 +178,8 @@ iOS build to TestFlight. Reaching the stores is manual:
   layers on Fedora 44 and Debian 12 in Docker on 2026-10-13. The account
   `Anode1` exists in the SUSE identity portal since 2026-10-14 and accepts
   its password there, while build.opensuse.org and the API answered 401 to
-  the same pair all that day; `osc api /person/Anode1` is the check, and
-  admin@opensuse.org the contact if it stays 401.
+  the same pair on 2026-10-14 and 2026-10-15; admin@opensuse.org was mailed
+  on 2026-10-15. `osc api /person/Anode1` is the check.
 
 ### 2. Five things are barely verified
 
