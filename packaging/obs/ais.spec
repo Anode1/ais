@@ -3,7 +3,7 @@
 # See packaging/obs/README.md and doc/dev/PACKAGING.md.
 
 Name:           ais
-Version:        0.3.36
+Version:        0.3.37
 Release:        1%{?dist}
 Summary:        Associative index: file anything under your own keys, recall it by keys
 # The binary links the vendored Monocypher (c/crypto/), hence the second clause.
@@ -50,5 +50,5 @@ desktop-file-validate %{buildroot}%{_datadir}/applications/ais.desktop
 %{_datadir}/icons/hicolor/256x256/apps/ais.png
 
 %changelog
-* Tue Oct 13 2026 Vasili Gavrilov <gavr144@gmail.com> - 0.3.36-1
-- Release 0.3.36
+* Wed Oct 14 2026 Vasili Gavrilov <gavr144@gmail.com> - 0.3.37-1
+- Release 0.3.37
