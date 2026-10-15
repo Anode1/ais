@@ -187,7 +187,9 @@ jobs, and the publish step then runs with the artifacts the first attempt kept.
 and the AUR: the reference `PKGBUILD` moves with this repo, the copy users
 install lives in the AUR repository and needs the same `pkgver`, `pkgrel=1` and a
 regenerated `.SRCINFO`; and the OBS checkout, which takes the files
-`packaging/obs/release.sh` wrote (`packaging/obs/README.md`). And the official MCP Registry, once the release is up:
+`packaging/obs/release.sh` wrote (`packaging/obs/README.md`). And the official MCP Registry, once the release is up. Its entry pins one
+`.mcpb`, so it is republished when an engine change should reach agents, not
+with every tag:
 `sh scripts/registry.sh vX.Y.Z > server.json`, then
 `MCP_GITHUB_TOKEN=$(gh auth token) mcp-publisher login github` (as Anode1) and
 `mcp-publisher publish`. The token form is the one that works: the plain
