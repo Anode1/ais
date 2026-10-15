@@ -35,8 +35,9 @@ typedef _ServeC = Int32 Function(Pointer<Void>, Int32, Pointer<Utf8>);
 typedef _ServeD = int Function(Pointer<Void>, int, Pointer<Utf8>);
 typedef _BundleC = Int32 Function(Pointer<Void>, Pointer<Utf8>);   // (handle, path)
 typedef _BundleD = int Function(Pointer<Void>, Pointer<Utf8>);
-typedef _LinksC = Int64 Function(Pointer<Void>, Pointer<Utf8>);    // (handle, path)
-typedef _LinksD = int Function(Pointer<Void>, Pointer<Utf8>);
+// (handle, path, marker out-buffer, its size)
+typedef _LinksC = Int64 Function(Pointer<Void>, Pointer<Utf8>, Pointer<Utf8>, IntPtr);
+typedef _LinksD = int Function(Pointer<Void>, Pointer<Utf8>, Pointer<Utf8>, int);
 typedef _NextIdC = Int64 Function(Pointer<Void>);                 // (handle)
 typedef _NextIdD = int Function(Pointer<Void>);
 typedef _FoldC = Int32 Function(Pointer<Void>, Pointer<Utf8>, Int32); // (handle, path, force)
@@ -504,18 +505,21 @@ class AisEngine {
   /// File the links in [path] (a browser's bookmarks file, or the CSV Pocket,
   /// Instapaper or Raindrop export) off the UI isolate: a big export blocks for
   /// seconds. Returns the records put (>= 0; a link already here merges and
-  /// still counts), or -1 unreadable, -2 no link column, -4 UTF-16 text, -5 a
-  /// zip.
-  Future<int> importLinksAsync(String path) {
+  /// still counts) with the batch's marker key, or -1 (unreadable, or no temp
+  /// file), -2 no url column, -4 UTF-16 text, -5 a zip, with an empty marker.
+  Future<(int, String)> importLinksAsync(String path) {
     final addr = _h.address;
     return Isolate.run(() {
       final lib = _load();
       final fn = lib.lookupFunction<_LinksC, _LinksD>('ais_embed_import_links');
       final p = path.toNativeUtf8();
+      final m = calloc<Uint8>(32);
       try {
-        return fn(Pointer<Void>.fromAddress(addr), p);
+        final rc = fn(Pointer<Void>.fromAddress(addr), p, m.cast<Utf8>(), 32);
+        return (rc, rc >= 0 ? m.cast<Utf8>().toDartString() : '');
       } finally {
         calloc.free(p);
+        calloc.free(m);
       }
     });
   }

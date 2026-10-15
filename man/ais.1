@@ -378,10 +378,11 @@ when the CSV header names that exporter, and
 for any other CSV. So one batch recalls and deletes as one:
 .BR "ais \-\-del-under pocket" ,
 which also takes any record the user had filed under that key, or whose value
-the import merged into. The save time is the export's own (time_added,
-Timestamp, created, ADD_DATE) when it has one. No tag is guessed; only names
-the user made carry over. A zip (Pocket's download) is refused: extract it
-first.
+the import merged into. The columns are found by name: url, title, tags,
+folder, and a time column (timestamp, created, added, date or saved); a link
+keeps its save time when that column, or a bookmark's ADD_DATE, holds an epoch
+or a UTC date-time. No tag is guessed; only names the user made carry over. A
+zip (Pocket's download) is refused: open it first.
 .TP
 .B \-\-import-keep \fIDIR\fR
 File each note in an extracted Takeout Keep folder of .json files. The value is

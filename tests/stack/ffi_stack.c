@@ -44,7 +44,7 @@ static void *work(void *unused)
     } else if (strcmp(g_mode, "links") == 0) {
         /* the app's links import: a bookmarks HTML or a links CSV, parsed in
          * its own frame, then the batched store pass. */
-        g_rc = (ais_embed_import_links(h, g_folder) <= 0) ? 6 : 0;
+        g_rc = (ais_embed_import_links(h, g_folder, NULL, 0) <= 0) ? 6 : 0;
     } else {
         /* store: the primary save. "resurrect" is the same call against an index
          * whose record is tombstoned, which takes the longer branch. */

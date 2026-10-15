@@ -277,10 +277,11 @@ int ais_embed_import_bundle(void *handle, const char *path)
     return -1;                                  /* malformed / I/O */
 }
 
-long ais_embed_import_links(void *handle, const char *path)
+long ais_embed_import_links(void *handle, const char *path, char *marker, size_t msz)
 {
     ais *a = handle;
     FILE *in;
+    const char *m = "";
     long n, skipped = 0;
 
     if (a == NULL || path == NULL)
@@ -288,8 +289,10 @@ long ais_embed_import_links(void *handle, const char *path)
     in = fopen(path, "rb");
     if (in == NULL)
         return -1;
-    n = import_links_fp(a, in, &skipped);
+    n = import_links_fp(a, in, &skipped, &m);
     fclose(in);
+    if (marker != NULL && msz > 0)
+        snprintf(marker, msz, "%s", m);
     if (n == AIS_IMPORT_TMP)
         return -1;                              /* -2, -4, -5 pass through as named */
     return n;

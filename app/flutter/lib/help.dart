@@ -51,8 +51,8 @@ const helpSections = <(String, String)>[
     'Links from another app',
     "Menu, Import bookmarks takes a browser's bookmarks file, or the CSV that "
         'Pocket, Instapaper or Raindrop export. Each link is filed under its own '
-        'tags and folder words plus one key naming the source (pocket, bookmark), '
-        'so the batch is found, or undone, as one.'
+        'tags and folder words plus one tag naming the source (pocket, bookmark), '
+        'so the batch is found as one. Undo removes what the import added.'
   ),
   (
     'Other devices',

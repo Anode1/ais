@@ -20,7 +20,7 @@ void usage_short(FILE *out)
 "       ais --tags                   every key with its record count (busiest first)\n"
 "       ais --dump | --keys | --stats | --compact | --init | --import | --export\n"
 "       ais --import-interactively   like --import, but pick each record (y/N)\n"
-"       ais --import-bookmarks FILE  file a bookmarks HTML or a links CSV (Pocket...)\n"
+"       ais --import-bookmarks FILE  file a bookmarks HTML or a Pocket/Instapaper/Raindrop CSV\n"
 "       ais --import-keep DIR        file a Takeout Keep folder of .json notes\n"
 "       ais --export --serve [PORT]  serve the index to one LAN peer (encrypted; prints token)\n"
 "       ais --import <url> --token T pull + merge from a LAN peer\n"

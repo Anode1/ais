@@ -159,16 +159,15 @@ int   ais_embed_export_bundle(void *handle, const char *path);
 int   ais_embed_import_bundle(void *handle, const char *path);
 
 /* Import the links in the file at PATH: a browser's bookmarks HTML, or a CSV
- * with a url column (Pocket, Instapaper, Raindrop, a spreadsheet). Each link is
- * one record under the user's own tag and folder words plus one marker key per
- * source ("bookmark", "pocket", "instapaper", "raindrop", "link"), so a batch
- * recalls and deletes as one; a link already here merges into its record. The
- * record shape is import.h's. Returns the records put (>= 0; a value already
- * present still counts), or -1 (bad args / unreadable), -2 (a CSV with no url
+ * with a url column (Pocket, Instapaper, Raindrop, a spreadsheet); the record
+ * shape is import.h's. MARKER (NULL to skip it) receives the batch's marker
+ * key, so a GUI can show the batch; MSZ is its size (16 is enough). Returns the
+ * records put (>= 0; a link already here merges into its record and still
+ * counts), or -1 (bad args, unreadable, no temp file), -2 (a CSV with no url
  * column), -4 (UTF-16 text: save it as UTF-8 first), -5 (a zip, Pocket's
- * download: extract it first). Blocks for the whole batch: call it off the UI
+ * download: open it first). Blocks for the whole batch: call it off the UI
  * thread. */
-long  ais_embed_import_links(void *handle, const char *path);
+long  ais_embed_import_links(void *handle, const char *path, char *marker, size_t msz);
 
 /* The id the next new record gets (reads the index's counter). Two readings
  * around an import bound the ids it created, so a GUI can undo that import

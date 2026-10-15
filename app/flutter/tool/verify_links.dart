@@ -9,8 +9,8 @@ import 'package:ffi/ffi.dart';
 typedef _OpenN = Pointer<Void> Function(Pointer<Utf8>);
 typedef _StoreN = Int64 Function(Pointer<Void>, Pointer<Utf8>, Pointer<Utf8>);
 typedef _StoreD = int Function(Pointer<Void>, Pointer<Utf8>, Pointer<Utf8>);
-typedef _LinksN = Int64 Function(Pointer<Void>, Pointer<Utf8>);
-typedef _LinksD = int Function(Pointer<Void>, Pointer<Utf8>);
+typedef _LinksN = Int64 Function(Pointer<Void>, Pointer<Utf8>, Pointer<Utf8>, IntPtr);
+typedef _LinksD = int Function(Pointer<Void>, Pointer<Utf8>, Pointer<Utf8>, int);
 typedef _IdN = Int64 Function(Pointer<Void>);
 typedef _IdD = int Function(Pointer<Void>);
 typedef _DelN = Int32 Function(Pointer<Void>, Int64);
@@ -55,13 +55,16 @@ void main() {
   final h = open(dir.path.toNativeUtf8());
   store(h, 'mine'.toNativeUtf8(), 'https://mine.example/'.toNativeUtf8());
   final before = nextId(h);
-  final n = links(h, csv.path.toNativeUtf8());
+  final m = calloc<Uint8>(32);
+  final n = links(h, csv.path.toNativeUtf8(), m.cast<Utf8>(), 32);
+  final marker = m.cast<Utf8>().toDartString();
   final after = nextId(h);
   check('import_links returns the records put', n == 2, '$n');
+  check('and names the marker', marker == 'pocket', marker);
   check('next_id brackets the two new ids', after - before == 2, '$before..$after');
   check('a link recalls under its tag', rec(h, 'baking').contains('bread.example'), rec(h, 'baking'));
   check('and under the pocket marker', rec(h, 'pocket').contains('pie.example'), rec(h, 'pocket'));
-  check('a missing file is -1', links(h, '${dir.path}/none.csv'.toNativeUtf8()) == -1, 'ok');
+  check('a missing file is -1', links(h, '${dir.path}/none.csv'.toNativeUtf8(), nullptr, 0) == -1, 'ok');
   for (var id = before; id < after; id++) {
     check('undo deletes id $id', del(h, id) == 0, 'del');
   }

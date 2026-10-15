@@ -472,10 +472,10 @@ int main(int argc, char **argv) {
     ok("the page then shows the batch under its marker", cdp_wait_bool(c,
         "document.getElementById('q').value==='pocket'&&"
         "document.getElementById('out').innerText.indexOf('bread.example')>=0", 5000) == 0);
-    ok("a file with no link column is refused by name", cdp_eval_bool(c,
+    ok("a file with no url column is refused by name", cdp_eval_bool(c,
         "(function(){window.__msg=null;var f=new File(['name,age\\nbob,3\\n'],'people.csv');"
         "linksImport([f]);return true})()", &(int){0}) == 0 &&
-        cdp_wait_bool(c, "!!window.__msg&&window.__msg.indexOf('people.csv: no link column')>=0", 5000) == 0);
+        cdp_wait_bool(c, "!!window.__msg&&window.__msg.indexOf('people.csv: no url column')>=0", 5000) == 0);
 
     cdp_close(c);
     printf("cdp: %d passed, %d failed\n", pass, fail);

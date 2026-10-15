@@ -409,7 +409,7 @@ ok "import-links: and under the pocket marker"     "pie.example" \
 printf '<!DOCTYPE NETSCAPE-Bookmark-file-1>\n<DL><p>\n<DT><A HREF="https://bread.example/" TAGS="rye,sourdough">Bread</A>\n</DL><p>\n' > "$IDX/bm.html"
 ok "import-links: bookmarks html, TAGS become keys" "https://bread.example/ Bread" \
    "$(curl -s -X POST --data-binary @"$IDX/bm.html" "$B/api/import-links" >/dev/null; curl -s "$B/api/get?keys=sourdough")"
-ok "import-links: a csv with no url column is 400"  "no link column" \
+ok "import-links: a csv with no url column is 400"  "no url column" \
    "$(printf 'name,age\nbob,3\n' | curl -s -X POST --data-binary @- "$B/api/import-links")"
 ok "import-links: a zip is told to extract"         "a zip" \
    "$(printf 'PK\003\004rest' | curl -s -X POST --data-binary @- "$B/api/import-links")"

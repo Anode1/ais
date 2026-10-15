@@ -247,8 +247,9 @@ static void spool_put(FILE *sp, const char *ts, const char *keys, char *val, lon
 
 /* The export's own save time as the store stamps one (UTC, "...Z"): CELL is
  * an epoch in seconds (milliseconds when far too large for seconds), or an
- * ISO date-time (a space for the T allowed, a trailing Z kept). OUT is ""
- * when it is neither, and the put is stamped now. */
+ * ISO date-time in UTC, a trailing Z or +00:00 (a space for the T allowed).
+ * OUT is "" for anything else, a date alone or a local time included, and the
+ * put is stamped now: a guessed zone would be a wrong time. */
 static void ts_from_cell(const char *cell, char *out, size_t osz)
 {
     const char *p = cell;
@@ -276,17 +277,22 @@ static void ts_from_cell(const char *cell, char *out, size_t osz)
             out[0] = '\0';
         return;
     }
-    if (n >= 10 && osz > 21) {
-        snprintf(out, osz, "%.*s", (int)(n > 19 ? 19 : n), p);
+    if (n >= 20 && osz > 21 &&
+        (p[n - 1] == 'Z' || strcmp(p + n - 6, "+00:00") == 0)) {
+        snprintf(out, osz, "%.19s", p);
         if (out[10] == ' ')
             out[10] = 'T';
-        if (!store_looks_like_ts(out))
-            out[0] = '\0';
-        else if (p[n - 1] == 'Z' && strlen(out) == 19) {
+        if (store_looks_like_ts(out) && strlen(out) == 19) {
             out[19] = 'Z';                         /* fits: osz > 21 checked above */
             out[20] = '\0';
-        }
+        } else
+            out[0] = '\0';
     }
+}
+
+static int ci_eq(const char *s, const char *w)
+{
+    return strlen(s) == strlen(w) && ci_find(s, w) == s;
 }
 
 /* Is S (trimmed) one of an app's own buckets, a place rather than a name the
@@ -297,9 +303,32 @@ static int is_bucket(const char *s)
     size_t k;
 
     for (k = 0; k < sizeof b / sizeof b[0]; k++)
-        if (strlen(s) == strlen(b[k]) && ci_find(s, b[k]) == s)
+        if (ci_eq(s, b[k]))
             return 1;
     return 0;
+}
+
+/* Does a word of header cell HEAD (words split at blanks and _ - . ) start
+ * with W (WHOLE: equal W)? "Document tags" has one starting "tag"; "Updated"
+ * has none starting "date". */
+static int head_has(const char *head, const char *w, int whole)
+{
+    const char *p = head;
+    size_t wl = strlen(w);
+
+    for (;;) {
+        size_t n;
+        while (*p == ' ' || *p == '\t' || *p == '_' || *p == '-' || *p == '.')
+            p++;
+        if (*p == '\0')
+            return 0;
+        for (n = 0; p[n] != '\0' && p[n] != ' ' && p[n] != '\t' &&
+                    p[n] != '_' && p[n] != '-' && p[n] != '.'; n++)
+            ;
+        if (n >= wl && ci_find(p, w) == p && (!whole || n == wl))
+            return 1;
+        p += n;
+    }
 }
 
 /* ---- browser bookmarks (Netscape HTML) ---------------------------------- */
@@ -336,15 +365,14 @@ static int attr_val(const char *tag, const char *gt, const char *name,
  * name</H3> opens a folder, its entries follow inside a <DL>, </DL> closes it,
  * <DT><A HREF="...">title</A> is one bookmark. One tag per line in every real
  * export; a line longer than the buffer (a data: ICON attribute, usually)
- * arrives in chunks -- HREF sits at the front of the tag, so the entry still
+ * arrives in chunks, and HREF sits at the front of the tag, so the entry still
  * imports, at worst without its title, and a chunk holding no tag falls
- * through every test below. Its own frame (AIS_NOINLINE) so these buffers
- * are gone before the batched store pass runs: the two never share a stack. */
+ * through every test below. */
 AIS_NOINLINE static long bm_parse(FILE *in, FILE *sp, long *skipped)
 {
     char line[AIS_LINE_MAX];
     char url[AIS_LINE_MAX], val[AIS_LINE_MAX];
-    char title[4096], tags[4096], ts[AIS_TS_MAX];
+    char title[4096], tags[4096], date[64], ts[AIS_TS_MAX];
     char keys[AIS_LINE_MAX];       /* the folder path's tokens; </DL> truncates */
     char ekeys[AIS_LINE_MAX];
     size_t klen[BM_DEPTH_MAX];
@@ -396,7 +424,8 @@ AIS_NOINLINE static long bm_parse(FILE *in, FILE *sp, long *skipped)
             }
             /* keys: the folder path's tokens, the link's own TAGS (Firefox,
              * Raindrop, Pinboard write them), then the marker; a root-level
-             * untagged bookmark gets just "bookmark" */
+             * untagged bookmark gets just "bookmark". A record the marker
+             * would not fit is skipped: without it the batch is not reversible. */
             snprintf(ekeys, sizeof ekeys, "%s", keys);
             if (attr_val(p, gt, "tags", tags, sizeof tags)) {
                 char *c;
@@ -405,10 +434,13 @@ AIS_NOINLINE static long bm_parse(FILE *in, FILE *sp, long *skipped)
                         *c = ' ';
                 import_keys_add(ekeys, sizeof ekeys, tags);
             }
-            import_keys_add(ekeys, sizeof ekeys, "bookmark");
+            if (import_keys_add(ekeys, sizeof ekeys, "bookmark") != 0) {
+                (*skipped)++;
+                continue;
+            }
             ts[0] = '\0';
-            if (attr_val(p, gt, "add_date", tags, sizeof tags))
-                ts_from_cell(tags, ts, sizeof ts);
+            if (attr_val(p, gt, "add_date", date, sizeof date))
+                ts_from_cell(date, ts, sizeof ts);
             spool_put(sp, ts, ekeys, val, skipped);
             n++;
             continue;
@@ -504,25 +536,20 @@ static int csv_sep(FILE *in)
     return ',';
 }
 
-static int ci_eq(const char *s, const char *w)
-{
-    return strlen(s) == strlen(w) && ci_find(s, w) == s;
-}
-
 struct csvcols { int url, title, tags, folder, time; };
 struct csvrow {
     char url[CSV_URL_MAX], title[CSV_TITLE_MAX], tags[CSV_TAGS_MAX];
     char folder[CSV_FOLDER_MAX], time[CSV_TIME_MAX];
 };
 
-/* Spool every row of a links CSV. The header row names the columns, matched
- * by a contained word so "URL", "url" and "Document tags" all count; the
- * exporter is read off the same header (Pocket writes time_added, Instapaper
- * Selection, Raindrop excerpt) and names the marker key. Tags split on | , ;
- * and blanks (Pocket writes a|b, Raindrop "a, b", a JSON list ["a","b"]
- * sheds its brackets); a folder path splits on / as well. Its own frame
- * (AIS_NOINLINE), as bm_parse. */
-AIS_NOINLINE static long csv_parse(FILE *in, FILE *sp, long *skipped)
+/* Spool every row of a links CSV. The header row names the columns and the
+ * exporter (the rule is import.h's); the exporter names the marker key, left
+ * in *MARKER. Tags split on | , ; and blanks (Pocket writes a|b, Raindrop
+ * "a, b", a JSON list ["a","b"] sheds its brackets); a folder path splits on
+ * / as well. KEYS holds every tag and folder word (encoding never grows one)
+ * with room to spare, so the marker always fits. */
+AIS_NOINLINE static long csv_parse(FILE *in, FILE *sp, long *skipped,
+                                   const char **marker)
 {
     struct csvcols C = { -1, -1, -1, -1, -1 };
     struct csvrow R;
@@ -530,32 +557,34 @@ AIS_NOINLINE static long csv_parse(FILE *in, FILE *sp, long *skipped)
     char keys[CSV_TAGS_MAX + CSV_FOLDER_MAX + 32];
     char val[CSV_URL_MAX + CSV_TITLE_MAX + 2];
     char ts[AIS_TS_MAX];
-    const char *marker = "link";
     int sep = csv_sep(in);
     int term, over, i;
     long n = 0;
 
+    *marker = "link";
     for (i = 0; ; i++) {
         term = csv_field(in, sep, head, sizeof head, &over);
         trim(head);
         if (i < CSV_COLS_MAX) {
-            if (C.url < 0 && (ci_find(head, "url") != NULL ||
-                              ci_eq(head, "href") || ci_eq(head, "link")))
+            if (C.url < 0 && (head_has(head, "url", 0) ||
+                              head_has(head, "href", 1) || head_has(head, "link", 1)))
                 C.url = i;
-            else if (C.title < 0 && (ci_find(head, "title") != NULL || ci_eq(head, "name")))
+            else if (C.title < 0 && (head_has(head, "title", 0) || head_has(head, "name", 1)))
                 C.title = i;
-            else if (C.tags < 0 && ci_find(head, "tag") != NULL)
+            else if (C.tags < 0 && head_has(head, "tag", 0))
                 C.tags = i;
-            else if (C.folder < 0 && (ci_find(head, "folder") != NULL ||
-                                      ci_find(head, "collection") != NULL))
+            else if (C.folder < 0 && (head_has(head, "folder", 0) ||
+                                      head_has(head, "collection", 0)))
                 C.folder = i;
-            else if (C.time < 0 && (ci_find(head, "time") != NULL ||
-                                    ci_find(head, "created") != NULL ||
-                                    ci_find(head, "date") != NULL))
+            else if (C.time < 0 && (head_has(head, "timestamp", 0) ||
+                                    head_has(head, "created", 0) ||
+                                    head_has(head, "added", 1) ||
+                                    head_has(head, "date", 1) ||
+                                    head_has(head, "saved", 1)))
                 C.time = i;
-            if (ci_eq(head, "time_added"))     marker = "pocket";
-            else if (ci_eq(head, "selection")) marker = "instapaper";
-            else if (ci_eq(head, "excerpt"))   marker = "raindrop";
+            if (ci_eq(head, "time_added"))     *marker = "pocket";
+            else if (ci_eq(head, "selection")) *marker = "instapaper";
+            else if (ci_eq(head, "excerpt"))   *marker = "raindrop";
         }
         if (term != sep)
             break;
@@ -604,7 +633,7 @@ AIS_NOINLINE static long csv_parse(FILE *in, FILE *sp, long *skipped)
                             *c = ' ';
                     import_keys_add(keys, sizeof keys, R.folder);
                 }
-                import_keys_add(keys, sizeof keys, marker);
+                import_keys_add(keys, sizeof keys, *marker);
                 trim(R.title);
                 if (R.title[0] != '\0' && strcmp(R.title, R.url) != 0)
                     snprintf(val, sizeof val, "%s %s", R.url, R.title);
@@ -651,9 +680,10 @@ static int sniff(FILE *in)
     return (c == '<') ? KIND_HTML : KIND_CSV;
 }
 
-long import_links_fp(ais *a, FILE *in, long *skipped)
+long import_links_fp(ais *a, FILE *in, long *skipped, const char **marker)
 {
     FILE *sp;
+    const char *m = "bookmark";
     long n;
     int kind = sniff(in);
 
@@ -662,7 +692,9 @@ long import_links_fp(ais *a, FILE *in, long *skipped)
     sp = ais_tmpfile();
     if (sp == NULL)
         return AIS_IMPORT_TMP;
-    n = (kind == KIND_HTML) ? bm_parse(in, sp, skipped) : csv_parse(in, sp, skipped);
+    n = (kind == KIND_HTML) ? bm_parse(in, sp, skipped) : csv_parse(in, sp, skipped, &m);
+    if (marker != NULL)
+        *marker = m;
     if (n <= 0) {
         fclose(sp);
         return n;
@@ -680,7 +712,7 @@ long import_bookmarks(ais *a, const char *path)
 
     if (in == NULL)
         die("--import-bookmarks: cannot open '%s'", path);
-    n = import_links_fp(a, in, &skipped);
+    n = import_links_fp(a, in, &skipped, NULL);
     fclose(in);
     if (n == AIS_IMPORT_NOURL)
         die("--import-bookmarks: no url column in '%s' (expected a bookmarks HTML, "
@@ -688,7 +720,7 @@ long import_bookmarks(ais *a, const char *path)
     if (n == AIS_IMPORT_UTF16)
         die("--import-bookmarks: '%s' is UTF-16 text; save it as UTF-8 CSV first", path);
     if (n == AIS_IMPORT_ZIP)
-        die("--import-bookmarks: extract the .zip first, then pass the .csv inside it");
+        die("--import-bookmarks: '%s' is a zip; open it, then pass the .csv inside", path);
     if (n < 0)
         die("--import-bookmarks: cannot make a temp file");
     feed_import_report(n, skipped);

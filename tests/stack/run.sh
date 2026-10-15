@@ -79,7 +79,11 @@ check() {                       # check <mode> <label> <limit-KB>
         "$root/c/ais" -f "$idx" --init >/dev/null
         m=$mode
     fi
-    arg=$folder; [ "$mode" = links ] && arg=$links
+    arg=$folder
+    case $mode in
+        links)     arg=$links ;;
+        linkshtml) arg="$root/tests/fixtures/bookmarks.html"; m=links ;;
+    esac
     if "$bin" "$limit" "$idx" "$arg" "$m" >/dev/null 2>&1; then
         echo "  ok   $label fits ${limit}KB (budget ${BUDGET_KB}KB)"
     else
@@ -90,14 +94,15 @@ check() {                       # check <mode> <label> <limit-KB>
     fi
 }
 
-# Measured floors today: 224 / 288 / 352 / 340 KB (links: a CSV and an HTML
+# Measured floors today: 224 / 288 / 352 / 340 / 340 KB (a CSV and an HTML
 # alike, since each parser's frame is gone before the store pass runs). Each
-# limit is one 64 KB step above its floor -- exactly one AIS_LINE_MAX buffer of
-# room -- so re-adding a line-sized buffer to any of these paths trips it, which
+# limit is one 64 KB step above its floor, exactly one AIS_LINE_MAX buffer of
+# room, so re-adding a line-sized buffer to any of these paths trips it, which
 # is the regression that went unnoticed and the whole reason this exists.
 check store     "save a record"            272   # the primary command  (floor 224)
 check resurrect "re-save a deleted record" 336   # the longer save branch (floor 288)
 check folder    "import a shared folder"   400   # the app's auto-sync   (floor 352)
-check links     "import a links file"      404   # a bookmarks/CSV import (floor 340)
+check links     "import a links CSV"       404   # the app's Import bookmarks (floor 340)
+check linkshtml "import a bookmarks HTML"  404   # the same path, the HTML parser (floor 340)
 
 exit $rc

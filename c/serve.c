@@ -35,6 +35,7 @@
 #include "locate.h"       /* store_persist: the chosen store is the default next run */
 #include "win.h"          /* Winsock + socket shims on native Windows; empty on POSIX */
 #include "import.h"       /* import_links_fp: POST /api/import-links */
+#include "sync.h"         /* AIS_SYNC_MAX_BLOB: the upload cap */
 #include "serve.h"
 
 /* LAN sync (the GUI's Host/Join, mirroring the mobile Sync feature): available
@@ -207,8 +208,8 @@ static const char PAGE[] =
 "<div id=syncfile><p class=muted style='margin:1rem 0 .5rem;font-size:.85rem'>Or a file &mdash; move it by Drive, USB or email:</p>"
 "<div class=actions style='justify-content:center'><button id=impbtn class=ghost>Import</button><button id=expbtn class=primary>Export</button></div>"
 /* Links from another app: a browser's bookmarks file, or the CSV Pocket, Instapaper
- * and Raindrop export (POST /api/import-links; the record shape is import.h's). */
-"<p class=muted style='margin:1rem 0 .5rem;font-size:.85rem'>Or links from another app &mdash; Pocket, Instapaper, Raindrop, or a browser&#39;s bookmarks file:</p>"
+ * and Raindrop export (POST /api/import-links). */
+"<p class=muted style='margin:1rem 0 .5rem;font-size:.85rem'>Or links from another app (Pocket, Instapaper, Raindrop, or a browser&#39;s bookmarks file):</p>"
 "<div class=actions style='justify-content:center'><button id=linksbtn class=ghost>Import bookmarks</button></div>"
 /* Auto-sync a shared folder (Syncthing / a cloud folder). One tap runs a pass; the
  * path is remembered and a pass also runs on load and after each change. */
@@ -701,15 +702,15 @@ static const char PAGE[] =
 "function fileExport(){var a=document.createElement('a');a.href='/api/export-bundle';a.download='ais-export.aisb';document.body.appendChild(a);a.click();a.remove()}"
 "async function fileImport(f){var b=await f.arrayBuffer();var r=await fetch('/api/import-bundle',{method:'POST',body:b});"
 "if((await r.text()).trim()=='merged'){closeSync();setView(view);alert('Imported. Records merged.')}else{alert('Import failed. Is it an .aisb file from Export?')}}"
-/* links import: one POST per file (Pocket's zip holds several part files); then show
- * the batch under its marker key, the last key of the newest record. */
-"async function linksImport(fs){var n=0,bad=[];for(var k=0;k<fs.length;k++){var f=fs[k];"
-"var r=await fetch('/api/import-links',{method:'POST',body:await f.arrayBuffer()});var t=(await r.text()).trim();"
-"if(r.ok){n+=parseInt(t.split(' ')[1],10)||0}else{bad.push(f.name+': '+t)}}"
+/* links import: one POST per file (Pocket's zip holds several part files). The
+ * reply "imported N skipped M new K under MARKER" gives the count and the marker
+ * key; the page then shows the batch under it. */
+"async function linksImport(fs){var n=0,fresh=0,m='',bad=[];for(var k=0;k<fs.length;k++){var f=fs[k];"
+"var r=await fetch('/api/import-links',{method:'POST',body:await f.arrayBuffer()});var t=(await r.text()).trim().split(' ');"
+"if(r.ok){n+=parseInt(t[1],10)||0;fresh+=parseInt(t[5],10)||0;m=t[7]||m}else{bad.push(f.name+': '+t.join(' '))}}"
 "closeSync();if(!n){setView(view);alert(bad.length?bad.join('\\n'):'No links found in the file.');return}"
-"var L=(await(await fetch('/api/timeline?count=1')).text()).split('\\n')[0]||'',p=L.split('|'),ks=p.length>3?p[2].trim().split(' '):[],m=ks.length?ks[ks.length-1]:'';"
 "if(m)$('q').value=m;setView('recall');"
-"alert('Imported '+n+' link'+(n==1?'':'s')+(m?' under \\''+m+'\\'':'')+'. A link already here merged into its record.'+(bad.length?'\\n'+bad.join('\\n'):''))}"
+"alert((fresh?'Imported '+fresh+' link'+(fresh==1?'':'s')+(m?' under \\''+m+'\\'':'')+(n>fresh?' ('+(n-fresh)+' already here)':'')+'.':'Nothing new. These links are already here.')+(bad.length?'\\n'+bad.join('\\n'):''))}"
 /* folder auto-sync: remember the path, run a pass on demand + on load + after a save */
 /* The saved folder comes from the SERVER (<index>/syncfolder), not localStorage:
  * clearing browser data must not switch off the user's backup, and the app and the
@@ -2115,10 +2116,12 @@ static void handle(ais *a, int fd)
     } else if (strcmp(method, "POST") == 0 && strcmp(path, "/api/import-links") == 0) {
         /* Upload a bookmarks HTML or a links CSV and file its links (import.h).
          * The body streams into a temp file in 4 KB pieces, so a megabyte export
-         * costs no buffer, and the importer reads a FILE. "imported N skipped M",
-         * or 400 with the reason. */
+         * costs no buffer, and the importer reads a FILE; the cap is the wire's
+         * (AIS_SYNC_MAX_BLOB), so a stray upload cannot fill the temp directory.
+         * "imported N skipped M new K under MARKER" (K = records that did not
+         * exist before), or 400 with the reason. */
         long clen = body_len;
-        if (clen <= 0 || clen > 64L * 1024 * 1024) {
+        if (clen <= 0 || (unsigned long)clen > AIS_SYNC_MAX_BLOB) {
             static const char e[] = "HTTP/1.0 400 Bad Request\r\n"
                 "Connection: close\r\n\r\nbad upload\n";
             write_all(fd, e, sizeof(e) - 1);
@@ -2126,7 +2129,8 @@ static void handle(ais *a, int fd)
             FILE *tf = ais_tmpfile();
             size_t have = (size_t)(n - (body - buf));   /* body bytes already read */
             size_t got = have < (size_t)clen ? have : (size_t)clen;
-            long put = -1, skipped = 0;
+            const char *marker = "";
+            long put = -1, skipped = 0, n0 = 0, n1 = 0;
             if (tf != NULL && fwrite(body, 1, got, tf) == got) {
                 char chunk[4096];
                 while (got < (size_t)clen) {
@@ -2139,22 +2143,25 @@ static void handle(ais *a, int fd)
                 }
                 if (got == (size_t)clen) {
                     rewind(tf);
-                    put = import_links_fp(a, tf, &skipped);
+                    if (ais_count_live(a, &n0) != 0) n0 = -1;
+                    put = import_links_fp(a, tf, &skipped, &marker);
+                    if (n0 < 0 || ais_count_live(a, &n1) != 0) n1 = n0;
                 }
             }
             if (tf != NULL) fclose(tf);
             if (put >= 0) {
-                char line[64];
-                int w = snprintf(line, sizeof line, "imported %ld skipped %ld\n", put, skipped);
+                char line[96];
+                int w = snprintf(line, sizeof line, "imported %ld skipped %ld new %ld under %s\n",
+                                 put, skipped, n1 - n0, marker);
                 send_head(fd, "text/plain");
                 write_all(fd, line, (size_t)w);
             } else {
                 static const char h[] = "HTTP/1.0 400 Bad Request\r\nConnection: close\r\n\r\n";
                 const char *why =
-                    (put == AIS_IMPORT_NOURL) ? "no link column: expected a Pocket, Instapaper or "
+                    (put == AIS_IMPORT_NOURL) ? "no url column: expected a Pocket, Instapaper or "
                                                 "Raindrop .csv, or a bookmarks .html" :
                     (put == AIS_IMPORT_UTF16) ? "UTF-16 text: save it as UTF-8 first" :
-                    (put == AIS_IMPORT_ZIP)   ? "a zip: open it and pick the .csv inside" :
+                    (put == AIS_IMPORT_ZIP)   ? "a zip: open it, then pick the .csv inside" :
                                                 "import failed";
                 write_all(fd, h, sizeof(h) - 1);
                 write_all(fd, why, strlen(why));

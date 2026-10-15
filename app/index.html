@@ -151,7 +151,7 @@
       </div>
       <!-- Links from another app: a browser's bookmarks file, or the CSV Pocket,
            Instapaper and Raindrop export (POST /api/import-links). -->
-      <p class="muted" style="margin:1rem 0 .5rem;font-size:.85rem">Or links from another app &mdash; Pocket, Instapaper, Raindrop, or a browser&#39;s bookmarks file:</p>
+      <p class="muted" style="margin:1rem 0 .5rem;font-size:.85rem">Or links from another app (Pocket, Instapaper, Raindrop, or a browser&#39;s bookmarks file):</p>
       <div class="actions" style="justify-content:center">
         <button id="linksbtn" class="ghost">Import bookmarks</button>
       </div>
@@ -1097,24 +1097,25 @@ async function fileImport(f) {
     closeSync(); setView(view); alert('Imported. Records merged.');
   } else alert('Import failed. Is it an .aisb file from Export?');
 }
-// links import: one POST per file (Pocket's zip holds several part files); then
-// show the batch under its marker key, the last key of the newest record.
+// links import: one POST per file (Pocket's zip holds several part files). The
+// reply "imported N skipped M new K under MARKER" gives the count and the marker
+// key; the page then shows the batch under it.
 async function linksImport(fs) {
-  var n = 0, bad = [];
+  var n = 0, fresh = 0, m = '', bad = [];
   for (var k = 0; k < fs.length; k++) {
     var f = fs[k];
     var r = await fetch('/api/import-links', { method:'POST', body: await f.arrayBuffer() });
-    var t = (await r.text()).trim();
-    if (r.ok) n += parseInt(t.split(' ')[1], 10) || 0; else bad.push(f.name + ': ' + t);
+    var t = (await r.text()).trim().split(' ');
+    if (r.ok) { n += parseInt(t[1], 10) || 0; fresh += parseInt(t[5], 10) || 0; m = t[7] || m; }
+    else bad.push(f.name + ': ' + t.join(' '));
   }
   closeSync();
   if (!n) { setView(view); alert(bad.length ? bad.join('\n') : 'No links found in the file.'); return; }
-  var L = (await (await fetch('/api/timeline?count=1')).text()).split('\n')[0] || '';
-  var p = L.split('|'), ks = p.length > 3 ? p[2].trim().split(' ') : [], m = ks.length ? ks[ks.length - 1] : '';
   if (m) $('q').value = m;
   setView('recall');
-  alert('Imported ' + n + ' link' + (n == 1 ? '' : 's') + (m ? " under '" + m + "'" : '') +
-        '. A link already here merged into its record.' + (bad.length ? '\n' + bad.join('\n') : ''));
+  alert((fresh ? 'Imported ' + fresh + ' link' + (fresh == 1 ? '' : 's') + (m ? " under '" + m + "'" : '') +
+                 (n > fresh ? ' (' + (n - fresh) + ' already here)' : '') + '.'
+               : 'Nothing new. These links are already here.') + (bad.length ? '\n' + bad.join('\n') : ''));
 }
 // folder auto-sync. The saved path comes from the SERVER (<index>/syncfolder),
 // not localStorage: clearing browser data must not switch off the user's backup,

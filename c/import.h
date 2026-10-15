@@ -3,14 +3,24 @@
  * with a url column: Pocket, Instapaper, Raindrop, or any spreadsheet) and
  * Google Keep notes (a Takeout directory, one .json per note).
  *
- * ais never guesses tags. The keys carried over are names the user made --
- * bookmark folder names, a TAGS attribute, a CSV's tags and folder columns,
- * Keep label names -- word-tokenized and normalized the way the engine files
- * keys, plus ONE constant marker key per source, so a batch is findable and
- * reversible with --del-under: "bookmark" for HTML, "keep" for Keep, and for a
- * CSV the exporter its header names ("pocket", "instapaper", "raindrop") or
- * "link" when it names none. An app's own buckets (Unread, Archive, Starred,
- * Unsorted) and a Pocket status are not names the user made: dropped. */
+ * ais never guesses tags. The keys carried over are names the user made (a
+ * bookmark's folder names and TAGS attribute, a CSV's tags and folder columns,
+ * Keep label names), word-tokenized and normalized the way the engine files
+ * keys, plus ONE constant marker key per source, always present, so a batch is
+ * findable and reversible with --del-under: "bookmark" for HTML, "keep" for
+ * Keep, and for a CSV the exporter its header names ("pocket", "instapaper",
+ * "raindrop") or "link" when it names none. An app's own buckets (Unread,
+ * Archive, Starred, Unsorted) and a Pocket status are not names the user made:
+ * dropped.
+ *
+ * A CSV's header row names its columns, each by a WORD of the cell (words are
+ * split at blanks and at _ - . ), case-insensitively: the url column has a
+ * word starting "url", or the word "href" or "link"; the title column a word
+ * starting "title", or the word "name"; the tags column a word starting "tag";
+ * the folder column a word starting "folder" or "collection"; the time column
+ * a word starting "timestamp" or "created", or the word "added", "date" or
+ * "saved". The first match per column wins. The exporter is read off a whole
+ * cell: time_added names Pocket, Selection Instapaper, excerpt Raindrop. */
 #ifndef AIS_IMPORT_H
 #define AIS_IMPORT_H
 
@@ -30,12 +40,17 @@ enum {
 /* Import the links in IN, open for reading at its start: sniffs HTML from CSV.
  * Each link becomes one record: value "URL title" (the URL alone when the title
  * is empty or repeats it), keys = the user's names (above) plus the marker, the
- * save time = the export's own time column (time_added, Timestamp, created,
- * ADD_DATE) when it carries one. A row without a URL, or one too long for a
- * store line, counts in *SKIPPED. A control character in any field becomes a
- * space, so a field cannot forge a line of the import stream. Prints nothing.
- * Returns the records put (>= 0), or one of the codes above. */
-long import_links_fp(ais *a, FILE *in, long *skipped);
+ * save time = the time column's value (or a bookmark's ADD_DATE) when it is an
+ * epoch in seconds or milliseconds or an ISO date-time in UTC (a trailing Z or
+ * +00:00); anything else, a date alone or a local time included, stamps the
+ * record now. A row without a URL, or one too long for a store line, counts in
+ * *SKIPPED. A control character in any field becomes a space, so a field cannot
+ * forge a line of the import stream. *MARKER (NULL to skip it) is set to the
+ * batch's marker key, a static string. Prints only the import stream's own
+ * per-line diagnostics on stderr (feed.c). Returns the records put (>= 0, a
+ * link already present merging into its record still counts), or one of the
+ * codes above. */
+long import_links_fp(ais *a, FILE *in, long *skipped, const char **marker);
 
 /* The CLI's --import-bookmarks: import_links_fp over FILE, then the one-line
  * report; dies with the reason when FILE cannot be opened or is not a links

@@ -7102,7 +7102,7 @@ static void test_serve_api_find(void)
     scratch_rm(dir);
 }
 
-/* ---- foreign importers (import.c): the separable parse helpers ---------- */
+/* ---- foreign importers (import.c): the parse helpers, then links files --- */
 
 /* import_keys_add: word-splits, normalizes as the engine files keys, dedupes. */
 static void test_import_keys_add(void)
@@ -7173,7 +7173,7 @@ static long links_import(ais *a, const char *s, long *sk)
     *sk = 0;
     if (f == NULL)
         return -100;
-    n = import_links_fp(a, f, sk);
+    n = import_links_fp(a, f, sk, NULL);
     fclose(f);
     return n;
 }
@@ -7203,7 +7203,7 @@ static int has_tok(const char *keys, const char *tok)
     return 0;
 }
 
-/* The number of live records. */
+/* The number of live records, up to 64. */
 static int live_count(ais *a)
 {
     struct tlvec v;
@@ -7331,6 +7331,41 @@ static void test_import_links_raindrop(void)
 }
 
 /* Header shapes: semicolons, no url column, header only, UTF-16, a zip. */
+/* The header rule (import.h): a column counts by a whole word, so "Reading
+ * time" is not the time column, "Updated" is not a date, "Document tags" is
+ * tags; a local or date-only time cell stamps the record now, not 1970. */
+static void test_import_links_header_words(void)
+{
+    ais a;
+    struct tlvec v;
+    const struct tlrow *r;
+    long sk, n;
+    const char *d = "/tmp/ais_ut_links_hw";
+
+    scratch_rm(d);
+    ais_open(&a, d);
+    n = links_import(&a, "Title,URL,Reading time,Updated,Document tags\n"
+                         "A,https://hw.example/1,5,2024-01-01,x|y\n", &sk);
+    CHECK(n == 1 && sk == 0, "header words: the row imports");
+    r = tl_row(&a, &v, "https://hw.example/1");
+    CHECK(r != NULL && strstr(r->keys, "x") != NULL && strstr(r->keys, "y") != NULL &&
+          strstr(r->keys, "link") != NULL, "header words: Document tags is the tags column");
+    CHECK(r != NULL && strncmp(r->ts, "1970", 4) != 0 && strncmp(r->ts, "2024", 4) != 0,
+          "header words: Reading time and Updated are not the time column");
+    n = links_import(&a, "url,created\nhttps://hw.example/2,2023-09-01 12:34:56\n"
+                         "https://hw.example/3,2023-09-01\n"
+                         "https://hw.example/4,2023-09-01T12:34:56+00:00\n", &sk);
+    CHECK(n == 3, "header words: three rows with a created column");
+    r = tl_row(&a, &v, "https://hw.example/2");
+    CHECK(r != NULL && strncmp(r->ts, "2023-09-01", 10) != 0, "time: a local time without a zone stamps now");
+    r = tl_row(&a, &v, "https://hw.example/3");
+    CHECK(r != NULL && strncmp(r->ts, "2023-09-01", 10) != 0, "time: a date alone stamps now");
+    r = tl_row(&a, &v, "https://hw.example/4");
+    CHECK(r != NULL && strcmp(r->ts, "2023-09-01T12:34:56Z") == 0, "time: +00:00 is UTC");
+    ais_close(&a);
+    scratch_rm(d);
+}
+
 static void test_import_links_shapes(void)
 {
     const char *dir = "/tmp/ais_ut_lnk_shape";
@@ -7355,11 +7390,11 @@ static void test_import_links_shapes(void)
     CHECK(links_import(&a, "title,url\n", &sk) == 0 && live_count(&a) == 1,
           "links shapes: a header alone (no CR) imports 0");
     f = links_in(u16, sizeof u16 - 1);
-    CHECK(f != NULL && import_links_fp(&a, f, &sk) == AIS_IMPORT_UTF16,
+    CHECK(f != NULL && import_links_fp(&a, f, &sk, NULL) == AIS_IMPORT_UTF16,
           "links shapes: UTF-16 text is -4");
     if (f) fclose(f);
     f = links_in(zip, sizeof zip - 1);
-    CHECK(f != NULL && import_links_fp(&a, f, &sk) == AIS_IMPORT_ZIP,
+    CHECK(f != NULL && import_links_fp(&a, f, &sk, NULL) == AIS_IMPORT_ZIP,
           "links shapes: a zip is -5");
     if (f) fclose(f);
     ais_close(&a);
@@ -7478,10 +7513,14 @@ static void test_import_links_embed(void)
     if (h == NULL)
         return;
     pre = ais_embed_store(h, "keepme", "https://pre.example/");
-    CHECK(ais_embed_import_links(h, "/tmp/ais_ut_no_such_file.csv") == -1,
+    CHECK(ais_embed_import_links(h, "/tmp/ais_ut_no_such_file.csv", NULL, 0) == -1,
           "links embed: a missing path is -1");
     before = ais_embed_next_id(h);
-    CHECK(ais_embed_import_links(h, csv) == 3, "links embed: a CSV returns the count");
+    {
+        char m[16] = "";
+        CHECK(ais_embed_import_links(h, csv, m, sizeof m) == 3, "links embed: a CSV returns the count");
+        CHECK(strcmp(m, "pocket") == 0, "links embed: and names the batch's marker");
+    }
     after = ais_embed_next_id(h);
     CHECK(before > pre && after - before == 3, "links embed: next_id advanced by the import");
     for (id = before; id < after; id++) {
@@ -7740,11 +7779,12 @@ int main(void)
     test_find_ci();
     test_serve_api_find();
     /* -- foreign importers block (appended as one unit) -- */
-    printf("foreign importers (import.c): the separable parse helpers:\n");
+    printf("foreign importers (import.c): the parse helpers, then links files:\n");
     test_import_parse_helpers();
     test_import_links_pocket();
     test_import_links_instapaper();
     test_import_links_raindrop();
+    test_import_links_header_words();
     test_import_links_shapes();
     test_import_links_injection();
     test_import_links_html();

@@ -106,7 +106,7 @@ FROM ANOTHER APP
 
 Links you kept elsewhere come in as records, one per link, under the tags and
 folder names you gave them there plus one tag naming the source, so the whole
-batch is found, or removed, as one. The save date is the one the other app
+batch is found, or removed, as one. A link keeps the save date the other app
 recorded.
 
   Browser     Export your bookmarks from the browser's bookmark manager; every
@@ -124,7 +124,7 @@ recorded.
                   ais --import-bookmarks part_000000.csv
 
               Your tags become tags, plus  pocket ,  instapaper  or  raindrop .
-              Unread, archive and starred are not tags.
+              Unread, archive, starred and unsorted are not tags.
 
   Google Keep Download Keep with Google Takeout and extract it:
 
@@ -133,10 +133,11 @@ recorded.
               Labels become tags, plus  keep . A multi-line note is a document.
 
   In the app  Menu > Import bookmarks takes the same files, several at once,
-              shows them under their tag, and offers Undo. In the browser
-              version it is Sync > Import bookmarks.
+              and shows them under their tag. Undo removes the links that
+              import added and nothing else. In the browser version it is
+              Sync > Import bookmarks, without Undo.
 
-  Undo        A batch goes by its tag:
+  Removing    A batch goes by its tag, on the command line or on the web page:
 
                   ais --del-under pocket
 

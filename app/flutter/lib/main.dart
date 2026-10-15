@@ -1528,13 +1528,8 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
     if (rc == 0) _setView(_view); // refresh with merged records
   }
 
-  // Links from another app: a browser's bookmarks file, or the CSV that Pocket,
-  // Instapaper or Raindrop export. One record per link under the user's own tag
-  // and folder words plus one key naming the source (pocket, bookmark, ...), so
-  // the batch recalls as one. Undo deletes only the ids this import created
-  // (the id counter read either side of the call); a link that was already
-  // here merged into its record and stays. Runs on a background isolate with
-  // the shared handle, so other writes are held off meanwhile, as for a sync.
+  // Links from another app (import.h). Runs on a background isolate with the
+  // shared handle, so other writes are held off meanwhile, as for a sync.
   Future<void> _importLinks() async {
     if (_ais == null || _syncBlocks()) return;
     final messenger = ScaffoldMessenger.of(context);
@@ -1555,13 +1550,15 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
     final before = eng.countLive();
     final firstId = eng.nextId();
     var put = 0;
+    var marker = '';
     final problems = <String>[];
     _syncBusy = true;
     try {
       for (final f in files) {
-        final rc = await eng.importLinksAsync(f.path);
+        final (rc, m) = await eng.importLinksAsync(f.path);
         if (rc >= 0) {
           put += rc;
+          marker = m;
         } else {
           problems.add(_linksProblem(rc, f.name));
         }
@@ -1579,9 +1576,6 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
       msg = 'Nothing new. These links are already here.';
     } else {
       _backupDirty = true;
-      // The marker is the last key of the newest record: tags, folder, source.
-      final ks = _keysFor(lastId - 1).split(' ');
-      final marker = ks.isNotEmpty ? ks.last : '';
       final already = put - fresh;
       msg = 'Imported $fresh link${fresh == 1 ? '' : 's'}'
           '${marker.isNotEmpty ? ' under "$marker"' : ''}'
@@ -1605,7 +1599,7 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
   String _linksProblem(int rc, String name) {
     switch (rc) {
       case -2:
-        return 'No link column in $name. Pick a Pocket, Instapaper or Raindrop '
+        return 'No url column in $name. Pick a Pocket, Instapaper or Raindrop '
             '.csv, or a bookmarks .html.';
       case -4:
         return '$name is UTF-16 text. Save it as UTF-8 CSV first.';
@@ -1616,8 +1610,9 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
     }
   }
 
-  // Delete the run of ids an import created, nothing else: a record the import
-  // merged into has an older id and keeps the key it gained.
+  // Undo an import: delete the run of ids it created (the id counter read either
+  // side of the call), nothing else. A record the import merged into has an
+  // older id and keeps the key it gained.
   Future<void> _undoImport(int from, int to) async {
     if (_ais == null || _syncBlocks()) return;
     final messenger = ScaffoldMessenger.of(context);
