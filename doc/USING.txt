@@ -101,6 +101,48 @@ Your home folder ~/.ais also holds "config", the list of your named indexes. It
 is harmless to copy along with the rest.
 
 
+FROM ANOTHER APP
+----------------
+
+Links you kept elsewhere come in as records, one per link, under the tags and
+folder names you gave them there plus one tag naming the source, so the whole
+batch is found, or removed, as one. The save date is the one the other app
+recorded.
+
+  Browser     Export your bookmarks from the browser's bookmark manager; every
+              browser writes the same HTML file. Then:
+
+                  ais --import-bookmarks bookmarks.html
+
+              Folder names become tags, plus the tag  bookmark .
+
+  Pocket,     Pocket's download is a zip holding part_000000.csv (more parts
+  Instapaper, for a large library): open it first. Instapaper and Raindrop
+  Raindrop    export a .csv from their settings. The same command reads all
+              three:
+
+                  ais --import-bookmarks part_000000.csv
+
+              Your tags become tags, plus  pocket ,  instapaper  or  raindrop .
+              Unread, archive and starred are not tags.
+
+  Google Keep Download Keep with Google Takeout and extract it:
+
+                  ais --import-keep Takeout/Keep
+
+              Labels become tags, plus  keep . A multi-line note is a document.
+
+  In the app  Menu > Import bookmarks takes the same files, several at once,
+              shows them under their tag, and offers Undo. In the browser
+              version it is Sync > Import bookmarks.
+
+  Undo        A batch goes by its tag:
+
+                  ais --del-under pocket
+
+              That also takes anything you filed under that tag yourself.
+
+
 ON A PHONE
 ----------
 

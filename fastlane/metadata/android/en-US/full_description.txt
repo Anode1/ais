@@ -21,6 +21,7 @@ Sync and backup, only when you ask
 
 Also
 - Share a link or text to AIS from any other app.
+- Import a browser's bookmarks file, or what Pocket, Instapaper or Raindrop export.
 - A timeline of everything saved, with a date range.
 - A list of every tag you have used.
 - Search inside the saved text when no tag matches.

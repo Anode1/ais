@@ -656,9 +656,9 @@ int main(int argc, char **argv)
             } else feed_import(&a);               /* ais --import : merge stdin */
             break;
         case CMD_IMPORTI: feed_import_interactive(&a); break;
-        case CMD_IMPORTBM:                    /* a browser's exported bookmarks HTML */
+        case CMD_IMPORTBM:                    /* a bookmarks HTML, or a links CSV (Pocket...) */
             if (optind >= argc)
-                die("--import-bookmarks needs the exported bookmarks HTML file");
+                die("--import-bookmarks needs the bookmarks HTML or the links CSV file");
             if (import_bookmarks(&a, argv[optind]) == 0)
                 rc = 1;                       /* nothing imported */
             break;
