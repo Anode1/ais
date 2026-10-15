@@ -230,6 +230,7 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
   // new key search, clear, or view change.
   bool _textSearch = false;
   String _status = 'Loading…';
+  bool _openFailed = false; // the engine refused the index: show it, offer Retry
   String _query = '';
   String _dir = '';
   // One sync at a time: a scanned deep link arrives off the platform channel, not
@@ -364,6 +365,7 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
       await _excludeFromICloud(dir);
       _ais = AisEngine(dir);
       _dir = dir;
+      _openFailed = false;
       _status = 'Type tags, then Search. Tap Add to save.';
       _syncFolder = _loadSyncFolder();
       _backupTree = _loadBackupTree();
@@ -371,10 +373,12 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
       _loadTimeline(); // open showing recent items, not a blank search pane
       _runFolderSync(silent: true); // pull peer changes on open (opening is the user action)
     } catch (e) {
-      // The likeliest cause is a shared index folder (Syncthing) a newer AIS has
-      // upgraded: the engine refuses it rather than resolve deletes the old way.
-      _status = 'Your notes were saved by a newer version of AIS. '
-          'They are safe and unchanged: update this app to open them.\n($e)';
+      // The engine reports every refusal as "cannot open", and the likeliest
+      // cause is a shared folder (Syncthing) a newer AIS has upgraded: it
+      // refuses that rather than resolve deletes the old way. Say both.
+      _openFailed = true;
+      _status = 'Couldn’t open your notes.\n$e\n'
+          'If a newer AIS saved them, they are safe and unchanged: update this app.';
     }
     // Speech initializes on the first mic tap (see _listen), tying the permission
     // prompt to a user gesture rather than app launch.
@@ -2115,7 +2119,10 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
         _q.clear();
       });
     } catch (e) {
-      setState(() => _status = 'cannot open: $e');
+      setState(() {
+        _openFailed = true;
+        _status = 'cannot open: $e';
+      });
     }
   }
 
@@ -2499,9 +2506,9 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
   // Keeps a slow or failed open from reading as "nothing saved yet".
   Widget? _engineGate(ColorScheme cs) {
     if (_ais != null || widget.survival != null) return null;
-    if (_status.startsWith('cannot open') || _status.startsWith('cannot resolve')) {
+    if (_openFailed) {
       return Center(
-        child: Padding(
+        child: SingleChildScrollView(
           padding: const EdgeInsets.all(24),
           child: Column(
             mainAxisSize: MainAxisSize.min,
