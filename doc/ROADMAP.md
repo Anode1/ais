@@ -134,7 +134,7 @@ there. An intent filter for `.aisb` (VIEW and SEND) that routes to the same
 merge, behind the confirmation the `ais://sync` link already shows, removes
 that step.
 
-## Known gaps, as of v0.3.36
+## Known gaps, as of v0.3.37
 
 Four things are open, and this is the list to work from: the release chores that
 remain, coverage nobody has, a test that cannot see, and defects left on purpose
@@ -145,15 +145,17 @@ with the reason for each.
 A tag publishes eight artifacts, each with a checksum, and uploads a signed
 iOS build to TestFlight. Reaching the stores is manual:
 
-- Upload `ais-v0.3.36-android.aab` to the Play Console as a new release on the
+- Upload `ais-v0.3.37-android.aab` to the Play Console as a new release on the
   Production track, following [`dev/ANDROID_RELEASE.md`](dev/ANDROID_RELEASE.md).
   The listing is done and a production release with build 477 (0.3.27) went
   to review on 2026-09-15, so every later build is another upload by hand. The
   listing text and graphics are `fastlane/metadata/android/en-US/`
   (`doc/public-text.txt` says what goes where).
-- The iOS build is in App Store review (submitted 2026-10-09, build 556,
-  [`dev/IOS_TODO.md`](dev/IOS_TODO.md) section 9); release it by hand after
-  approval, then put the App Store link in the README.
+- iOS build 556 (0.3.36) is in App Store review, resubmitted 2026-10-14 with
+  the notes and recording Apple asked for ([`dev/IOS_TODO.md`](dev/IOS_TODO.md)
+  section 9); release it by hand after approval, then put the App Store link
+  in the README. The v0.3.37 tag puts build 583 on TestFlight; it goes to
+  review as an update once 556 is through.
 - Publish the release to the official MCP Registry
   ([`dev/VERSIONING.md`](dev/VERSIONING.md), step 5).
 - winget: the first manifest (0.3.36, the release zip as a portable package)

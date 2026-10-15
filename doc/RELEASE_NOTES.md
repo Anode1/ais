@@ -8,6 +8,14 @@ Before tagging, run `scripts/release-notes.sh vX.Y.Z`: it prepends the commit
 subjects since the previous tag, then edit them down to what a user needs to
 know. The old entries below the two newest are the raw subjects.
 
+## v0.3.37 (2026-10-14)
+
+- Import: links from Pocket, Instapaper and Raindrop (their CSV export) and bookmarks from any browser (its HTML export) come in as records under the tags and folders they had there, plus one tag naming the source; a link keeps the date the other app recorded. In the CLI (`--import-bookmarks FILE`), the app (Import bookmarks, with Undo) and the web page.
+- Design: one row of filter chips in the app and on the web page, the Tags and Add sheets reshaped, a menu and icons in the web page's header, and one vocabulary across the app, the web page, the help and the store listings: Show a code, Scan or type a code, Lock with a password, Free up space.
+- App: the Tags list narrows only by text typed there; a failed engine open shows its error with Retry instead of spinning; iOS builds target iOS 15.
+- Web GUI: each chip shows on the view it acts on, and an empty date range says so.
+- Packaging: a spec and Debian source for the openSUSE Build Service, and winget manifests for the Windows zip.
+
 ## v0.3.36 (2026-10-09)
 
 - iOS: the app icon is the AIS artwork. Every iOS build so far carried the Flutter placeholder logo.
