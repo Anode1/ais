@@ -28,12 +28,9 @@ no daemon and no dependencies; the store is text files you can grep and repair.
 %build
 %make_build AIS_VERSION=%{version} CFLAGS="%{build_cflags}" LDFLAGS="%{build_ldflags}"
 
-# The test binary is not shipped. LDFLAGS is emptied for it because the 0.3.36
-# Makefile links it with the hardening -pie but compiles it without -fPIE;
-# from the next release it takes CFLAGS too and the override can go.
 %check
-make AIS_VERSION=%{version} LDFLAGS= codeut
-make AIS_VERSION=%{version} LDFLAGS= cliut
+make AIS_VERSION=%{version} codeut
+make AIS_VERSION=%{version} cliut
 desktop-file-validate %{buildroot}%{_datadir}/applications/ais.desktop || :
 
 %install
@@ -50,5 +47,5 @@ desktop-file-validate %{buildroot}%{_datadir}/applications/ais.desktop
 %{_datadir}/icons/hicolor/256x256/apps/ais.png
 
 %changelog
-* Wed Oct 14 2026 Vasili Gavrilov <gavr144@gmail.com> - 0.3.37-1
+* Thu Oct 15 2026 Vasili Gavrilov <gavr144@gmail.com> - 0.3.37-1
 - Release 0.3.37
