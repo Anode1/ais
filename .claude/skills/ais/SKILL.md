@@ -31,6 +31,12 @@ Output is the matching records (id and value). Use the values directly; mention 
 - `ais <key> <key> ... -v "<value>"`   e.g. `ais <keyA> <keyB> -v "https://example.org/page"`   (recall, plus `-v`)
 - The value is a reference: a URL, a path, a short note, or a command. Keep values short. AIS indexes references, not documents.
 
+## Documents (multi-line notes)
+- `ais --doc <key> <key> ... < FILE` files a whole file as a blob; recall prints its text. One file per subject, under that subject's keys. A new fact on the subject goes into that file, never into a second one.
+- To update: `ais <keys>` for the id, `ais --del <id> -y`, then `ais --doc <keys> < FILE` again. The index holds a snapshot; the file is the source.
+- A person's own note is filed as typed. A note the agent writes is plain text: Markdown headings, short `-` bullets, two levels at most, no prose between them. One fact in one place; a second mention is a pointer. Every claim keeps its number, date and id (part number, ASIN, page). Decisions and rejections stated as such, dated, with the reason in one clause. Open items in their own section, one bullet each.
+- Never a Word document, JSON or XML: a person must be able to edit the file on a phone, and any model must read it without a schema. The shape, the rewrite procedure and the measurement behind it: doc/NOTES.md.
+
 ## Update and delete (by id)
 - Attach a key: `ais --update <id> <key>`
 - Detach a key: `ais --update <id> -- -<key>`

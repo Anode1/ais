@@ -162,6 +162,7 @@ make                 # build ./ais
 | [`doc/about.txt`](doc/about.txt) | What ais is, and what it is not. |
 | [`doc/command_line.txt`](doc/command_line.txt) | Every command and option, the full `ais --help`. |
 | [`doc/MCP.md`](doc/MCP.md) | The `ais --mcp` agent tool: wiring it into a client, which index it opens, what it refuses. |
+| [`doc/NOTES.md`](doc/NOTES.md) | The shape of a note an agent writes: plain-text bullets filed with `ais --doc`, one fact in one place, readable by a person and a machine alike; and why not a document or JSON. |
 | [`doc/SYNC.md`](doc/SYNC.md) | Sync your index between devices: encrypted LAN sync (`--sync`), or through a shared folder a tool like Syncthing keeps in sync (`--sync-folder`). |
 | [`doc/OVERVIEW.md`](doc/OVERVIEW.md) | Why it is built this way, and where it came from. |
 | [`doc/ROADMAP.md`](doc/ROADMAP.md) | What's planned, what is knowingly unfixed, and where to help. |
