@@ -85,7 +85,7 @@ void main() {
     await fill(tester, 'Repeat password', 'secreT');
     await tester.tap(find.widgetWithText(FilledButton, 'Save'));
     await tester.pumpAndSettle();
-    expect(find.text('Passwords do not match'), findsOneWidget);
+    expect(find.text("The passwords don't match."), findsOneWidget);
     expect(saved, isEmpty);
     // the sheet stays open for the correction
     expect(find.text('New item'), findsOneWidget);
@@ -101,7 +101,7 @@ void main() {
     await fill(tester, 'Repeat password', 'secret ');
     await tester.tap(find.widgetWithText(FilledButton, 'Save'));
     await tester.pumpAndSettle();
-    expect(find.text('Passwords do not match'), findsOneWidget);
+    expect(find.text("The passwords don't match."), findsOneWidget);
     expect(saved, isEmpty);
   });
 
@@ -128,7 +128,7 @@ void main() {
     await fill(tester, 'Repeat password', 'nope');
     await tester.tap(find.widgetWithText(FilledButton, 'Save'));
     await tester.pumpAndSettle();
-    expect(find.text('Passwords do not match'), findsOneWidget);
+    expect(find.text("The passwords don't match."), findsOneWidget);
     await fill(tester, 'Repeat password', 'pw');
     await tester.tap(find.widgetWithText(FilledButton, 'Save'));
     await tester.pumpAndSettle();
@@ -282,16 +282,16 @@ void main() {
     await fill(tester, 'Repeat password', 'nope');
     await tester.tap(find.widgetWithText(FilledButton, 'Save'));
     await tester.pumpAndSettle();
-    expect(find.text('Passwords do not match'), findsOneWidget);
+    expect(find.text("The passwords don't match."), findsOneWidget);
     await tester.tap(find.byType(Switch));
     await tester.pump();
-    expect(find.text('Passwords do not match'), findsNothing);
+    expect(find.text("The passwords don't match."), findsNothing);
     await tester.tap(find.byType(Switch));
     await tester.pump();
     await fill(tester, 'Repeat password', 'pw');
     await tester.tap(find.widgetWithText(FilledButton, 'Save'));
     await tester.pump();   // the save is in flight: no stale error under the spinner
-    expect(find.text('Passwords do not match'), findsNothing);
+    expect(find.text("The passwords don't match."), findsNothing);
     await tester.pumpAndSettle();
     expect(saved.length, 1);
   });

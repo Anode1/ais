@@ -30,7 +30,8 @@ const _secrets = (
   'Secrets',
   'Turn on Lock with a password in the Add sheet and set a password. The text '
       'is stored encrypted and shown only after you type the password. '
-      'Forget this password and the note is gone for good.'
+      'Forget this password and the note is gone for good. A locked note holds '
+      'about 6000 letters, fewer in other alphabets.'
 );
 
 const helpSections = <(String, String)>[

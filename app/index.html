@@ -471,22 +471,32 @@ async function openEdit(id, v) {
 }
 async function edSave() {
   edAdd();                                     // commit a key still being typed
-  if (edEdit) {
-    // newlines pass through: the engine chooses inline vs blob at this write
-    var nv = $('edval').value;
-    if (nv.trim() && nv != edOrig) {
-      var sr = await fetch('/api/setvalue?id=' + edId, { method:'POST', body: edOldVal + '\n' + nv });
-      if (!sr.ok) alert(await sr.text());   // the body names the cause, as the CLI does
+  // fails as save() does: a refused tag is caught before sending, a refusal
+  // shows the server's sentence, an unreachable server says so, and the sheet
+  // stays open with the edits in it. Tags go first, so a refused text leaves
+  // the tag change saved and the text there to fix.
+  for (var i = 0; i < edTags.length; i++)
+    if (ulen(edTags[i]) > 255) { alert('One of your tags is too long (max 255 letters, fewer in other alphabets).'); return; }
+  try {
+    // re-read the keys and send only what CHANGED: a blind re-send would re-attach
+    // a key another device detached in the meantime
+    var o = (await (await fetch('/api/keys?id=' + edId)).text()).trim();
+    var oa = o ? o.split(/\s+/) : [], dl = [];
+    oa.forEach(function (t){ if (edTags.indexOf(t) < 0) dl.push('-' + t); });
+    edTags.forEach(function (t){ if (oa.indexOf(t) < 0) dl.push(t); });
+    if (dl.length) {
+      var ur = await fetch('/api/update?id=' + edId + '&keys=' + encodeURIComponent(dl.join(' ')), { method:'POST' });
+      if (!ur.ok) { alert((await ur.text()).trim()); return; }
     }
-  }
-  // re-read the keys and send only what CHANGED: a blind re-send would re-attach
-  // a key another device detached in the meantime
-  var o = (await (await fetch('/api/keys?id=' + edId)).text()).trim();
-  var oa = o ? o.split(/\s+/) : [], dl = [];
-  oa.forEach(function (t){ if (edTags.indexOf(t) < 0) dl.push('-' + t); });
-  edTags.forEach(function (t){ if (oa.indexOf(t) < 0) dl.push(t); });
-  if (dl.length)
-    await fetch('/api/update?id=' + edId + '&keys=' + encodeURIComponent(dl.join(' ')), { method:'POST' });
+    if (edEdit) {
+      // newlines pass through: the engine chooses inline vs blob at this write
+      var nv = $('edval').value;
+      if (nv.trim() && nv != edOrig) {
+        var sr = await fetch('/api/setvalue?id=' + edId, { method:'POST', body: edOldVal + '\n' + nv });
+        if (!sr.ok) { alert((await sr.text()).trim()); return; }
+      }
+    }
+  } catch (e) { alert("Couldn't reach AIS. Check it is still running, then try again."); return; }
   $('editsheet').hidden = true;
   setView(view);
 }

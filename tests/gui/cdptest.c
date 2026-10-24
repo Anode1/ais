@@ -337,6 +337,30 @@ int main(int argc, char **argv) {
         "&&document.getElementById('out').innerText.indexOf('line four')>=0", 5000) == 0);
     ok("still as text, not base64", cdp_wait_bool(c,
         "document.getElementById('out').innerText.indexOf('aisdoc:')<0", 3000) == 0);
+    /* The Edit sheet refuses as the Add sheet does: a tag over 255 bytes in
+     * the same sentence, before anything is sent, with the sheet kept open;
+     * and a server refusal (an empty text) shows the server's sentence. */
+    cdp_eval_bool(c, "(function(){window.__alert=null;window.alert=function(m){window.__alert=m};"
+                     "var h=document.querySelectorAll('.hit');"
+                     "for(var i=0;i<h.length;i++){if(h[i].innerText.indexOf('line 2 EDITED')>=0){"
+                     "var bs=h[i].querySelectorAll('button');"
+                     "for(var j=0;j<bs.length;j++)if(bs[j].textContent==='edit'){bs[j].click();return true}}}"
+                     "return false})()", &(int){0});
+    cdp_wait_bool(c, "!document.getElementById('editsheet').hidden", 5000);
+    cdp_eval_bool(c, "(function(){document.getElementById('edtag').value=new Array(131).join('\u0436');"
+                     "edSave();return true})()", &(int){0});
+    ok("an over-long tag in Edit is refused, in those words", cdp_wait_bool(c,
+        "window.__alert==='One of your tags is too long (max 255 letters, fewer in other alphabets).'", 3000) == 0);
+    ok("and the Edit sheet stays open", cdp_wait_bool(c,
+        "!document.getElementById('editsheet').hidden", 3000) == 0);
+    cdp_eval_bool(c, "(function(){edTags.pop();edChips();window.__alert=null;"
+                     "edOldVal='not-the-old-value';document.getElementById('edval').value='line one\\nline 2 EDITED\\nline three\\nline four\\nline five';"
+                     "edSave();return true})()", &(int){0});
+    ok("a refused text edit shows the server's sentence", cdp_wait_bool(c,
+        "window.__alert==='Couldn\\'t update the text.'", 5000) == 0);
+    ok("and keeps the Edit sheet open", cdp_wait_bool(c,
+        "!document.getElementById('editsheet').hidden", 3000) == 0);
+    cdp_eval_bool(c, "(function(){document.getElementById('editsheet').hidden=true;return true})()", &(int){0});
     ok("and it is still ONE record",
        cdp_eval_bool(c, "(function(){window.__d2=null;fetch('/api/get?keys=notes')"
                         ".then(function(r){return r.text()}).then(function(t){window.__d2=t});return true})()",

@@ -445,14 +445,21 @@ static const char PAGE[] =
 "$('edvalwrap').style.display=edEdit?'block':'none';if(edEdit)$('edval').value=edOrig;"
 "var t=(await(await fetch('/api/keys?id='+id)).text()).trim();edTags=t?t.split(/\\s+/):[];edChips();"
 "$('edtag').value='';$('edsuggest').innerHTML='';$('editsheet').hidden=false}"
+/* Fails as save() does: a refused tag is caught before sending, a refusal
+ * shows the server's sentence, an unreachable server says so, and the sheet
+ * stays open with the edits in it every time. Tags go first, so a refused
+ * text leaves the tag change saved and the text there to fix. */
 "async function edSave(){edAdd();"
+"for(var i=0;i<edTags.length;i++)if(ulen(edTags[i])>255){alert('One of your tags is too long (max 255 letters, fewer in other alphabets).');return}"
+"try{var o=(await(await fetch('/api/keys?id='+edId)).text()).trim(),oa=o?o.split(/\\s+/):[],dl=[];"
+"oa.forEach(function(t){if(edTags.indexOf(t)<0)dl.push('-'+t)});edTags.forEach(function(t){if(oa.indexOf(t)<0)dl.push(t)});"
+"if(dl.length){var ur=await fetch('/api/update?id='+edId+'&keys='+encodeURIComponent(dl.join(' ')),{method:'POST'});"
+"if(!ur.ok){alert((await ur.text()).trim());return}}"
 /* newlines pass through: the engine chooses inline vs blob at this write */
 "if(edEdit){var nv=$('edval').value;"
 "if(nv.trim()&&nv!=edOrig){var sr=await fetch('/api/setvalue?id='+edId,{method:'POST',body:edOldVal+'\\n'+nv});"
-"if(!sr.ok)alert(await sr.text())}}"
-"var o=(await(await fetch('/api/keys?id='+edId)).text()).trim(),oa=o?o.split(/\\s+/):[],dl=[];"
-"oa.forEach(function(t){if(edTags.indexOf(t)<0)dl.push('-'+t)});edTags.forEach(function(t){if(oa.indexOf(t)<0)dl.push(t)});"
-"if(dl.length)await fetch('/api/update?id='+edId+'&keys='+encodeURIComponent(dl.join(' ')),{method:'POST'});"
+"if(!sr.ok){alert((await sr.text()).trim());return}}}"
+"}catch(e){alert('Couldn\\'t reach AIS. Check it is still running, then try again.');return}"
 "$('editsheet').hidden=true;setView(view)}"
 "function parseTL(ln){var a=ln.indexOf('|'),b=ln.indexOf('|',a+1),c=ln.indexOf('|',b+1);"
 "return{id:ln.slice(0,a),ts:ln.slice(a+1,b),keys:ln.slice(b+1,c),value:ln.slice(c+1)}}"
@@ -1206,8 +1213,9 @@ static long do_put(ais *a, const char *keys, char *body)
 /* Encrypt save (?enc=1): BODY is "passphrase\nvalue..." -- the passphrase rides the
  * POST body, never the URL, so it stays out of the browser history. Encrypts VALUE
  * under it and puts the "aisc:" marker. 1 if stored, -2 if VALUE is over
- * AIS_SECRET_INLINE_MAX (the one failure the user can act on, so it gets its
- * own answer), 0 on malformed/failure/no-crypto. */
+ * AIS_SECRET_INLINE_MAX and -3 on an empty passphrase (the two failures the
+ * user can act on, so each gets its own answer), 0 on malformed/failure/
+ * no-crypto. */
 static long do_put_enc(ais *a, const char *keys, char *body)
 {
     char marked[AIS_SECRET_INLINE_BUF];
@@ -1218,6 +1226,8 @@ static long do_put_enc(ais *a, const char *keys, char *body)
     if (value == NULL)
         return 0;                          /* expected "passphrase\nvalue" */
     *value++ = '\0';                        /* body -> passphrase, value -> the rest */
+    if (body[0] == '\0')
+        return -3;                         /* an empty password locks nothing */
     if (strlen(value) > AIS_SECRET_INLINE_MAX) {
         secret_wipe(body, strlen(body));
         return -2;
@@ -1840,6 +1850,10 @@ static void handle(ais *a, int fd)
                 "Connection: close\r\n\r\nA locked note holds about 6000 letters, fewer "
                 "in other alphabets. Split it, or save it without a password.\n";
             write_all(fd, e, sizeof(e) - 1);
+        } else if (c == -3) {
+            static const char e[] = "HTTP/1.0 400 Bad Request\r\n"
+                "Connection: close\r\n\r\nEnter a password to lock it.\n";
+            write_all(fd, e, sizeof(e) - 1);
         } else if (c <= 0) {
             /* Saving nothing is a FAILURE, not a 200 with a count of zero: on a
              * 200 both pages close the sheet as if the value had been stored, and
@@ -1894,7 +1908,7 @@ static void handle(ais *a, int fd)
             write_all(fd, "updated\n", 8);
         } else {
             static const char e[] = "HTTP/1.0 400 Bad Request\r\n"
-                "Connection: close\r\n\r\ncannot update\n";
+                "Connection: close\r\n\r\nCouldn't update the tags.\n";
             write_all(fd, e, sizeof(e) - 1);
         }
     } else if (strcmp(method, "POST") == 0 && strcmp(path, "/api/untag") == 0) {
@@ -2024,13 +2038,14 @@ static void handle(ais *a, int fd)
                 send_head(fd, "text/plain");
                 write_all(fd, "updated\n", 8);
             } else {
-                /* The body names the cause, as the CLI does (parity: GUI.md). */
+                /* The body names the cause, in the app's sentences (main.dart):
+                 * the page shows it as is. */
                 const char *why =
-                    (rc == -2) ? "a record already holds that text: this one as"
-                                 " another link, or another record\n" :
-                    (rc == -3) ? "a deleted record still holds that text:"
-                                 " use clean up first\n" :
-                                 "cannot update value\n";
+                    (rc == -2) ? "An item already holds that text: another one,"
+                                 " or this one as another link.\n" :
+                    (rc == -3) ? "A deleted item still holds that text."
+                                 " Run Free up space first.\n" :
+                                 "Couldn't update the text.\n";
                 char e[256];
                 int  n = snprintf(e, sizeof e, "HTTP/1.0 400 Bad Request\r\n"
                                   "Connection: close\r\n\r\n%s", why);
@@ -2038,7 +2053,7 @@ static void handle(ais *a, int fd)
             }
         } else {
             static const char e[] = "HTTP/1.0 400 Bad Request\r\n"
-                "Connection: close\r\n\r\ncannot update value\n";
+                "Connection: close\r\n\r\nCouldn't update the text.\n";
             write_all(fd, e, sizeof(e) - 1);
         }
     } else if (strcmp(method, "GET") == 0 && strcmp(path, "/api/timeline") == 0) {

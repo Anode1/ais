@@ -32,14 +32,19 @@ endif
 .PHONY: all codeut cliut uiut ut codeut-asan codeut-ubsan hooks clean static install install-strip install-desktop uninstall distclean dist helpdoc
 
 # Build the engine in c/, then copy the binary up to the repo root as ./ais, so
-# from a source checkout you can run ./ais instead of ./c/ais.
+# from a source checkout you can run ./ais instead of ./c/ais. A CC naming
+# mingw makes c/Makefile build ais.exe; copy that name.
+BIN = ais
+ifneq (,$(findstring mingw,$(CC)))
+BIN = ais.exe
+endif
 all:
 	$(MAKE) -C c all
-	@cp -f c/ais ais && echo "built ./ais"
+	@cp -f c/$(BIN) $(BIN) && echo "built ./$(BIN)"
 
 static:
 	$(MAKE) -C c static
-	@cp -f c/ais ais && echo "built ./ais (static)"
+	@cp -f c/$(BIN) $(BIN) && echo "built ./$(BIN) (static)"
 
 # codeut = the C engine tests (c/tests.c, in-process) -- the fast inner loop.
 codeut:
@@ -80,7 +85,7 @@ helpdoc: all
 
 clean:
 	$(MAKE) -C c clean
-	-rm -f ais
+	-rm -f ais ais.exe
 
 # cliut = the CLI black-box: the real binary through the shell (argv, pipes, -v -).
 cliut: all

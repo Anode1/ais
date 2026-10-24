@@ -33,12 +33,12 @@ void main() {
     test('encrypt with a mismatched confirmation is blocked', () {
       expect(
         addSaveError(value: 'x', engineReady: true, syncing: false, encrypt: true, passphrase: 'a', passphraseRepeat: 'b'),
-        'Passwords do not match');
+        "The passwords don't match.");
     });
     test('the match is on the RAW strings: a trailing space differs', () {
       expect(
         addSaveError(value: 'x', engineReady: true, syncing: false, encrypt: true, passphrase: 'a', passphraseRepeat: 'a '),
-        'Passwords do not match');
+        "The passwords don't match.");
       expect(
         addSaveError(value: 'x', engineReady: true, syncing: false, encrypt: true, passphrase: 'a ', passphraseRepeat: 'a '),
         isNull);
@@ -103,7 +103,7 @@ void main() {
     test('failed store (id < 0) is reported, NOT "Saved"', () {
       expect(saveSucceeded(-1), isFalse);
       expect(saveOutcomeMessage(-1, 'note'),
-          'Could not save. Check storage and try again.');
+          'Could not save. Your text is still here: copy it somewhere safe, then restart the app.');
     });
     test('successful store under tags announces the tags', () {
       expect(saveSucceeded(1), isTrue);
@@ -121,7 +121,7 @@ void main() {
     });
     test('a failed save stays a failure even if flagged merged', () {
       expect(saveOutcomeMessage(-1, 'note', merged: true),
-          'Could not save. Check storage and try again.');
+          'Could not save. Your text is still here: copy it somewhere safe, then restart the app.');
     });
   });
 

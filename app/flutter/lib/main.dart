@@ -3592,7 +3592,7 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
         id = _ais!.store(k, value);
       }
     } catch (e) {
-      return 'Could not save: $e';
+      return 'Could not save ($e). Your text is still here: copy it somewhere safe, then restart the app.';
     }
     // The engine returns -1 when nothing was stored (bad args, blob write
     // failure, crypto not built).

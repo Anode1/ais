@@ -219,6 +219,11 @@ OVER=$(printf 'pw123\n%sX' "$SIX" | curl -s -w '\n%{http_code}' -X POST --data-b
 ok "put (encrypted, 6001 bytes) is 413"           "413" "$OVER"
 ok "and says what a locked note holds"            "A locked note holds about 6000 letters" "$OVER"
 empty "and stored nothing under that tag"         "$(curl -s "$B/api/get?keys=sixk1")"
+# an empty password locks nothing: refused with the page's sentence, not sealed
+NOPW=$(printf '\nsecret-under-no-password' | curl -s -w '\n%{http_code}' -X POST --data-binary @- "$B/api/put?keys=nopw&enc=1")
+ok "put (encrypted, empty password) is 400"       "400" "$NOPW"
+ok "and says to enter a password"                 "Enter a password to lock it." "$NOPW"
+empty "and stored nothing under that tag"         "$(curl -s "$B/api/get?keys=nopw")"
 
 # --- LAN sync (Host / Join), mirroring the mobile Sync feature -------------
 # The page carries the Sync controls (the sheet, the QR encoder, the routes).

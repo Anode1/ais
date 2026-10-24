@@ -33,7 +33,7 @@ String? addSaveError({
   if (syncing) return 'A sync is running. Try again in a moment.';
   if (encrypt && passphrase.isEmpty) return 'Enter a password to lock it.';
   if (encrypt && passphraseRepeat != null && passphrase != passphraseRepeat) {
-    return 'Passwords do not match';
+    return "The passwords don't match.";
   }
   final content = contentError(value: value, keys: keys, encrypt: encrypt);
   if (content != null) return content;
@@ -73,7 +73,7 @@ bool saveSucceeded(int id) => id >= 0;
 /// there reads as a second note, and the missing row as data loss.
 String saveOutcomeMessage(int id, String keys, {bool merged = false}) =>
     !saveSucceeded(id)
-        ? 'Could not save. Check storage and try again.'
+        ? 'Could not save. Your text is still here: copy it somewhere safe, then restart the app.'
         : merged
             ? 'Already saved. Moved to today.'
             : (keys.isEmpty ? 'Saved (no tags)' : 'Saved under: $keys');
