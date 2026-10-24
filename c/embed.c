@@ -63,11 +63,13 @@ long ais_embed_store(void *handle, const char *keys, const char *value)
 long ais_embed_store_encrypted(void *handle, const char *keys,
                                const char *value, const char *passphrase)
 {
-    char marked[8192];
+    char marked[AIS_SECRET_INLINE_BUF];
     long id;
 
     if (handle == NULL || value == NULL || passphrase == NULL)
         return -1;
+    if (strlen(value) > AIS_SECRET_INLINE_MAX)
+        return -1;                          /* the one cap every front-end names */
     if (secret_encrypt((const unsigned char *)value, strlen(value),
                        (const unsigned char *)passphrase, strlen(passphrase),
                        marked, sizeof marked) < 0)

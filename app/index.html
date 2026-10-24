@@ -748,8 +748,8 @@ async function save() {
   // most 255 bytes, a locked note seals into 8 KB, which 6000 bytes of text fit
   var ks = normkeys(keys).split(' ');
   for (var i = 0; i < ks.length; i++)
-    if (ulen(ks[i]) > 255) { alert('One of your tags is too long (max 255 characters).'); return; }
-  if (enc && ulen(value) > 6000) { alert('A locked note holds at most 6000 characters. Shorten it, or save it without a password.'); return; }
+    if (ulen(ks[i]) > 255) { alert('One of your tags is too long (max 255 letters, fewer in other alphabets).'); return; }
+  if (enc && ulen(value) > 6000) { alert('A locked note holds about 6000 letters, fewer in other alphabets. Split it, or save it without a password.'); return; }
   // on a failed or unreachable put, say so and KEEP the sheet, so the value the
   // user typed is still there to retry with; a 413 carries the server's own
   // sentence, and a server that answered is not one to restart
@@ -760,7 +760,7 @@ async function save() {
     rt = await r.text();
   } catch (e) { alert("Couldn't reach AIS. Check it is still running, then try again."); return; }
   if (r.status == 413) { alert(rt.trim()); return; }
-  if (!r.ok) { alert('AIS could not save it (error ' + r.status + '). Try again.'); return; }
+  if (!r.ok) { alert('AIS did not save it (error ' + r.status + '). Your text is still here: copy it somewhere safe, then restart AIS.'); return; }
   closeSheet();
   // same text, same record: the reply says the save merged (restamped to today,
   // keys attached); silence here reads as the first note vanishing. The toast

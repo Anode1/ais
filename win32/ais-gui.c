@@ -23,6 +23,7 @@
 
 #include "embed.h"
 #include "locate.h"
+#include "secret.h"       /* AIS_SECRET_INLINE_MAX: the locked-note cap */
 
 enum { ID_KEYS = 1001, ID_GET, ID_OR, ID_LIST, ID_VALUE, ID_VKEYS, ID_ADD, ID_STORE, ID_ENC, ID_PP,
        ID_VRECALL, ID_VTIMELINE, ID_VTAGS };
@@ -246,6 +247,19 @@ static void do_add(void)
                 SetFocus(g_pp);
                 free(val); free(vk);
                 return;                                  /* keep the form so it can be fixed */
+            }
+            if (strlen(val) > AIS_SECRET_INLINE_MAX) {
+                /* Over the inline cap the seam returns -1, which the generic
+                 * message below blames on a read-only index. Say what the app
+                 * and the web page say, and keep the form. */
+                log_error("encrypt: value over %d bytes", AIS_SECRET_INLINE_MAX);
+                MessageBoxA(NULL, "A locked note holds about 6000 letters, fewer in "
+                            "other alphabets. Split it, or save it without a password.",
+                            "AIS", MB_OK | MB_ICONINFORMATION);
+                SecureZeroMemory(pp, strlen(pp));
+                free(pp);
+                free(val); free(vk);
+                return;
             }
             rc = ais_embed_store_encrypted(g_ais, (vk != NULL) ? vk : "", val, pp);
             SecureZeroMemory(pp, strlen(pp));            /* don't leave the passphrase in the heap */

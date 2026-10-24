@@ -73,7 +73,7 @@ void main() {
     test('an over-long tag is rejected by length', () {
       final longKey = 'k' * (kAisKeyMax + 1);
       expect(contentError(value: 'x', keys: longKey),
-          'One of your tags is too long (max $kAisKeyMax characters).');
+          'One of your tags is too long (max $kAisKeyMax letters, fewer in other alphabets).');
     });
     test('a tag at the limit is allowed', () {
       expect(contentError(value: 'x', keys: 'k' * kAisKeyMax), isNull);
@@ -87,14 +87,14 @@ void main() {
     });
     test('a long encrypted value is rejected: it would not seal', () {
       expect(contentError(value: 'v' * (kAisEncryptedMax + 1), keys: '', encrypt: true),
-          startsWith('A locked note holds at most'));
+          startsWith('A locked note holds about'));
       expect(contentError(value: 'v' * kAisEncryptedMax, keys: '', encrypt: true), isNull);
     });
     test('addSaveError surfaces a content problem too', () {
       final longKey = 'k' * (kAisKeyMax + 1);
       expect(
         addSaveError(value: 'x', engineReady: true, syncing: false, encrypt: false, passphrase: '', keys: longKey),
-        'One of your tags is too long (max $kAisKeyMax characters).');
+        'One of your tags is too long (max $kAisKeyMax letters, fewer in other alphabets).');
     });
   });
 

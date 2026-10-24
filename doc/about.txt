@@ -53,8 +53,8 @@ WHAT IT IS
   Universal. Anything you can name with keys: bookmarks, files, shell commands,
   phone numbers, and multi-line documents (`ais --doc`).
 
-  Encryptable, and safe to hand to an agent. A value or a whole document can be
-  stored encrypted inline (`-e`). Decryption is interactive: the cleartext
+  Encryptable, and safe to hand to an agent. A value can be stored encrypted
+  inline (`-e`), a whole document as an encrypted file (`--doc -e`). Decryption is interactive: the cleartext
   appears only after you supply the passphrase, at a terminal or in the app, and
   never when the output is piped, dumped, synced, or read programmatically. So an
   AI agent reading your index sees an opaque `aisc:` marker, not the secret, while

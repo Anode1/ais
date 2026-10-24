@@ -579,9 +579,11 @@ static const char PAGE[] =
 /* The engine's limits, checked here in the app's words (add_validation.dart)
  * so both front-ends refuse alike: a tag is a posting file name of at most 255
  * BYTES, and a locked note must seal into the server's 8 KB buffer, which
- * 6000 bytes of text fit (AIS_SECRET_INLINE_MAX). */
-"var ks=k.split(' ');for(var i=0;i<ks.length;i++)if(ulen(ks[i])>255){alert('One of your tags is too long (max 255 characters).');return}"
-"if(enc&&ulen(v)>6000){alert('A locked note holds at most 6000 characters. Shorten it, or save it without a password.');return}"
+ * 6000 bytes of text fit (AIS_SECRET_INLINE_MAX). The sentences count letters
+ * and say the byte unit costs other alphabets, since "6000 characters" refused
+ * a 3001-letter Cyrillic note. */
+"var ks=k.split(' ');for(var i=0;i<ks.length;i++)if(ulen(ks[i])>255){alert('One of your tags is too long (max 255 letters, fewer in other alphabets).');return}"
+"if(enc&&ulen(v)>6000){alert('A locked note holds about 6000 letters, fewer in other alphabets. Split it, or save it without a password.');return}"
 /* On a failed or unreachable put, tell the user and KEEP the sheet so they can
  * retry: never a stuck, silent modal. A 413 carries the server's own sentence
  * about what was refused; any other failure says which of the two it was,
@@ -590,7 +592,7 @@ static const char PAGE[] =
 "var r,rt;try{r=await fetch('/api/put?keys='+encodeURIComponent(k)+(enc?'&enc=1':''),{method:'POST',body:enc?(pp+'\\n'+v):v});"
 "rt=await r.text()}catch(e){alert('Couldn\\'t reach AIS. Check it is still running, then try again.');return}"
 "if(r.status==413){alert(rt.trim());return}"
-"if(!r.ok){alert('AIS could not save it (error '+r.status+'). Try again.');return}"
+"if(!r.ok){alert('AIS did not save it (error '+r.status+'). Your text is still here: copy it somewhere safe, then restart AIS.');return}"
 "closeSheet();setView('timeline');"
 /* same text, same record: the reply says the save merged (restamped to today,
  * keys attached); silence here reads as the first note vanishing. The toast is
@@ -1208,7 +1210,7 @@ static long do_put(ais *a, const char *keys, char *body)
  * own answer), 0 on malformed/failure/no-crypto. */
 static long do_put_enc(ais *a, const char *keys, char *body)
 {
-    char marked[8192];
+    char marked[AIS_SECRET_INLINE_BUF];
     char *value;
     long mn, rc = 0;
 
@@ -1728,8 +1730,8 @@ static void handle(ais *a, int fd)
             }
             {
                 static const char e[] = "HTTP/1.0 413 Payload Too Large\r\n"
-                    "Connection: close\r\n\r\nThe note is too large to save in one "
-                    "go (about 64 KB). Split it, or import it as a document.\n";
+                    "Connection: close\r\n\r\nThis note is too long to save here "
+                    "(over 64 KB). Split it into two notes.\n";
                 write_all(fd, e, sizeof(e) - 1);
             }
             return;
@@ -1835,8 +1837,8 @@ static void handle(ais *a, int fd)
             /* The app's sentence (add_validation.dart), so both front-ends say
              * the same thing; the page shows a 413 body verbatim. */
             static const char e[] = "HTTP/1.0 413 Payload Too Large\r\n"
-                "Connection: close\r\n\r\nA locked note holds at most 6000 characters. "
-                "Shorten it, or save it without a password.\n";
+                "Connection: close\r\n\r\nA locked note holds about 6000 letters, fewer "
+                "in other alphabets. Split it, or save it without a password.\n";
             write_all(fd, e, sizeof(e) - 1);
         } else if (c <= 0) {
             /* Saving nothing is a FAILURE, not a 200 with a count of zero: on a

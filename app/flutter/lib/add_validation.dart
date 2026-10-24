@@ -9,7 +9,9 @@ import 'dart:convert' show utf8;
 // save. A plain value has no cap: a long or multi-line one goes to a blob
 // (c/doc.c). An encrypted value must seal into embed.c's 8192-byte buffer
 // (57-byte header, MAC, base64), which 6000 bytes of plaintext fit:
-// AIS_SECRET_INLINE_MAX in c/secret.h, and the web page checks the same.
+// AIS_SECRET_INLINE_MAX in c/secret.h, and the web page checks the same. The
+// sentences count letters and say other alphabets get fewer, since the unit
+// is the byte.
 const int kAisKeyMax = 255;
 const int kAisEncryptedMax = 6000;
 
@@ -50,12 +52,12 @@ String? contentError(
   }
   for (final k in keys.split(RegExp(r'\s+')).where((k) => k.isNotEmpty)) {
     if (utf8.encode(k).length > kAisKeyMax) {
-      return 'One of your tags is too long (max $kAisKeyMax characters).';
+      return 'One of your tags is too long (max $kAisKeyMax letters, fewer in other alphabets).';
     }
   }
   if (encrypt && utf8.encode(value).length > kAisEncryptedMax) {
-    return 'A locked note holds at most $kAisEncryptedMax characters. '
-        'Shorten it, or save it without a password.';
+    return 'A locked note holds about $kAisEncryptedMax letters, fewer in other '
+        'alphabets. Split it, or save it without a password.';
   }
   return null;
 }

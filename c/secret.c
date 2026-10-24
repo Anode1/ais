@@ -13,6 +13,13 @@
 #include "secret.h"
 #include "b64.h"
 
+/* AIS_SECRET_INLINE_MAX bytes of text seal into AIS_SECRET_INLINE_BUF: the
+ * prefix, base64 of (57-byte header + text + 16-byte MAC), the NUL. Resizing
+ * either without the other fails here, not in a user's save. */
+typedef char ais_secret_inline_fits[
+    (sizeof AIS_SECRET_PREFIX - 1 + AIS_B64_ENCLEN(AIS_SECRET_INLINE_MAX + 73)
+     <= AIS_SECRET_INLINE_BUF) ? 1 : -1];
+
 #ifndef O_NOCTTY             /* Windows/MinGW has no controlling-terminal flag */
 #define O_NOCTTY 0
 #endif

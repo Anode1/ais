@@ -25,12 +25,15 @@
 /* The text prefix a stored encrypted value carries. */
 #define AIS_SECRET_PREFIX "aisc:"
 
-/* The most plaintext an INLINE secret takes, in bytes. The web GUI and the FFI
- * seam seal into an 8192-byte buffer (57-byte header, MAC, base64), which this
- * much fits. The app checks it before saving (add_validation.dart); the server
- * refuses it with the same sentence. A larger secret goes through the CLI's
- * `--doc -e` as an encrypted blob. */
+/* The most plaintext an INLINE secret takes, in BYTES (a Cyrillic letter is
+ * two), and the buffer it seals into: "aisc:" + base64(57-byte header + text +
+ * 16-byte MAC) + NUL, which 6000 bytes fit with 65 to spare (secret.c asserts
+ * it at compile time). The web page, the PWA and the app check it before
+ * saving, in one sentence; the server, the FFI seam and the Windows program
+ * refuse it. A larger secret goes through the CLI's `--doc -e` as an
+ * encrypted blob. */
 #define AIS_SECRET_INLINE_MAX 6000
+#define AIS_SECRET_INLINE_BUF 8192
 
 /* 1 if VALUE is a marked (encrypted) value -- either form -- else 0. NULL-safe. */
 int secret_is_marked(const char *value);

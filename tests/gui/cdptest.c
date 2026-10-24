@@ -445,8 +445,8 @@ int main(int argc, char **argv) {
                          "document.getElementById('v').value=new Array(6002).join('s');"
                          "document.getElementById('save').click();return true})()", &(int){0});
         ok("a locked note over 6000 characters is refused, in those words", cdp_wait_bool(c,
-            "window.__alert==='A locked note holds at most 6000 characters. "
-            "Shorten it, or save it without a password.'", 3000) == 0);
+            "window.__alert==='A locked note holds about 6000 letters, fewer in other "
+            "alphabets. Split it, or save it without a password.'", 3000) == 0);
         ok("the over-long note keeps the sheet open", cdp_wait_bool(c,
             "document.getElementById('sheet').hidden===false", 3000) == 0);
         /* a tag over 255 BYTES is refused the same way (the engine's unit is the
@@ -456,14 +456,29 @@ int main(int argc, char **argv) {
                          "document.getElementById('vk').value='locker '+new Array(131).join('\u0436');"
                          "document.getElementById('save').click();return true})()", &(int){0});
         ok("a tag over 255 bytes is refused, in those words", cdp_wait_bool(c,
-            "window.__alert==='One of your tags is too long (max 255 characters).'", 3000) == 0);
+            "window.__alert==='One of your tags is too long (max 255 letters, fewer in other alphabets).'", 3000) == 0);
         ok("and saved nothing",
            cdp_eval_bool(c, "(function(){window.__k=null;fetch('/api/get?keys=locker')"
                             ".then(function(r){return r.text()}).then(function(t){window.__k=t});return true})()",
                          &(int){0}) == 0 &&
            cdp_wait_bool(c, "window.__k!==null&&window.__k.indexOf('aisc:')<0", 5000) == 0);
 
-        cdp_eval_bool(c, "(function(){document.getElementById('vk').value='locker';"
+        /* A server refusal (413) reaches the user in the server's own sentence:
+         * a plain note past the request buffer. The pre-checks let it through,
+         * and the alert must not blame a dead server. */
+        cdp_eval_bool(c, "(function(){window.__alert=null;"
+                         "document.getElementById('vk').value='locker';"
+                         "document.getElementById('enc').checked=false;"
+                         "document.getElementById('v').value=new Array(70001).join('p');"
+                         "document.getElementById('save').click();return true})()", &(int){0});
+        ok("a plain note over 64 KB shows the server's own sentence", cdp_wait_bool(c,
+            "window.__alert==='This note is too long to save here (over 64 KB). "
+            "Split it into two notes.'", 5000) == 0);
+        ok("and keeps the sheet open", cdp_wait_bool(c,
+            "document.getElementById('sheet').hidden===false", 3000) == 0);
+
+        cdp_eval_bool(c, "(function(){document.getElementById('v').value='safe-combo-1234';"
+                         "document.getElementById('enc').checked=true;"
                          "document.getElementById('save').click();return true})()", &(int){0});
         ok("matching passwords save and close", cdp_wait_bool(c,
             "document.getElementById('sheet').hidden===true", 5000) == 0);
