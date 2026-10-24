@@ -14,13 +14,13 @@ Your memory (the index) lives in your user profile, NOT in the program folder:
 so removing AIS never touches your data. It is plain text you can read, back
 up, or copy elsewhere.
 
-No Cygwin, no .NET, nothing else to install: ais.exe and ais-gui.exe are
-self-contained native programs.
+No Cygwin, no .NET, nothing else to install: ais.exe is a self-contained
+native program.
 
 Installed vs Portable:
-  Installed (this build): Start Menu shortcut "AIS" launches the native window;
-    remove via the uninstaller (Add/Remove Programs).
-  Portable build: double-click ais-gui.exe in its folder; remove by deleting
+  Installed (this build): Start Menu shortcut "AIS" opens the web GUI in your
+    browser; remove via the uninstaller (Add/Remove Programs).
+  Portable build: double-click ais-web.bat in its folder; remove by deleting
     the folder (no registry, no Program Files).
 
 New here? Open USING.txt for a one-minute guide, or about.txt for what AIS is.

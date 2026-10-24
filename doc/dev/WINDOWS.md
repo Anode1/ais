@@ -3,9 +3,11 @@
 **One zip per release, `ais-<tag>-windows-x86_64.zip`, cross-compiled from Linux
 with MinGW-w64.** It holds `ais.exe`, the full CLI with the web GUI
 (`ais --serve`, launched by `ais-web.bat`) and LAN sync over Winsock, so a
-Windows user hosts and joins a QR sync with a phone exactly as on Linux; and
-`ais-gui.exe`, the native window, search and add over the same index, no sync.
-No Cygwin, no `cygwin1.dll`, no runtime. [`DISTRIBUTION.md`](DISTRIBUTION.md)
+Windows user hosts and joins a QR sync with a phone exactly as on Linux. No
+Cygwin, no `cygwin1.dll`, no runtime. A native window (`win32/`, search and add
+only, one line of text, no sync) shipped beside it up to v0.3.37 and was
+removed: it had half the product under other names, and it was the first thing
+a Windows user opened. The web GUI is the Windows GUI. [`DISTRIBUTION.md`](DISTRIBUTION.md)
 covers what every other platform gets.
 
 ## How it is built and tested
@@ -23,8 +25,8 @@ covers what every other platform gets.
   `open_memstream`/`fmemopen` and uses the temp file where MinGW has neither.
 - `serve.c`'s Host forks a child on POSIX; on Windows it is a thread with a
   fresh handle to the same index, serialised by the store's per-handle file lock.
-- `native-windows.yml` cross-compiles both exes on every push and PR touching
-  `c/`, `win32/`, the two suites or itself, then runs `tests/cli.sh` and `tests/sync.sh` against
+- `native-windows.yml` cross-compiles the exe on every push and PR touching
+  `c/`, the two suites or itself, then runs `tests/cli.sh` and `tests/sync.sh` against
   `ais.exe` on a Windows runner. That job is the only place the Windows binary
   is ever executed: the developers' machines have no Windows and no wine. The
   engine's in-process tests (`c/tests.c`) fork and exec, so they are not built
@@ -55,11 +57,6 @@ covers what every other platform gets.
 
 ## Sync: a file bundle beside the sockets
 
-The native window has no sync of its own. The LAN transport is now in its
-engine (`embed.c`'s sync FFI is live on Windows), but the window shows no Host
-or Join; the web GUI covers that. What the window would gain from the plan below
-is a file bundle: export to a file, import from a file, the same merge.
-
 Key insight: **sync = merge + transport, and the transport is the part a file
 can replace.**
 The merge (LWW over content hashes, `ais_merge_*` in `ais.c` and the import in
@@ -87,28 +84,11 @@ Solved in `sync.c`: `bufstream_open`/`bufstream_close` and `strstream_open` are
 the POSIX calls on POSIX and a temp file (`ais_tmpfile`) on Windows, so the
 bundle code below needs no second path.
 
-### Build plan
+### Done
 
 The bundle exists: `sync_export_plain`/`sync_import_plain` in `sync.c`, exposed
 through the FFI as `ais_embed_export_bundle`/`ais_embed_import_bundle`
-(`embed.h`), which the phone's Export/Import to a file already uses. What remains
-is the window:
-
-1. **The native GUI** (`win32/`): **Export** and **Import** buttons over those
-   two calls. Export -> `GetSaveFileNameA`, import -> `GetOpenFileNameA`, both
-   defaulting to Documents via `SHGetFolderPathA(CSIDL_PERSONAL)` with a default
-   name like `ais-export.aisb`. **Never** default to `%LOCALAPPDATA%`: it is
-   hidden. Documents is visible and writable, and the user picks the final spot
-   in the dialog anyway. Comdlg32 is already available; add `-lcomdlg32` to
-   `win32/Makefile` WINLIBS.
-2. **Test**: a round trip through the window's calls (export index A to a file,
-   import into empty index B, assert B equals A including a blob-backed
-   document), reusing the merge-test scaffolding in `tests.c`.
-
-### Done already
-
-The Winsock port of `sync.c`, the full Windows CLI build and the file bundle
-shipped first; the window's buttons are what remains.
+(`embed.h`), used by the phone's and the web page's Export and Import to a file.
 
 ## Signing: SignPath (planned, nothing runs today)
 
@@ -116,7 +96,7 @@ No `SIGNPATH_*` variable is set on the repository and there is no `sign-windows`
 job; the jobs below are still to be added.
 
 Unsigned Windows downloads trigger SmartScreen's "Windows protected your PC /
-Unknown publisher". The release workflow *would* sign the two exes in the zip with
+Unknown publisher". The release workflow *would* sign the exe in the zip with
 **SignPath.io**, which offers free code signing for OSS projects, a good fit for
 AIS (GPL, on GitHub). Signing is meant to be **optional and additive**: a
 `sign-windows` job would run only when SignPath is configured (the repository
@@ -165,5 +145,4 @@ clears the warning immediately.
 ## Packaging: the installer and winget
 
 `installer/winget/` holds the winget manifests, one directory per version,
-declaring the release zip as a portable package (`ais` and `ais-gui` on the
-PATH). That directory's README has the regeneration and submission steps.
+declaring the release zip as a portable package (`ais` on the PATH). That directory's README has the regeneration and submission steps.

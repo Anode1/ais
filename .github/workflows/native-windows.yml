@@ -2,11 +2,8 @@
 # exercised on a Windows runner.
 #
 #   build : cross-compiles the CLI (ais.exe, with the web GUI and LAN sync over
-#           Winsock) and the native window (win32/ais-gui.exe). Both gate: they
-#           run on every push/PR touching c/, win32/, the two suites or this
-#           file, and must stay green. The
-#           window broke silently once when LAN sync put SIGPIPE and sockets
-#           into embed.c; building it automatically is what stops that recurring.
+#           Winsock). It gates: it runs on every push/PR touching c/, the two
+#           suites or this file, and must stay green.
 #   test  : runs the CLI black-box suite (tests/cli.sh) and the loopback sync
 #           (tests/sync.sh) against ais.exe on windows-latest, under Git Bash.
 #           This is the only place the Windows binary is ever run: the
@@ -18,21 +15,21 @@ name: native-windows
 on:
   push:
     branches: [main]
-    paths: ['c/**', 'win32/**', 'tests/cli.sh', 'tests/sync.sh', '.github/workflows/native-windows.yml']
+    paths: ['c/**', 'tests/cli.sh', 'tests/sync.sh', '.github/workflows/native-windows.yml']
   pull_request:
-    paths: ['c/**', 'win32/**', 'tests/cli.sh', 'tests/sync.sh', '.github/workflows/native-windows.yml']
+    paths: ['c/**', 'tests/cli.sh', 'tests/sync.sh', '.github/workflows/native-windows.yml']
   workflow_dispatch:
 
 jobs:
   build:
-    name: cross-compile ais.exe and ais-gui.exe (gates)
+    name: cross-compile ais.exe (gates)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0          # full history + tags so `git describe` sees the tag
 
-      - name: install MinGW-w64 (gcc + windres)
+      - name: install MinGW-w64
         run: sudo apt-get update && sudo apt-get install -y gcc-mingw-w64-x86-64 binutils-mingw-w64-x86-64
 
       # A CC naming mingw makes c/Makefile pick gnu99, the Winsock libraries and
@@ -43,17 +40,10 @@ jobs:
           make -C c CC=x86_64-w64-mingw32-gcc LDFLAGS=-static
           file c/ais.exe
 
-      - name: cross-compile the native window
-        run: |
-          make -C win32 CC=x86_64-w64-mingw32-gcc WINDRES=x86_64-w64-mingw32-windres
-          file win32/ais-gui.exe
-
       - uses: actions/upload-artifact@v4
         with:
           name: ais-windows-x86_64
-          path: |
-            c/ais.exe
-            win32/ais-gui.exe
+          path: c/ais.exe
 
   test:
     name: run the CLI and sync suites on Windows (gates)

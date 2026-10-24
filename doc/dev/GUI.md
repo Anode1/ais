@@ -6,7 +6,7 @@
 
 One product across surfaces: the same vocabulary and order on the web GUI (`c/serve.c`),
 the PWA (`app/index.html` + `app/app.css`, served when `$AIS_WEB` points at `app/`),
-the Flutter app (`app/flutter/lib/main.dart`), and the native Win32 app (`win32/ais-gui.c`).
+and the Flutter app (`app/flutter/lib/main.dart`).
 
 THERE ARE TWO WEB PAGES, and forgetting the second one is how it drifts. `c/serve.c`
 carries an embedded page (the default) and `app/` is a separate installable PWA over the

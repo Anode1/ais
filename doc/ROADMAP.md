@@ -25,10 +25,11 @@ Help is welcome: open an issue to claim a piece.
   on-device recognition only ([dev/SPEECH.md](dev/SPEECH.md)).
 - **Multiple named indexes** (`--switch` / `--indexes` / `--forget`) with a default
   project (`--project`).
-- **Windows**: the CLI with the web GUI and LAN sync (Winsock), plus the native
-  window (`win32/`, pure Win32 over the engine, search and add only), ship in
-  one zip per release, cross-compiled from Linux; what ships on each platform
-  is in [`dev/DISTRIBUTION.md`](dev/DISTRIBUTION.md).
+- **Windows**: the CLI with the web GUI and LAN sync (Winsock) ships in one
+  zip per release, cross-compiled from Linux; what ships on each platform is in
+  [`dev/DISTRIBUTION.md`](dev/DISTRIBUTION.md). The native window that shipped
+  beside it up to v0.3.37 was removed: search and add only, one line of text,
+  its own vocabulary, and the first thing a Windows user opened.
 
 ## Planned
 
@@ -85,9 +86,10 @@ contract.
 
 ### Native macOS app
 
-A native macOS wrapper over the engine (as `win32/` is for Windows), so Mac users
-get a real app, not only the web GUI via a launcher. A minimal AppKit/Swift shell
-calling `embed.h`.
+A native macOS wrapper over the engine, so Mac users get a real app, not only
+the web GUI via a launcher. A minimal AppKit/Swift shell calling `embed.h`. The
+Windows native window was removed for lagging the web GUI by half the product;
+a macOS one earns its place only at parity.
 
 ### Signing and notarization
 
@@ -203,12 +205,10 @@ Each needs hardware or time rather than code:
   a week of use, clock skew between two machines, or an index that grew.
 - **Backgrounding mid-sync, and doze during the 300-second host wait.** The
   screen-awake flag is set on the host screen and the rest is unknown.
-- **The native Windows window.** `native-windows.yml` runs the CLI and sync
-  suites against `ais.exe` on a Windows runner; the window only
-  cross-compiles there. The release zip was run by hand on a Windows PC on
-  2026-10-09: `ais-web.bat` opened the web GUI and a sync with an iPhone
-  converged. Neither developer has a Windows machine, so the window stays
-  unrun by a person.
+- **The Windows zip by a person.** `native-windows.yml` runs the CLI and sync
+  suites against `ais.exe` on a Windows runner. The release zip was run by hand
+  on a Windows PC on 2026-10-09: `ais-web.bat` opened the web GUI and a sync
+  with an iPhone converged. Neither developer has a Windows machine.
 
 ### 3. The desktop UI test cannot see
 
@@ -228,7 +228,7 @@ desktop harness needs no device and runs in seconds.
 Each is understood, loses no data, and is left for a stated reason.
 
 - **A locked note holds at most 6000 bytes (3000 Cyrillic letters) in the
-  app, the Windows program and on the web page.** An inline secret seals into
+  app and on the web page.** An inline secret seals into
   an 8 KB buffer (`AIS_SECRET_INLINE_MAX` in `c/secret.h`); every front-end
   refuses a longer one in the same sentence before anything is sent. The CLI's
   `--doc -e` has no such cap, since it writes the secret as an encrypted blob.
@@ -275,11 +275,10 @@ Each is understood, loses no data, and is left for a stated reason.
 
 ## Not planned (non-goals)
 
-- **A .NET / WinUI wrapper.** The native Win32 app (`win32/`) already covers
-  Windows with no runtime dependency, and .NET's framework churn works against
-  the "tiny, dependency-free, built to outlive its own tools" goal. Win32 is a
-  decades-stable API; a self-contained .NET build drags a large runtime for no
-  capability a user can feel.
+- **A .NET / WinUI wrapper.** The web GUI already covers Windows with no
+  runtime dependency, and .NET's framework churn works against the "tiny,
+  dependency-free, built to outlive its own tools" goal. A self-contained .NET
+  build drags a large runtime for no capability a user can feel.
 - **A heavyweight backend** (SQLite, a database, a server daemon). Plain text is
   the durability and transparency guarantee; see the README "Questions."
 - **A cloud account or sync service.** Sync is peer-to-peer over your own files
@@ -289,8 +288,8 @@ Each is understood, loses no data, and is left for a stated reason.
 ## How to contribute
 
 - **Keep the core pure.** C99 lives in `c/`; platform code and any
-  C++/Swift/Dart stays isolated in its own wrapper directory (`win32/`, `app/`,
-  a future `macos/`).
+  C++/Swift/Dart stays isolated in its own wrapper directory (`app/`, a future
+  `macos/`).
 - **Build the engine as a library:** `make -C c lib`.
 - **The contract is `embed.h`** (and the CLI). Wrappers call it; they never reach
   into the on-disk store format.

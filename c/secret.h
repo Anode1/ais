@@ -29,9 +29,8 @@
  * two), and the buffer it seals into: "aisc:" + base64(57-byte header + text +
  * 16-byte MAC) + NUL, which 6000 bytes fit with 65 to spare (secret.c asserts
  * it at compile time). The web page, the PWA and the app check it before
- * saving, in one sentence; the server, the FFI seam and the Windows program
- * refuse it. A larger secret goes through the CLI's `--doc -e` as an
- * encrypted blob. */
+ * saving, in one sentence; the server and the FFI seam refuse it. A larger
+ * secret goes through the CLI's `--doc -e` as an encrypted blob. */
 #define AIS_SECRET_INLINE_MAX 6000
 #define AIS_SECRET_INLINE_BUF 8192
 

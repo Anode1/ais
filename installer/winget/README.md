@@ -7,8 +7,9 @@ these files.
 
 The package is the release zip, `ais-v<x.y.z>-windows-x86_64.zip`, declared as
 `InstallerType: zip` with `NestedInstallerType: portable`: winget unpacks the
-whole zip under its packages folder and puts `ais` and `ais-gui` on the PATH
-through the two `PortableCommandAlias` entries. `ais-web.bat`, `USING.txt` and
+whole zip under its packages folder and puts `ais` on the PATH through its
+`PortableCommandAlias` entry (manifests up to 0.3.37 also alias the native
+window, dropped after that release). `ais-web.bat`, `USING.txt` and
 the man page land in the same folder. No installer runs, so there is no
 product code and nothing to uninstall but the folder, which `winget uninstall`
 removes.
@@ -47,4 +48,4 @@ moderator merges. Later versions of the same package are checked by the
 automation alone.
 
 The binaries are not code-signed, so SmartScreen can still warn on the first
-run of `ais-gui.exe`; the roadmap's SignPath item covers that.
+run of `ais.exe`; the roadmap's SignPath item covers that.

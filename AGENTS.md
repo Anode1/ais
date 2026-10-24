@@ -73,7 +73,7 @@ They stay out of the default build: 2-3x slower and not universally available, s
 `doc/dev/VERSIONING.md`.
 
 **Never open a window on the real display.** Anything that can show one (the
-Flutter desktop build, the win32 GUI under wine, a browser) runs on a virtual X
+Flutter desktop build, a browser) runs on a virtual X
 server. A shell here inherits `DISPLAY=:0` and `WAYLAND_DISPLAY`, each command is
 a fresh shell so exports do not persist, and GTK prefers Wayland, so overriding
 `DISPLAY` alone still lands on the developer's screen. Neutralise both, inline,
@@ -174,7 +174,6 @@ building agent infrastructure that itself needs maintaining.
     tests/     the suite and the committed fixture (tests/INDEX/store); layers
                and conventions in tests/README.md
     gui/       the double-click launchers that start the web GUI
-    win32/     the native Windows GUI (ais-gui.c)
     app/       the Flutter mobile app and the PWA front-end (over the embed FFI seam)
     mcpb/      the MCP Bundle's manifest and launcher; scripts/mcpb.sh packs it
     legacy/    the 2005 shell + 2009 Java originals

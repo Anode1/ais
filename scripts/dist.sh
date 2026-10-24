@@ -124,21 +124,19 @@ EOF
 }
 
 # Windows, cross-compiled with MinGW-w64 (release.yml's windows job): the CLI
-# with the web GUI and LAN sync, the native window, and the .bat launcher.
+# with the web GUI and LAN sync, and the .bat launcher.
 build_win() {
     cc=${MINGW_CC:-x86_64-w64-mingw32-gcc}
     make -C c clean >/dev/null && make -C c AIS_VERSION="$VERSION" CC="$cc" LDFLAGS=-static >/dev/null
-    make -C win32 clean >/dev/null && make -C win32 CC="$cc" WINDRES="${cc%gcc}windres" >/dev/null
     name="ais-$VERSION-windows-x86_64"; out="releases/windows"; stage="$out/$name"
     mkdir -p "$out"; rm -rf "$stage"; mkdir -p "$stage"
 
     cp c/ais.exe "$stage/ais.exe"
-    cp win32/*.exe "$stage/"
     cp gui/ais-web.bat "$stage/"
     # Leave no Windows object or exe behind: the next plain `make` here would
     # link the objects into the Linux binary and fail on every symbol. The
     # mingw CC is what makes clean name the .exe targets.
-    make -C c CC="$cc" clean >/dev/null; make -C win32 CC="$cc" clean >/dev/null
+    make -C c CC="$cc" clean >/dev/null
     [ -f COPYING ]       && cp COPYING       "$stage/"
     [ -f doc/about.txt ] && cp doc/about.txt "$stage/"
     [ -f doc/USING.txt ] && cp doc/USING.txt "$stage/"
@@ -148,14 +146,13 @@ AIS $VERSION  (windows/x86_64) -- your memory, yours to keep.
 
 GUI:   double-click  ais-web.bat    (opens the app in your browser; sync by QR
                                      with a phone is in its menu)
-       or the native window, the other .exe here: search and add, no sync.
 CLI:   ais --help    in a terminal   (e.g.  ais venice italy)
 New?   open USING.txt for a one-minute guide.
 
 Your data is plain text you can find, back up, edit, or delete.
 Run  ais --where  for its exact path.
 
-The programs are not code-signed, so Windows shows "Windows protected your PC"
+The program is not code-signed, so Windows shows "Windows protected your PC"
 the first time: More info, then Run anyway. That is a new-and-unsigned notice,
 not a malware finding.
 EOF

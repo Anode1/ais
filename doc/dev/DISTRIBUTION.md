@@ -8,7 +8,7 @@ the repo; the Releases page stays minimal so users never have to ask "which one?
 
 | Platform | The one download | GUI the user gets |
 |----------|------------------|-------------------|
-| Windows  | `ais-<tag>-windows-x86_64.zip` (cross-compiled from Linux) | **web** (`ais --serve`) via the `.bat` launcher; a **native window** (`ais-gui.exe`) for search and add |
+| Windows  | `ais-<tag>-windows-x86_64.zip` (cross-compiled from Linux) | **web** (`ais --serve`) via the `.bat` launcher |
 | macOS    | `ais-<tag>-macos-arm64.zip`              | **web** (`ais --serve`) via the `.command` launcher |
 | Linux    | `ais-<tag>-linux-x86_64.zip`, `…-arm64.zip` | **web** (`ais --serve`) via the `.desktop` launcher |
 | Android  | `ais-<tag>-android.apk` (sideload), `…-android-arm64-v8a.apk` (sideload, one ABI) and `…-android.aab` (Play bundle) | the Flutter app |
@@ -25,9 +25,9 @@ download.
 ## Windows
 
 The zip is cross-compiled from Linux with MinGW-w64 and exercised by the CLI
-suites on a Windows runner in CI. How it is built, what the native window still
-lacks, and the signing and installer work that is planned rather than done, are
-in [`WINDOWS.md`](WINDOWS.md).
+suites on a Windows runner in CI. How it is built, why the native window was
+dropped, and the signing and installer work that is planned rather than done,
+are in [`WINDOWS.md`](WINDOWS.md).
 
 ## The GUI inventory
 
@@ -36,7 +36,6 @@ seam (`embed.c`), none needing a runtime:
 
 - **web** (`ais --serve`, `c/serve.c`): the universal GUI, on every platform.
 - **Flutter** (`app/flutter`): the mobile track.
-- **native Win32** (`win32/ais-gui.c`): niche/legacy, the Windows native window.
 - **MCP** (`ais --mcp`, `c/mcp.c`): the agent front end, with no GUI at all:
   an agent calls recall/find/tags/timeline as tools ([`../MCP.md`](../MCP.md)).
 - **browser PWA/WASM**: a planned future track (below).
