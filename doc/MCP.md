@@ -117,6 +117,8 @@ the save, in the task or in the project's agent instructions. The
 bias kept is the group's instead of one person's, and it is still no model's
 average, because every reader recalls by the words the group used.
 
+A person's note is filed as typed. A multi-line note the agent writes follows [`NOTES.md`](NOTES.md): plain-text bullets, one file per subject, one fact in one place. After an edit the person re-files it at the terminal (`ais --del` the old id, `ais --doc` the file), since the server does not delete.
+
 `-f` naming the home index is still one person's, and the agent asks.
 
 Several agents serve one index at once, each client starting its own
@@ -154,8 +156,11 @@ default and has to be handed the write bit on purpose. Read-only is not a save
 that fails: the instructions then carry no save paragraph at all, and say that
 restarting as `ais --mcp rw` turns one on.
 
-There is no delete, no re-tag, no edit, at any setting. Those are the operations
-whose damage you cannot see happening, and the CLI is two keystrokes away.
+There is no delete, no re-tag, no edit, at any setting. The index is a person's
+memory aid; an agent remembers its own session without one. An agent adds to
+what the person holds and never removes or rewrites a line of it: those are the
+operations whose damage you cannot see happening, and the CLI is two keystrokes
+away, where the person sees the change made.
 
 `save` itself refuses these seven things, among others, each in the words the
 model gets back:

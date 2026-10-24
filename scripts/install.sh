@@ -111,6 +111,6 @@ Start here:
     ais venice italy                               get it back by those keys
     ais --serve                                    the same index in a browser
 
-Give an agent the same index (read-only; add rw to allow saving):
-    claude mcp add ais -- ais --mcp
+Give an agent the same index (drop rw for read-only):
+    claude mcp add ais -- ais --mcp rw
 EOF
