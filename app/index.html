@@ -99,8 +99,10 @@
     <!-- the password fields stay hidden until the switch asks for them, and the
          password rides the POST body, never the URL -->
     <label class="switch"><input id="enc" type="checkbox" role="switch"> Lock with a password</label>
-    <input id="pp" type="password" placeholder="Password" hidden>
-    <input id="pp2" type="password" placeholder="Repeat password" hidden>
+    <!-- Show/Hide on each field, one state for both (the app's eye icon): a
+         typo in a password nobody can see is the note gone for good -->
+    <div class="pw"><input id="pp" type="password" placeholder="Password" hidden><button type="button" class="eye" aria-label="Show passwords">Show</button></div>
+    <div class="pw"><input id="pp2" type="password" placeholder="Repeat password" hidden><button type="button" class="eye" aria-label="Show passwords">Show</button></div>
     <p id="ppnote" class="muted" style="font-size:.85rem;margin:.1rem 0 .8rem" hidden>Forget this password and the note is gone for good.</p>
     <div class="actions">
       <button id="cancel" class="ghost">Cancel</button>
@@ -734,6 +736,7 @@ function openSheet(){
   $('vk').value = $('q').value.trim();
   $('vksuggest').innerHTML = '';
   $('enc').checked = false; $('pp').value = ''; $('pp').hidden = true;
+  if (ppShow) ppToggle();
   $('pp2').value = ''; $('pp2').hidden = true; $('ppnote').hidden = true;
   $('sheet').hidden = false;
   // a prefilled tag the search did not match would be saved unseen (focus sits
@@ -850,6 +853,18 @@ document.addEventListener('click', function (e) {
   });
 });
 $('addbtn').onclick = openSheet;
+// one state for both fields: either Show reveals both, as the app's eyes do;
+// a new sheet starts hidden again
+var ppShow = false;
+function ppToggle() {
+  ppShow = !ppShow;
+  $('pp').type = $('pp2').type = ppShow ? 'text' : 'password';
+  [].forEach.call(document.querySelectorAll('#sheet .eye'), function (b) {
+    b.textContent = ppShow ? 'Hide' : 'Show';
+    b.setAttribute('aria-label', ppShow ? 'Hide passwords' : 'Show passwords');
+  });
+}
+[].forEach.call(document.querySelectorAll('#sheet .eye'), function (b) { b.onclick = ppToggle; });
 $('enc').onchange = function () {
   $('pp').hidden = $('pp2').hidden = $('ppnote').hidden = !$('enc').checked;
   if ($('enc').checked) $('pp').focus();

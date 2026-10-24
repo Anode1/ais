@@ -117,6 +117,9 @@ static const char PAGE[] =
 ".card h2{margin:0 0 1rem;font-size:1.15rem}"
 ".card textarea,.card input{width:100%;font:inherit;padding:.7rem .8rem;border:1px solid var(--line);"
 "border-radius:10px;margin-bottom:.8rem;background:var(--field)}"
+".pw{position:relative}.pw input{padding-right:3.8rem}"
+".pw .eye{position:absolute;right:.6rem;top:.7rem;border:0;background:none;color:var(--accent);font:inherit;font-size:.85rem;cursor:pointer;padding:.1rem .3rem}"
+".pw input[hidden]~.eye{display:none}"
 ".actions{display:flex;justify-content:flex-end;gap:.6rem}"
 ".actions button{font:inherit;padding:.6rem 1.1rem;border-radius:10px;cursor:pointer}"
 ".ghost{border:1px solid var(--line);background:var(--card)}"
@@ -213,8 +216,10 @@ static const char PAGE[] =
 "<p class=hint>Separate with spaces</p>"
 "<div id=vksuggest class=chips></div>"   /* tag-autocomplete chips for #vk */
 "<label class=switch><input id=enc type=checkbox role=switch> Lock with a password</label>"
-"<input id=pp type=password placeholder='Password' hidden>"
-"<input id=pp2 type=password placeholder='Repeat password' hidden>"
+/* Show/Hide on each password field, one state for both (the app's eye icon):
+ * a typo in a password nobody can see is the note gone for good. */
+"<div class=pw><input id=pp type=password placeholder='Password' hidden><button type=button class=eye aria-label='Show passwords'>Show</button></div>"
+"<div class=pw><input id=pp2 type=password placeholder='Repeat password' hidden><button type=button class=eye aria-label='Show passwords'>Show</button></div>"
 "<p id=ppnote class=muted style='font-size:.85rem;margin:.1rem 0 .8rem' hidden>Forget this password and the note is gone for good.</p>"
 "<div class=actions><button id=cancel class=ghost>Cancel</button><button id=save class=primary>Save</button></div>"
 "</div></div>"
@@ -571,7 +576,7 @@ static const char PAGE[] =
 "if(v=='recall'){var q=$('q').value.trim();if(q)recall();"
 "else{$('out').innerHTML='<div class=empty><p>Type tags, then Search.</p>'+addCTA+'</div>';$('out').className='';$('count').textContent=''}}"
 "else if(v=='timeline')loadTimeline();else loadTags()}"
-"function openSheet(){$('vk').value=$('q').value.trim();$('vksuggest').innerHTML='';$('enc').checked=false;$('pp').value='';$('pp').hidden=true;"
+"function openSheet(){$('vk').value=$('q').value.trim();$('vksuggest').innerHTML='';$('enc').checked=false;$('pp').value='';$('pp').hidden=true;if(ppShow)ppToggle();"
 /* a prefilled tag the search did not match would be saved unseen (focus sits
  * on the value); land on the tag field instead so the user meets it */
 "$('pp2').value='';$('pp2').hidden=true;$('ppnote').hidden=true;$('sheet').hidden=false;($('vk').value&&!rcN?$('vk'):$('v')).focus()}"
@@ -657,6 +662,11 @@ static const char PAGE[] =
 "$('editsheet').addEventListener('click',function(e){if(e.target==$('editsheet'))$('editsheet').hidden=true});"
 "$('enc').onchange=function(){$('pp').hidden=$('pp2').hidden=$('ppnote').hidden=!$('enc').checked;"
 "if($('enc').checked)$('pp').focus()};"
+/* one state for both fields: either Show reveals both, as the app's eyes do;
+ * a new sheet starts hidden again */
+"var ppShow=false;function ppToggle(){ppShow=!ppShow;$('pp').type=$('pp2').type=ppShow?'text':'password';"
+"[].forEach.call(document.querySelectorAll('#sheet .eye'),function(b){b.textContent=ppShow?'Hide':'Show';b.setAttribute('aria-label',ppShow?'Hide passwords':'Show passwords')})}"
+"[].forEach.call(document.querySelectorAll('#sheet .eye'),function(b){b.onclick=ppToggle});"
 "$('sheet').addEventListener('click',function(e){if(e.target==$('sheet'))closeSheet()});"
 /* the library path is shown only here, in the Switch library dialog. A field,
  * not prompt(): prompt() is silently disabled in installed-PWA and app windows. */

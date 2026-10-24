@@ -428,6 +428,26 @@ int main(int argc, char **argv) {
             "document.getElementById('pp').hidden===false", 3000) == 0);
         ok("and its confirmation field", cdp_wait_bool(c,
             "document.getElementById('pp2').hidden===false", 3000) == 0);
+        /* Show reveals BOTH fields (one state, as the app's eyes), Hide masks
+         * them again, and the next sheet starts masked. */
+        ok("each field offers Show", cdp_eval_bool(c,
+            "document.querySelectorAll('#sheet .eye').length===2"
+            "&&document.querySelector('#sheet .eye').textContent==='Show'", &(int){0}) == 0);
+        cdp_eval_bool(c, "(function(){document.querySelector('#sheet .eye').click();return true})()", &(int){0});
+        ok("Show reveals both passwords", cdp_wait_bool(c,
+            "document.getElementById('pp').type==='text'&&document.getElementById('pp2').type==='text'"
+            "&&document.querySelectorAll('#sheet .eye')[1].textContent==='Hide'", 3000) == 0);
+        cdp_eval_bool(c, "(function(){document.querySelectorAll('#sheet .eye')[1].click();return true})()", &(int){0});
+        ok("Hide masks them again", cdp_wait_bool(c,
+            "document.getElementById('pp').type==='password'&&document.getElementById('pp2').type==='password'", 3000) == 0);
+        cdp_eval_bool(c, "(function(){document.querySelector('#sheet .eye').click();openSheet();return true})()", &(int){0});
+        ok("a new sheet starts masked", cdp_wait_bool(c,
+            "document.getElementById('pp').type==='password'&&document.querySelector('#sheet .eye').textContent==='Show'", 3000) == 0);
+        /* back to the state the refusals below expect: lock on, no password yet */
+        cdp_eval_bool(c, "(function(){document.getElementById('v').value='safe-combo-1234';"
+                         "document.getElementById('vk').value='locker';"
+                         "var e=document.getElementById('enc');e.checked=true;e.dispatchEvent(new Event('change'));"
+                         "window.__alert=null;document.getElementById('save').click();return true})()", &(int){0});
         ok("and says a forgotten password loses the note", cdp_wait_bool(c,
             "document.getElementById('ppnote').hidden===false"
             "&&document.getElementById('ppnote').textContent==='Forget this password and the note is gone for good.'",

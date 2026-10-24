@@ -122,6 +122,11 @@ svg { fill: currentColor; flex: none; }
 .card textarea, .card input { width: 100%; font: inherit; padding: .7rem .8rem;
   border: 1px solid var(--line); border-radius: 10px; margin-bottom: .8rem; background: #fafafc; }
 .card textarea { resize: vertical; }
+.pw { position: relative; }
+.pw input { padding-right: 3.8rem; }
+.pw .eye { position: absolute; right: .6rem; top: .7rem; border: 0; background: none; color: var(--accent);
+           font: inherit; font-size: .85rem; cursor: pointer; padding: .1rem .3rem; }
+.pw input[hidden] ~ .eye { display: none; }
 .hint { font-size: .8rem; color: var(--muted); margin: -.55rem 0 .8rem .2rem; }
 /* the lock switch: a checkbox drawn as a switch; its password fields follow it */
 .card .switch { display: flex; align-items: center; gap: .7rem; cursor: pointer; margin: .1rem 0 .8rem; }
