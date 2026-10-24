@@ -8,7 +8,8 @@ import 'dart:convert' show utf8;
 // bounded by AIS_KEY_NAME_MAX (c/common.h); over it the engine refuses the
 // save. A plain value has no cap: a long or multi-line one goes to a blob
 // (c/doc.c). An encrypted value must seal into embed.c's 8192-byte buffer
-// (57-byte header, MAC, base64), which 6000 bytes of plaintext fit.
+// (57-byte header, MAC, base64), which 6000 bytes of plaintext fit:
+// AIS_SECRET_INLINE_MAX in c/secret.h, and the web page checks the same.
 const int kAisKeyMax = 255;
 const int kAisEncryptedMax = 6000;
 

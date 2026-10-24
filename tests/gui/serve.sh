@@ -210,6 +210,16 @@ ok "stored opaque (aisc:)" "aisc:" "$MARKED"
 ok    "reveal (right passphrase)" "s3cr3t-token" "$(printf 'pw123\n%s' "$MARKED" | curl -s -X POST --data-binary @- "$B/api/reveal")"
 empty "reveal (wrong passphrase fails closed)"   "$(printf 'nope\n%s'  "$MARKED" | curl -s -X POST --data-binary @- "$B/api/reveal")"
 
+# The inline cap (AIS_SECRET_INLINE_MAX): 6000 bytes seal into the 8 KB buffer,
+# 6001 are refused with the app's sentence as a 413, storing nothing. Before
+# this the page showed "check AIS is still running" for a server that answered.
+SIX=$(awk 'BEGIN{for(i=0;i<6000;i++)printf "s"}')
+ok "put (encrypted, 6000 bytes fits)" "saved 1" "$(printf 'pw123\n%s' "$SIX" | curl -s -X POST --data-binary @- "$B/api/put?keys=sixk&enc=1")"
+OVER=$(printf 'pw123\n%sX' "$SIX" | curl -s -w '\n%{http_code}' -X POST --data-binary @- "$B/api/put?keys=sixk1&enc=1")
+ok "put (encrypted, 6001 bytes) is 413"           "413" "$OVER"
+ok "and says what a locked note holds"            "A locked note holds at most 6000 characters" "$OVER"
+empty "and stored nothing under that tag"         "$(curl -s "$B/api/get?keys=sixk1")"
+
 # --- LAN sync (Host / Join), mirroring the mobile Sync feature -------------
 # The page carries the Sync controls (the sheet, the QR encoder, the routes).
 PAGE=$(curl -s "$B/")

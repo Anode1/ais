@@ -436,7 +436,34 @@ int main(int argc, char **argv) {
            cdp_wait_bool(c, "window.__k!==null&&window.__k.indexOf('safe-combo-1234')<0"
                             "&&window.__k.indexOf('aisc:')<0", 5000) == 0);
 
-        cdp_eval_bool(c, "(function(){document.getElementById('pp2').value='pw123';"
+        /* Over the inline cap (AIS_SECRET_INLINE_MAX, 6000 bytes) the page
+         * refuses BEFORE sending, in the app's sentence, and keeps the sheet.
+         * A 12 KB note once drew "check AIS is still running" from a server
+         * that was up, and a plain save of the same text works. */
+        cdp_eval_bool(c, "(function(){window.__alert=null;"
+                         "document.getElementById('pp2').value='pw123';"
+                         "document.getElementById('v').value=new Array(6002).join('s');"
+                         "document.getElementById('save').click();return true})()", &(int){0});
+        ok("a locked note over 6000 characters is refused, in those words", cdp_wait_bool(c,
+            "window.__alert==='A locked note holds at most 6000 characters. "
+            "Shorten it, or save it without a password.'", 3000) == 0);
+        ok("the over-long note keeps the sheet open", cdp_wait_bool(c,
+            "document.getElementById('sheet').hidden===false", 3000) == 0);
+        /* a tag over 255 BYTES is refused the same way (the engine's unit is the
+         * byte: 100 Cyrillic letters are 200 bytes, 130 are 260) */
+        cdp_eval_bool(c, "(function(){window.__alert=null;"
+                         "document.getElementById('v').value='safe-combo-1234';"
+                         "document.getElementById('vk').value='locker '+new Array(131).join('\u0436');"
+                         "document.getElementById('save').click();return true})()", &(int){0});
+        ok("a tag over 255 bytes is refused, in those words", cdp_wait_bool(c,
+            "window.__alert==='One of your tags is too long (max 255 characters).'", 3000) == 0);
+        ok("and saved nothing",
+           cdp_eval_bool(c, "(function(){window.__k=null;fetch('/api/get?keys=locker')"
+                            ".then(function(r){return r.text()}).then(function(t){window.__k=t});return true})()",
+                         &(int){0}) == 0 &&
+           cdp_wait_bool(c, "window.__k!==null&&window.__k.indexOf('aisc:')<0", 5000) == 0);
+
+        cdp_eval_bool(c, "(function(){document.getElementById('vk').value='locker';"
                          "document.getElementById('save').click();return true})()", &(int){0});
         ok("matching passwords save and close", cdp_wait_bool(c,
             "document.getElementById('sheet').hidden===true", 5000) == 0);

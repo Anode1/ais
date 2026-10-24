@@ -286,6 +286,7 @@ static const char PAGE[] =
 /* accept a comma as an optional tag separator; collapse extra whitespace, so
  * \"home, wifi\" and \"home   wifi\" both mean the tags home + wifi (Flutter parity) */
 "function normkeys(s){return s.replace(/,/g,' ').trim().replace(/\\s+/g,' ')}"
+"function ulen(s){return new TextEncoder().encode(s).length}"   /* UTF-8 bytes: the engine's unit */
 "var tlBefore=0,tlDay=null,tlN=0,tlPage=100;"   /* timeline keyset paging state */
 "var rcAfter=0,rcN=0,rcMore=false,rcQ='',rcOr='';"   /* recall keyset paging */
 "var tgAfterc=0,tgAfterk='',tgN=0,tgMore=false;"           /* tags keyset paging */
@@ -575,10 +576,21 @@ static const char PAGE[] =
 /* exact match, no trimming: a stray space would encrypt under a password the
  * user cannot retype, and a lost password cannot be recovered */
 "if(enc&&pp!==pp2){alert('The passwords don\\'t match.');return}"
+/* The engine's limits, checked here in the app's words (add_validation.dart)
+ * so both front-ends refuse alike: a tag is a posting file name of at most 255
+ * BYTES, and a locked note must seal into the server's 8 KB buffer, which
+ * 6000 bytes of text fit (AIS_SECRET_INLINE_MAX). */
+"var ks=k.split(' ');for(var i=0;i<ks.length;i++)if(ulen(ks[i])>255){alert('One of your tags is too long (max 255 characters).');return}"
+"if(enc&&ulen(v)>6000){alert('A locked note holds at most 6000 characters. Shorten it, or save it without a password.');return}"
 /* On a failed or unreachable put, tell the user and KEEP the sheet so they can
- * retry: never a stuck, silent modal. */
-"try{var r=await fetch('/api/put?keys='+encodeURIComponent(k)+(enc?'&enc=1':''),{method:'POST',body:enc?(pp+'\\n'+v):v});"
-"if(!r.ok)throw new Error('server '+r.status);var rt=await r.text()}catch(e){alert('Couldn\\'t save. Check AIS is still running, then try again.');return}"
+ * retry: never a stuck, silent modal. A 413 carries the server's own sentence
+ * about what was refused; any other failure says which of the two it was,
+ * since "check AIS is running" at a server that answered sends the user to
+ * restart a program that works. */
+"var r,rt;try{r=await fetch('/api/put?keys='+encodeURIComponent(k)+(enc?'&enc=1':''),{method:'POST',body:enc?(pp+'\\n'+v):v});"
+"rt=await r.text()}catch(e){alert('Couldn\\'t reach AIS. Check it is still running, then try again.');return}"
+"if(r.status==413){alert(rt.trim());return}"
+"if(!r.ok){alert('AIS could not save it (error '+r.status+'). Try again.');return}"
 "closeSheet();setView('timeline');"
 /* same text, same record: the reply says the save merged (restamped to today,
  * keys attached); silence here reads as the first note vanishing. The toast is
@@ -1191,7 +1203,9 @@ static long do_put(ais *a, const char *keys, char *body)
 
 /* Encrypt save (?enc=1): BODY is "passphrase\nvalue..." -- the passphrase rides the
  * POST body, never the URL, so it stays out of the browser history. Encrypts VALUE
- * under it and puts the "aisc:" marker. 1 if stored, 0 on malformed/failure/no-crypto. */
+ * under it and puts the "aisc:" marker. 1 if stored, -2 if VALUE is over
+ * AIS_SECRET_INLINE_MAX (the one failure the user can act on, so it gets its
+ * own answer), 0 on malformed/failure/no-crypto. */
 static long do_put_enc(ais *a, const char *keys, char *body)
 {
     char marked[8192];
@@ -1202,6 +1216,10 @@ static long do_put_enc(ais *a, const char *keys, char *body)
     if (value == NULL)
         return 0;                          /* expected "passphrase\nvalue" */
     *value++ = '\0';                        /* body -> passphrase, value -> the rest */
+    if (strlen(value) > AIS_SECRET_INLINE_MAX) {
+        secret_wipe(body, strlen(body));
+        return -2;
+    }
     mn = secret_encrypt((const unsigned char *)value, strlen(value),
                         (const unsigned char *)body, strlen(body), marked, sizeof marked);
     secret_wipe(body, strlen(body));        /* wipe the passphrase from the request buffer */
@@ -1710,8 +1728,8 @@ static void handle(ais *a, int fd)
             }
             {
                 static const char e[] = "HTTP/1.0 413 Payload Too Large\r\n"
-                    "Connection: close\r\n\r\nvalue too large for one request "
-                    "(~64 KB max) -- split it, or use a document/import\n";
+                    "Connection: close\r\n\r\nThe note is too large to save in one "
+                    "go (about 64 KB). Split it, or import it as a document.\n";
                 write_all(fd, e, sizeof(e) - 1);
             }
             return;
@@ -1813,7 +1831,14 @@ static void handle(ais *a, int fd)
          * row as data loss. A merge is the one save that adds no live record. */
         ais_count_live(a, &n0);
         c = enc ? do_put_enc(a, keys, body) : do_put(a, keys, body);
-        if (c <= 0) {
+        if (c == -2) {
+            /* The app's sentence (add_validation.dart), so both front-ends say
+             * the same thing; the page shows a 413 body verbatim. */
+            static const char e[] = "HTTP/1.0 413 Payload Too Large\r\n"
+                "Connection: close\r\n\r\nA locked note holds at most 6000 characters. "
+                "Shorten it, or save it without a password.\n";
+            write_all(fd, e, sizeof(e) - 1);
+        } else if (c <= 0) {
             /* Saving nothing is a FAILURE, not a 200 with a count of zero: on a
              * 200 both pages close the sheet as if the value had been stored, and
              * for an encrypted save on a build with no crypto module that loses

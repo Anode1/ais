@@ -223,9 +223,16 @@ reports instead of gating (see the note in `.github/workflows/flutter.yml`), and
 the Android layers carry the real UI coverage. Fixing it would be worth it: the
 desktop harness needs no device and runs in seconds.
 
-### 4. Five limits are knowingly left
+### 4. Six limits are knowingly left
 
 Each is understood, loses no data, and is left for a stated reason.
+
+- **A locked note holds at most 6000 characters in the app and on the web
+  page.** An inline secret seals into an 8 KB buffer (`AIS_SECRET_INLINE_MAX`
+  in `c/secret.h`); both front-ends refuse a longer one in the same sentence
+  before anything is sent. The CLI's `--doc -e` has no such cap, since it
+  writes the secret as an encrypted blob. Routing a long locked note from the
+  GUIs through that blob path is the fix, and it waits for a second request.
 
 - **A capital letter outside ASCII makes a different key.** `key_encode`
   lowercases ASCII only, so `Рецепт` and `рецепт` are two tags, and voice input
