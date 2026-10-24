@@ -8,6 +8,14 @@ Before tagging, run `scripts/release-notes.sh vX.Y.Z`: it prepends the commit
 subjects since the previous tag, then edit them down to what a user needs to
 know. The old entries below the two newest are the raw subjects.
 
+## v0.3.38 (2026-10-24)
+
+- Lock with a password: a note over the limit (about 6000 letters, fewer in other alphabets) is refused before anything is sent, with a sentence that says so, in the app, on the web page and at the API; the web page's password fields have Show and Hide; an empty password cannot lock a note.
+- Web GUI: the Add and Edit sheets say what was refused and why, in the app's words, keep the text to retry, and say when AIS is unreachable; a tag over its limit is refused before sending.
+- Windows: one GUI, the web page, opened by `ais-web.bat`; the native window is retired, and the zip holds `ais.exe` and the launcher. A top-level `make` with a MinGW compiler produces `ais.exe`.
+- MCP: the release publishes the MCP Registry entry for each tag; the install hint hands an agent read-write; `doc/NOTES.md` says how an agent writes a multi-line note.
+- Packaging: the openSUSE Build Service spec runs the tests with the hardening flags.
+
 ## v0.3.37 (2026-10-14)
 
 - Import: links from Pocket, Instapaper and Raindrop (their CSV export) and bookmarks from any browser (its HTML export) come in as records under the tags and folders they had there, plus one tag naming the source; a link keeps the date the other app recorded. In the CLI (`--import-bookmarks FILE`), the app (Import bookmarks, with Undo) and the web page.

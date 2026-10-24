@@ -136,7 +136,7 @@ there. An intent filter for `.aisb` (VIEW and SEND) that routes to the same
 merge, behind the confirmation the `ais://sync` link already shows, removes
 that step.
 
-## Known gaps, as of v0.3.37
+## Known gaps, as of v0.3.38
 
 Four things are open, and this is the list to work from: the release chores that
 remain, coverage nobody has, a test that cannot see, and defects left on purpose
@@ -149,16 +149,17 @@ iOS build to TestFlight. Reaching the stores is manual:
 
 - Each tag's `.aab` goes to the Play Console by hand as a new release on the
   Production track, following [`dev/ANDROID_RELEASE.md`](dev/ANDROID_RELEASE.md);
-  0.3.37 went up on 2026-10-15. The listing text and graphics are
+  0.3.37 went up on 2026-10-15; 0.3.38's is the next to upload. The listing text and graphics are
   `fastlane/metadata/android/en-US/` (`doc/public-text.txt` says what goes
   where). The appendix of that file is the way to let CI do the upload.
 - iOS build 556 (0.3.36) is in App Store review, resubmitted 2026-10-14 with
   the notes and recording Apple asked for ([`dev/IOS_TODO.md`](dev/IOS_TODO.md)
   section 9); release it by hand after approval, then put the App Store link
-  in the README. The v0.3.37 tag puts build 583 on TestFlight; it goes to
+  in the README. The v0.3.38 tag puts build 596 on TestFlight; it goes to
   review as an update once 556 is through.
-- The official MCP Registry lists 0.3.37 (published 2026-10-15); when to
-  publish the next one is [`dev/VERSIONING.md`](dev/VERSIONING.md), step 5.
+- The official MCP Registry: 0.3.37 was published by hand on 2026-10-15;
+  from v0.3.38 the release job publishes each tag's entry itself, and
+  [`dev/VERSIONING.md`](dev/VERSIONING.md) step 5 has the fallback.
 - winget: the first manifest (0.3.36, the release zip as a portable package)
   is microsoft/winget-pkgs pull request 449881, opened 2026-10-09; the
   pipeline passed the same night (Azure-Pipeline-Passed,
