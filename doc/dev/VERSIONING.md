@@ -187,12 +187,15 @@ jobs, and the publish step then runs with the artifacts the first attempt kept.
 and the AUR: the reference `PKGBUILD` moves with this repo, the copy users
 install lives in the AUR repository and needs the same `pkgver`, `pkgrel=1` and a
 regenerated `.SRCINFO`; and the OBS checkout, which takes the files
-`packaging/obs/release.sh` wrote (`packaging/obs/README.md`). And the official MCP Registry, once the release is up. Its entry pins one
-`.mcpb`, so it is republished when an engine change should reach agents, not
-with every tag:
-`sh scripts/registry.sh vX.Y.Z > server.json`, then
+`packaging/obs/release.sh` wrote (`packaging/obs/README.md`).
+
+The official MCP Registry is not manual: the release job's last step publishes
+the tag's entry from the `.mcpb` sidecar it just built, logging in by GitHub
+OIDC, and skips a version the registry already lists, so a re-run cannot fail
+there. If that step is red the GitHub release is still up, and the entry is
+published by hand: `sh scripts/registry.sh vX.Y.Z > server.json`, then
 `MCP_GITHUB_TOKEN=$(gh auth token) mcp-publisher login github` (as Anode1) and
-`mcp-publisher publish`. The token form is the one that works: the plain
-device-code login fails with `incorrect_device_code` on every try here
-(registry issue 1543). The entry names the `.mcpb` by URL and
-SHA-256, so it is published after the file exists, never before.
+`mcp-publisher publish`. The token form is the one that works at a terminal:
+the plain device-code login fails with `incorrect_device_code` on every try
+here (registry issue 1543). The entry names the `.mcpb` by URL and SHA-256,
+so it is published after the file exists, never before.

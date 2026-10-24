@@ -200,6 +200,7 @@ jobs:
           && needs.android.result == 'success' }}
     permissions:
       contents: write
+      id-token: write         # OIDC login to the MCP Registry
     steps:
       - uses: actions/checkout@v4   # doc/RELEASE_NOTES.md, and tags for the fallback
         with:
@@ -243,3 +244,26 @@ jobs:
           files: dist/*
           body_path: notes.md
           generate_release_notes: true   # appended: the Full Changelog link
+
+      # The registry entry for this tag, from the .mcpb sidecar built above.
+      # Idempotent: a version the registry already lists is skipped, so a re-run
+      # cannot fail here. Three attempts, 30 s apart. A failure leaves the
+      # GitHub release up and this job red; the manual path is
+      # scripts/registry.sh + mcp-publisher login github.
+      - name: publish to MCP Registry
+        env:
+          PUBLISHER: v1.8.4          # bump deliberately: the OIDC audience is tied to it
+          NAME: io.github.Anode1/ais
+        run: |
+          set -e
+          tag=${GITHUB_REF_NAME}; version=${tag#v}
+          if curl -fsSL "https://registry.modelcontextprotocol.io/v0/servers?search=$NAME" \
+             | python3 -c 'import sys,json; sys.exit(0 if any(s.get("server",s).get("version")==sys.argv[1] for s in json.load(sys.stdin).get("servers",[])) else 1)' "$version"; then
+            echo "registry already has $NAME $version"; exit 0
+          fi
+          curl -fsSL "https://github.com/modelcontextprotocol/registry/releases/download/$PUBLISHER/mcp-publisher_linux_amd64.tar.gz" | tar -xz mcp-publisher
+          sh scripts/registry.sh "$tag" "dist/ais-$tag.mcpb.sha256" > server.json
+          cat server.json
+          ./mcp-publisher login github-oidc
+          for i in 1 2 3; do ./mcp-publisher publish && exit 0; echo "attempt $i failed" >&2; sleep 30; done
+          exit 1
