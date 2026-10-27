@@ -576,10 +576,10 @@ static const char PAGE[] =
 "if(v=='recall'){var q=$('q').value.trim();if(q)recall();"
 "else{$('out').innerHTML='<div class=empty><p>Type tags, then Search.</p>'+addCTA+'</div>';$('out').className='';$('count').textContent=''}}"
 "else if(v=='timeline')loadTimeline();else loadTags()}"
-"function openSheet(){$('vk').value=$('q').value.trim();$('vksuggest').innerHTML='';$('enc').checked=false;$('pp').value='';$('pp').hidden=true;if(ppShow)ppToggle();"
-/* a prefilled tag the search did not match would be saved unseen (focus sits
- * on the value); land on the tag field instead so the user meets it */
-"$('pp2').value='';$('pp2').hidden=true;$('ppnote').hidden=true;$('sheet').hidden=false;($('vk').value&&!rcN?$('vk'):$('v')).focus()}"
+/* The tags start empty: a term left in the search box is not a tag the user
+ * chose for the new item (issue #2). */
+"function openSheet(){$('vk').value='';$('vksuggest').innerHTML='';$('enc').checked=false;$('pp').value='';$('pp').hidden=true;if(ppShow)ppToggle();"
+"$('pp2').value='';$('pp2').hidden=true;$('ppnote').hidden=true;$('sheet').hidden=false;$('v').focus()}"
 "function closeSheet(){$('sheet').hidden=true;$('v').value='';$('pp').value='';$('pp2').value=''}"
 /* A sheet with typed text closes only by Cancel or Save: a stray click past
  * the card, or an Escape, must not throw a draft away. */

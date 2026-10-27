@@ -503,14 +503,13 @@ async function edSave() {
   setView(view);
 }
 
-var lastTagN = 0;                       // the tag half of the last search; openSheet reads it
 async function recall() {
   var q = $('q').value.trim(); if (!q) return;
   var g = gen;
   var oo = anyTag() ? '&or=1' : '';
   var t = await (await fetch('/api/get?keys=' + encodeURIComponent(q) + oo)).text();
   if (g != gen) return;                 // the view moved on: drop it
-  var tagN = lastTagN = render(t, q);
+  var tagN = render(t, q);
   await findAppend(g, tagN);
   if (g != gen) return;
   // tags matched nothing but values did: the value section stands alone
@@ -732,16 +731,16 @@ new MutationObserver(function () {
   $('addbtn').style.display = $('out').querySelector('.addcta') ? 'none' : '';
 }).observe($('out'), { childList: true, subtree: true });
 
+// The tags start empty: a term left in the search box is not a tag the user
+// chose for the new item (issue #2).
 function openSheet(){
-  $('vk').value = $('q').value.trim();
+  $('vk').value = '';
   $('vksuggest').innerHTML = '';
   $('enc').checked = false; $('pp').value = ''; $('pp').hidden = true;
   if (ppShow) ppToggle();
   $('pp2').value = ''; $('pp2').hidden = true; $('ppnote').hidden = true;
   $('sheet').hidden = false;
-  // a prefilled tag the search did not match would be saved unseen (focus sits
-  // on the value); land on the tag field instead so the user meets it
-  ($('vk').value && !lastTagN ? $('vk') : $('v')).focus();
+  $('v').focus();
 }
 function closeSheet(){ $('sheet').hidden = true; $('v').value = ''; $('pp').value = ''; $('pp2').value = ''; }
 // A sheet with typed text closes only by Cancel or Save: a stray click past

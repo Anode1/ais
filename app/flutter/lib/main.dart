@@ -3523,8 +3523,9 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
     );
   }
 
-  // The Add form. Keys are optional and prefilled from the search box; [value]
-  // prefills the note itself (the Android share sheet lands here).
+  // The Add form. Keys start empty: a term left in the search box is not a
+  // tag the user chose for the new item (issue #2). [value] prefills the note
+  // itself (the Android share sheet lands here).
   void _showAdd({String value = ''}) {
     showModalBottomSheet(
       context: context,
@@ -3533,7 +3534,6 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
       showDragHandle: true,
       builder: (ctx) => AddSheet(
         initialValue: value,
-        initialKeys: _q.text.trim(),
         suggest: _tagMatches,
         onSave: _addSave,
       ),

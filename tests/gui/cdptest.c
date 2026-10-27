@@ -571,13 +571,6 @@ int main(int argc, char **argv) {
         "document.getElementById('out').querySelectorAll('.hit').length===1", 3000) == 0);
     ok("the count line is the value half's", cdp_wait_bool(c,
         "document.getElementById('count').textContent.indexOf('1 result')>=0", 3000) == 0);
-    /* the Add sheet meets its prefill: the searched word matched no tag, so
-     * saving would file it under an unseen junk tag -- focus lands on the
-     * tag field, not the value */
-    cdp_eval_bool(c, "(function(){openSheet();return true})()", &(int){0});
-    ok("an unmatched prefilled tag gets the focus", cdp_wait_bool(c,
-        "document.activeElement&&document.activeElement.id==='vk'", 3000) == 0);
-    cdp_eval_bool(c, "(function(){closeSheet();return true})()", &(int){0});
     cdp_eval_bool(c, "(function(){document.getElementById('q').value='PLUMBER';"
                      "setView('recall');return true})()", &(int){0});
     ok("and the value match is case-insensitive", cdp_wait_bool(c,
@@ -697,6 +690,22 @@ int main(int argc, char **argv) {
     cdp_eval_bool(c, "(function(){var e=document.getElementById('edval');e.value=e.value.slice(0,-1);return true})()", &(int){0});
     cdp_key(c, "Escape");
     ok("and closes an unedited one", cdp_wait_bool(c, "document.getElementById('editsheet').hidden===true", 3000) == 0);
+
+    /* Issue #2: a term left in the search box landed in the new item's tags.
+     * Tags are typed fresh far more often than a searched tag is reused, so
+     * the Add sheet opens with empty tags from every view. */
+    cdp_eval_bool(c, "(function(){document.getElementById('q').value='stale';setView('timeline');return true})()", &(int){0});
+    cdp_wait_bool(c, HIT, 3000);
+    cdp_eval_bool(c, "(function(){openSheet();return true})()", &(int){0});
+    ok("Add from Recent leaves the tags empty", cdp_wait_bool(c,
+        "document.getElementById('sheet').hidden===false&&document.getElementById('vk').value===''", 3000) == 0);
+    ok("and lands on the text field", cdp_eval_bool(c, "document.activeElement===document.getElementById('v')", &(int){0}) == 0);
+    cdp_eval_bool(c, "(function(){closeSheet();document.getElementById('q').value='venice';setView('recall');return true})()", &(int){0});
+    cdp_wait_bool(c, HIT, 3000);
+    cdp_eval_bool(c, "(function(){openSheet();return true})()", &(int){0});
+    ok("Add from a search leaves the tags empty too", cdp_wait_bool(c,
+        "document.getElementById('sheet').hidden===false&&document.getElementById('vk').value===''", 3000) == 0);
+    cdp_eval_bool(c, "(function(){closeSheet();document.getElementById('q').value='';return true})()", &(int){0});
 
     cdp_close(c);
     printf("cdp: %d passed, %d failed\n", pass, fail);
