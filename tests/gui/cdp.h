@@ -48,4 +48,14 @@ int cdp_insert_text(cdp *c, const char *text);
  * its virtual key so a keydown listener sees e.key === "Enter". */
 int cdp_key(cdp *c, const char *key);
 
+/* Runtime.evaluate a JS expression that must yield an integer; *out gets it.
+ * Returns -1 if the expression throws or is not a number. */
+int cdp_eval_int(cdp *c, const char *js, int *out);
+
+/* Input.dispatchMouseEvent with the left button at viewport (x,y): type is
+ * "mousePressed", "mouseReleased" or "mouseMoved". A press at one point and a
+ * release at another is what a drag-select does, and the browser then fires
+ * the click on their common ancestor. */
+int cdp_mouse(cdp *c, const char *type, int x, int y);
+
 #endif /* CDP_H */

@@ -349,6 +349,30 @@ int cdp_eval_bool(cdp *c, const char *js, int *out) {
     return -1;                                     /* not a boolean */
 }
 
+int cdp_eval_int(cdp *c, const char *js, int *out) {
+    char esc[16384], params[16500];
+    if (json_escape(esc, sizeof esc, js) < 0) return -1;
+    snprintf(params, sizeof params,
+        "{\"expression\":\"%s\",\"returnByValue\":true}", esc);
+    if (cdp_call(c, "Runtime.evaluate", params) < 0) return -1;
+    if (strstr(c->msg, "exceptionDetails")) return -1;
+    const char *v = strstr(c->msg, "\"value\":");
+    if (!v) return -1;
+    v += 8;
+    if (*v != '-' && (*v < '0' || *v > '9')) return -1;   /* not a number */
+    *out = atoi(v);
+    return 0;
+}
+
+int cdp_mouse(cdp *c, const char *type, int x, int y) {
+    char params[256];
+    int pressed = strcmp(type, "mouseReleased") != 0;
+    snprintf(params, sizeof params,
+        "{\"type\":\"%s\",\"x\":%d,\"y\":%d,\"button\":\"left\",\"buttons\":%d,\"clickCount\":1}",
+        type, x, y, pressed ? 1 : 0);
+    return cdp_call(c, "Input.dispatchMouseEvent", params);
+}
+
 int cdp_wait_bool(cdp *c, const char *js, int timeout_ms) {
     struct timespec nap = {0, 50 * 1000 * 1000};   /* 50 ms */
     for (int waited = 0; waited <= timeout_ms; waited += 50) {

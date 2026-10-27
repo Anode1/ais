@@ -429,7 +429,7 @@ function delRec(id) {
 // in a grammar they had to remember -- and did nothing at all in an installed PWA.
 function normkeys(s){ return s.replace(/,/g,' ').trim().replace(/\s+/g,' '); }
 function ulen(s){ return new TextEncoder().encode(s).length; }  // UTF-8 bytes: the engine's unit
-var edId = 0, edTags = [], edOldVal = '', edOrig = '', edEdit = false;
+var edId = 0, edTags = [], edWas = '', edOldVal = '', edOrig = '', edEdit = false;
 function edChips() {
   var c = $('edchips'); c.innerHTML = '';
   edTags.forEach(function (t) {
@@ -465,7 +465,7 @@ async function openEdit(id, v) {
   $('edvalwrap').style.display = edEdit ? 'block' : 'none';
   if (edEdit) $('edval').value = edOrig;
   var t = (await (await fetch('/api/keys?id=' + id)).text()).trim();
-  edTags = t ? t.split(/\s+/) : []; edChips();
+  edTags = t ? t.split(/\s+/) : []; edWas = edTags.join(' '); edChips();
   $('edtag').value = '';
   $('edsuggest').innerHTML = '';
   $('editsheet').hidden = false;
@@ -744,6 +744,10 @@ function openSheet(){
   ($('vk').value && !lastTagN ? $('vk') : $('v')).focus();
 }
 function closeSheet(){ $('sheet').hidden = true; $('v').value = ''; $('pp').value = ''; $('pp2').value = ''; }
+// A sheet with typed text closes only by Cancel or Save: a stray click past
+// the card, or an Escape, must not throw a draft away.
+function addUntouched() { return !$('v').value && !$('vk').value && !$('pp').value && !$('pp2').value; }
+function editUntouched() { return (!edEdit || $('edval').value === edOrig) && edTags.join(' ') === edWas && !$('edtag').value; }
 
 async function save() {
   var value = $('v').value.trim();
@@ -871,17 +875,26 @@ $('enc').onchange = function () {
 };
 $('cancel').onclick = closeSheet;
 $('save').onclick = save;
-$('sheet').addEventListener('click', function(e){ if (e.target == $('sheet')) closeSheet(); });
+// A dialog closes on a click on its dimmed backdrop, and only when the press
+// started there too: a drag-select that starts in a field and ends past the
+// card makes the browser fire the click on the backdrop, their common
+// ancestor, and that once closed the Add sheet mid-edit (issue #3).
+function backdrop(id, close) {
+  var s = $(id), down = false;
+  s.addEventListener('pointerdown', function (e) { down = e.target === s; });
+  s.addEventListener('click', function (e) { if (down && e.target === s) close(); down = false; });
+}
+backdrop('sheet', function () { if (addUntouched()) closeSheet(); });
 $('edcancel').onclick = function () { $('editsheet').hidden = true; };
 $('edsave').onclick = edSave;
 $('edtag').addEventListener('keydown', function (e) {
   if (e.key == 'Enter' || e.key == ',') { e.preventDefault(); edAdd(); }
 });
 $('edtag').addEventListener('blur', edAdd);   // a key left in the field still counts
-$('editsheet').addEventListener('click', function(e){ if (e.target == $('editsheet')) $('editsheet').hidden = true; });
+backdrop('editsheet', function () { if (editUntouched()) $('editsheet').hidden = true; });
 $('toastundo').onclick = delUndo;
 $('dscancel').onclick = closeDel;
-$('dsheet').addEventListener('click', function(e){ if (e.target == $('dsheet')) closeDel(); });
+backdrop('dsheet', closeDel);
 // the escape hatch: whoever landed here by mistake gets what they meant, in one tap
 $('dskeep').onclick = function () {
   var k = dsKey;                 // captured before closeDel() clears it
@@ -902,8 +915,8 @@ document.addEventListener('keydown', function (e) {
   closePops();
   if (!$('dsheet').hidden) closeDel();
   else if (!$('storesheet').hidden) $('storesheet').hidden = true;
-  else if (!$('editsheet').hidden) $('editsheet').hidden = true;
-  else if (!$('sheet').hidden) closeSheet();
+  else if (!$('editsheet').hidden) { if (editUntouched()) $('editsheet').hidden = true; }
+  else if (!$('sheet').hidden) { if (addUntouched()) closeSheet(); }
   else if (!$('syncsheet').hidden) closeSync();
 });
 
@@ -952,7 +965,7 @@ $('cleanbtn').onclick = cleanUp;
 $('storebtn').onclick = changeStore;
 $('storeok').onclick = storeApply;
 $('storecancel').onclick = function(){ $('storesheet').hidden = true; };
-$('storesheet').addEventListener('click', function (e) { if (e.target == $('storesheet')) $('storesheet').hidden = true; });
+backdrop('storesheet', function () { $('storesheet').hidden = true; });
 $('storepath').onkeydown = function (e) { if (e.key === 'Enter') storeApply(); };
 
 // #tags / #recall / #timeline opens that view directly, so a view is linkable
@@ -1301,7 +1314,7 @@ $('linksbtn').onclick = function () { $('filelinks').click(); };
 $('filelinks').onchange = function () { if (this.files.length) linksImport(this.files); this.value = ''; };
 $('syncfldbtn').onclick = function () { syncFolderRun(false, 0); };
 $('syncfldany').onclick = function () { syncFolderRun(false, 1); };
-$('syncsheet').addEventListener('click', function (e) { if (e.target == $('syncsheet')) closeSync(); });
+backdrop('syncsheet', closeSync);
 syncFolderLoad();
 
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(function(){});

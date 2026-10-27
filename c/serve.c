@@ -430,7 +430,7 @@ static const char PAGE[] =
 "if(delUndoFn){delUndoFn();delUndoFn=null}delRow=null;delCommit=null;hideToast()}"
 /* Edit modal: value (when editable) + a chip tag editor, computing a minimal
  * +tag/-tag delta on save. */
-"var edId=0,edTags=[],edOldVal='',edOrig='',edEdit=false;"
+"var edId=0,edTags=[],edWas='',edOldVal='',edOrig='',edEdit=false;"
 "function edChips(){var c=$('edchips');c.innerHTML='';edTags.forEach(function(t){"
 "var s=document.createElement('span');s.className='chip';s.textContent=t;"
 "var b=document.createElement('button');b.textContent='\\u00d7';b.onclick=function(){edTags=edTags.filter(function(x){return x!=t});edChips()};"
@@ -448,7 +448,7 @@ static const char PAGE[] =
 "var dr=edOldVal?await fetch('/api/doc?v='+encodeURIComponent(edOldVal)):null;edEdit=!!dr&&dr.ok;"
 "if(edEdit)edOrig=(await dr.text()).replace(/\\r\\n?/g,'\\n')}"
 "$('edvalwrap').style.display=edEdit?'block':'none';if(edEdit)$('edval').value=edOrig;"
-"var t=(await(await fetch('/api/keys?id='+id)).text()).trim();edTags=t?t.split(/\\s+/):[];edChips();"
+"var t=(await(await fetch('/api/keys?id='+id)).text()).trim();edTags=t?t.split(/\\s+/):[];edWas=edTags.join(' ');edChips();"
 "$('edtag').value='';$('edsuggest').innerHTML='';$('editsheet').hidden=false}"
 /* Fails as save() does: a refused tag is caught before sending, a refusal
  * shows the server's sentence, an unreachable server says so, and the sheet
@@ -581,6 +581,10 @@ static const char PAGE[] =
  * on the value); land on the tag field instead so the user meets it */
 "$('pp2').value='';$('pp2').hidden=true;$('ppnote').hidden=true;$('sheet').hidden=false;($('vk').value&&!rcN?$('vk'):$('v')).focus()}"
 "function closeSheet(){$('sheet').hidden=true;$('v').value='';$('pp').value='';$('pp2').value=''}"
+/* A sheet with typed text closes only by Cancel or Save: a stray click past
+ * the card, or an Escape, must not throw a draft away. */
+"function addUntouched(){return !$('v').value&&!$('vk').value&&!$('pp').value&&!$('pp2').value}"
+"function editUntouched(){return (!edEdit||$('edval').value===edOrig)&&edTags.join(' ')===edWas&&!$('edtag').value}"
 "async function save(){var v=$('v').value.trim();if(!v){alert('Type something first.');return}var k=normkeys($('vk').value);"
 "if(v.indexOf('\\0')>=0){alert('The text has a hidden character AIS can\\'t store. Retype it and save again.');return}"
 "var enc=$('enc').checked,pp=$('pp').value,pp2=$('pp2').value;"
@@ -648,18 +652,27 @@ static const char PAGE[] =
 "$('addbtn').onclick=openSheet;$('cancel').onclick=closeSheet;$('save').onclick=save;"
 "$('toastundo').onclick=delUndo;"
 "$('dscancel').onclick=closeDel;"
-"$('dsheet').onclick=function(e){if(e.target===$('dsheet'))closeDel()};"
+/* A dialog closes on a click on its dimmed backdrop, and only when the press
+ * started there too: a drag-select that starts in a field and ends past the
+ * card makes the browser fire the click on the backdrop, their common
+ * ancestor, and that once closed the Add sheet mid-edit (issue #3). */
+"function backdrop(id,close){var s=$(id),down=false;"
+"s.addEventListener('pointerdown',function(e){down=e.target===s});"
+"s.addEventListener('click',function(e){if(down&&e.target===s)close();down=false})}"
+"backdrop('dsheet',closeDel);"
 "$('dskeep').onclick=function(){var k=dsKey;closeDel();untagKey(k)};"
 "$('dsname').oninput=function(){$('dsgo').disabled=this.value.trim()!==dsKey};"
 "$('dsgo').onclick=async function(){if(this.disabled)return;var k=dsKey;closeDel();"
 "var r=await(await fetch('/api/del-under?keys='+encodeURIComponent(k),{method:'POST'})).text();"
 "var m=+(r.match(/\\d+/)||[0])[0];$('count').textContent='Deleted '+m+' item'+(m==1?'':'s');"
 "loadTags()};"
-"document.addEventListener('keydown',function(e){if(e.key!='Escape')return;closePops();if(!$('dsheet').hidden)closeDel();else if(!$('storesheet').hidden)$('storesheet').hidden=true});"
+"document.addEventListener('keydown',function(e){if(e.key!='Escape')return;closePops();if(!$('dsheet').hidden)closeDel();else if(!$('storesheet').hidden)$('storesheet').hidden=true;"
+"else if(!$('editsheet').hidden){if(editUntouched())$('editsheet').hidden=true}"
+"else if(!$('sheet').hidden){if(addUntouched())closeSheet()}});"
 "$('edcancel').onclick=function(){$('editsheet').hidden=true};$('edsave').onclick=edSave;"
 "$('edtag').addEventListener('keydown',function(e){if(e.key=='Enter'||e.key==','){e.preventDefault();edAdd()}});"
 "$('edtag').addEventListener('blur',edAdd);"
-"$('editsheet').addEventListener('click',function(e){if(e.target==$('editsheet'))$('editsheet').hidden=true});"
+"backdrop('editsheet',function(){if(editUntouched())$('editsheet').hidden=true});"
 "$('enc').onchange=function(){$('pp').hidden=$('pp2').hidden=$('ppnote').hidden=!$('enc').checked;"
 "if($('enc').checked)$('pp').focus()};"
 /* one state for both fields: either Show reveals both, as the app's eyes do;
@@ -667,7 +680,7 @@ static const char PAGE[] =
 "var ppShow=false;function ppToggle(){ppShow=!ppShow;$('pp').type=$('pp2').type=ppShow?'text':'password';"
 "[].forEach.call(document.querySelectorAll('#sheet .eye'),function(b){b.textContent=ppShow?'Hide':'Show';b.setAttribute('aria-label',ppShow?'Hide passwords':'Show passwords')})}"
 "[].forEach.call(document.querySelectorAll('#sheet .eye'),function(b){b.onclick=ppToggle});"
-"$('sheet').addEventListener('click',function(e){if(e.target==$('sheet'))closeSheet()});"
+"backdrop('sheet',function(){if(addUntouched())closeSheet()});"
 /* the library path is shown only here, in the Switch library dialog. A field,
  * not prompt(): prompt() is silently disabled in installed-PWA and app windows. */
 "async function changeStore(){var cur=(await(await fetch('/api/where')).text()).trim();"
@@ -691,7 +704,7 @@ static const char PAGE[] =
 "$('cleanbtn').onclick=cleanUp;"
 "$('storebtn').onclick=changeStore;$('storeok').onclick=storeApply;"
 "$('storecancel').onclick=function(){$('storesheet').hidden=true};"
-"$('storesheet').addEventListener('click',function(e){if(e.target==$('storesheet'))$('storesheet').hidden=true});"
+"backdrop('storesheet',function(){$('storesheet').hidden=true});"
 "$('storepath').onkeydown=function(e){if(e.key==='Enter')storeApply()};"
 /* #tags / #recall / #timeline opens that view directly, so a view is linkable
  * (and reachable by a screenshot or a UI test, which cannot click before load). */
@@ -859,7 +872,7 @@ static const char PAGE[] =
 "$('syncfldbtn').onclick=function(){syncFolderRun(false,0)};"
 "$('syncfldany').onclick=function(){syncFolderRun(false,1)};"
 "syncFolderLoad();"
-"$('syncsheet').addEventListener('click',function(e){if(e.target==$('syncsheet'))closeSync()});"
+"backdrop('syncsheet',closeSync);"
 "</script>";
 
 static void write_all(int fd, const char *p, size_t n)

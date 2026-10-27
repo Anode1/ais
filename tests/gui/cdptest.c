@@ -652,6 +652,52 @@ int main(int argc, char **argv) {
         "linksImport([f]);return true})()", &(int){0}) == 0 &&
         cdp_wait_bool(c, "!!window.__msg&&window.__msg.indexOf('people.csv: no url column')>=0", 5000) == 0);
 
+    /* ---- the Add sheet under a mouse ------------------------------------
+     * Issue #3: on Windows, selecting text in a field closed the whole form.
+     * A drag that starts in a field and ends on the dimmed backdrop makes the
+     * browser fire the click on their common ancestor, the backdrop, and the
+     * backdrop's click handler closed the sheet. The sheet may close only when
+     * the press started on the backdrop too. Real mouse events, not .click(). */
+    cdp_eval_bool(c, "(function(){document.getElementById('q').value='';setView('timeline');openSheet();return true})()", &(int){0});
+    ok("the Add sheet is open", cdp_wait_bool(c, "document.getElementById('sheet').hidden===false", 3000) == 0);
+    int vx = 0, vy = 0;
+    ok("the text field has a place on screen",
+       cdp_eval_int(c, "Math.round(document.getElementById('v').getBoundingClientRect().left+20)", &vx) == 0 &&
+       cdp_eval_int(c, "Math.round(document.getElementById('v').getBoundingClientRect().top+10)", &vy) == 0);
+    ok("the corner of the page is the backdrop", cdp_eval_bool(c,
+        "document.elementFromPoint(4,4)===document.getElementById('sheet')", &(int){0}) == 0);
+    cdp_mouse(c, "mousePressed", vx, vy);
+    cdp_mouse(c, "mouseMoved", 4, 4);
+    cdp_mouse(c, "mouseReleased", 4, 4);
+    ok("a drag-select from a field past the card keeps the sheet",
+       cdp_wait_bool(c, "document.getElementById('sheet').hidden===false", 500) == 0);
+    /* and a sheet with typed text closes only by Cancel or Save: a stray
+     * click on the backdrop, or an Escape, must not throw the draft away */
+    cdp_eval_bool(c, "(function(){document.getElementById('v').value='a draft';return true})()", &(int){0});
+    cdp_mouse(c, "mousePressed", 4, 4);
+    cdp_mouse(c, "mouseReleased", 4, 4);
+    ok("a backdrop click keeps a sheet with typed text",
+       cdp_wait_bool(c, "document.getElementById('sheet').hidden===false", 500) == 0);
+    cdp_key(c, "Escape");
+    ok("so does Escape", cdp_wait_bool(c, "document.getElementById('sheet').hidden===false", 500) == 0
+       && cdp_eval_bool(c, "document.getElementById('v').value==='a draft'", &(int){0}) == 0);
+    cdp_eval_bool(c, "(function(){document.getElementById('v').value='';return true})()", &(int){0});
+    cdp_mouse(c, "mousePressed", 4, 4);
+    cdp_mouse(c, "mouseReleased", 4, 4);
+    ok("a click on the backdrop closes an untouched sheet", cdp_wait_bool(c, "document.getElementById('sheet').hidden===true", 3000) == 0);
+    cdp_eval_bool(c, "(function(){openSheet();return true})()", &(int){0});
+    cdp_key(c, "Escape");
+    ok("so does Escape", cdp_wait_bool(c, "document.getElementById('sheet').hidden===true", 3000) == 0);
+    /* the Edit sheet follows the same rule */
+    cdp_eval_bool(c, "(function(){openEdit(2,'https://example.org/canal-EDITED');return true})()", &(int){0});
+    ok("the Edit sheet is open", cdp_wait_bool(c, "document.getElementById('editsheet').hidden===false&&edTags.length>0", 3000) == 0);
+    cdp_eval_bool(c, "(function(){document.getElementById('edval').value+='x';return true})()", &(int){0});
+    cdp_key(c, "Escape");
+    ok("Escape keeps an edited record", cdp_wait_bool(c, "document.getElementById('editsheet').hidden===false", 500) == 0);
+    cdp_eval_bool(c, "(function(){var e=document.getElementById('edval');e.value=e.value.slice(0,-1);return true})()", &(int){0});
+    cdp_key(c, "Escape");
+    ok("and closes an unedited one", cdp_wait_bool(c, "document.getElementById('editsheet').hidden===true", 3000) == 0);
+
     cdp_close(c);
     printf("cdp: %d passed, %d failed\n", pass, fail);
     return fail ? 1 : 0;
