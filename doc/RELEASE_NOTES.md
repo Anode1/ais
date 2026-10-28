@@ -8,6 +8,13 @@ Before tagging, run `scripts/release-notes.sh vX.Y.Z`: it prepends the commit
 subjects since the previous tag, then edit them down to what a user needs to
 know. The old entries below the two newest are the raw subjects.
 
+## v0.3.39 (2026-10-28)
+
+- Project: one tag kept active, chosen from a tag's menu in the Tags view ("Make it the project"). It sits as a chip first in the search bar and in the Add sheet; Recent lists only its items, a search runs inside it ("Search all items" lifts that once), and a new item gets its tag unless the sheet chip's cross is tapped. Kept per device and per library, left by its cross with Undo. In the app, the web page and the PWA.
+- Add sheet: the tags start empty, with no prefill from the search box (issue #2); a sheet or Edit dialog with typed text closes only by Cancel or Save, in the app as on the web page (issue #3).
+- Web GUI: an unlocked entry keeps its tag line and menu (issue #4); a drag-select past the card no longer closes the sheet; the menu ends with the version line, as the app's About has it.
+- API: `/api/timeline` and `/api/find` take `key=` to page one tag's records; the FFI gains the same call.
+
 ## v0.3.38 (2026-10-24)
 
 - Lock with a password: a note over the limit (about 6000 letters, fewer in other alphabets) is refused before anything is sent, with a sentence that says so, in the app, on the web page and at the API; the web page's password fields have Show and Hide; an empty password cannot lock a note.
