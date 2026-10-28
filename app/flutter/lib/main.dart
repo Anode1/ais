@@ -1372,7 +1372,8 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
     _applyProject(k);
     if (first && mounted) {
       ScaffoldMessenger.of(context)
-        ..removeCurrentSnackBar()
+        ..clearSnackBars()           // drop the queue
+        ..removeCurrentSnackBar()    // and the one showing, at once
         ..showSnackBar(SnackBar(
             content: Text('Working in $k on this device. New items get this tag.')));
     }
@@ -1383,8 +1384,9 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
     final old = _project;
     if (old.isEmpty) return;
     _applyProject('');
-    // Shown at once, not queued behind an earlier notice: Undo has 5 s.
+    // Shown at once, the queue dropped: Undo has 5 s.
     ScaffoldMessenger.of(context)
+      ..clearSnackBars()
       ..removeCurrentSnackBar()
       ..showSnackBar(SnackBar(
       content: Text('Left $old'),
@@ -1400,6 +1402,7 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
     _storeProject('');
     if (mounted) {
       ScaffoldMessenger.of(context)
+        ..clearSnackBars()
         ..removeCurrentSnackBar()
         ..showSnackBar(
             SnackBar(content: Text('Nothing left in $old. The project ended.')));
@@ -2780,7 +2783,8 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
       case 'tags':
         return false;                    // "No tags yet." offers nothing to press
       default:
-        return _results.isEmpty && !_textSearch && !_searched;
+        // inside a project the empty Search view is a prompt, so the FAB stays
+        return _results.isEmpty && !_textSearch && !_searched && _project.isEmpty;
     }
   }
 
@@ -3330,8 +3334,12 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
       // Key search found nothing: the only place the full-text fallback is offered.
       if (_searched && _query.isNotEmpty) return _noTagMatch(cs);
       if (_searched) return _centerMsg('No results for "$_query"', cs);
-      // First-run: an error keeps its plain message, a healthy engine the empty state.
-      if (_ais == null && widget.survival == null) return _centerMsg(_status, cs);
+      // First-run: an error keeps its plain message, a healthy engine the empty
+      // state; inside a project, the prompt that names it.
+      if (_ais == null && widget.survival == null && widget.timelineLookup == null) {
+        return _centerMsg(_status, cs);
+      }
+      if (_project.isNotEmpty) return _centerMsg(_searchHint, cs);
       assert(_emptyStateOffersAdd);   // the FAB stands down on exactly this branch
       return _emptyState(cs,
           icon: Icons.note_add_outlined,

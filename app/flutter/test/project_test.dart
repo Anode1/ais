@@ -147,11 +147,26 @@ void main() {
       expect(calls.recall.last, ('recipe home', false));
     });
 
-    testWidgets('the empty search names the project', (tester) async {
+    testWidgets('the empty search names the project, the welcome card stays away',
+        (tester) async {
       await pumpPage(tester);
       await choose(tester, 'recipe');
       await openTab(tester, 'Search');
       expect(find.text('Type tags to search inside recipe.'), findsOneWidget);
+      expect(find.textContaining('Save a link, a note'), findsNothing);
+      expect(find.widgetWithText(FloatingActionButton, 'Add'), findsOneWidget);
+    });
+
+    testWidgets('the first-project notice replaces a queued snackbar', (tester) async {
+      await pumpPage(tester);
+      final m = ScaffoldMessenger.of(tester.element(find.byType(NavigationBar)));
+      m.showSnackBar(const SnackBar(content: Text('Saved under: home')));
+      m.showSnackBar(const SnackBar(content: Text('Saved under: trip')));
+      await settle(tester);
+      await choose(tester, 'recipe');
+      expect(find.text('Working in recipe on this device. New items get this tag.'),
+          findsOneWidget);
+      expect(find.textContaining('Saved under'), findsNothing);
     });
 
     testWidgets('Recent coming back empty ends the project', (tester) async {
