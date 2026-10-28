@@ -29,6 +29,7 @@ README's "Learn more" table. Start with `../../AGENTS.md`, then `LAYOUT.md` and
 | File | What |
 | --- | --- |
 | [GUI.md](GUI.md) | what every surface must look like: vocabulary, layout, the two web pages |
+| [project-chip/SPEC.md](project-chip/SPEC.md) | the project chip: one tag kept active across the views, how it is chosen, left and stored |
 | [GUI_TESTING.md](GUI_TESTING.md) | how to drive one without a human clicking, and without a window on a real display |
 | [HTTP_API.md](HTTP_API.md) | the `--serve` endpoints both web front ends call |
 | [MCP.md](MCP.md) | the `--mcp` tool server inside: the wire, the JSON reader, the text a model reads |

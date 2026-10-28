@@ -42,10 +42,17 @@
       <button id="storebtn" role="menuitem">Switch library</button>
     </div>
   </div>
+  <!-- the project chip: the one tag the page keeps active (doc/dev/project-chip/SPEC.md) -->
   <div class="searchrow">
     <span class="sicon">&#128269;</span>
+    <span id="pchip" class="pchip" hidden><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M17.63 5.84C17.27 5.33 16.67 5 16 5L5 5.01C3.9 5.01 3 5.9 3 7v10c0 1.1.9 1.99 2 1.99L16 19c.67 0 1.27-.33 1.63-.84L22 12l-4.37-6.16z"/></svg><button id="pname" class="pname" aria-haspopup="menu" aria-expanded="false"></button><button id="pleave" class="px" aria-label="Leave project">&#x2715;</button></span>
     <input id="q" type="search" enterkeyhint="search" placeholder="type tags to filter" autocomplete="off" autofocus>
     <button id="mic" class="iconbtn" title="Speak" hidden>&#127908;</button>
+    <div id="pmenu" class="pop" role="menu" hidden>
+      <button id="pswitch" role="menuitem">Switch project</button>
+      <button id="pleave2" role="menuitem">Leave project</button>
+      <span class="cap">Kept on this device</span>
+    </div>
   </div>
   <div id="qsuggest" class="chips"></div>  <!-- tag-autocomplete chips for #q -->
   <div id="filters" class="filters">
@@ -93,7 +100,10 @@
   <div class="card">
     <h2 id="addtitle">New item</h2>
     <textarea id="v" rows="3" aria-label="Text" placeholder="A link, a note, a number..."></textarea>
-    <input id="vk" aria-label="Tags" placeholder="Tags">
+    <div id="vkwrap" class="tagfield">
+      <span id="vkchip" class="pchip" hidden><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M17.63 5.84C17.27 5.33 16.67 5 16 5L5 5.01C3.9 5.01 3 5.9 3 7v10c0 1.1.9 1.99 2 1.99L16 19c.67 0 1.27-.33 1.63-.84L22 12l-4.37-6.16z"/></svg><span id="vkname" class="pname"></span><button id="vkout" class="px" aria-label="Leave this item out of the project">&#x2715;</button></span>
+      <input id="vk" aria-label="Tags" placeholder="Tags">
+    </div>
     <p class="hint">Separate with spaces</p>
     <div id="vksuggest" class="chips"></div>  <!-- tag-autocomplete chips for #vk -->
     <!-- the password fields stay hidden until the switch asks for them, and the
@@ -217,6 +227,66 @@ var view = 'recall', gen = 0;
 var tlBefore = 0, tlDay = null, tlN = 0, tlPage = 100;  // timeline keyset paging
 var dateOpen = false, MON = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 function anyTag() { return $('anyk').getAttribute('aria-pressed') == 'true'; }
+// The project: one tag the page keeps active. Recent lists only its items, a
+// search is ANDed with it, the Add sheet starts with it; the engine sees an
+// ordinary tag. Kept per device and per library, in localStorage under the
+// library path (doc/dev/project-chip/SPEC.md). Same ids and words as the
+// embedded page: one test driver reaches both.
+var proj = '', lib = '', vkOut = false, rcProj = '', rcAll = false, noop = function () {};
+function esc(s) { return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+function projKey() { return 'ais.project:' + lib; }
+function projStore(k) { try { if (k) localStorage.setItem(projKey(), k); else localStorage.removeItem(projKey()); } catch (e) {} }
+function projLoad() { try { proj = localStorage.getItem(projKey()) || ''; } catch (e) { proj = ''; } projRender(); }
+function projRender() {
+  $('pchip').hidden = !proj; $('pname').textContent = proj; $('vkname').textContent = proj;
+  $('q').placeholder = proj ? 'more tags' : 'type tags to filter';
+  $('vkchip').hidden = !proj || vkOut;
+  $('pchip').classList.remove('sel'); $('vkchip').classList.remove('sel');
+}
+function projApply(k) { proj = k; projStore(k); projRender(); setView(view); }
+// the first project ever chosen on this device gets the one-time explanation
+function projSet(k) {
+  var first = false;
+  try { first = !localStorage.getItem('ais.project.said'); localStorage.setItem('ais.project.said', '1'); } catch (e) {}
+  projApply(k);
+  if (first) toastNote('Working in ' + k + ' on this device. New items get this tag.');
+}
+// leaving is undoable for 5 s, through the delete's toast and timer
+function projLeave() {
+  var old = proj; if (!old) return;
+  delFlush(); projApply('');
+  delPending('Left ' + old, noop, function () { projApply(old); });
+}
+// the engine has no empty tag: a project whose items are all gone ends
+function projEnded() {
+  var old = proj; proj = ''; projStore(''); projRender();
+  toastNote('Nothing left in ' + old + '. The project ended.');
+  setView(view);
+}
+// inside a project a row's tag line does not repeat the project
+function metaKeys(ks) { if (!proj) return ks; return ks.split(' ').filter(function (t) { return t != proj; }).join(' '); }
+// a 4 s notice in the toast with no Undo, skipped while a delete's Undo owns it
+function toastNote(t) {
+  if (delTimer) return;
+  $('toast').firstChild.textContent = t; $('toastundo').hidden = true; $('toast').hidden = false;
+  setTimeout(function () { if (!delTimer) hideToast(); }, 4000);
+}
+// under a project's results: the scope, and the same search once over all
+// items (the chip stays; the next search is inside the project again)
+function scopeLine() {
+  var s = $('scope');
+  if (!s) {
+    s = document.createElement('p'); s.id = 'scope'; s.className = 'scope';
+    s.appendChild(document.createTextNode('Only items tagged '));
+    s.appendChild(document.createElement('b'));
+    s.appendChild(document.createTextNode('. '));
+    var l = document.createElement('button'); l.className = 'link'; l.textContent = 'Search all items';
+    l.onclick = function () { rcAll = true; recall(); };
+    s.appendChild(l);
+  }
+  s.querySelector('b').textContent = rcProj;
+  return s;
+}
 // once a range is set the Date chip names it: "12–20 Aug", "From 3 Sep"
 function dayLbl(d, mon, yr) {
   var p = d.split('-');
@@ -346,7 +416,7 @@ function render(text, q) {
     // textContent, not innerHTML: a tag name reaches q via the tag list, so the
     // query is not always something the user typed about themselves
     var e = document.createElement('p'); e.className = 'empty';
-    e.textContent = 'No tag match for "' + q + '"';
+    e.textContent = rcProj ? 'No results for ' + q + ' in ' + rcProj : 'No tag match for "' + q + '"';
     out.appendChild(e); return 0;
   }
   lines.forEach(function (ln) {
@@ -402,7 +472,7 @@ function delFlush() {
   if (delTimer) { clearTimeout(delTimer); delTimer = null; }
   if (delCommit) {
     var f = delCommit; delCommit = null; delUndoFn = null; f();
-    if (syncFolderSaved()) syncFolderRun(true);   // a change: push it to the folder
+    if (f !== noop && syncFolderSaved()) syncFolderRun(true);   // a change: push it to the folder
   }
   hideToast();
 }
@@ -514,13 +584,23 @@ async function recall() {
   var q = $('q').value.trim(); if (!q) return;
   var g = gen;
   var oo = anyTag() ? '&or=1' : '';
-  var t = await (await fetch('/api/get?keys=' + encodeURIComponent(q) + oo)).text();
+  rcProj = rcAll ? '' : proj; rcAll = false;
+  // inside a project the AND query carries the project; an OR query keeps the
+  // typed tags ORed and drops the rows not filed under it (meta names the tags)
+  var u = '/api/get?keys=' + encodeURIComponent(rcProj && !oo ? rcProj + ' ' + q : q) + oo + (rcProj && oo ? '&meta=1' : '');
+  var t = await (await fetch(u)).text();
   if (g != gen) return;                 // the view moved on: drop it
+  if (rcProj && oo)
+    t = t.split('\n').filter(function (ln) {
+      var p = ln.indexOf('|'), r = ln.indexOf('|', p + 1);
+      return r > 0 && (' ' + ln.slice(p + 1, r) + ' ').indexOf(' ' + rcProj + ' ') >= 0;
+    }).map(function (ln) { var p = ln.indexOf('|'), r = ln.indexOf('|', p + 1); return ln.slice(0, p) + ln.slice(r); }).join('\n');
   var tagN = render(t, q);
   await findAppend(g, tagN);
   if (g != gen) return;
   // tags matched nothing but values did: the value section stands alone
   if (!tagN && $('vsep')) { var e = $('out').querySelector('.empty'); if (e) e.remove(); }
+  if (rcProj) $('out').appendChild(scopeLine());
 }
 // Value-ranked second half (both pages, mirrored): after the tag matches, ask
 // /api/find for records whose VALUE holds the trimmed query and append the
@@ -530,7 +610,7 @@ async function recall() {
 async function findAppend(g, tagN) {
   var o = $('out'), qraw = $('q').value.trim();
   if (!qraw || $('vsep')) return;
-  var t = await (await fetch('/api/find?q=' + encodeURIComponent(qraw))).text();
+  var t = await (await fetch('/api/find?q=' + encodeURIComponent(qraw) + (rcProj ? '&key=' + encodeURIComponent(rcProj) : ''))).text();
   if (g != gen) return;                 // the view moved on: drop it
   var seen = {};
   [].forEach.call(o.querySelectorAll('.hit'), function (r) { if (r.dataset.id) seen[r.dataset.id] = 1; });
@@ -584,11 +664,14 @@ async function loadTimeline(more) {
   var f = $('tlfrom') ? $('tlfrom').value : '', tt = $('tlto') ? $('tlto').value : '';
   if (!more) { tlBefore = 0; tlDay = null; tlN = 0; out.innerHTML = ''; }
   var u = '/api/timeline?count=' + tlPage + (tlBefore > 0 ? '&before=' + tlBefore : '')
-        + (f ? '&from=' + f : '') + (tt ? '&to=' + tt : '');
+        + (f ? '&from=' + f : '') + (tt ? '&to=' + tt : '') + (proj ? '&key=' + encodeURIComponent(proj) : '');
   var lines = (await (await fetch(u)).text()).split('\n').filter(function (s){ return s.length; });
   if (g != gen) return;                 // the view moved on: drop it
   var mb = $('tlmore'); if (mb) mb.remove();
-  if (!tlN && !lines.length) { out.innerHTML = (f || tt) ? '<div class="empty"><p>Nothing in that range.</p></div>' : emptyCTA; $('count').textContent = ''; return; }
+  if (!tlN && !lines.length) {
+    if (proj && !f && !tt) { projEnded(); return; }
+    out.innerHTML = (f || tt) ? '<div class="empty"><p>Nothing in that range.</p></div>' : emptyCTA; $('count').textContent = ''; return;
+  }
   lines.forEach(function (ln) {
     var r = parseTL(ln), lt = locDT(r.ts), d = lt ? lt.day : '';
     if (d !== tlDay) {
@@ -602,8 +685,8 @@ async function loadTimeline(more) {
     (r.value.indexOf('aisc:') == 0 ? fillSecret(row, r.value)
      : r.value.indexOf('aisdoc:') == 0 ? fillDoc(row, r.value) : fillVal(row, r.value));
     var m = document.createElement('div'); m.className = 'meta';
-    var tm = lt && lt.time ? lt.time + ' · ' : '';
-    m.textContent = tm + (r.keys || '(no tags)');
+    var tm = lt && lt.time ? lt.time : '', kk = r.keys ? metaKeys(r.keys) : '(no tags)';
+    m.textContent = tm && kk ? tm + ' · ' + kk : tm || kk;
     row.appendChild(m);
     if (r.id) { row.appendChild(rowActions(r.id, r.value)); tlBefore = r.id; }
     out.appendChild(row);
@@ -633,10 +716,16 @@ async function loadTags() {
   var out = $('out'); out.innerHTML = '';
   setCount(lines.length + ' tag' + (lines.length==1?'':'s'));
   if (!lines.length) { out.innerHTML = '<p class="empty">No tags yet.</p>'; return; }
+  // the project's row comes first, tinted
+  if (proj) {
+    var pi = -1; lines.forEach(function (ln, i) { if (ln.slice(ln.indexOf('|') + 1) == proj) pi = i; });
+    lines.unshift(pi >= 0 ? lines.splice(pi, 1)[0] : '|' + proj);
+  }
   lines.forEach(function (ln) {
     var p = ln.indexOf('|'), count = ln.slice(0, p), key = ln.slice(p+1);
-    var row = document.createElement('div'); row.className = 'tagrow';
+    var row = document.createElement('div'); row.className = 'tagrow' + (key == proj ? ' proj' : '');
     var b = document.createElement('button'); b.className = 'taglink'; b.textContent = key;
+    if (key == proj) b.insertBefore($('pchip').querySelector('svg').cloneNode(true), b.firstChild);
     b.onclick = function () { $('q').value = key; setView('recall'); };
     var n = document.createElement('span'); n.className = 'tagcount'; n.textContent = count;
     // both tag actions sit behind the row's menu; the delete opens the typed confirm
@@ -645,13 +734,17 @@ async function loadTags() {
     m.setAttribute('aria-label', 'Actions for ' + key); m.setAttribute('aria-haspopup', 'menu');
     var box = document.createElement('div'); box.className = 'pop';
     box.setAttribute('role', 'menu'); box.hidden = true;
+    // first: make this tag the project, or leave it; the project is chosen here only
+    var pj = document.createElement('button'); pj.setAttribute('role', 'menuitem'); pj.className = 'projitem';
+    pj.textContent = key == proj ? 'Leave project' : 'Make it the project';
+    pj.onclick = function () { closePops(); if (key == proj) projLeave(); else projSet(key); };
     var u = document.createElement('button'); u.setAttribute('role', 'menuitem');
     u.textContent = 'Remove tag';
     u.onclick = function () { closePops(); untagKey(key); };
     var x = document.createElement('button'); x.setAttribute('role', 'menuitem'); x.className = 'danger';
     x.textContent = 'Delete ' + count + ' item' + (+count==1 ? '' : 's');
     x.onclick = function () { closePops(); openDelUnder(key); };
-    box.appendChild(u); box.appendChild(x);
+    box.appendChild(pj); box.appendChild(u); if (count !== '') box.appendChild(x);
     m.onclick = function () { popToggle(m, box); };
     row.appendChild(b); row.appendChild(n); row.appendChild(m); row.appendChild(box);
     out.appendChild(row);
@@ -669,7 +762,10 @@ function untagKey(key) {
   delPending("Removed tag '" + key + "'",
     function () {
       fetch('/api/untag?keys=' + encodeURIComponent(key), { method:'POST' })
-        .then(function () { if (view == 'tags') loadTags(); });
+        .then(function () {
+          if (key == proj) { proj = ''; projStore(''); projRender(); }   // its last items lost the tag
+          if (view == 'tags') loadTags();
+        });
     },
     function () { if (row) row.style.display = ''; });
 }
@@ -721,7 +817,7 @@ function setView(v) {
   dateChip();
   if (v == 'recall') {
     if ($('q').value.trim()) recall();
-    else { $('out').innerHTML = '<div class="empty"><p>Type tags, then Search.</p>' + addCTA + '</div>'; $('count').textContent = ''; }
+    else { $('out').innerHTML = '<div class="empty"><p>' + (proj ? 'Type tags to search inside ' + esc(proj) + '.' : 'Type tags, then Search.') + '</p>' + addCTA + '</div>'; $('count').textContent = ''; }
   } else if (v == 'timeline') loadTimeline();
   else loadTags();
 }
@@ -743,6 +839,7 @@ new MutationObserver(function () {
 function openSheet(){
   $('vk').value = '';
   $('vksuggest').innerHTML = '';
+  vkOut = false; projRender();
   $('enc').checked = false; $('pp').value = ''; $('pp').hidden = true;
   if (ppShow) ppToggle();
   $('pp2').value = ''; $('pp2').hidden = true; $('ppnote').hidden = true;
@@ -759,7 +856,10 @@ async function save() {
   var value = $('v').value.trim();
   if (!value) { alert('Type something first.'); return; }
   if (value.indexOf('\0') >= 0) { alert("The text has a hidden character AIS can't store. Retype it and save again."); return; }
-  var keys = $('vk').value.trim();
+  var keys = normkeys($('vk').value);
+  // the project's chip is one of the tags unless its cross was tapped; typed
+  // by hand it counts once
+  if (proj && !vkOut && (keys ? keys.split(' ') : []).indexOf(proj) < 0) keys = (proj + ' ' + keys).trim();
   var enc = $('enc').checked, pp = $('pp').value, pp2 = $('pp2').value;
   // refuse rather than save in the clear: the lock switched on with no password
   // is the one case where doing the obvious thing would leak the secret
@@ -788,13 +888,9 @@ async function save() {
   // same text, same record: the reply says the save merged (restamped to today,
   // keys attached); silence here reads as the first note vanishing. The toast
   // is skipped while a delete's Undo owns it.
-  if (rt.indexOf('merged') == 0 && !delTimer) {
-    $('toast').firstChild.textContent = 'Already saved. Moved to today.';
-    $('toastundo').hidden = true;
-    $('toast').hidden = false;
-    setTimeout(function () { if (!delTimer) hideToast(); }, 4000);
-  }
-  $('q').value = keys; recall();          // show what was just saved
+  if (rt.indexOf('merged') == 0) toastNote('Already saved. Moved to today.');
+  else if (proj && vkOut) toastNote('Saved outside ' + proj);
+  $('q').value = metaKeys(keys); recall();   // show what was just saved (inside the project, it is implied)
   if (syncFolderSaved()) syncFolderRun(true);   // and get it into the shared folder
 }
 
@@ -881,6 +977,27 @@ $('enc').onchange = function () {
 };
 $('cancel').onclick = closeSheet;
 $('save').onclick = save;
+$('pname').onclick = function () { popToggle($('pname'), $('pmenu')); };
+$('pmenu').onclick = function () { closePops(); };
+$('pswitch').onclick = function () { setView('tags'); };
+$('pleave').onclick = projLeave; $('pleave2').onclick = projLeave;
+$('vkout').onclick = function () { vkOut = true; $('vkchip').hidden = true; $('vk').focus(); };
+// a desktop keyboard: Backspace in the empty field selects the chip, a second
+// removes it (a mail client's recipient field)
+function chipKeys(inp, chip, act) {
+  inp.addEventListener('keydown', function (e) {
+    if (e.key == 'Backspace' && !inp.value && !chip.hidden) {
+      e.preventDefault();
+      if (chip.classList.contains('sel')) { chip.classList.remove('sel'); act(); }
+      else chip.classList.add('sel');
+      return;
+    }
+    chip.classList.remove('sel');
+  });
+  inp.addEventListener('blur', function () { chip.classList.remove('sel'); });
+}
+chipKeys($('q'), $('pchip'), projLeave);
+chipKeys($('vk'), $('vkchip'), function () { vkOut = true; $('vkchip').hidden = true; });
 // A dialog closes on a click on its dimmed backdrop, and only when the press
 // started there too: a drag-select that starts in a field and ends past the
 // card makes the browser fire the click on the backdrop, their common
@@ -914,6 +1031,7 @@ $('dsgo').onclick = async function () {
   var r = await (await fetch('/api/del-under?keys=' + encodeURIComponent(k), { method:'POST' })).text();
   var m = +(r.match(/\d+/) || [0])[0];
   note('Deleted ' + m + ' item' + (m==1?'':'s'));
+  if (k == proj) { proj = ''; projStore(''); projRender(); }   // the project went with its items
   loadTags();
 };
 document.addEventListener('keydown', function (e) {
@@ -949,7 +1067,7 @@ async function storeApply(){
   var d = $('storepath').value.trim();
   if (!d) return;
   var r = await fetch('/api/store', { method:'POST', body:d });
-  if (r.ok) { $('storesheet').hidden = true; $('q').value = ''; setView('timeline'); }
+  if (r.ok) { $('storesheet').hidden = true; $('q').value = ''; await libLoad(); setView('timeline'); }
   else alert('No AIS library in that folder.');
 }
 // Reclaim deleted records. There is no CLI on a phone, so without this the store
@@ -977,8 +1095,15 @@ $('storepath').onkeydown = function (e) { if (e.key === 'Enter') storeApply(); }
 // #tags / #recall / #timeline opens that view directly, so a view is linkable
 // (and reachable by a screenshot or a UI test, which cannot click before load).
 var h0 = (location.hash || '').slice(1);
-setView(h0 == 'tags' || h0 == 'recall' || h0 == 'timeline' ? h0 : 'timeline'); // else open on content, not a blank search
-if (h0 == 'sync') openSync(); // #sync: the sheet, for a screenshot or a UI test
+// the project is kept under the library's path, so the path comes first
+async function libLoad() {
+  try { lib = (await (await fetch('/api/where')).text()).trim(); } catch (e) { lib = ''; }
+  projLoad();
+}
+libLoad().then(function () {
+  setView(h0 == 'tags' || h0 == 'recall' || h0 == 'timeline' ? h0 : 'timeline'); // else open on content, not a blank search
+  if (h0 == 'sync') openSync(); // #sync: the sheet, for a screenshot or a UI test
+});
 
 // ---- Sync (nearby device / a file / a shared folder) ----------------------
 // The same feature, the same ids and the same wording as the embedded page:

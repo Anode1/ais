@@ -723,6 +723,135 @@ int main(int argc, char **argv) {
         "document.getElementById('sheet').hidden===false&&document.getElementById('vk').value===''", 3000) == 0);
     cdp_eval_bool(c, "(function(){closeSheet();document.getElementById('q').value='';return true})()", &(int){0});
 
+    /* The project chip (doc/dev/project-chip/SPEC.md): one tag the page keeps
+     * active, chosen from the Tags view. Recent lists only its items, a search
+     * is ANDed with it, the Add sheet starts with it, and it survives a reload. */
+#define TAGROW(k) "[].slice.call(document.querySelectorAll('.tagrow')).filter(function(r){return r.querySelector('.taglink').textContent=='" k "'})[0]"
+#define CANAL "document.getElementById('out').innerText.indexOf('example.org/gondola')>=0"
+    /* two records under 'trip', one of them under 'venice' too (an earlier test
+     * took 'trip' off the seeded record) */
+    cdp_eval_bool(c, "(function(){window.__p=0;fetch('/api/put?keys='+encodeURIComponent('trip venice'),{method:'POST',body:'https://example.org/gondola'}).then(function(){"
+                     "return fetch('/api/put?keys=trip',{method:'POST',body:'https://example.org/lagoon'})}).then(function(){window.__p=1});return true})()", &(int){0});
+    ok("seed two records under 'trip'", cdp_wait_bool(c, "window.__p===1", 5000) == 0);
+    cdp_eval_bool(c, "(function(){location.hash='#tags';setView('tags');return true})()", &(int){0});
+    ok("tags view lists 'trip'", cdp_wait_bool(c, "!!" TAGROW("trip"), 5000) == 0);
+    ok("no project yet: no chip, no row first", truthy(c,
+        "proj===''&&document.getElementById('pchip').hidden&&!document.querySelector('.tagrow.proj')"));
+    ok("the row menu offers 'Make it the project' first", truthy(c,
+        TAGROW("trip") ".querySelector('.pop button').textContent==='Make it the project'"));
+    cdp_eval_bool(c, "(function(){var r=" TAGROW("trip") ";r.querySelector('.tagmenu').click();r.querySelector('.projitem').click();return true})()", &(int){0});
+    ok("choosing it shows the chip in the search bar", cdp_wait_bool(c,
+        "proj==='trip'&&!document.getElementById('pchip').hidden&&document.getElementById('pname').textContent==='trip'", 3000) == 0);
+    ok("the first project explains itself once", cdp_wait_bool(c,
+        "!document.getElementById('toast').hidden&&document.getElementById('toast').innerText.indexOf('Working in trip on this device')>=0", 3000) == 0);
+    ok("it is kept under the library path", truthy(c, "lib.length>0&&localStorage.getItem('ais.project:'+lib)==='trip'"));
+    ok("the Tags view puts the project first, tinted", cdp_wait_bool(c,
+        "document.querySelector('.tagrow').className.indexOf('proj')>=0&&document.querySelector('.tagrow .taglink').textContent==='trip'", 3000) == 0);
+    ok("its menu now says 'Leave project'", truthy(c,
+        "document.querySelector('.tagrow .pop button').textContent==='Leave project'"));
+    ok("the search box asks for more tags", truthy(c, "document.getElementById('q').placeholder==='more tags'"));
+
+    /* Recent inside the project: only its items, the project tag not repeated */
+    cdp_eval_bool(c, "(function(){setView('timeline');return true})()", &(int){0});
+    ok("Recent lists the project's item", cdp_wait_bool(c, CANAL, 5000) == 0);
+    ok("and not the others", truthy(c, "!(" HIT ")"));
+    ok("the row's tag line omits the project tag", truthy(c,
+        "(function(){var m=[].slice.call(document.querySelectorAll('#out .hit')).filter(function(r){return r.innerText.indexOf('gondola')>=0})[0].querySelector('.meta').textContent;return m.indexOf('venice')>=0&&m.indexOf('trip')<0})()"));
+    ok("Recent still has day headers", truthy(c, "!!document.querySelector('#out .daygroup')"));
+
+    /* Search: the project ANDed with the typed tags, one-shot escape under the results */
+    cdp_eval_bool(c, "(function(){document.getElementById('q').value='venice';setView('recall');return true})()", &(int){0});
+    ok("a search inside the project finds the item under both", cdp_wait_bool(c, CANAL, 5000) == 0);
+    ok("and not the one under venice alone", truthy(c, "!(" HIT ")"));
+    ok("the results say which project, with a way out", cdp_wait_bool(c,
+        "!!document.getElementById('scope')&&document.getElementById('scope').textContent.indexOf('Only items tagged trip.')>=0", 3000) == 0);
+    cdp_eval_bool(c, "(function(){document.querySelector('#scope .link').click();return true})()", &(int){0});
+    ok("'Search all items' runs the same search everywhere", cdp_wait_bool(c, HIT, 5000) == 0);
+    ok("the chip stays", truthy(c, "proj==='trip'&&!document.getElementById('pchip').hidden"));
+    cdp_eval_bool(c, "(function(){setView('recall');return true})()", &(int){0});
+    ok("the next search is inside the project again", cdp_wait_bool(c, "!(" HIT ")&&" CANAL, 5000) == 0);
+    cdp_eval_bool(c, "(function(){document.getElementById('anyk').setAttribute('aria-pressed','true');document.getElementById('q').value='venice locker';setView('recall');return true})()", &(int){0});
+    ok("'Any tag' ORs the typed tags, the project stays required", cdp_wait_bool(c, CANAL, 5000) == 0);
+    ok("so an item outside the project is not listed", truthy(c, "!(" HIT ")&&document.getElementById('out').innerText.indexOf('wifi-Staff-2026')<0"));
+    cdp_eval_bool(c, "(function(){document.getElementById('anyk').setAttribute('aria-pressed','false');document.getElementById('q').value='';setView('recall');return true})()", &(int){0});
+    ok("the empty search names the project", cdp_wait_bool(c,
+        "document.getElementById('out').innerText.indexOf('Type tags to search inside trip.')>=0", 3000) == 0);
+    cdp_eval_bool(c, "(function(){document.getElementById('q').value='nosuchtag';setView('recall');return true})()", &(int){0});
+    ok("no match says so, inside the project", cdp_wait_bool(c,
+        "document.getElementById('out').innerText.indexOf('No results for nosuchtag in trip')>=0&&!!document.getElementById('scope')", 5000) == 0);
+
+    /* The Add sheet: the chip is one of the tags; its cross leaves one item out */
+    cdp_eval_bool(c, "(function(){openSheet();return true})()", &(int){0});
+    ok("the Add sheet opens with the project chip", cdp_wait_bool(c,
+        "!document.getElementById('sheet').hidden&&!document.getElementById('vkchip').hidden&&document.getElementById('vkname').textContent==='trip'", 3000) == 0);
+    cdp_eval_bool(c, "(function(){document.getElementById('v').value='proj-item-1';document.getElementById('vk').value='alpha';save();return true})()", &(int){0});
+    ok("a saved item shows in the project's Recent", cdp_wait_bool(c,
+        "document.getElementById('sheet').hidden&&document.getElementById('out').innerText.indexOf('proj-item-1')>=0", 5000) == 0);
+    cdp_eval_bool(c, "(function(){document.getElementById('q').value='alpha';setView('recall');return true})()", &(int){0});
+    ok("it carries the project tag (found by project AND alpha)", cdp_wait_bool(c,
+        "document.getElementById('out').innerText.indexOf('proj-item-1')>=0", 5000) == 0);
+    cdp_eval_bool(c, "(function(){openSheet();document.getElementById('vkout').click();return true})()", &(int){0});
+    ok("the sheet chip's cross hides it", cdp_wait_bool(c, "document.getElementById('vkchip').hidden&&vkOut", 3000) == 0);
+    cdp_eval_bool(c, "(function(){document.getElementById('v').value='proj-item-2';document.getElementById('vk').value='beta';save();return true})()", &(int){0});
+    ok("saving it says so", cdp_wait_bool(c,
+        "document.getElementById('sheet').hidden&&!document.getElementById('toast').hidden&&document.getElementById('toast').innerText.indexOf('Saved outside trip')>=0", 5000) == 0);
+    cdp_eval_bool(c, "(function(){setView('timeline');return true})()", &(int){0});
+    ok("the item saved outside the project is not in its Recent", cdp_wait_bool(c,
+        "document.getElementById('out').innerText.indexOf('proj-item-1')>=0&&document.getElementById('out').innerText.indexOf('proj-item-2')<0", 5000) == 0);
+    cdp_eval_bool(c, "(function(){document.getElementById('q').value='beta';setView('recall');return true})()", &(int){0});
+    ok("a search inside the project does not find it", cdp_wait_bool(c,
+        "document.getElementById('out').innerText.indexOf('No results for beta in trip')>=0", 5000) == 0);
+    cdp_eval_bool(c, "(function(){document.querySelector('#scope .link').click();return true})()", &(int){0});
+    ok("'Search all items' does", cdp_wait_bool(c, "document.getElementById('out').innerText.indexOf('proj-item-2')>=0", 5000) == 0);
+    cdp_eval_bool(c, "(function(){openSheet();return true})()", &(int){0});
+    ok("the chip is back on the next Add", cdp_wait_bool(c, "!document.getElementById('vkchip').hidden&&!vkOut", 3000) == 0);
+    cdp_eval_bool(c, "(function(){document.getElementById('v').value='proj-item-3';document.getElementById('vk').value='trip gamma';save();return true})()", &(int){0});
+    ok("saved with the project typed by hand", cdp_wait_bool(c,
+        "document.getElementById('sheet').hidden&&document.getElementById('out').innerText.indexOf('proj-item-3')>=0", 5000) == 0);
+    cdp_eval_bool(c, "(function(){var r=[].slice.call(document.querySelectorAll('#out .hit')).filter(function(r){return r.innerText.indexOf('proj-item-3')>=0})[0];"
+                     "window.__k='';fetch('/api/keys?id='+r.dataset.id).then(function(x){return x.text()}).then(function(t){window.__k=t.trim()});return true})()", &(int){0});
+    ok("it carries the project tag once", cdp_wait_bool(c, "window.__k==='trip gamma'||window.__k==='gamma trip'", 5000) == 0);
+
+    /* Leaving: the cross, the chip's menu, Backspace twice; each undoable */
+    cdp_eval_bool(c, "(function(){document.getElementById('pleave').click();return true})()", &(int){0});
+    ok("the bar chip's cross leaves the project", cdp_wait_bool(c,
+        "proj===''&&document.getElementById('pchip').hidden&&localStorage.getItem('ais.project:'+lib)===null", 3000) == 0);
+    ok("with Undo", cdp_wait_bool(c,
+        "!document.getElementById('toast').hidden&&document.getElementById('toast').innerText.indexOf('Left trip')>=0&&!document.getElementById('toastundo').hidden", 3000) == 0);
+    cdp_eval_bool(c, "(function(){document.getElementById('toastundo').click();return true})()", &(int){0});
+    ok("Undo brings it back", cdp_wait_bool(c, "proj==='trip'&&!document.getElementById('pchip').hidden&&document.getElementById('toast').hidden", 3000) == 0);
+    cdp_eval_bool(c, "(function(){document.getElementById('pname').click();return true})()", &(int){0});
+    ok("tapping the name opens the chip menu", cdp_wait_bool(c, "!document.getElementById('pmenu').hidden", 3000) == 0);
+    ok("which says the project is kept on this device", truthy(c, "document.getElementById('pmenu').textContent.indexOf('Kept on this device')>=0"));
+    cdp_eval_bool(c, "(function(){document.getElementById('pswitch').click();return true})()", &(int){0});
+    ok("'Switch project' opens the Tags view", cdp_wait_bool(c, "view==='tags'&&document.getElementById('pmenu').hidden", 3000) == 0);
+    cdp_eval_bool(c, "(function(){document.getElementById('pname').click();document.getElementById('pleave2').click();return true})()", &(int){0});
+    ok("'Leave project' leaves it", cdp_wait_bool(c, "proj===''&&document.getElementById('pchip').hidden", 3000) == 0);
+    cdp_eval_bool(c, "(function(){document.getElementById('toastundo').click();return true})()", &(int){0});
+    ok("undone again", cdp_wait_bool(c, "proj==='trip'", 3000) == 0);
+    cdp_eval_bool(c, "(function(){document.getElementById('q').value='';document.getElementById('q').focus();return true})()", &(int){0});
+    cdp_key(c, "Backspace");
+    ok("Backspace in the empty box selects the chip", cdp_wait_bool(c, "document.getElementById('pchip').classList.contains('sel')&&proj==='trip'", 3000) == 0);
+    cdp_key(c, "Backspace");
+    ok("a second Backspace removes it", cdp_wait_bool(c, "proj===''&&document.getElementById('pchip').hidden", 3000) == 0);
+    cdp_eval_bool(c, "(function(){document.getElementById('toastundo').click();return true})()", &(int){0});
+    ok("undone once more", cdp_wait_bool(c, "proj==='trip'", 3000) == 0);
+
+    /* Persistence: a reload keeps the project and opens on its Recent */
+    cdp_eval_bool(c, "(function(){location.hash='';return true})()", &(int){0});
+    ok("reload", cdp_navigate(c, url) == 0);
+    ok("the project survives a reload", cdp_wait_bool(c, "typeof proj!=='undefined'&&proj==='trip'&&!document.getElementById('pchip').hidden", 5000) == 0);
+    ok("and Recent opens inside it", cdp_wait_bool(c, CANAL "&&!(" HIT ")", 5000) == 0);
+
+    /* Removing the tag from every item ends the project with it */
+    cdp_eval_bool(c, "(function(){location.hash='#tags';setView('tags');return true})()", &(int){0});
+    cdp_wait_bool(c, "!!" TAGROW("trip"), 5000);
+    cdp_eval_bool(c, "(function(){untagKey('trip');delFlush();return true})()", &(int){0});
+    ok("removing the project's tag ends the project", cdp_wait_bool(c,
+        "proj===''&&document.getElementById('pchip').hidden&&localStorage.getItem('ais.project:'+lib)===null", 5000) == 0);
+    cdp_eval_bool(c, "(function(){setView('timeline');return true})()", &(int){0});
+    ok("Recent is the whole library again", cdp_wait_bool(c, HIT "&&document.getElementById('out').innerText.indexOf('proj-item-2')>=0", 5000) == 0);
+
     cdp_close(c);
     printf("cdp: %d passed, %d failed\n", pass, fail);
     return fail ? 1 : 0;

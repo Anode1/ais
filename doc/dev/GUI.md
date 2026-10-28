@@ -39,6 +39,14 @@ Change a label in one, change it in all three.
 - **Desktop (Win32):** search box + a **Search** button on top; the three views as a row of
   tabs/buttons; Add as a normal button (NOT a phone-style bottom bar).
 
+## The project chip
+
+One tag a front end keeps active: first in the search bar and in the Add
+sheet's tag field, chosen from the Tags view only. Recent lists only its items,
+a search is ANDed with it, a new item gets it, and it is kept per device and per
+library. The engine sees an ordinary tag. The behaviour, gestures and words are
+in [project-chip/SPEC.md](project-chip/SPEC.md), with a mock beside it.
+
 ## Untag vs delete-under (the wording, LOCKED)
 
 `--untag KEY` and `--del-under KEY` are one keystroke apart and opposite in

@@ -166,6 +166,20 @@ static const char PAGE[] =
  * browser font); an empty suggestion row must not keep the .chips margins */
 "button.chip{font:inherit;font-size:.9rem;cursor:pointer;color:var(--fg)}"
 ".chips:empty{display:none}"
+/* The project chip: the one tag the page keeps active, first in the search
+ * bar and in the Add sheet's tag field (doc/dev/project-chip/SPEC.md). */
+".searchrow{position:relative}#q{min-width:0}"
+".pchip{display:inline-flex;align-items:center;gap:.3rem;flex:none;max-width:45%;height:34px;padding:0 .25rem 0 .6rem;border-radius:17px;background:var(--fabbg);color:var(--fabfg);font-size:.9rem;font-weight:600}"
+".pchip[hidden]{display:none}.pchip.sel{outline:2px solid var(--accent);outline-offset:1px}"
+".pchip .pname{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;border:0;background:none;color:inherit;font:inherit;padding:0;cursor:pointer}"
+".pchip .px{border:0;background:none;color:var(--fabfg);font:inherit;font-size:.8rem;width:26px;height:26px;border-radius:13px;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;flex:none}"
+".pchip .px:hover{background:rgba(0,0,0,.12)}"
+"#pmenu{left:0;right:auto;top:calc(100% + 4px)}#pmenu .cap{font-size:.8rem;color:var(--muted);padding:.4rem 1rem .5rem}"
+".tagfield{display:flex;align-items:center;flex-wrap:wrap;gap:.4rem;min-height:48px;padding:.25rem .45rem;border:1px solid var(--line);border-radius:10px;margin-bottom:.8rem;background:var(--field)}"
+".tagfield input{flex:1;width:auto;min-width:8rem;border:0;margin:0;padding:.45rem .3rem;background:none;outline:none}"
+".tagfield:focus-within{outline:2px solid var(--accent);outline-offset:2px}"
+".scope{font-size:.85rem;color:var(--muted);text-align:center;margin-top:1.4rem}"
+".tagrow.proj{background:var(--fabbg);border-radius:10px;padding:0 .4rem;margin:0 -.4rem}.tagrow.proj .taglink{color:var(--fabfg);font-weight:600;display:flex;align-items:center;gap:.4rem}"
 "#toast{position:fixed;left:50%;bottom:82px;transform:translateX(-50%);z-index:20;display:flex;align-items:center;gap:1rem;background:#2b2b33;color:#fff;padding:.65rem 1.1rem;border-radius:10px;box-shadow:0 4px 16px rgba(0,0,0,.35)}"
 "#toast[hidden]{display:none}#toast button{color:#bbc3ff;border:0;background:none;text-decoration:underline;cursor:pointer;font:inherit}"
 "@media(max-width:600px){#sheet,#editsheet,#syncsheet,#storesheet{align-items:flex-end}"
@@ -182,8 +196,12 @@ static const char PAGE[] =
 "<svg viewBox='0 0 24 24' width=24 height=24 aria-hidden=true><path d='M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z'/></svg></button>"
 "<div id=menu class=pop role=menu hidden><button id=cleanbtn role=menuitem>Free up space</button>"
 "<button id=syncbtn role=menuitem>Sync &amp; backup</button><button id=storebtn role=menuitem>Switch library</button></div></div>"
-"<div class=searchrow><input id=q type=search placeholder='type tags to filter' autocomplete=off autofocus>"
-"<button id=seg-recall class=getbtn>Search</button></div>"
+"<div class=searchrow><span id=pchip class=pchip hidden>" "<svg viewBox='0 0 24 24' width=16 height=16 aria-hidden=true><path d='M17.63 5.84C17.27 5.33 16.67 5 16 5L5 5.01C3.9 5.01 3 5.9 3 7v10c0 1.1.9 1.99 2 1.99L16 19c.67 0 1.27-.33 1.63-.84L22 12l-4.37-6.16z'/></svg>"
+"<button id=pname class=pname aria-haspopup=menu aria-expanded=false></button><button id=pleave class=px aria-label='Leave project'>&#x2715;</button></span>"
+"<input id=q type=search placeholder='type tags to filter' autocomplete=off autofocus>"
+"<button id=seg-recall class=getbtn>Search</button>"
+"<div id=pmenu class=pop role=menu hidden><button id=pswitch role=menuitem>Switch project</button>"
+"<button id=pleave2 role=menuitem>Leave project</button><span class=cap>Kept on this device</span></div></div>"
 "<div id=qsuggest class=chips></div>"   /* tag-autocomplete chips for #q */
 "<div id=filters class=filters><button id=anyk class=fchip aria-pressed=false>Any tag</button>"
 "<span class=fchipg><button id=datebtn class=fchip aria-expanded=false>Date</button>"
@@ -212,7 +230,9 @@ static const char PAGE[] =
 /* The thing being saved first, its tags under it: the same order as the app's
  * Add sheet, and the order anyone describes the action in. */
 "<textarea id=v rows=3 aria-label='Text' placeholder='A link, a note, a number...'></textarea>"
-"<input id=vk aria-label='Tags' placeholder='Tags'>"
+"<div id=vkwrap class=tagfield><span id=vkchip class=pchip hidden>" "<svg viewBox='0 0 24 24' width=16 height=16 aria-hidden=true><path d='M17.63 5.84C17.27 5.33 16.67 5 16 5L5 5.01C3.9 5.01 3 5.9 3 7v10c0 1.1.9 1.99 2 1.99L16 19c.67 0 1.27-.33 1.63-.84L22 12l-4.37-6.16z'/></svg>"
+"<span id=vkname class=pname></span><button id=vkout class=px aria-label='Leave this item out of the project'>&#x2715;</button></span>"
+"<input id=vk aria-label='Tags' placeholder='Tags'></div>"
 "<p class=hint>Separate with spaces</p>"
 "<div id=vksuggest class=chips></div>"   /* tag-autocomplete chips for #vk */
 "<label class=switch><input id=enc type=checkbox role=switch> Lock with a password</label>"
@@ -297,6 +317,31 @@ static const char PAGE[] =
 "var tgAfterc=0,tgAfterk='',tgN=0,tgMore=false;"           /* tags keyset paging */
 "var dateOpen=false,MON=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];"
 "function anyTag(){return $('anyk').getAttribute('aria-pressed')=='true'}"
+/* The project: one tag the page keeps active. Recent lists only its items, a
+ * search is ANDed with it, the Add sheet starts with it; the engine sees an
+ * ordinary tag. Kept per device and per library, in localStorage under the
+ * library path (doc/dev/project-chip/SPEC.md). */
+"var proj='',lib='',vkOut=false,rcProj='',rcAll=false,noop=function(){};"
+"function esc(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}"
+"function projKey(){return 'ais.project:'+lib}"
+"function projStore(k){try{if(k)localStorage.setItem(projKey(),k);else localStorage.removeItem(projKey())}catch(e){}}"
+"function projLoad(){try{proj=localStorage.getItem(projKey())||''}catch(e){proj=''}projRender()}"
+"function projRender(){$('pchip').hidden=!proj;$('pname').textContent=proj;$('vkname').textContent=proj;"
+"$('q').placeholder=proj?'more tags':'type tags to filter';$('vkchip').hidden=!proj||vkOut;"
+"$('pchip').classList.remove('sel');$('vkchip').classList.remove('sel')}"
+"function projApply(k){proj=k;projStore(k);projRender();setView(view)}"
+/* the first project ever chosen on this device gets the one-time explanation */
+"function projSet(k){var first=false;try{first=!localStorage.getItem('ais.project.said');localStorage.setItem('ais.project.said','1')}catch(e){}"
+"projApply(k);if(first)note('Working in '+k+' on this device. New items get this tag.')}"
+/* leaving is undoable for 5 s, through the delete's toast and timer */
+"function projLeave(){var old=proj;if(!old)return;delFlush();projApply('');toastClaim();$('toast').firstChild.textContent='Left '+old;"
+"delCommit=noop;delUndoFn=function(){projApply(old)};$('toast').hidden=false;delTimer=setTimeout(delFlush,5000)}"
+/* the engine has no empty tag: a project whose items are all gone ends */
+"function projEnded(){var old=proj;proj='';projStore('');projRender();note('Nothing left in '+old+'. The project ended.');setView(view)}"
+/* inside a project a row's tag line does not repeat the project */
+"function metaKeys(ks){if(!proj)return ks;return ks.split(' ').filter(function(t){return t!=proj}).join(' ')}"
+/* a 4 s notice with no Undo, skipped while a delete's Undo owns the toast */
+"function note(t){if(delTimer)return;$('toast').firstChild.textContent=t;$('toastundo').hidden=true;$('toast').hidden=false;setTimeout(function(){if(!delTimer)hideToast()},4000)}"
 /* once a range is set the Date chip names it: 12-20 Aug, From 3 Sep */
 "function dayLbl(d,mon,yr){var p=d.split('-');return(+p[2])+(mon?' '+MON[+p[1]-1]:'')+(yr?' '+p[0]:'')}"
 "function rangeLbl(f,t){if(f&&t){if(f==t)return dayLbl(f,1,0);var sy=f.slice(0,4)==t.slice(0,4),sm=sy&&f.slice(5,7)==t.slice(5,7);"
@@ -368,33 +413,44 @@ static const char PAGE[] =
  * rcAfter) instead of reloading. Recall emits ascending, so rcAfter tracks the
  * largest id shown. */
 "async function recall(more){var o=$('out');var qq=normkeys($('q').value);var g=viewGen;"
-"if(!more){if(!qq)return;rcAfter=0;rcN=0;rcQ=qq;rcOr=anyTag()?'&or=1':'';o.className='';o.innerHTML=''}"
+"if(!more){if(!qq)return;rcAfter=0;rcN=0;rcQ=qq;rcOr=anyTag()?'&or=1':'';rcProj=rcAll?'':proj;rcAll=false;o.className='';o.innerHTML=''}"
 "if(!rcQ)return;"
-"var u='/api/get?keys='+encodeURIComponent(rcQ)+rcOr+'&meta=1&count='+tlPage+(rcAfter>0?'&after='+rcAfter:'');"
+/* inside a project the AND query carries the project; an OR query keeps the
+ * typed tags ORed and drops the rows not filed under it (meta names the tags) */
+"var u='/api/get?keys='+encodeURIComponent(rcProj&&!rcOr?rcProj+' '+rcQ:rcQ)+rcOr+'&meta=1&count='+tlPage+(rcAfter>0?'&after='+rcAfter:'');"
 "var L=(await(await fetch(u)).text()).split('\\n').filter(function(s){return s.length});"
 "if(g!=viewGen)return;"                                  /* the view moved on: drop it */
-"var mb=$('rcmore');if(mb)mb.remove();"
+"var mb=$('rcmore');if(mb)mb.remove();var full=L.length==tlPage;"
+"if(L.length)rcAfter=+L[L.length-1].slice(0,L[L.length-1].indexOf('|'));"   /* the cursor: the last id fetched, shown or not */
+"if(rcProj&&rcOr)L=L.filter(function(ln){var p=ln.indexOf('|'),q=ln.indexOf('|',p+1);return(' '+ln.slice(p+1,q)+' ').indexOf(' '+rcProj+' ')>=0});"
+"if(!rcN&&!L.length&&full)return recall(true);"          /* a page filtered to nothing: the next */
 /* no tag match: the value half (findAppend) may still answer; only when both
  * halves are empty does the old empty state render */
 "if(!rcN&&!L.length){rcMore=false;await findAppend(g,0);if(g!=viewGen)return;"
-"if(!$('vsep')){o.textContent='No results for '+rcQ;o.className='empty';$('count').textContent='0 results'}return}o.className='';"
+"if(!$('vsep')){o.textContent='No results for '+rcQ+(rcProj?' in '+rcProj:'');o.className='empty';$('count').textContent='0 results';if(rcProj)o.appendChild(scopeLine())}return}o.className='';"
 /* meta=1 lines are id|keys|value; showing WHY a row matched (its tags) is what
  * makes an OR result readable. */
 "L.forEach(function(ln){var p=ln.indexOf('|'),q=ln.indexOf('|',p+1),id=p>=0?ln.slice(0,p):'',ks=q>=0?ln.slice(p+1,q):'',v=q>=0?ln.slice(q+1):ln.slice(p+1);"
 "var r=document.createElement('div');r.className='hit';if(id)r.dataset.id=id;"
 "(v.indexOf('aisc:')==0?fillSecret(r,v):v.indexOf('aisdoc:')==0?fillDoc(r,v):fillVal(r,v));if(notHere(v))r.appendChild(awayBadge());"
-"var km=document.createElement('div');km.className='meta';km.textContent=ks||'(no tags)';r.appendChild(km);"
-"if(id){r.appendChild(rowActions(id,v));rcAfter=+id}o.appendChild(r)});"
+"var km=document.createElement('div');km.className='meta';km.textContent=ks?metaKeys(ks):'(no tags)';r.appendChild(km);"
+"if(id)r.appendChild(rowActions(id,v));o.appendChild(r)});"
 "rcN+=L.length;$('count').textContent=rcN+' result'+(rcN==1?'':'s');"
-"if(L.length==tlPage){rcMore=true;var b=document.createElement('button');b.id='rcmore';b.className='loadmore';b.textContent='Load more';b.onclick=pageMore;o.appendChild(b)}"
+"if(full){rcMore=true;var b=document.createElement('button');b.id='rcmore';b.className='loadmore';b.textContent='Load more';b.onclick=pageMore;o.appendChild(b);if(rcProj)o.appendChild(scopeLine())}"
 "else{rcMore=false;await findAppend(g,rcN)}}"
+/* under a project's results: the scope, and the same search once over all
+ * items (the chip stays; the next search is inside the project again) */
+"function scopeLine(){var s=$('scope');if(!s){s=document.createElement('p');s.id='scope';s.className='scope';"
+"s.appendChild(document.createTextNode('Only items tagged '));s.appendChild(document.createElement('b'));s.appendChild(document.createTextNode('. '));"
+"var l=document.createElement('button');l.className='link';l.textContent='Search all items';l.onclick=function(){rcAll=true;recall()};s.appendChild(l)}"
+"s.querySelector('b').textContent=rcProj;return s}"
 /* Value-ranked second half (both pages, mirrored): after the tag matches, ask
  * /api/find for records whose VALUE holds the trimmed query and append the
  * ones not already listed (deduped by id) under one separator row. The OR chip
  * governs only the tag half. TAGN is what that half listed; when the value
  * half adds rows the count line names both ("2 results + 1 in the text"). */
-"async function findAppend(g,tagN){var o=$('out'),qraw=$('q').value.trim();if(!qraw||$('vsep'))return;"
-"var t=await(await fetch('/api/find?q='+encodeURIComponent(qraw))).text();"
+"async function findAppend(g,tagN){var o=$('out'),qraw=$('q').value.trim();if(!qraw||$('vsep')){if(rcProj&&!$('vsep'))o.appendChild(scopeLine());return}"
+"var t=await(await fetch('/api/find?q='+encodeURIComponent(qraw)+(rcProj?'&key='+encodeURIComponent(rcProj):''))).text();"
 "if(g!=viewGen)return;"                                  /* the view moved on: drop it */
 "var seen={};[].forEach.call(o.querySelectorAll('.hit'),function(r){if(r.dataset.id)seen[r.dataset.id]=1});"
 "var L=t.split('\\n').filter(function(s){return s.length}),added=0;"
@@ -406,7 +462,8 @@ static const char PAGE[] =
 "var r=document.createElement('div');r.className='hit';r.dataset.id=id;"
 "(v.indexOf('aisc:')==0?fillSecret(r,v):v.indexOf('aisdoc:')==0?fillDoc(r,v):fillVal(r,v));if(notHere(v))r.appendChild(awayBadge());"
 "r.appendChild(rowActions(id,v));o.appendChild(r);added++});"
-"if(added)$('count').textContent=tagN?tagN+' result'+(tagN==1?'':'s')+' + '+added+' in the text':added+' result'+(added==1?'':'s')}"
+"if(added)$('count').textContent=tagN?tagN+' result'+(tagN==1?'':'s')+' + '+added+' in the text':added+' result'+(added==1?'':'s');"
+"if(rcProj&&(added||tagN))o.appendChild(scopeLine())}"
 /* per-row edit (attach/detach keys by id), which refreshes the view, and delete,
  * which hides the row behind Undo */
 "function rowActions(id,v){var d=document.createElement('div');d.className='act';"
@@ -425,7 +482,7 @@ static const char PAGE[] =
 "var delTimer=null,delRow=null,delCommit=null,delUndoFn=null;"
 "function hideToast(){$('toast').hidden=true}"
 "function toastClaim(){if(syncFldTimer){clearTimeout(syncFldTimer);syncFldTimer=null}$('toastundo').hidden=false}"
-"function delFlush(){if(delTimer){clearTimeout(delTimer);delTimer=null}if(delCommit){var f=delCommit;delCommit=null;delRow=null;delUndoFn=null;f();if(syncFolderSaved())syncFolderRun(true)}hideToast()}"
+"function delFlush(){if(delTimer){clearTimeout(delTimer);delTimer=null}if(delCommit){var f=delCommit;delCommit=null;delRow=null;delUndoFn=null;f();if(f!==noop&&syncFolderSaved())syncFolderRun(true)}hideToast()}"
 "function delRec(id){delFlush();toastClaim();$('toast').firstChild.textContent='Deleted';"                       /* commit any prior pending delete first */
 "var row=document.querySelector('.hit[data-id=\"'+id+'\"]');if(row)row.style.display='none';delRow=row;"
 "delCommit=function(){fetch('/api/del?id='+id,{method:'POST'})};"
@@ -485,18 +542,18 @@ static const char PAGE[] =
 "async function loadTimeline(more){var o=$('out');var g=viewGen;"
 "var f=$('tlfrom')?$('tlfrom').value:'',tt=$('tlto')?$('tlto').value:'';"
 "if(!more){tlBefore=0;tlDay=null;tlN=0;o.className='';o.innerHTML=''}"
-"var u='/api/timeline?count='+tlPage+(tlBefore>0?'&before='+tlBefore:'')+(f?'&from='+f:'')+(tt?'&to='+tt:'');"
+"var u='/api/timeline?count='+tlPage+(tlBefore>0?'&before='+tlBefore:'')+(f?'&from='+f:'')+(tt?'&to='+tt:'')+(proj?'&key='+encodeURIComponent(proj):'');"
 "var L=(await(await fetch(u)).text()).split('\\n').filter(function(s){return s.length});"
 "if(g!=viewGen)return;"                                  /* the view moved on: drop it */
 "var mb=$('tlmore');if(mb)mb.remove();"
-"if(!tlN&&!L.length){o.innerHTML=(f||tt)?'<div class=empty><p>Nothing in that range.</p></div>':emptyCTA;$('count').textContent='';return}"
+"if(!tlN&&!L.length){if(proj&&!f&&!tt){projEnded();return}o.innerHTML=(f||tt)?'<div class=empty><p>Nothing in that range.</p></div>':emptyCTA;$('count').textContent='';return}"
 "L.forEach(function(ln){var r=parseTL(ln),lt=locDT(r.ts),d=lt?lt.day:'';"
 "if(d!==tlDay){tlDay=d;var h=document.createElement('div');h.className='daygroup';"
 "h.textContent=d?fmtDay(d):'(undated)';o.appendChild(h)}"
 "var row=document.createElement('div');row.className='hit';if(r.id)row.dataset.id=r.id;(r.value.indexOf('aisc:')==0?fillSecret(row,r.value):r.value.indexOf('aisdoc:')==0?fillDoc(row,r.value):fillVal(row,r.value));if(notHere(r.value))row.appendChild(awayBadge());"
 "var m=document.createElement('div');m.className='meta';"
-"var tm=lt&&lt.time?lt.time+' \\u00b7 ':'';"
-"m.textContent=tm+(r.keys||'(no tags)');row.appendChild(m);"
+"var tm=lt&&lt.time?lt.time:'',kk=r.keys?metaKeys(r.keys):'(no tags)';"
+"m.textContent=tm&&kk?tm+' \\u00b7 '+kk:tm||kk;row.appendChild(m);"
 "if(r.id){row.appendChild(rowActions(r.id,r.value));tlBefore=r.id}o.appendChild(row)});"
 "tlN+=L.length;$('count').textContent=tlN+' item'+(tlN==1?'':'s');"
 "if(L.length==tlPage){var b=document.createElement('button');b.id='tlmore';b.className='loadmore';"
@@ -510,22 +567,31 @@ static const char PAGE[] =
 "if(g!=viewGen)return;"                                  /* the view moved on: drop it */
 "var mb=$('tgmore');if(mb)mb.remove();"
 "if(!tgN&&!L.length){o.innerHTML='<p class=empty>No tags yet.</p>';$('count').textContent='';tgMore=false;return}"
+/* the cursor is the last row in the engine's order, before the project's row
+ * moves to the top of the first page (or is added there, count unknown) */
+"if(L.length){var last=L[L.length-1],lp=last.indexOf('|');tgAfterc=+last.slice(0,lp);tgAfterk=last.slice(lp+1)}"
+"if(proj){var pi=-1;L.forEach(function(ln,i){if(ln.slice(ln.indexOf('|')+1)==proj)pi=i});"
+"if(pi>=0){var pl=L.splice(pi,1)[0];if(!more)L.unshift(pl)}else if(!more)L.unshift('|'+proj)}"
 "L.forEach(function(ln){var p=ln.indexOf('|'),c=ln.slice(0,p),k=ln.slice(p+1);"
-"var row=document.createElement('div');row.className='tagrow';"
+"var row=document.createElement('div');row.className='tagrow'+(k==proj?' proj':'');"
 "var b=document.createElement('button');b.className='taglink';b.textContent=k;"
+"if(k==proj)b.insertBefore($('pchip').querySelector('svg').cloneNode(true),b.firstChild);"
 "b.onclick=function(){$('q').value=k;setView('recall')};"
 "var n=document.createElement('span');n.className='tagcount';n.textContent=c;"
 /* both tag actions sit behind the row's menu; the delete opens the typed confirm */
 "var m=document.createElement('button');m.className='iconbtn tagmenu';m.innerHTML=$('menubtn').innerHTML;"
 "m.setAttribute('aria-label','Actions for '+k);m.setAttribute('aria-haspopup','menu');"
 "var box=document.createElement('div');box.className='pop';box.setAttribute('role','menu');box.hidden=true;"
+/* first: make this tag the project, or leave it; the project is chosen here only */
+"var pj=document.createElement('button');pj.setAttribute('role','menuitem');pj.className='projitem';pj.textContent=k==proj?'Leave project':'Make it the project';"
+"pj.onclick=function(){closePops();if(k==proj)projLeave();else projSet(k)};"
 "var u=document.createElement('button');u.setAttribute('role','menuitem');u.textContent='Remove tag';"
 "u.onclick=function(){closePops();untagKey(k)};"
 "var x=document.createElement('button');x.setAttribute('role','menuitem');x.className='danger';"
 "x.textContent='Delete '+c+' item'+(+c==1?'':'s');"
 "x.onclick=function(){closePops();openDelUnder(k)};"
-"box.appendChild(u);box.appendChild(x);m.onclick=function(){popToggle(m,box)};"
-"row.appendChild(b);row.appendChild(n);row.appendChild(m);row.appendChild(box);o.appendChild(row);tgAfterc=+c;tgAfterk=k});"
+"box.appendChild(pj);box.appendChild(u);if(c!=='')box.appendChild(x);m.onclick=function(){popToggle(m,box)};"
+"row.appendChild(b);row.appendChild(n);row.appendChild(m);row.appendChild(box);o.appendChild(row)});"
 "tgN+=L.length;$('count').textContent=tgN+' tag'+(tgN==1?'':'s');"
 "if(L.length==tlPage){tgMore=true;var mo=document.createElement('button');mo.id='tgmore';mo.className='loadmore';mo.textContent='Load more';mo.onclick=pageMore;o.appendChild(mo)}else tgMore=false}"
 /* The two tag-level operations, opposite in consequence: untag reuses the record
@@ -539,7 +605,7 @@ static const char PAGE[] =
 "[].forEach.call(document.querySelectorAll('.taglink'),function(b){if(b.textContent==k)row=b.parentNode});"
 "if(row)row.style.display='none';delRow=null;"
 "$('toast').firstChild.textContent=\"Removed tag '\"+k+\"'\";"
-"delCommit=function(){fetch('/api/untag?keys='+encodeURIComponent(k),{method:'POST'}).then(function(){if(view=='tags')loadTags()})};"
+"delCommit=function(){fetch('/api/untag?keys='+encodeURIComponent(k),{method:'POST'}).then(function(){if(k==proj){proj='';projStore('');projRender()}if(view=='tags')loadTags()})};"
 "delUndoFn=function(){if(row)row.style.display=''};"
 "$('toast').hidden=false;delTimer=setTimeout(delFlush,5000)}"
 /* Recompute the count and the preview at OPEN time: the row badge can be stale,
@@ -578,11 +644,11 @@ static const char PAGE[] =
 "[].forEach.call(document.querySelectorAll('#bnav button'),function(b){b.className=(b.dataset.v==v)?'on':''});"
 "$('tlrange').hidden=!(v=='timeline'&&dateOpen);dateChip();"   /* the range filters Recent only */
 "if(v=='recall'){var q=$('q').value.trim();if(q)recall();"
-"else{$('out').innerHTML='<div class=empty><p>Type tags, then Search.</p>'+addCTA+'</div>';$('out').className='';$('count').textContent=''}}"
+"else{$('out').innerHTML='<div class=empty><p>'+(proj?'Type tags to search inside '+esc(proj)+'.':'Type tags, then Search.')+'</p>'+addCTA+'</div>';$('out').className='';$('count').textContent=''}}"
 "else if(v=='timeline')loadTimeline();else loadTags()}"
 /* The tags start empty: a term left in the search box is not a tag the user
  * chose for the new item (issue #2). */
-"function openSheet(){$('vk').value='';$('vksuggest').innerHTML='';$('enc').checked=false;$('pp').value='';$('pp').hidden=true;if(ppShow)ppToggle();"
+"function openSheet(){$('vk').value='';$('vksuggest').innerHTML='';vkOut=false;projRender();$('enc').checked=false;$('pp').value='';$('pp').hidden=true;if(ppShow)ppToggle();"
 "$('pp2').value='';$('pp2').hidden=true;$('ppnote').hidden=true;$('sheet').hidden=false;$('v').focus()}"
 "function closeSheet(){$('sheet').hidden=true;$('v').value='';$('pp').value='';$('pp2').value=''}"
 /* A sheet with typed text closes only by Cancel or Save: a stray click past
@@ -590,6 +656,9 @@ static const char PAGE[] =
 "function addUntouched(){return !$('v').value&&!$('vk').value&&!$('pp').value&&!$('pp2').value}"
 "function editUntouched(){return (!edEdit||$('edval').value===edOrig)&&edTags.join(' ')===edWas&&!$('edtag').value}"
 "async function save(){var v=$('v').value.trim();if(!v){alert('Type something first.');return}var k=normkeys($('vk').value);"
+/* the project's chip is one of the tags unless its cross was tapped; typed by
+ * hand it counts once */
+"if(proj&&!vkOut&&(k?k.split(' '):[]).indexOf(proj)<0)k=(proj+' '+k).trim();"
 "if(v.indexOf('\\0')>=0){alert('The text has a hidden character AIS can\\'t store. Retype it and save again.');return}"
 "var enc=$('enc').checked,pp=$('pp').value,pp2=$('pp2').value;"
 "if(enc&&!pp){alert('Enter a password to lock it.');return}"
@@ -617,8 +686,8 @@ static const char PAGE[] =
 /* same text, same record: the reply says the save merged (restamped to today,
  * keys attached); silence here reads as the first note vanishing. The toast is
  * skipped while a delete's Undo owns it. */
-"if(rt.indexOf('merged')==0&&!delTimer){$('toast').firstChild.textContent='Already saved. Moved to today.';"
-"$('toastundo').hidden=true;$('toast').hidden=false;setTimeout(function(){if(!delTimer)hideToast()},4000)}"
+"if(rt.indexOf('merged')==0)note('Already saved. Moved to today.');"
+"else if(proj&&vkOut)note('Saved outside '+proj);"
 "if(syncFolderSaved())syncFolderRun(true)}"
 /* Tag autocomplete (Flutter parity): up to 6 existing tags (busiest first,
  * from /api/tags) prefix-matched case-insensitively against the token being
@@ -654,6 +723,15 @@ static const char PAGE[] =
 "$('menu').onclick=function(){closePops()};"
 "document.addEventListener('click',function(e){[].forEach.call(document.querySelectorAll('.pop'),function(p){if(!p.hidden&&!p.parentNode.contains(e.target))p.hidden=true})});"
 "$('addbtn').onclick=openSheet;$('cancel').onclick=closeSheet;$('save').onclick=save;"
+"$('pname').onclick=function(){popToggle($('pname'),$('pmenu'))};$('pmenu').onclick=function(){closePops()};"
+"$('pswitch').onclick=function(){setView('tags')};$('pleave').onclick=projLeave;$('pleave2').onclick=projLeave;"
+"$('vkout').onclick=function(){vkOut=true;$('vkchip').hidden=true;$('vk').focus()};"
+/* a desktop keyboard: Backspace in the empty field selects the chip, a second
+ * removes it (a mail client's recipient field) */
+"function chipKeys(inp,chip,act){inp.addEventListener('keydown',function(e){"
+"if(e.key=='Backspace'&&!inp.value&&!chip.hidden){e.preventDefault();if(chip.classList.contains('sel')){chip.classList.remove('sel');act()}else chip.classList.add('sel');return}"
+"chip.classList.remove('sel')});inp.addEventListener('blur',function(){chip.classList.remove('sel')})}"
+"chipKeys($('q'),$('pchip'),projLeave);chipKeys($('vk'),$('vkchip'),function(){vkOut=true;$('vkchip').hidden=true});"
 "$('toastundo').onclick=delUndo;"
 "$('dscancel').onclick=closeDel;"
 /* A dialog closes on a click on its dimmed backdrop, and only when the press
@@ -669,7 +747,7 @@ static const char PAGE[] =
 "$('dsgo').onclick=async function(){if(this.disabled)return;var k=dsKey;closeDel();"
 "var r=await(await fetch('/api/del-under?keys='+encodeURIComponent(k),{method:'POST'})).text();"
 "var m=+(r.match(/\\d+/)||[0])[0];$('count').textContent='Deleted '+m+' item'+(m==1?'':'s');"
-"loadTags()};"
+"if(k==proj){proj='';projStore('');projRender()}loadTags()};"
 "document.addEventListener('keydown',function(e){if(e.key!='Escape')return;closePops();if(!$('dsheet').hidden)closeDel();else if(!$('storesheet').hidden)$('storesheet').hidden=true;"
 "else if(!$('editsheet').hidden){if(editUntouched())$('editsheet').hidden=true}"
 "else if(!$('sheet').hidden){if(addUntouched())closeSheet()}});"
@@ -691,7 +769,7 @@ static const char PAGE[] =
 "$('store').textContent=cur;$('storepath').value=cur;$('storesheet').hidden=false;$('storepath').focus()}"
 "async function storeApply(){var d=$('storepath').value.trim();if(!d)return;"
 "var r=await fetch('/api/store',{method:'POST',body:d});"
-"if(r.ok){$('storesheet').hidden=true;$('q').value='';setView('timeline')}"
+"if(r.ok){$('storesheet').hidden=true;$('q').value='';await libLoad();setView('timeline')}"
 "else{alert('No AIS library in that folder.')}}"
 /* Reclaim deleted records: with no CLI on a phone the store would grow forever and
  * deleted records' tags would linger in the index. The second, privacy question is
@@ -713,8 +791,10 @@ static const char PAGE[] =
 /* #tags / #recall / #timeline opens that view directly, so a view is linkable
  * (and reachable by a screenshot or a UI test, which cannot click before load). */
 "var h=(location.hash||'').slice(1);"
-"setView(h=='tags'||h=='recall'||h=='timeline'?h:'timeline');"   /* else open on content, not a blank search */
-"if(h=='sync')openSync();"                                      /* #sync: the sheet, for a screenshot or a UI test */
+/* the project is kept under the library's path, so the path comes first */
+"async function libLoad(){try{lib=(await(await fetch('/api/where')).text()).trim()}catch(e){lib=''}projLoad()}"
+"libLoad().then(function(){setView(h=='tags'||h=='recall'||h=='timeline'?h:'timeline');"   /* else open on content, not a blank search */
+"if(h=='sync')openSync()});"                                    /* #sync: the sheet, for a screenshot or a UI test */
 /* ---- Sync (Host / Join), mirroring the mobile Sync feature ---------------
  * qrGen: a small pure-JS byte-mode QR encoder (ECC level L, mask 0, versions 1-5)
  * so a phone can scan the url+token with no server-side or network dependency.
