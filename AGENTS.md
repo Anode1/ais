@@ -94,6 +94,13 @@ the file. That recipe and every other way to drive a front-end are in
 `doc/dev/GUI_TESTING.md`. Always run ais against a `/tmp` or personal `~/.ais`
 index, never the repo's own.
 
+**Three front ends, one feature set.** The web page (`c/serve.c`), the PWA
+(`app/index.html`) and the Flutter app (`app/flutter`) show the same features
+in the same words, each with its own test. A feature added to one goes into
+the other two in the same change, unless the platform lacks it (camera
+scanning on the web page). The version line in the app's About and in the
+pages' menu is the example: the pages had only `/api/version` for a year.
+
 The text store is the source of truth; the index (`idx/`, `tomb`, `next_id`) is
 rebuildable from it and disposable. `tests/cli.sh` proves it: it deletes
 `idx/` and `off` outright, compacts, and asserts every record still recalls.

@@ -202,7 +202,7 @@ button.chip { font: inherit; font-size: .9rem; cursor: pointer; color: var(--fg)
   justify-content: center; flex: none; }
 .pchip .px:active { background: rgba(0, 0, 0, .12); }
 #pmenu { left: 0; right: auto; top: calc(100% + 4px); }
-#pmenu .cap { font-size: .8rem; color: var(--muted); padding: .4rem 1rem .5rem; }
+.pop .cap { font-size: .8rem; color: var(--muted); padding: .4rem 1rem .5rem; white-space: nowrap; }
 .tagfield { display: flex; align-items: center; flex-wrap: wrap; gap: .4rem; min-height: 48px; padding: .25rem .45rem;
   border: 1px solid var(--line); border-radius: 10px; margin-bottom: .8rem; background: #fafafc; }
 .tagfield input { flex: 1; width: auto; min-width: 8rem; border: 0; margin: 0; padding: .45rem .3rem;

@@ -116,6 +116,9 @@ int main(int argc, char **argv) {
         "(function(){var m=document.getElementById('menu');if(m.hidden)return false;var t=m.innerText;"
         "return t.indexOf('Free up space')>=0&&t.indexOf('Sync & backup')>=0&&t.indexOf('Switch library')>=0})()",
         3000) == 0);
+    ok("the menu ends with the version line a bug report needs", cdp_wait_bool(c,
+        "(function(){var v=document.getElementById('ver');"
+        "return !v.hidden&&/^engine: \\S+ · format: v\\d+$/.test(v.textContent)})()", 3000) == 0);
     ok("its button is a 48px target", cdp_wait_bool(c,
         "document.getElementById('menubtn').getBoundingClientRect().height>=48", 3000) == 0);
     cdp_eval_bool(c, "(function(){document.getElementById('storebtn').click();return true})()", &(int){0});

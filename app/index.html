@@ -40,6 +40,7 @@
       <button id="cleanbtn" role="menuitem">Free up space</button>
       <button id="syncbtn" role="menuitem">Sync &amp; backup</button>
       <button id="storebtn" role="menuitem">Switch library</button>
+      <span id="ver" class="cap" hidden></span>
     </div>
   </div>
   <!-- the project chip: the one tag the page keeps active (doc/dev/project-chip/SPEC.md) -->
@@ -1100,6 +1101,14 @@ async function libLoad() {
   try { lib = (await (await fetch('/api/where')).text()).trim(); } catch (e) { lib = ''; }
   projLoad();
 }
+// The menu ends with the version line: the numbers a bug report needs, as the
+// app's About has them. Offline, the line stays hidden.
+fetch('/api/version').then(function (r) { return r.text(); }).then(function (t) {
+  t = t.trim();
+  if (!t) return;
+  $('ver').textContent = t.split('\n').join(' · ');
+  $('ver').hidden = false;
+}).catch(noop);
 libLoad().then(function () {
   setView(h0 == 'tags' || h0 == 'recall' || h0 == 'timeline' ? h0 : 'timeline'); // else open on content, not a blank search
   if (h0 == 'sync') openSync(); // #sync: the sheet, for a screenshot or a UI test

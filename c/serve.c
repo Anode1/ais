@@ -174,7 +174,7 @@ static const char PAGE[] =
 ".pchip .pname{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;border:0;background:none;color:inherit;font:inherit;padding:0;cursor:pointer}"
 ".pchip .px{border:0;background:none;color:var(--fabfg);font:inherit;font-size:.8rem;width:26px;height:26px;border-radius:13px;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;flex:none}"
 ".pchip .px:hover{background:rgba(0,0,0,.12)}"
-"#pmenu{left:0;right:auto;top:calc(100% + 4px)}#pmenu .cap{font-size:.8rem;color:var(--muted);padding:.4rem 1rem .5rem}"
+"#pmenu{left:0;right:auto;top:calc(100% + 4px)}.pop .cap{font-size:.8rem;color:var(--muted);padding:.4rem 1rem .5rem;white-space:nowrap}"
 ".tagfield{display:flex;align-items:center;flex-wrap:wrap;gap:.4rem;min-height:48px;padding:.25rem .45rem;border:1px solid var(--line);border-radius:10px;margin-bottom:.8rem;background:var(--field)}"
 ".tagfield input{flex:1;width:auto;min-width:8rem;border:0;margin:0;padding:.45rem .3rem;background:none;outline:none}"
 ".tagfield:focus-within{outline:2px solid var(--accent);outline-offset:2px}"
@@ -195,7 +195,8 @@ static const char PAGE[] =
 "<button id=menubtn class=iconbtn aria-label='More' aria-haspopup=menu aria-expanded=false>"
 "<svg viewBox='0 0 24 24' width=24 height=24 aria-hidden=true><path d='M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z'/></svg></button>"
 "<div id=menu class=pop role=menu hidden><button id=cleanbtn role=menuitem>Free up space</button>"
-"<button id=syncbtn role=menuitem>Sync &amp; backup</button><button id=storebtn role=menuitem>Switch library</button></div></div>"
+"<button id=syncbtn role=menuitem>Sync &amp; backup</button><button id=storebtn role=menuitem>Switch library</button>"
+"<span id=ver class=cap hidden></span></div></div>"
 "<div class=searchrow><span id=pchip class=pchip hidden>" "<svg viewBox='0 0 24 24' width=16 height=16 aria-hidden=true><path d='M17.63 5.84C17.27 5.33 16.67 5 16 5L5 5.01C3.9 5.01 3 5.9 3 7v10c0 1.1.9 1.99 2 1.99L16 19c.67 0 1.27-.33 1.63-.84L22 12l-4.37-6.16z'/></svg>"
 "<button id=pname class=pname aria-haspopup=menu aria-expanded=false></button><button id=pleave class=px aria-label='Leave project'>&#x2715;</button></span>"
 "<input id=q type=search placeholder='type tags to filter' autocomplete=off autofocus>"
@@ -793,6 +794,8 @@ static const char PAGE[] =
 "var h=(location.hash||'').slice(1);"
 /* the project is kept under the library's path, so the path comes first */
 "async function libLoad(){try{lib=(await(await fetch('/api/where')).text()).trim()}catch(e){lib=''}projLoad()}"
+/* the menu ends with the version line: the numbers a bug report needs, as the app's About has them */
+"fetch('/api/version').then(function(r){return r.text()}).then(function(t){t=t.trim();if(t){$('ver').textContent=t.split('\\n').join(' · ');$('ver').hidden=false}}).catch(noop);"
 "libLoad().then(function(){setView(h=='tags'||h=='recall'||h=='timeline'?h:'timeline');"   /* else open on content, not a blank search */
 "if(h=='sync')openSync()});"                                    /* #sync: the sheet, for a screenshot or a UI test */
 /* ---- Sync (Host / Join), mirroring the mobile Sync feature ---------------
