@@ -269,12 +269,19 @@ function fillVal(node, v) {
 }
 // An "aisc:" value is ciphertext: show an opaque lock plus a Reveal button rather
 // than the marker itself. The cleartext lives until the next render, no longer.
+// The lock, the password field and the cleartext live in one span of their
+// own inside the row, so unlocking replaces that span's content and the
+// row's tag line and menu stay (issue #4).
 function fillSecret(node, v) {
+  var w = document.createElement('span'); node.appendChild(w); lockView(w, v);
+}
+function lockView(w, v) {
+  w.innerHTML = '';
   var s = document.createElement('span'); s.className = 'lockline';
   s.textContent = '🔒 locked ';
   var b = document.createElement('button'); b.className = 'actbtn'; b.textContent = 'Unlock';
-  b.onclick = function () { revealSecret(node, v); };
-  node.appendChild(s); node.appendChild(b);
+  b.onclick = function () { revealSecret(w, v); };
+  w.appendChild(s); w.appendChild(b);
 }
 // inline password field, not prompt(): prompt() is silently disabled in an
 // installed PWA -- which this page is -- so a prompt() reveal would do nothing.
@@ -285,7 +292,7 @@ async function revealSecret(node, v) {
   i.className = 'ppinline';
   var b = document.createElement('button'); b.className = 'actbtn revbtn'; b.textContent = 'Show';
   var x = document.createElement('button'); x.className = 'actbtn revbtn'; x.textContent = 'cancel';
-  x.onclick = function () { node.innerHTML = ''; fillSecret(node, v); };
+  x.onclick = function () { lockView(node, v); };
   var er = document.createElement('span'); er.className = 'muted revbtn';
   async function go() {
     var pp = i.value; if (!pp) return;
@@ -303,7 +310,7 @@ async function revealSecret(node, v) {
   b.onclick = go;
   i.onkeydown = function (e) {
     if (e.key === 'Enter') go();
-    else if (e.key === 'Escape') { node.innerHTML = ''; fillSecret(node, v); }
+    else if (e.key === 'Escape') lockView(node, v);
   };
   node.appendChild(i); node.appendChild(b); node.appendChild(x); node.appendChild(er); i.focus();
 }

@@ -324,22 +324,26 @@ static const char PAGE[] =
 /* An "aisc:" value shows as an opaque lock + a Reveal button; revealing prompts for
  * the passphrase and decrypts via /api/reveal (passphrase in the POST body, never
  * the URL). The cleartext is shown until the next render. */
-"function fillSecret(node,v){var s=document.createElement('span');s.textContent='\\uD83D\\uDD12 locked ';s.style.color='var(--muted)';"
+/* The lock, the password field and the cleartext live in one span of their
+ * own inside the row, so unlocking replaces that span's content and the
+ * row's tag line and menu stay (issue #4). */
+"function fillSecret(node,v){var w=document.createElement('span');node.appendChild(w);lockView(w,v)}"
+"function lockView(w,v){w.innerHTML='';var s=document.createElement('span');s.textContent='\\uD83D\\uDD12 locked ';s.style.color='var(--muted)';"
 "var b=document.createElement('button');b.className='actbtn';b.textContent='Unlock';"
-"b.onclick=function(){revealSecret(node,v)};node.appendChild(s);node.appendChild(b)}"
+"b.onclick=function(){revealSecret(w,v)};w.appendChild(s);w.appendChild(b)}"
 /* inline password field, not prompt(): prompt() is silently disabled in an
  * installed PWA / app window. */
 "async function revealSecret(node,v){node.innerHTML='';"
 "var i=document.createElement('input');i.type='password';i.placeholder='Password';i.autocomplete='off';i.style.cssText='font:inherit;padding:.2rem .4rem';"
 "var b=document.createElement('button');b.className='actbtn';b.textContent='Show';b.style.marginLeft='.4rem';"
-"var x=document.createElement('button');x.className='actbtn';x.textContent='cancel';x.style.marginLeft='.4rem';x.onclick=function(){node.innerHTML='';fillSecret(node,v)};"
+"var x=document.createElement('button');x.className='actbtn';x.textContent='cancel';x.style.marginLeft='.4rem';x.onclick=function(){lockView(node,v)};"
 "var er=document.createElement('span');er.className='muted';er.style.marginLeft='.4rem';"
 /* a wrong password keeps the field, so the retry is one more try, not a restart */
 "async function go(){var pp=i.value;if(!pp)return;"
 "var r=await fetch('/api/reveal',{method:'POST',body:pp+'\\n'+v});var t=await r.text();"
 "if(!t){i.value='';er.textContent='Wrong password. Try again.';i.focus();return}"
 "node.innerHTML='';fillVal(node,t);var c=document.createElement('button');c.className='actbtn';c.textContent='copy';c.style.marginLeft='.5rem';c.onclick=function(){copyText(t,c)};node.appendChild(c)}"
-"b.onclick=go;i.onkeydown=function(e){if(e.key==='Enter')go();else if(e.key==='Escape'){node.innerHTML='';fillSecret(node,v)}};"
+"b.onclick=go;i.onkeydown=function(e){if(e.key==='Enter')go();else if(e.key==='Escape')lockView(node,v)};"
 "node.appendChild(i);node.appendChild(b);node.appendChild(x);node.appendChild(er);i.focus()}"
 /* A document blob comes over the wire as "aisdoc:<base64 of the content>", so the
  * (possibly multi-line) content survives the line-based record split. Decode as

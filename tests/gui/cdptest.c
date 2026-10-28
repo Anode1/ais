@@ -11,6 +11,8 @@
 #include <stdlib.h>
 
 static int pass = 0, fail = 0;
+/* the value of a boolean expression; cdp_eval_bool's own return says only that it evaluated */
+static int truthy(cdp *c, const char *js) { int v = 0; return cdp_eval_bool(c, js, &v) == 0 && v; }
 static void ok(const char *label, int cond) {
     if (cond) { pass++; printf("  ok   %s\n", label); }
     else      { fail++; printf("  FAIL %s\n", label); }
@@ -413,6 +415,20 @@ int main(int argc, char **argv) {
         /* and offers to copy what was revealed -- the ciphertext row has no copy */
         ok("the revealed value can be copied", cdp_wait_bool(c,
             "document.getElementById('out').innerText.indexOf('copy')>=0", 3000) == 0);
+        /* Issue #4: unlocking wiped the row, menu included; the cleartext row
+         * keeps its menu with edit and delete, and locking again keeps one */
+#define SECROW "[].slice.call(document.querySelectorAll('#out .hit')).filter(function(r){return r.innerText.indexOf('wifi-Staff-2026')>=0})[0]"
+#define SECROW "[].slice.call(document.querySelectorAll('#out .hit')).filter(function(r){return r.innerText.indexOf('wifi-Staff-2026')>=0})[0]"
+        ok("the unlocked row keeps its menu", truthy(c,
+            "(function(){var h=" SECROW ";return !!h&&h.querySelectorAll('.act').length===1&&!!h.querySelector('.meta')"
+            "&&h.querySelector('.act').textContent.indexOf('edit')>=0&&h.querySelector('.act').textContent.indexOf('delete')>=0})()"));
+        cdp_eval_bool(c, "(function(){setView('timeline');return true})()", &(int){0});
+        cdp_wait_bool(c, "document.getElementById('out').innerText.indexOf('Unlock')>=0", 3000);
+        cdp_eval_bool(c, "(function(){var b=[].slice.call(document.querySelectorAll('#out .hit button')).filter(function(b){return b.textContent==='Unlock'})[0];b.click();"
+                         "var x=[].slice.call(document.querySelectorAll('#out .hit button')).filter(function(b){return b.textContent==='cancel'})[0];x.click();return true})()", &(int){0});
+        ok("Unlock then cancel leaves one lock and one menu", cdp_wait_bool(c,
+            "(function(){var h=[].slice.call(document.querySelectorAll('#out .hit')).filter(function(r){return r.innerText.indexOf('locked')>=0})[0];"
+            "return !!h&&h.querySelectorAll('.act').length===1&&(h.innerText.match(/locked/g)||[]).length===1})()", 3000) == 0);
 
         /* ---- saving an encrypted record ---------------------------------
          * The refusal first: a ticked Encrypt with no passphrase must NOT fall
@@ -430,9 +446,9 @@ int main(int argc, char **argv) {
             "document.getElementById('pp2').hidden===false", 3000) == 0);
         /* Show reveals BOTH fields (one state, as the app's eyes), Hide masks
          * them again, and the next sheet starts masked. */
-        ok("each field offers Show", cdp_eval_bool(c,
+        ok("each field offers Show", truthy(c,
             "document.querySelectorAll('#sheet .eye').length===2"
-            "&&document.querySelector('#sheet .eye').textContent==='Show'", &(int){0}) == 0);
+            "&&document.querySelector('#sheet .eye').textContent==='Show'"));
         cdp_eval_bool(c, "(function(){document.querySelector('#sheet .eye').click();return true})()", &(int){0});
         ok("Show reveals both passwords", cdp_wait_bool(c,
             "document.getElementById('pp').type==='text'&&document.getElementById('pp2').type==='text'"
@@ -628,9 +644,9 @@ int main(int argc, char **argv) {
     ok("the Sync sheet offers Import bookmarks", cdp_wait_bool(c,
         "(function(){var b=document.getElementById('linksbtn');"
         "return !!b&&b.textContent==='Import bookmarks'})()", 3000) == 0);
-    ok("its file input takes csv and html", cdp_eval_bool(c,
+    ok("its file input takes csv and html", truthy(c,
         "(function(){var a=document.getElementById('filelinks').accept;"
-        "return a.indexOf('.csv')>=0&&a.indexOf('.html')>=0})()", &(int){0}) == 0);
+        "return a.indexOf('.csv')>=0&&a.indexOf('.html')>=0})()"));
     cdp_eval_bool(c, "(function(){window.__msg=null;window.alert=function(m){window.__msg=m};"
         "var f=new File(['title,url,time_added,tags,status\\n"
         "Bread,https://bread.example/,1690000000,baking|rye,unread\\n'],'part_000000.csv');"
@@ -657,8 +673,8 @@ int main(int argc, char **argv) {
     ok("the text field has a place on screen",
        cdp_eval_int(c, "Math.round(document.getElementById('v').getBoundingClientRect().left+20)", &vx) == 0 &&
        cdp_eval_int(c, "Math.round(document.getElementById('v').getBoundingClientRect().top+10)", &vy) == 0);
-    ok("the corner of the page is the backdrop", cdp_eval_bool(c,
-        "document.elementFromPoint(4,4)===document.getElementById('sheet')", &(int){0}) == 0);
+    ok("the corner of the page is the backdrop", truthy(c,
+        "document.elementFromPoint(4,4)===document.getElementById('sheet')"));
     cdp_mouse(c, "mousePressed", vx, vy);
     cdp_mouse(c, "mouseMoved", 4, 4);
     cdp_mouse(c, "mouseReleased", 4, 4);
@@ -673,7 +689,7 @@ int main(int argc, char **argv) {
        cdp_wait_bool(c, "document.getElementById('sheet').hidden===false", 500) == 0);
     cdp_key(c, "Escape");
     ok("so does Escape", cdp_wait_bool(c, "document.getElementById('sheet').hidden===false", 500) == 0
-       && cdp_eval_bool(c, "document.getElementById('v').value==='a draft'", &(int){0}) == 0);
+       && truthy(c, "document.getElementById('v').value==='a draft'"));
     cdp_eval_bool(c, "(function(){document.getElementById('v').value='';return true})()", &(int){0});
     cdp_mouse(c, "mousePressed", 4, 4);
     cdp_mouse(c, "mouseReleased", 4, 4);
@@ -699,7 +715,7 @@ int main(int argc, char **argv) {
     cdp_eval_bool(c, "(function(){openSheet();return true})()", &(int){0});
     ok("Add from Recent leaves the tags empty", cdp_wait_bool(c,
         "document.getElementById('sheet').hidden===false&&document.getElementById('vk').value===''", 3000) == 0);
-    ok("and lands on the text field", cdp_eval_bool(c, "document.activeElement===document.getElementById('v')", &(int){0}) == 0);
+    ok("and lands on the text field", truthy(c, "document.activeElement===document.getElementById('v')"));
     cdp_eval_bool(c, "(function(){closeSheet();document.getElementById('q').value='venice';setView('recall');return true})()", &(int){0});
     cdp_wait_bool(c, HIT, 3000);
     cdp_eval_bool(c, "(function(){openSheet();return true})()", &(int){0});
