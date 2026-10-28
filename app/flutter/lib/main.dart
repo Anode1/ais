@@ -159,6 +159,8 @@ class RecallPage extends StatefulWidget {
   final List<Hit> Function(String needle)? findLookup;
   // Same seam for the Tags view: the whole tag cloud, busiest first.
   final List<TagRow> Function()? tagCloud;
+  // Same seam for Recent: page one, under the project tag ('' = all).
+  final List<TlRow> Function(String key)? timelineLookup;
   // Same seam for the uninstall-survival flow (survival.dart): a fake mobile
   // store the tests save into and restore from. Null = the real engine.
   final SurvivalHarness? survival;
@@ -168,6 +170,7 @@ class RecallPage extends StatefulWidget {
       this.recallLookup,
       this.findLookup,
       this.tagCloud,
+      this.timelineLookup,
       this.survival});
   @override
   State<RecallPage> createState() => _RecallPageState();
@@ -233,6 +236,15 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
   bool _openFailed = false; // the engine refused the index: show it, offer Retry
   String _query = '';
   String _dir = '';
+  // The project: one tag the app keeps active (doc/dev/project-chip/SPEC.md).
+  // Recent lists only its items, a search is ANDed with it, the Add sheet
+  // starts with it; the engine sees an ordinary tag. Kept per library in the
+  // sidecar <dir>_project, beside _lastsync.
+  String _project = '';
+  bool _projectSaid = false; // engine-less stand-in for the <dir>_project_said flag
+  bool _searchAll = false;   // the next search runs over all items, once
+  String _resultScope = '';  // the project the shown results were searched in
+  String _querySent = '';    // the keys the engine was asked, project included
   // One sync at a time: a scanned deep link arrives off the platform channel, not
   // through the barrier dialog, so it could otherwise start a second sync on the
   // shared engine handle mid-sync (data race). This gates every sync entry point.
@@ -354,8 +366,14 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
     final h = widget.survival;
     if (h != null) {
       _dir = h.dir;
+      _project = _loadProject();
       _status = 'Type tags, then Search. Tap Add to save.';
       _loadTimeline();
+      if (mounted) setState(() {});
+      return;
+    }
+    if (widget.timelineLookup != null) {
+      _loadTimeline(); // the Recent seam stands in for the engine's page
       if (mounted) setState(() {});
       return;
     }
@@ -370,6 +388,7 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
       _syncFolder = _loadSyncFolder();
       _backupTree = _loadBackupTree();
       _loadLastSync();
+      _project = _loadProject();
       _loadTimeline(); // open showing recent items, not a blank search pane
       _runFolderSync(silent: true); // pull peer changes on open (opening is the user action)
     } catch (e) {
@@ -480,23 +499,38 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
     if ((_ais == null && widget.recallLookup == null) || keys.isEmpty) return;
     // Page one only. The cursor/more come from the RAW page, so the Undo-window
     // filter below cannot make the page look short and stop pagination early.
-    final page = _recallHits(keys);
+    // Inside a project the AND query carries the project; an OR query keeps the
+    // typed tags ORed and drops the rows not filed under it. "Search all items"
+    // lifts the project for one search.
+    final scope = _searchAll ? '' : _project;
+    _searchAll = false;
+    final sent = scope.isEmpty || _matchAny ? keys : '$scope $keys';
+    final page = _recallHits(sent);
     // Exclude ids still inside their Undo window: a re-query must not resurrect
     // a row the user just swiped away.
-    final g = oneRowPerRecord(
-        page.where((h) => !_pendingDelete.contains(h.id)).toList());
+    final g = oneRowPerRecord(page
+        .where((h) =>
+            !_pendingDelete.contains(h.id) &&
+            (scope.isEmpty || !_matchAny || _filedUnder(h.id, scope)))
+        .toList());
     final r = g.rows;
     // The VALUE half: the engine's substring find() over note values, appended
     // after the tag matches under one separator. A record the tag half already
-    // lists is not repeated. The OR chip means nothing here: find takes no keys.
+    // lists is not repeated. The OR chip means nothing here: find takes no keys;
+    // the project does, through the rows' tags.
     final tagIds = {for (final h in page) h.id};
     final gv = oneRowPerRecord(_findHits(_q.text.trim())
-        .where((h) => !_pendingDelete.contains(h.id) && !tagIds.contains(h.id))
+        .where((h) =>
+            !_pendingDelete.contains(h.id) &&
+            !tagIds.contains(h.id) &&
+            (scope.isEmpty || _filedUnder(h.id, scope)))
         .toList());
     final v = gv.rows;
     final keysMap = {for (final h in [...r, ...v]) h.id: _keysFor(h.id)};
     setState(() {
       _query = keys;
+      _querySent = sent;
+      _resultScope = scope;
       _searched = true;
       _textSearch = false; // a fresh key search leaves the text-fallback mode
       _resultExtra = {...g.extra, ...gv.extra};
@@ -518,9 +552,12 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
   // and when the last page was short.
   void _loadMoreRecall() {
     if (_ais == null || !_recallMore || _textSearch || _query.isEmpty) return;
-    final page = _ais!.recallPage(_query, orMode: _matchAny, after: _recallBefore, count: _recallPage);
-    final gm = oneRowPerRecord(
-        page.where((h) => !_pendingDelete.contains(h.id)).toList());
+    final page = _ais!.recallPage(_querySent, orMode: _matchAny, after: _recallBefore, count: _recallPage);
+    final gm = oneRowPerRecord(page
+        .where((h) =>
+            !_pendingDelete.contains(h.id) &&
+            (_resultScope.isEmpty || !_matchAny || _filedUnder(h.id, _resultScope)))
+        .toList());
     final fresh = gm.rows;
     final extra = gm.extra;
     final keysMap = {for (final h in fresh) h.id: _ais!.keysOf(h.id).trim()};
@@ -558,7 +595,9 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
     if (_ais == null || _query.isEmpty) return;
     final r = _ais!
         .find(_query)
-        .where((h) => !_pendingDelete.contains(h.id))
+        .where((h) =>
+            !_pendingDelete.contains(h.id) &&
+            (_resultScope.isEmpty || _filedUnder(h.id, _resultScope)))
         .toList();
     final keysMap = {for (final h in r) h.id: _ais!.keysOf(h.id).trim()};
     setState(() {
@@ -589,7 +628,7 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
           _valueOnly = const {};
           _searched = false;
           _recallMore = false;
-          _status = 'Type tags, then Search.';
+          _status = _searchHint;
         });
       }
     } else if (v == 'timeline') {
@@ -662,9 +701,24 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
 
   // Fresh timeline load: page one from the newest, within [_tlFrom, _tlTo].
   void _loadTimeline() {
-    final page = widget.survival?.timeline() ??
-        _ais?.timeline(before: 0, count: _tlPage, from: _tlFrom, to: _tlTo) ??
+    final page = widget.timelineLookup?.call(_project) ??
+        widget.survival
+            ?.timeline()
+            .where((r) => _project.isEmpty || _filedUnderKeys(r.keys, _project))
+            .toList() ??
+        _ais?.timeline(before: 0, count: _tlPage, from: _tlFrom, to: _tlTo, key: _project) ??
         const [];
+    // The engine keeps no empty tag: Recent inside a project, with no date
+    // range, coming back empty means its last item went, and the project ends.
+    if (page.isEmpty &&
+        _project.isNotEmpty &&
+        _tlFrom.isEmpty &&
+        _tlTo.isEmpty &&
+        (_ais != null || widget.survival != null || widget.timelineLookup != null)) {
+      _endProject();
+      _loadTimeline();
+      return;
+    }
     setState(() {
       // Hide ids inside their Undo window; cursor/more come from the raw page.
       _tl = page.where((r) => !_pendingDelete.contains(r.id)).toList();
@@ -1271,6 +1325,173 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
     ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Restored.${_mergeDetail(before)}')));
   }
+
+  // Beside the index (<dir>_project), as _lastsync is: per device and per
+  // library, and never synced.
+  String _loadProject() {
+    if (_dir.isEmpty) return '';
+    try {
+      final f = File('${_dir}_project');
+      return f.existsSync() ? f.readAsStringSync().trim() : '';
+    } catch (_) {
+      return '';
+    }
+  }
+
+  void _storeProject(String k) {
+    if (_dir.isEmpty) return;
+    try {
+      final f = File('${_dir}_project');
+      if (k.isEmpty) {
+        if (f.existsSync()) f.deleteSync();
+      } else {
+        f.writeAsStringSync(k);
+      }
+    } catch (_) {}
+  }
+
+  // The project changed: the chip and the view in front follow.
+  void _applyProject(String k) {
+    _project = k;
+    _storeProject(k);
+    _setView(_view);
+  }
+
+  // Chosen from the Tags view only. The first project ever chosen on this
+  // library gets the one-time explanation.
+  void _setProject(String k) {
+    var first = !_projectSaid;
+    _projectSaid = true;
+    if (_dir.isNotEmpty) {
+      try {
+        final f = File('${_dir}_project_said');
+        first = !f.existsSync();
+        f.writeAsStringSync('1');
+      } catch (_) {}
+    }
+    _applyProject(k);
+    if (first && mounted) {
+      ScaffoldMessenger.of(context)
+        ..removeCurrentSnackBar()
+        ..showSnackBar(SnackBar(
+            content: Text('Working in $k on this device. New items get this tag.')));
+    }
+  }
+
+  // Leaving is undoable while the snackbar shows.
+  void _leaveProject() {
+    final old = _project;
+    if (old.isEmpty) return;
+    _applyProject('');
+    // Shown at once, not queued behind an earlier notice: Undo has 5 s.
+    ScaffoldMessenger.of(context)
+      ..removeCurrentSnackBar()
+      ..showSnackBar(SnackBar(
+      content: Text('Left $old'),
+      duration: const Duration(seconds: 5),
+      action: SnackBarAction(label: 'UNDO', onPressed: () => _applyProject(old)),
+      ));
+  }
+
+  // The engine keeps no empty tag: a project whose items are all gone ends.
+  void _endProject() {
+    final old = _project;
+    _project = '';
+    _storeProject('');
+    if (mounted) {
+      ScaffoldMessenger.of(context)
+        ..removeCurrentSnackBar()
+        ..showSnackBar(
+            SnackBar(content: Text('Nothing left in $old. The project ended.')));
+    }
+  }
+
+  // Inside a project a row's tag line does not repeat the project.
+  String _metaKeys(String keys) {
+    if (_project.isEmpty || keys.isEmpty) return keys;
+    return keys
+        .split(RegExp(r'\s+'))
+        .where((t) => t.isNotEmpty && t != _project)
+        .join(' ');
+  }
+
+  bool _filedUnderKeys(String keys, String tag) => (' $keys ').contains(' $tag ');
+  bool _filedUnder(int id, String tag) => _filedUnderKeys(_keysFor(id), tag);
+
+  String get _searchHint => _project.isEmpty
+      ? 'Type tags, then Search.'
+      : 'Type tags to search inside $_project.';
+
+  // Tapping the chip's name: switch, leave, and where it is kept.
+  Future<void> _projectMenu(BuildContext chipCtx) async {
+    final box = chipCtx.findRenderObject() as RenderBox;
+    final overlay = Overlay.of(context).context.findRenderObject() as RenderBox;
+    final pos = RelativeRect.fromRect(
+        Rect.fromPoints(
+            box.localToGlobal(Offset.zero, ancestor: overlay),
+            box.localToGlobal(box.size.bottomLeft(Offset.zero), ancestor: overlay)),
+        Offset.zero & overlay.size);
+    final a = await showMenu<String>(
+      context: context,
+      position: pos,
+      items: [
+        const PopupMenuItem(value: 'switch', child: Text('Switch project')),
+        const PopupMenuItem(value: 'leave', child: Text('Leave project')),
+        PopupMenuItem<String>(
+            enabled: false,
+            height: 36,
+            child: Text('Kept on this device',
+                style: Theme.of(context).textTheme.bodySmall)),
+      ],
+    );
+    if (!mounted) return;
+    if (a == 'switch') _setView('tags');
+    if (a == 'leave') _leaveProject();
+  }
+
+  // The chip in the search bar: the tag icon, the name, a cross.
+  Widget _projectChip(ColorScheme cs) => Padding(
+        padding: const EdgeInsets.only(left: 8, right: 4),
+        child: Builder(
+          builder: (chipCtx) => ConstrainedBox(
+            constraints: BoxConstraints(
+                maxWidth: MediaQuery.of(context).size.width * 0.45),
+            child: InputChip(
+              avatar: const Icon(Icons.label, size: 18),
+              label: Text(_project, overflow: TextOverflow.ellipsis),
+              tooltip: 'Project',
+              onPressed: () => _projectMenu(chipCtx),
+              onDeleted: _leaveProject,
+              deleteButtonTooltipMessage: 'Leave project',
+              visualDensity: _chipDensity,
+            ),
+          ),
+        ),
+      );
+
+  // Under a project's results: the scope, and the same search once over all
+  // items (the chip stays; the next search is inside the project again).
+  Widget _scopeFooter(ColorScheme cs) => Padding(
+        padding: const EdgeInsets.fromLTRB(16, 20, 16, 8),
+        child: Wrap(
+          alignment: WrapAlignment.center,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          children: [
+            Text('Only items tagged $_resultScope. ',
+                style: Theme.of(context)
+                    .textTheme
+                    .bodySmall
+                    ?.copyWith(color: cs.onSurfaceVariant)),
+            TextButton(
+              onPressed: () {
+                _searchAll = true;
+                _recall();
+              },
+              child: const Text('Search all items'),
+            ),
+          ],
+        ),
+      );
 
   // Beside the index (<dir>_lastsync), never inside it: see _lastSync.
   void _loadLastSync() {
@@ -2093,6 +2314,9 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
       if (!Platform.isAndroid && !Platform.isIOS) AisIndex.setDefault(chosen);
       setState(() {
         _dir = chosen;
+        _project = _loadProject();       // the project is per-index too
+        _searchAll = false;
+        _resultScope = '';
         _syncFolder = _loadSyncFolder(); // sync-folder is per-index
         _backupTree = _loadBackupTree(); // so is the keep folder
         // Blob content and file-presence are keyed per library.
@@ -2390,7 +2614,7 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
                                   _textSearch = false; // cleared query drops the fallback too
                                   _query = '';         // and its paging cursor state
                                   _recallMore = false;
-                                  _status = 'Type tags, then Search.';
+                                  _status = _searchHint;
                                 });
                                 return;
                               }
@@ -2398,8 +2622,10 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
                                   const Duration(milliseconds: 280), _recallLive);
                             },
                             decoration: InputDecoration(
-                              hintText: 'type tags to filter',
-                              prefixIcon: const Icon(Icons.search),
+                              hintText: _project.isEmpty ? 'type tags to filter' : 'more tags',
+                              prefixIcon: _project.isEmpty
+                                  ? const Icon(Icons.search)
+                                  : _projectChip(cs),
                               filled: true,
                               fillColor: cs.surfaceContainerHighest
                                   .withValues(alpha: 0.85),
@@ -2505,7 +2731,9 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
   // still OPENING, the real error + Retry if the open FAILED, null once it is live.
   // Keeps a slow or failed open from reading as "nothing saved yet".
   Widget? _engineGate(ColorScheme cs) {
-    if (_ais != null || widget.survival != null) return null;
+    if (_ais != null || widget.survival != null || widget.timelineLookup != null) {
+      return null;
+    }
     if (_openFailed) {
       return Center(
         child: SingleChildScrollView(
@@ -2543,7 +2771,7 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
   // this condition (c/serve.c, app/app.css), and GUI.md's rule is that a change
   // to one surface is a change to all three.
   bool get _emptyStateOffersAdd {
-    if (_ais == null && widget.survival == null) {
+    if (_ais == null && widget.survival == null && widget.timelineLookup == null) {
       return false;                      // the gate or a status message is showing
     }
     switch (_view) {
@@ -3117,6 +3345,8 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
     final vFrom = _results.indexWhere((h) => _valueOnly.contains(h.id));
     final tagCount = vFrom >= 0 ? vFrom : _results.length;
     final head = tagCount + (_recallMore ? 1 : 0);
+    final total = head + (vFrom >= 0 ? 1 + _results.length - tagCount : 0);
+    final scoped = _resultScope.isNotEmpty;   // the scope line closes the list
     final list = NotificationListener<ScrollNotification>(
       onNotification: (n) {
         if (_recallMore && _nearBottom(n)) _loadMoreRecall();
@@ -3124,9 +3354,10 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
       },
       child: ListView.separated(
       padding: const EdgeInsets.only(bottom: 88),
-      itemCount: head + (vFrom >= 0 ? 1 + _results.length - tagCount : 0),
+      itemCount: total + (scoped ? 1 : 0),
       separatorBuilder: (_, __) => const Divider(height: 1, indent: 16, endIndent: 16),
       itemBuilder: (_, i) {
+        if (scoped && i == total) return _scopeFooter(cs);
         if (i < tagCount) return _resultRow(_results[i], cs);
         if (_recallMore && i == tagCount) return _loadingFooter();
         if (i == head) return _valueMatchSeparator(cs);
@@ -3169,7 +3400,7 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
       // it holds links this row does not show: deleting removes the WHOLE record.
       subtitle: Text(
         ((_resultKeys[hit.id]?.isNotEmpty ?? false)
-                ? _resultKeys[hit.id]!
+                ? _metaKeys(_resultKeys[hit.id]!)
                 : '(no tags)') +
             ((_resultExtra[hit.id] ?? 0) > 0
                 ? '  ·  +${_resultExtra[hit.id]} more link'
@@ -3245,7 +3476,10 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Text('No tag match for "$_query".',
+              Text(
+                  _resultScope.isEmpty
+                      ? 'No tag match for "$_query".'
+                      : 'No results for "$_query" in $_resultScope.',
                   textAlign: TextAlign.center,
                   style: Theme.of(context)
                       .textTheme
@@ -3257,6 +3491,7 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
                 icon: const Icon(Icons.search, size: 18),
                 label: const Text('Search note text instead'),
               ),
+              if (_resultScope.isNotEmpty) _scopeFooter(cs),
             ],
           ),
         ),
@@ -3304,7 +3539,8 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
   // Page on with the keyset cursor: the next page older than the last id we hold.
   void _loadMoreTimeline() {
     if (_ais == null) return;
-    final page = _ais!.timeline(before: _tlBefore, count: _tlPage, from: _tlFrom, to: _tlTo);
+    final page = _ais!.timeline(
+        before: _tlBefore, count: _tlPage, from: _tlFrom, to: _tlTo, key: _project);
     setState(() {
       _tl = [..._tl, ...page.where((r) => !_pendingDelete.contains(r.id))];
       if (page.isNotEmpty) _tlBefore = page.last.id;
@@ -3385,7 +3621,8 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
                   ?.copyWith(color: cs.onSurface)),
         ));
       }
-      final time = (dt != null && r.ts.contains('T')) ? '${p2(dt.hour)}:${p2(dt.minute)} · ' : '';
+      final time = (dt != null && r.ts.contains('T')) ? '${p2(dt.hour)}:${p2(dt.minute)}' : '';
+      final kk = r.keys.isEmpty ? '(no tags)' : _metaKeys(r.keys);
       items.add(ListTile(
         key: ValueKey(r.id),
         // Tap opens the detail/edit page; carry the ts so it can show the save time.
@@ -3405,7 +3642,7 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
           ),
           if (_notHere(r.value)) _notHereBadge(cs),
         ]),
-        subtitle: Text('$time${r.keys.isEmpty ? '(no tags)' : r.keys}',
+        subtitle: Text([if (time.isNotEmpty) time, if (kk.isNotEmpty) kk].join(' · '),
             style: Theme.of(context)
                 .textTheme
                 .bodySmall
@@ -3490,8 +3727,18 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
   // Text typed here narrows the list by prefix.
   Widget _tagsBody(ColorScheme cs) {
     final filtering = _tagsTyped.trim().isNotEmpty;
-    final tags = filtering ? _filteredTags(_tagsTyped) : _tags;
+    var tags = filtering ? _filteredTags(_tagsTyped) : _tags;
     final more = !filtering && _tagsMore;
+    // The active project's row comes first, tinted; this is where projects are
+    // switched, so the list stays whole. A project beyond the loaded page is
+    // listed without its count.
+    if (_project.isNotEmpty && !filtering) {
+      final i = tags.indexWhere((t) => t.key == _project);
+      tags = [
+        i >= 0 ? tags[i] : TagRow(_project, -1),
+        ...tags.where((t) => t.key != _project),
+      ];
+    }
     if (tags.isEmpty) {
       return _centerMsg(
           filtering ? 'No tag starts with "${_tagsTyped.trim()}".' : 'No tags yet.',
@@ -3508,18 +3755,48 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
         itemBuilder: (_, i) {
           if (i >= tags.length) return _loadingFooter();
           final t = tags[i];
+          final isProject = t.key == _project;
           return ListTile(
             // One-line rows at 56dp whatever the platform's density default.
             visualDensity: VisualDensity.standard,
             minTileHeight: 56,
-            leading: Icon(Icons.label_outline, color: cs.onSurfaceVariant),
-            title: Text(t.key, maxLines: 1, overflow: TextOverflow.ellipsis),
-            trailing: Text('${t.count}',
-                textAlign: TextAlign.right,
-                style: Theme.of(context)
-                    .textTheme
-                    .labelLarge
-                    ?.copyWith(color: cs.onSurfaceVariant)),
+            tileColor: isProject ? cs.primaryContainer : null,
+            leading: Icon(isProject ? Icons.label : Icons.label_outline,
+                color: isProject ? cs.onPrimaryContainer : cs.onSurfaceVariant),
+            title: Text(t.key,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: isProject
+                    ? TextStyle(
+                        fontWeight: FontWeight.w600, color: cs.onPrimaryContainer)
+                    : null),
+            trailing: Row(mainAxisSize: MainAxisSize.min, children: [
+              Text(t.count < 0 ? '' : '${t.count}',
+                  textAlign: TextAlign.right,
+                  style: Theme.of(context)
+                      .textTheme
+                      .labelLarge
+                      ?.copyWith(color: cs.onSurfaceVariant)),
+              // the project is chosen here only
+              PopupMenuButton<String>(
+                icon: const Icon(Icons.more_vert),
+                tooltip: 'Actions for ${t.key}',
+                onSelected: (a) {
+                  if (a == 'project') {
+                    if (isProject) {
+                      _leaveProject();
+                    } else {
+                      _setProject(t.key);
+                    }
+                  }
+                },
+                itemBuilder: (_) => [
+                  PopupMenuItem(
+                      value: 'project',
+                      child: Text(isProject ? 'Leave project' : 'Make it the project')),
+                ],
+              ),
+            ]),
             onTap: () {
               _q.text = t.key;
               _setView('recall');
@@ -3541,6 +3818,7 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
       showDragHandle: true,
       builder: (ctx) => AddSheet(
         initialValue: value,
+        project: _project,
         suggest: _tagMatches,
         onSave: _addSave,
       ),
@@ -3613,8 +3891,13 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
     _runFolderSync(silent: true); // push the new record to peers
     _backupDirty = true;
     _refreshBackupCopy(); // the survival copy tracks every save
-    messenger.showSnackBar(
-        SnackBar(content: Text(saveOutcomeMessage(id, k, merged: merged))));
+    // Inside a project, a save without its tag is the sheet chip's cross: say
+    // so, since the project's Recent will not list it.
+    final outside = _project.isNotEmpty && !_filedUnderKeys(k, _project);
+    messenger.showSnackBar(SnackBar(
+        content: Text(outside && !merged
+            ? 'Saved outside $_project'
+            : saveOutcomeMessage(id, k, merged: merged))));
     _maybeKeepHint(liveBefore, messenger);
     return null;
   }
@@ -3728,6 +4011,9 @@ class TagSuggestRow extends StatelessWidget {
 class AddSheet extends StatefulWidget {
   final String initialValue;
   final String initialKeys;
+  // The active project: its chip leads the tag field and is one of the tags
+  // unless its cross is tapped, which leaves this one item out ('' = none).
+  final String project;
   // Existing tags for the token being typed (busiest first, already capped).
   final List<String> Function(String prefix) suggest;
   // Validate-and-store. Returns the inline error to show, or null when the
@@ -3744,6 +4030,7 @@ class AddSheet extends StatefulWidget {
       {super.key,
       this.initialValue = '',
       this.initialKeys = '',
+      this.project = '',
       required this.suggest,
       required this.onSave});
   @override
@@ -3759,7 +4046,17 @@ class _AddSheetState extends State<AddSheet> {
   bool _encrypt = false; // off by default
   bool _saving = false;  // true from the tap until the sheet closes or the error shows
   bool _ppShow = false;  // the sealing passphrase revealed, both fields at once
+  bool _projOut = false; // the project chip's cross: this item goes without it
   String? _error;        // in-sheet feedback so a save never fails silently
+
+  // The project's chip is one of the tags unless its cross was tapped; typed
+  // by hand it counts once.
+  String get _keysOut {
+    final p = widget.project, t = _keysCtrl.text;
+    if (p.isEmpty || _projOut) return t;
+    final has = t.replaceAll(',', ' ').split(RegExp(r'\s+')).contains(p);
+    return has ? t : '$p $t';
+  }
 
   // A sheet with typed text closes only by Cancel or Save: a tap on the dimmed
   // page or the back gesture must not throw a draft away (web issue #3).
@@ -3799,7 +4096,7 @@ class _AddSheetState extends State<AddSheet> {
     });
     final err = await widget.onSave(
         value: _valCtrl.text,
-        keys: _keysCtrl.text,
+        keys: _keysOut,
         encrypt: _encrypt,
         passphrase: _ppCtrl.text,
         repeat: _pp2Ctrl.text);
@@ -3844,11 +4141,24 @@ class _AddSheetState extends State<AddSheet> {
         TextField(
           controller: _keysCtrl,
           focusNode: _keysFocus,
-          decoration: const InputDecoration(
+          decoration: InputDecoration(
             labelText: 'Tags',
             hintText: 'e.g. venice italy hotel',
             helperText: 'Separate with spaces',
-            border: OutlineInputBorder(),
+            border: const OutlineInputBorder(),
+            prefixIcon: widget.project.isEmpty || _projOut
+                ? null
+                : Padding(
+                    padding: const EdgeInsets.only(left: 8, right: 4),
+                    child: InputChip(
+                      avatar: const Icon(Icons.label, size: 18),
+                      label: Text(widget.project, overflow: TextOverflow.ellipsis),
+                      onDeleted: () => setState(() => _projOut = true),
+                      deleteButtonTooltipMessage:
+                          'Leave this item out of ${widget.project}',
+                      visualDensity: VisualDensity.compact,
+                    ),
+                  ),
           ),
         ),
         TagSuggestRow(
@@ -4022,11 +4332,11 @@ class _EditTagsDialogState extends State<EditTagsDialog> {
     setState(() => _tags.addAll(fresh));
   }
 
-  @override
   // Same rule as the Add sheet: an edited tag list closes only by Cancel or Apply.
   bool get _untouched =>
       _ctrl.text.isEmpty && _tags.join(' ') == widget.initial.join(' ');
 
+  @override
   Widget build(BuildContext context) => PopScope(
       canPop: _untouched,
       child: AlertDialog(

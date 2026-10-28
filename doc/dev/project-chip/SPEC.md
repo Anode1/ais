@@ -59,8 +59,9 @@ Recent needs a save time per item and recall hits carry none, so the timeline ga
 
 # Flutter
 
-- The bar chip is an `InputChip` with the tag icon as avatar: `onPressed` opens a `MenuAnchor` with the two items, `onDeleted` leaves with a `SnackBar` Undo.
-- The sheet chip is the `InputChip` `EditTagsDialog` already uses.
+- The bar chip is an `InputChip` in the search field's prefix, the tag icon as avatar: `onPressed` opens a menu with the two items and the caption, `onDeleted` leaves with a `SnackBar` Undo.
+- The sheet chip is an `InputChip` in the tag field's prefix; its cross hides it for that sheet.
+- The project is kept in `<dir>_project`, the one-time notice flag in `<dir>_project_said`. `RecallPage` takes a `timelineLookup` seam so the widget tests reach Recent without an engine.
 - Android's back gesture closes the sheet or exits the app, and keeps the project.
 - The Tags row menu item and the empty states match the web text word for word.
 
