@@ -59,6 +59,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # A one-file artifact holds the file alone, no directory: the exe lands
+      # at bin/ais.exe. With two files (ais.exe and the native window, until
+      # 0.3.38) it kept the paths and the exe was bin/c/ais.exe.
       - uses: actions/download-artifact@v4
         with:
           name: ais-windows-x86_64
@@ -66,17 +69,17 @@ jobs:
 
       - name: the binary runs
         run: |
-          ./bin/c/ais.exe --version
-          ./bin/c/ais.exe --help | head -5
+          ./bin/ais.exe --version
+          ./bin/ais.exe --help | head -5
 
       - name: tests/cli.sh
-        run: sh tests/cli.sh "$PWD/bin/c/ais.exe"
+        run: sh tests/cli.sh "$PWD/bin/ais.exe"
 
       # Runs even after a cli.sh failure: the loopback sync is a separate
       # question, and its answer is the one no other machine can give.
       - name: tests/sync.sh (two peers over loopback, Winsock)
         if: always()
-        run: sh tests/sync.sh "$PWD/bin/c/ais.exe"
+        run: sh tests/sync.sh "$PWD/bin/ais.exe"
 
       # A folder sync with the engine's trace on, so a failure says which step.
       # Its exit status is the step's: this is the only run of that path on
@@ -85,6 +88,6 @@ jobs:
         if: always()
         run: |
           A=$(mktemp -d); F=$(mktemp -d)
-          ./bin/c/ais.exe -f "$A" -v hello trace >/dev/null
-          ./bin/c/ais.exe -d -f "$A" --sync-folder "$F"
+          ./bin/ais.exe -f "$A" -v hello trace >/dev/null
+          ./bin/ais.exe -d -f "$A" --sync-folder "$F"
           ls -la "$F"
