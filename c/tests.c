@@ -1722,6 +1722,97 @@ static void test_timeline_stale_off_slot(void)
     scratch_rm(dir);
 }
 
+/* ---- timeline under one key: the page comes from the posting list -------- */
+static void test_timeline_key(void)
+{
+    const char *dir = "/tmp/ais_ut_tlkey";
+    ais a;
+    struct tlvec v;
+    char path[AIS_PATH_MAX];
+    FILE *fp;
+    int i;
+
+    scratch_rm(dir);
+    ais_open(&a, dir);
+    ais_close(&a);
+
+    /* ids 1..6: odd ids carry "trip", id 5 dated 2020, id 6 is dateless */
+    snprintf(path, sizeof(path), "%s/store", dir);
+    fp = fopen(path, "w");
+    if (fp != NULL) {
+        fprintf(fp, "1|2024-01-01T10:00:00|trip venice|one\n");
+        fprintf(fp, "2|2024-01-02T10:00:00|venice|two\n");
+        fprintf(fp, "3|2024-01-03T10:00:00|trip|three\n");
+        fprintf(fp, "4|2024-01-04T10:00:00|work|four\n");
+        fprintf(fp, "5|2020-06-01T10:00:00|trip|five\n");
+        fprintf(fp, "6|trip|six\n");
+        fclose(fp);
+    }
+    snprintf(path, sizeof(path), "%s/next_id", dir); remove(path);
+    snprintf(path, sizeof(path), "%s/off",     dir); remove(path);
+    ais_open(&a, dir);
+    ais_compact(&a);                          /* postings, off, next_id -> 7 */
+
+    v.n = 0; ais_timeline_key(&a, "trip", 0, 0, "", "", collect_tl, &v);
+    CHECK(v.n == 4 && v.r[0].id == 6 && v.r[1].id == 5 && v.r[2].id == 3 && v.r[3].id == 1,
+          "tl-key: only the key's records, newest first {6,5,3,1}");
+    CHECK(v.n == 4 && strcmp(v.r[2].value, "three") == 0 && strcmp(v.r[2].keys, "trip") == 0,
+          "tl-key: a row carries its ts, keys and value");
+    v.n = 0; ais_timeline_key(&a, "TRIP", 0, 0, "", "", collect_tl, &v);
+    CHECK(v.n == 4, "tl-key: the key is encoded as recall encodes it");
+    v.n = 0; ais_timeline_key(&a, "nosuch", 0, 0, "", "", collect_tl, &v);
+    CHECK(v.n == 0, "tl-key: a key with no posting emits nothing");
+    CHECK(ais_timeline_key(&a, "", 0, 0, "", "", collect_tl, &v) == -1, "tl-key: an empty key is an error");
+
+    /* keyset paging: page size 2, cursor = the last id shown */
+    v.n = 0; ais_timeline_key(&a, "trip", 0, 2, "", "", collect_tl, &v);
+    CHECK(v.n == 2 && v.r[0].id == 6 && v.r[1].id == 5, "tl-key: page 1 = {6,5}");
+    v.n = 0; ais_timeline_key(&a, "trip", 5, 2, "", "", collect_tl, &v);
+    CHECK(v.n == 2 && v.r[0].id == 3 && v.r[1].id == 1, "tl-key: page 2 (before 5) = {3,1}");
+    v.n = 0; ais_timeline_key(&a, "trip", 1, 2, "", "", collect_tl, &v);
+    CHECK(v.n == 0, "tl-key: page 3 (before 1) = {} (no more)");
+
+    /* a date range drops rows after they are picked: the page refills from older ids */
+    v.n = 0; ais_timeline_key(&a, "trip", 0, 2, "2024-01-01", "2024-12-31", collect_tl, &v);
+    CHECK(v.n == 2 && v.r[0].id == 3 && v.r[1].id == 1,
+          "tl-key: range 2024 + count=2 skips the dateless and the 2020 rows -> {3,1}");
+    v.n = 0; ais_timeline_key(&a, "trip", 0, 0, "", "2020-12-31", collect_tl, &v);
+    CHECK(v.n == 1 && v.r[0].id == 5, "tl-key: to 2020 -> {5}");
+
+    /* a deleted record leaves the page at once, before any compaction */
+    ais_del(&a, 3);
+    v.n = 0; ais_timeline_key(&a, "trip", 0, 0, "", "", collect_tl, &v);
+    CHECK(v.n == 3 && v.r[0].id == 6 && v.r[1].id == 5 && v.r[2].id == 1,
+          "tl-key: a deleted record is gone {6,5,1}");
+
+    /* a detached key leaves the page at once */
+    ais_update(&a, 1, "-trip");
+    v.n = 0; ais_timeline_key(&a, "trip", 0, 0, "", "", collect_tl, &v);
+    CHECK(v.n == 2 && v.r[0].id == 6 && v.r[1].id == 5, "tl-key: a detached key is gone {6,5}");
+
+    /* without a usable off (the scan path) the same page comes back */
+    snprintf(path, sizeof(path), "%s/off", dir); remove(path);
+    v.n = 0; ais_timeline_key(&a, "trip", 0, 0, "", "", collect_tl, &v);
+    CHECK(v.n == 2 && v.r[0].id == 6 && v.r[1].id == 5 && strcmp(v.r[1].value, "five") == 0,
+          "tl-key: the scan path (no off) serves the same page");
+    ais_close(&a);
+
+    /* a record added by another writer after open is on the page (next_id re-read) */
+    ais_open(&a, dir);
+    {
+        ais b;
+        ais_open(&b, dir);
+        for (i = 0; i < 3; i++)
+            ais_put(&b, "trip", i == 0 ? "seven" : i == 1 ? "eight" : "nine");
+        ais_close(&b);
+    }
+    v.n = 0; ais_timeline_key(&a, "trip", 0, 2, "", "", collect_tl, &v);
+    CHECK(v.n == 2 && strcmp(v.r[0].value, "nine") == 0 && strcmp(v.r[1].value, "eight") == 0,
+          "tl-key: records another writer added after open lead the page");
+    ais_close(&a);
+    scratch_rm(dir);
+}
+
 /* ---- timeline date range: from/to bounds over the keyset page ------------ */
 static void test_timeline_dates(void)
 {
@@ -1914,6 +2005,13 @@ static void test_embed(void)
     CHECK(r != NULL && strstr(r, "|venice italy|https://example.org/p\n") != NULL,
           "embed: timeline returns id|ts|keys|value lines");
     ais_embed_free(r);
+
+    r = ais_embed_timeline_key(h, "food", 0, 0, "", "");  /* the page under one tag */
+    CHECK(r != NULL && strstr(r, "|gelato\n") != NULL && strstr(r, "example.org/p") == NULL,
+          "embed: timeline_key returns only the tag's records");
+    ais_embed_free(r);
+    CHECK(ais_embed_timeline_key(h, "", 0, 0, "", "") == NULL,
+          "embed: timeline_key with an empty key is NULL");
 
     r = ais_embed_tags(h);                               /* count|key, busiest first */
     CHECK(r != NULL && strncmp(r, "2|venice\n", 9) == 0,
@@ -7625,6 +7723,7 @@ int main(void)
     test_timeline_after_healed_tail();
     test_timeline_stale_off_slot();
     test_timeline_dates();
+    test_timeline_key();
     printf("tags:\n");
     test_tags();
     printf("keyset pages (get_page / tags_page):\n");

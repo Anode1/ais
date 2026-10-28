@@ -1268,6 +1268,35 @@ static long do_put_enc(ais *a, const char *keys, char *body)
     return rc;
 }
 
+/* ---- /api/find?key=: only the lines whose id is filed under KEY ----------- */
+/* ais_find's lines and the key's posting both ascend by id, so one merge pass
+ * over the captured output does it. A line longer than the buffer continues in
+ * the next read, under the same id. */
+struct find_key { FILE *fp; int fd; char line[AIS_LINE_MAX]; int have, cont; long id; };
+
+static void find_key_next(struct find_key *k)
+{
+    size_t n;
+    if (fgets(k->line, sizeof k->line, k->fp) == NULL) { k->have = 0; return; }
+    k->have = 1;
+    if (!k->cont)
+        k->id = atol(k->line);
+    n = strlen(k->line);
+    k->cont = (n > 0 && k->line[n - 1] != '\n');
+}
+
+static int find_key_cb(long id, void *vp)
+{
+    struct find_key *k = vp;
+    while (k->have && k->id < id)
+        find_key_next(k);
+    while (k->have && k->id == id) {
+        write_all(k->fd, k->line, strlen(k->line));
+        find_key_next(k);
+    }
+    return k->have ? 0 : 1;             /* nothing left to match: stop the merge */
+}
+
 /* ---- timeline: "id|ts|keys|value", newest id first ----------------------- */
 static int tl_sink(long id, const char *ts, const char *keys,
                    const char *value, void *vp)
@@ -1646,6 +1675,7 @@ static void handle(ais *a, int fd)
     long body_len = 0;                    /* Content-Length, for a big POST body      */
     int  count = 0;                       /* ?count= page size (0 => engine default)  */
     char *tlfrom = nokeys, *tlto = nokeys; /* ?from= ?to= date range (YYYY-MM-DD)      */
+    char *tlkey = nokeys;                 /* ?key= one tag: /api/timeline, /api/find under it */
     int  cross_site = 0;                  /* CSRF: request from another web origin    */
     int  bad_host = 0;                    /* DNS rebinding: Host is not this server   */
 
@@ -1831,6 +1861,9 @@ static void handle(ais *a, int fd)
         } else if (strncmp(query, "to=", 3) == 0) {
             tlto = query + 3;
             url_decode(tlto);
+        } else if (strncmp(query, "key=", 4) == 0) {
+            tlkey = query + 4;
+            url_decode(tlkey);
         } else if (strncmp(query, "v=", 2) == 0) {
             docv = query + 2;                /* /api/doc: a stored "blobs/" value */
             url_decode(docv);
@@ -1856,8 +1889,17 @@ static void handle(ais *a, int fd)
             size_t rn;
             if (ais_find(a, findq, fp) >= 0 && fflush(fp) == 0) {
                 rewind(fp);
-                while ((rn = fread(fb, 1, sizeof fb, fp)) > 0)
-                    write_all(fd, fb, rn);
+                if (tlkey[0]) {                 /* ?key=: inside the project only */
+                    struct find_key k;
+                    char *ks[1];
+                    k.fp = fp; k.fd = fd; k.have = 0; k.cont = 0; k.id = 0;
+                    ks[0] = tlkey;
+                    find_key_next(&k);
+                    if (k.have)
+                        ais_get(a, ks, 1, AIS_AND, find_key_cb, &k);
+                } else
+                    while ((rn = fread(fb, 1, sizeof fb, fp)) > 0)
+                        write_all(fd, fb, rn);
             }
             fclose(fp);
         }
@@ -2087,7 +2129,10 @@ static void handle(ais *a, int fd)
         struct sink s;
         s.a = a; s.fd = fd;
         send_head(fd, "text/plain");
-        ais_timeline(a, before, count, tlfrom, tlto, tl_sink, &s);  /* keyset page + date range */
+        if (tlkey[0])                         /* ?key=: the page under one tag (the project) */
+            ais_timeline_key(a, tlkey, before, count, tlfrom, tlto, tl_sink, &s);
+        else
+            ais_timeline(a, before, count, tlfrom, tlto, tl_sink, &s);  /* keyset page + date range */
     } else if (strcmp(method, "GET") == 0 && strcmp(path, "/api/tags") == 0) {
         struct sink s;
         s.a = a; s.fd = fd;

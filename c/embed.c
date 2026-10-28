@@ -512,6 +512,19 @@ char *ais_embed_timeline(void *handle, long before_id, int count,
     return buf_finish(&b, c.oom);
 }
 
+char *ais_embed_timeline_key(void *handle, const char *key, long before_id,
+                             int count, const char *from, const char *to)
+{
+    struct buf b = { NULL, 0, 0 };
+    struct emit_ctx c = { &b, 0 };
+
+    if (handle == NULL || key == NULL || key[0] == '\0')
+        return NULL;
+    ais_timeline_key((ais *)handle, key, before_id, count,
+                     from ? from : "", to ? to : "", tl_emit, &c);
+    return buf_finish(&b, c.oom);
+}
+
 char *ais_embed_tags_page(void *handle, long after_count, const char *after_key,
                           int count)
 {

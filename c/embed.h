@@ -195,6 +195,12 @@ int   ais_embed_sync_folder_force(void *handle, const char *folder, int force);
 char *ais_embed_timeline(void *handle, long before_id, int count,
                          const char *from, const char *to);
 
+/* ais_embed_timeline restricted to the records filed under KEY (one tag): the
+ * page the app's Recent shows inside a project. Same lines, paging and date
+ * range. NULL on bad args, an empty KEY among them. */
+char *ais_embed_timeline_key(void *handle, const char *key, long before_id,
+                             int count, const char *from, const char *to);
+
 /* Every distinct key as "count|key\n" lines, busiest first. Free with
  * ais_embed_free(). NULL only on bad args / allocation failure. */
 char *ais_embed_tags(void *handle);

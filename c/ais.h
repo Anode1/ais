@@ -318,6 +318,14 @@ typedef int (*ais_tl_cb)(long id, const char *ts, const char *keys,
 int ais_timeline(ais *a, long before_id, int count,
                  const char *from, const char *to, ais_tl_cb cb, void *ctx);
 
+/* ais_timeline restricted to the records filed under KEY (one key, encoded as
+ * recall encodes it): the COUNT live ones with id < BEFORE_ID, newest first,
+ * within [FROM,TO], paged the same way. The page's ids come from KEY's posting
+ * list, so a store of any size costs the posting plus one seek per row; a key
+ * with no posting emits nothing. Returns 0, or -1 on error or an empty KEY. */
+int ais_timeline_key(ais *a, const char *key, long before_id, int count,
+                     const char *from, const char *to, ais_tl_cb cb, void *ctx);
+
 /* Callback for ais_tags(): one distinct key and how many records are filed
  * under it (its posting count). Return 0 to continue, negative to stop. */
 typedef int (*ais_tag_cb)(const char *key, long count, void *ctx);

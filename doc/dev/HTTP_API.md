@@ -18,8 +18,8 @@ shapes the CLI prints. A GUI that can be debugged with `curl` is the point.
 | Method | Path | Answers |
 | --- | --- | --- |
 | GET | `/api/get?keys=A+B[&or=1][&count=N][&after=ID][&meta=1]` | `id\|value` per line, one line per LINK; `meta=1` emits `id\|keys\|value` (the record's visible tags, space-separated, possibly empty) |
-| GET | `/api/find?q=TEXT` | `id\|value` per line: live records whose value contains TEXT as a case-insensitive (ASCII) substring, as `--find` prints. Values come verbatim from the store, so a document row is its `blobs/` path: the search covers stored values, not document bodies. Both pages append these after the tag matches, deduped by id, under one "matched in the value" separator |
-| GET | `/api/timeline?count=N[&before=ID][&from=D][&to=D]` | `id\|ts\|keys\|value`, newest first |
+| GET | `/api/find?q=TEXT[&key=TAG]` | `id\|value` per line: live records whose value contains TEXT as a case-insensitive (ASCII) substring, as `--find` prints; `key=` keeps only the records filed under TAG (the project). Values come verbatim from the store, so a document row is its `blobs/` path: the search covers stored values, not document bodies. Both pages append these after the tag matches, deduped by id, under one "matched in the value" separator |
+| GET | `/api/timeline?count=N[&before=ID][&from=D][&to=D][&key=TAG]` | `id\|ts\|keys\|value`, newest first; `key=` restricts the page to one tag (the project) |
 | GET | `/api/tags[?count=N&afterc=C&afterk=K]` | `count\|key`, busiest first |
 | GET | `/api/keys?id=N` | the visible tags of one record |
 | GET | `/api/doc?v=blobs/...` | the full text of one document, named by its stored `blobs/` value (the first line inside every `aisdoc:` base64, see below). List views carry only a bounded preview, so an editor starts from this. 404 when the file is not here, is not editable text (NUL / non-UTF-8), or exceeds what one `setvalue` request could save back (~32 KB) |

@@ -52,6 +52,11 @@ typedef _CloseC = Void Function(Pointer<Void>);
 typedef _CloseD = void Function(Pointer<Void>);
 typedef _TimelineC = Pointer<Utf8> Function(Pointer<Void>, Int64, Int32, Pointer<Utf8>, Pointer<Utf8>);
 typedef _TimelineD = Pointer<Utf8> Function(Pointer<Void>, int, int, Pointer<Utf8>, Pointer<Utf8>);
+// (handle, key, before, count, from, to) -- the timeline page under one tag
+typedef _TimelineKeyC = Pointer<Utf8> Function(
+    Pointer<Void>, Pointer<Utf8>, Int64, Int32, Pointer<Utf8>, Pointer<Utf8>);
+typedef _TimelineKeyD = Pointer<Utf8> Function(
+    Pointer<Void>, Pointer<Utf8>, int, int, Pointer<Utf8>, Pointer<Utf8>);
 // (handle, after_count, after_key, count) -- keyset page over the tag cloud
 typedef _TagsPageC = Pointer<Utf8> Function(Pointer<Void>, Int64, Pointer<Utf8>, Int32);
 typedef _TagsPageD = Pointer<Utf8> Function(Pointer<Void>, int, Pointer<Utf8>, int);
@@ -167,6 +172,8 @@ class AisEngine {
   late final _CloseD _close = _lib.lookupFunction<_CloseC, _CloseD>('ais_embed_close');
   late final _TimelineD _timelineFn =
       _lib.lookupFunction<_TimelineC, _TimelineD>('ais_embed_timeline');
+  late final _TimelineKeyD _timelineKeyFn =
+      _lib.lookupFunction<_TimelineKeyC, _TimelineKeyD>('ais_embed_timeline_key');
   late final _TagsPageD _tagsPageFn =
       _lib.lookupFunction<_TagsPageC, _TagsPageD>('ais_embed_tags_page');
   late final _KeysD _keysFn = _lib.lookupFunction<_KeysC, _KeysD>('ais_embed_keys');
@@ -254,13 +261,21 @@ class AisEngine {
   /// before <= 0 starts from the newest; pass the last row's id to page on. A
   /// page shorter than [count] means there are no more. [from]/[to] are
   /// "YYYY-MM-DD" bounds (inclusive; '' = open); a bounded range drops dateless
-  /// records. The range is held constant while paging on [before].
-  List<TlRow> timeline({int before = 0, int count = 0, String from = '', String to = ''}) {
-    Pointer<Utf8> f = nullptr, t = nullptr, p = nullptr;
+  /// records. The range is held constant while paging on [before]. A non-empty
+  /// [key] restricts the page to the records filed under that one tag (the
+  /// project's Recent); paging and the range work the same.
+  List<TlRow> timeline(
+      {int before = 0, int count = 0, String from = '', String to = '', String key = ''}) {
+    Pointer<Utf8> f = nullptr, t = nullptr, k = nullptr, p = nullptr;
     try {
       f = from.toNativeUtf8();
       t = to.toNativeUtf8();
-      p = _timelineFn(_h, before, count, f, t);
+      if (key.isEmpty) {
+        p = _timelineFn(_h, before, count, f, t);
+      } else {
+        k = key.toNativeUtf8();
+        p = _timelineKeyFn(_h, k, before, count, f, t);
+      }
       if (p == nullptr) return const [];
       return p.toDartString().split('\n').where((l) => l.isNotEmpty).map((l) {
         final a = l.indexOf('|'),
@@ -272,6 +287,7 @@ class AisEngine {
     } finally {
       if (f != nullptr) calloc.free(f);
       if (t != nullptr) calloc.free(t);
+      if (k != nullptr) calloc.free(k);
       if (p != nullptr) _free(p);
     }
   }

@@ -2338,6 +2338,130 @@ int ais_timeline(ais *a, long before_id, int count,
     return 0;
 }
 
+/* --- timeline under one key: the page's ids come from the posting list ------ */
+
+/* One scan filling the OFF of every picked id, for a store whose "off" is not
+ * usable: the first line seen for an id wins, as everywhere else. */
+struct tlk_off {
+    struct tl_entry *top;
+    int              n;
+};
+
+static int tlk_off_collect(long id, long off, const char *ts, const char *keys,
+                           const char *value, void *vp)
+{
+    struct tlk_off *o = vp;
+    int i;
+
+    (void)ts; (void)keys; (void)value;
+    for (i = 0; i < o->n; i++)
+        if (o->top[i].id == id) {
+            if (o->top[i].off < 0)
+                o->top[i].off = off;
+            break;
+        }
+    return 0;
+}
+
+int ais_timeline_key(ais *a, const char *key, long before_id, int count,
+                     const char *from, const char *to, ais_tl_cb cb, void *ctx)
+{
+    struct tl_emit e;
+    struct tl_entry *top;
+    long bound;
+    int useoff, rc = 0;
+
+    if (key == NULL || key[0] == '\0')
+        return -1;
+    if (count <= 0)
+        count = AIS_TL_DEFAULT;
+    if (count > AIS_TL_MAX)
+        count = AIS_TL_MAX;
+    e.cb = cb; e.ctx = ctx; e.a = a;
+    e.filter = (ktomb_active(a) == 1);
+    e.from = from; e.to = to; e.emitted = 0;
+    if (store_load_next_id(a) != 0)           /* see ais_timeline */
+        return -1;
+    useoff = (off_consistent(a) == 1);
+    bound = (before_id > 0) ? before_id : a->next_id;
+    top = malloc((size_t)count * sizeof(top[0]));
+    if (top == NULL)
+        return -1;
+
+    /* One pass per page: the COUNT highest live ids below BOUND, kept as tl_scan
+     * keeps them (a hand-edited posting need not be ascending), then their rows
+     * newest first. A date range drops rows only once they are read, so a short
+     * page takes another pass below the smallest id picked; the loop ends when
+     * the page is full or the posting had fewer ids than asked. A detached key
+     * leaves the posting at once (ais_post_keys), so no ktomb check is needed. */
+    while (e.emitted < count) {
+        post_stream s;
+        int n = 0, i;
+
+        if (post_open(a, key, &s) != 0) { rc = -1; break; }
+        for (; s.alive; post_next(&s)) {
+            long id = s.head;
+            int slot, t;
+            if (id <= 0 || id >= bound)
+                continue;
+            for (i = 0; i < n; i++)
+                if (top[i].id == id)
+                    break;
+            if (i < n)
+                continue;                        /* repeated in the posting */
+            if (n < count) {
+                slot = n;
+            } else {
+                slot = 0;
+                for (i = 1; i < n; i++)
+                    if (top[i].id < top[slot].id)
+                        slot = i;
+                if (id <= top[slot].id)
+                    continue;
+            }
+            t = tomb_contains(a, id);
+            if (t < 0) { rc = -1; break; }
+            if (t == 1)
+                continue;                        /* deleted */
+            top[slot].id = id;
+            top[slot].off = -1;
+            if (slot == n)
+                n++;
+        }
+        post_close(&s);
+        if (rc < 0 || n == 0)
+            break;
+        qsort(top, (size_t)n, sizeof(top[0]), tl_id_desc);
+        bound = top[n - 1].id;
+        if (useoff) {
+            for (i = 0; i < n; i++)
+                if (off_get(a, top[i].id, &top[i].off) != 1)
+                    top[i].off = -1;
+        } else {
+            struct tlk_off o;
+            o.top = top; o.n = n;
+            if (store_each_record_off(a, tlk_off_collect, &o) < 0) { rc = -1; break; }
+        }
+        for (i = 0; i < n && e.emitted < count; i++) {
+            int served = 0;
+            if (top[i].off >= 0) {
+                served = store_record_at(a, top[i].id, top[i].off, tl_emit_one, &e);
+                if (served < 0) { rc = -1; break; }
+            }
+            if (served == 0) {                   /* stale slot: scan, never drop */
+                struct tl_seek k;
+                k.e = &e;
+                k.id = top[i].id;
+                if (store_each_record(a, tl_seek_one, &k) < -1) { rc = -1; break; }
+            }
+        }
+        if (rc < 0 || n < count)
+            break;
+    }
+    free(top);
+    return rc;
+}
+
 /* --- tags: every distinct key with its posting count, busiest first --------- */
 struct tag_entry {
     char key[AIS_KEY_MAX];
