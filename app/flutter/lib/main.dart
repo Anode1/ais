@@ -2826,6 +2826,11 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
       context: context,
       builder: (ctx) => _OwnedFields(
         owned: [ctrl],
+        // an edited text closes only by Cancel or Save, as the Add sheet
+        child: ValueListenableBuilder<TextEditingValue>(
+        valueListenable: ctrl,
+        builder: (ctx, tv, _) => PopScope(
+        canPop: tv.text == orig,
         child: AlertDialog(
         title: const Text('Edit text'),
         content: TextField(
@@ -2840,6 +2845,8 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
           TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
           FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Save')),
         ],
+        ),
+        ),
         ),
       ),
     );
@@ -3754,6 +3761,24 @@ class _AddSheetState extends State<AddSheet> {
   bool _ppShow = false;  // the sealing passphrase revealed, both fields at once
   String? _error;        // in-sheet feedback so a save never fails silently
 
+  // A sheet with typed text closes only by Cancel or Save: a tap on the dimmed
+  // page or the back gesture must not throw a draft away (web issue #3).
+  bool get _untouched =>
+      _valCtrl.text == widget.initialValue &&
+      _keysCtrl.text == widget.initialKeys &&
+      _ppCtrl.text.isEmpty &&
+      _pp2Ctrl.text.isEmpty;
+
+  @override
+  void initState() {
+    super.initState();
+    for (final c in [_valCtrl, _keysCtrl, _ppCtrl, _pp2Ctrl]) {
+      c.addListener(_touched);
+    }
+  }
+
+  void _touched() => setState(() {});
+
   @override
   void dispose() {
     _valCtrl.dispose();
@@ -3903,7 +3928,9 @@ class _AddSheetState extends State<AddSheet> {
       onPressed: () => Navigator.of(context).pop(),
       child: const Text('Cancel'),
     );
-    return Padding(
+    return PopScope(
+      canPop: _untouched,
+      child: Padding(
       // Above the keyboard, or above the home indicator when it is down.
       padding: EdgeInsets.only(
           bottom: max(mq.viewInsets.bottom, mq.viewPadding.bottom) + 16,
@@ -3956,6 +3983,7 @@ class _AddSheetState extends State<AddSheet> {
           ],
         );
       }),
+    ),
     );
   }
 }
@@ -3995,7 +4023,13 @@ class _EditTagsDialogState extends State<EditTagsDialog> {
   }
 
   @override
-  Widget build(BuildContext context) => AlertDialog(
+  // Same rule as the Add sheet: an edited tag list closes only by Cancel or Apply.
+  bool get _untouched =>
+      _ctrl.text.isEmpty && _tags.join(' ') == widget.initial.join(' ');
+
+  Widget build(BuildContext context) => PopScope(
+      canPop: _untouched,
+      child: AlertDialog(
         title: const Text('Edit tags'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
@@ -4059,7 +4093,7 @@ class _EditTagsDialogState extends State<EditTagsDialog> {
               },
               child: const Text('Apply')),
         ],
-      );
+      ));
 }
 
 // Owns a dialog's or sheet's TextEditingControllers/FocusNodes and frees them in

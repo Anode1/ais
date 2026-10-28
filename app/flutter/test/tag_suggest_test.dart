@@ -97,6 +97,42 @@ void main() {
   });
 
   group('site: the Edit-tags dialog', () {
+    // a tap outside closes the dialog as opened, not one with a tag added
+    testWidgets('a tap outside keeps an edited tag list', (tester) async {
+      List<String>? result;
+      var opened = 0;
+      await tester.pumpWidget(MaterialApp(
+          home: Scaffold(
+              body: Builder(
+                  builder: (ctx) => TextButton(
+                      onPressed: () async {
+                        opened++;
+                        result = await showDialog<List<String>>(
+                            context: ctx,
+                            builder: (_) => const EditTagsDialog(
+                                initial: ['home'], suggest: lookup));
+                      },
+                      child: const Text('open'))))));
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+      await tester.tapAt(const Offset(5, 5));
+      await tester.pumpAndSettle();
+      expect(find.text('Edit tags'), findsNothing);
+      expect(result, isNull);
+
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField), 'hotel ');
+      await tester.pump();
+      await tester.tapAt(const Offset(5, 5));
+      await tester.pumpAndSettle();
+      expect(find.text('Edit tags'), findsOneWidget);
+      await tester.tap(find.text('Apply'));
+      await tester.pumpAndSettle();
+      expect(result, ['home', 'hotel']);
+      expect(opened, 2);
+    });
+
     testWidgets('a tap commits the tag straight to a chip; Apply returns it',
         (tester) async {
       List<String>? result;

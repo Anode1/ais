@@ -244,6 +244,28 @@ void main() {
     expect(saved, isEmpty);
   });
 
+  // A tap on the dimmed page closes an untouched sheet and leaves one with
+  // typed text; only Cancel or Save close that one (web issue #3).
+  testWidgets('a tap outside closes an untouched sheet, not a typed one',
+      (tester) async {
+    await openSheet(tester);
+    final title = find.text('New item');
+    await tester.tapAt(const Offset(10, 10)); // the page above the sheet
+    await tester.pumpAndSettle();
+    expect(title, findsNothing);
+
+    await openSheet(tester);
+    await fill(tester, 'What to remember', 'a draft');
+    await tester.tapAt(const Offset(10, 10));
+    await tester.pumpAndSettle();
+    expect(title, findsOneWidget);
+    expect(find.text('a draft'), findsOneWidget);
+    await tester.tap(find.widgetWithText(TextButton, 'Cancel'));
+    await tester.pumpAndSettle();
+    expect(title, findsNothing);
+    expect(saved, isEmpty);
+  });
+
   // Two taps inside one frame, before the button disables, saved twice and
   // popped the page under the sheet.
   testWidgets('a second Save tap in the same frame saves once', (tester) async {
