@@ -132,7 +132,7 @@ jobs:
           ver="${GITHUB_REF_NAME#v}"
           iscc "/DSrcDir=$src" "/DAppVersion=$ver" /Odist installer/ais.iss
           name="ais-${GITHUB_REF_NAME}-windows-x86_64-setup"
-          mv dist/ais-*-setup.exe "dist/$name.exe"
+          for f in dist/ais-*-setup.exe; do [ "$f" = "dist/$name.exe" ] || mv "$f" "dist/$name.exe"; done
           ( cd dist && sha256sum "$name.exe" > "$name.exe.sha256" )
           ls -l dist
 
