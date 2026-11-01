@@ -99,19 +99,34 @@ static void read_log_tail(char *buf, size_t n)
     CloseHandle(f);
 }
 
-/* A line of the launcher's own in the server's log, for a failure no one saw. */
+/* ais-serve.log in the user's temp folder: the server's output, and note()'s. */
+static void set_logpath(void)
+{
+    DWORD n = GetTempPathA(sizeof logpath, logpath);
+    if (n == 0 || n + 16 >= sizeof logpath)
+        strcpy(logpath, ".\\");
+    strcat(logpath, "ais-serve.log");
+}
+
+/* A line of the launcher's own, with the last error: into the log, and onto a
+ * stdout a shell handed over (a GUI program has none of its own), so a test
+ * sees it. */
 static void note(const char *s)
 {
-    HANDLE f = CreateFileA(logpath, FILE_APPEND_DATA, FILE_SHARE_READ, NULL,
-                           OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
     char line[256];
-    DWORD n;
+    DWORD n, w;
+    HANDLE f;
 
-    if (f == INVALID_HANDLE_VALUE)
-        return;
     n = (DWORD)snprintf(line, sizeof line, "ais-gui: %s (error %lu)\r\n",
                         s, (unsigned long)GetLastError());
-    WriteFile(f, line, n, &n, NULL);
+    f = GetStdHandle(STD_OUTPUT_HANDLE);
+    if (f != NULL && f != INVALID_HANDLE_VALUE)
+        WriteFile(f, line, n, &w, NULL);
+    f = CreateFileA(logpath, FILE_APPEND_DATA, FILE_SHARE_READ, NULL,
+                    OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+    if (f == INVALID_HANDLE_VALUE)
+        return;
+    WriteFile(f, line, n, &w, NULL);
     CloseHandle(f);
 }
 
@@ -139,10 +154,6 @@ static int start_server(char *err, size_t errsz)
     snprintf(exe, sizeof exe, "%s\\ais.exe", dir);
     snprintf(cmd, sizeof cmd, "\"%s\" --serve %d", exe, port);
 
-    n = GetTempPathA(sizeof logpath, logpath);
-    if (n == 0 || n + 16 >= sizeof logpath)
-        strcpy(logpath, ".\\");
-    strcat(logpath, "ais-serve.log");
     memset(&sa, 0, sizeof sa);
     sa.nLength = sizeof sa;
     sa.bInheritHandle = TRUE;
@@ -278,13 +289,22 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmdline, int show)
     (void)prev;
     (void)show;
     WSAStartup(MAKEWORD(2, 2), &wsa);
+    set_logpath();
 
     if (strstr(cmdline, "--quit") != NULL) {
         quit = OpenEventA(EVENT_MODIFY_STATE, FALSE, QUIT_EVENT);
-        if (quit == NULL)
-            return 1;
-        SetEvent(quit);
-        return 0;
+        if (quit != NULL) {
+            SetEvent(quit);
+            return 0;
+        }
+        note("--quit: no event of a running launcher");
+        h = FindWindowA(CLASS_NAME, NULL);
+        if (h != NULL) {
+            PostMessageA(h, WM_CLOSE, 0, 0);
+            return 0;
+        }
+        note("--quit: no window of a running launcher either");
+        return 1;
     }
     if (cmdline[0] >= '1' && cmdline[0] <= '9') {
         long p = strtol(cmdline, NULL, 10);
@@ -309,6 +329,8 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmdline, int show)
     }
 
     quit = CreateEventA(NULL, TRUE, FALSE, QUIT_EVENT);
+    if (quit == NULL)
+        note("CreateEvent failed: --quit will not reach this launcher");
     memset(&wc, 0, sizeof wc);
     wc.lpfnWndProc = wndproc;
     wc.hInstance = inst;

@@ -36,8 +36,11 @@ if curl -fs "$URL" >/dev/null 2>&1; then
     echo "  FAIL something already answers on 8765"; exit 1
 fi
 # a failure must not leave the launcher up: it holds the mutex the installer
-# test checks, and the next step would fail for the wrong reason
-trap '"$G" --quit >/dev/null 2>&1' EXIT
+# test checks, and the next step would fail for the wrong reason. When --quit
+# itself is what failed, kill both, loudly.
+log=$(cygpath -u "${TEMP:-/tmp}")/ais-serve.log
+trap '"$G" --quit >/dev/null 2>&1 || { echo "  (killing the launcher and the server by force)";
+      taskkill /IM ais-gui.exe /F >/dev/null 2>&1; taskkill /IM ais.exe /F >/dev/null 2>&1; }' EXIT
 if "$G" --quit; then
     echo "  FAIL --quit with no launcher running exited 0"; exit 1
 fi
@@ -45,7 +48,7 @@ fi
 "$G" &
 if ! wait_port up; then
     echo "  FAIL port 8765 did not answer in 20 s"
-    cat "${TEMP:-/tmp}/ais-serve.log" 2>/dev/null | tail -20
+    tail -20 "$log" 2>/dev/null
     exit 1
 fi
 echo "  ok   ais-gui.exe started ais --serve: $(curl -fs "$URL")"
@@ -60,7 +63,7 @@ echo "  ok   a second start exits at once, the server stays"
 "$G" --quit || {
     echo "  FAIL --quit found no launcher"
     tasklist /FI "IMAGENAME eq ais-gui.exe"; tasklist /FI "IMAGENAME eq ais.exe"
-    cat "${TEMP:-/tmp}/ais-serve.log" 2>/dev/null | tail -20
+    tail -20 "$log" 2>/dev/null
     exit 1
 }
 if ! wait_port down; then
