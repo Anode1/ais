@@ -8,6 +8,13 @@ Before tagging, run `scripts/release-notes.sh vX.Y.Z`: it prepends the commit
 subjects since the previous tag, then edit them down to what a user needs to
 know. The old entries below the two newest are the raw subjects.
 
+## v0.3.40 (2026-11-01)
+
+- Windows: an installer, `ais-vX.Y.Z-windows-x86_64-setup.exe`. It installs for your user only (no admin prompt), puts AIS in the Start menu and on the Desktop, and the `ais` command on your PATH; uninstall from Settings > Apps leaves your index where it was. Your data is never inside the program folder.
+- Windows: `ais-gui.exe` opens AIS. It starts the local server with no console window, opens your browser, and sits in the notification area by the clock: left-click opens AIS again, right-click offers Quit. The zip holds it beside `ais.exe` for use without installing; the `.bat` launcher is gone.
+- Windows: `ais.exe` double-clicked prints its help, says where the window is, and waits for Enter instead of closing at once.
+- App: the empty Search inside a project shows its prompt, and a project notice replaces the queued snackbars.
+
 ## v0.3.39 (2026-10-28)
 
 - Project: one tag kept active, chosen from a tag's menu in the Tags view ("Make it the project"). It sits as a chip first in the search bar and in the Add sheet; Recent lists only its items, a search runs inside it ("Search all items" lifts that once), and a new item gets its tag unless the sheet chip's cross is tapped. Kept per device and per library, left by its cross with Undo. In the app, the web page and the PWA.
