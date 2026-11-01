@@ -128,9 +128,9 @@ Or take the files by hand. The link below always points at the current release:
 
 - **Android without Play**: the `.apk` on the release page, or add `https://github.com/Anode1/ais` in [Obtainium](https://github.com/ImranR98/Obtainium), which installs each release as it appears; when it asks which APK, the `…-arm64-v8a.apk` fits a modern phone.
 - **macOS / Linux without the script**: unzip the `…-<os>-<arch>.zip` and run the `ais` inside it from there, or copy it onto your PATH.
-- **Windows**: unzip the `…-windows-x86_64.zip`, then double-click `ais-web.bat`, which opens the GUI in your browser (if nothing opens, go to `http://127.0.0.1:8765`); syncing a phone by QR code works as on Linux. The `ais.exe` beside it is the CLI, and the other `.exe` is a small native window for search and add. Nothing to install, no runtime.
+- **Windows**: run the `…-windows-x86_64-setup.exe`. It installs for your user only (no admin prompt), puts **AIS** in the Start menu and on the Desktop, and the `ais` command on your PATH. AIS opens in your browser (if nothing opens, go to `http://127.0.0.1:8765`) and sits in the notification area by the clock: right-click it to quit. Syncing a phone by QR code works as on Linux. Without installing: unzip the `…-windows-x86_64.zip` and double-click `ais-gui.exe`; the `ais.exe` beside it is the CLI. No runtime either way.
 
-The desktop binaries are not code-signed, so the first run is flagged as an unrecognized download (macOS Gatekeeper "could not verify"). That is a new-and-unsigned notice, not a malware finding: on macOS run `xattr -dr com.apple.quarantine .` in the unzipped folder. A copy you build yourself is never flagged. The Android package **is** signed, with the project's own upload key.
+The desktop binaries are not code-signed, so the first run is flagged as an unrecognized download (macOS Gatekeeper "could not verify", Windows SmartScreen "Windows protected your PC"). That is a new-and-unsigned notice, not a malware finding: on Windows click More info, then Run anyway, once for the setup exe (what it installs is not flagged again); on macOS run `xattr -dr com.apple.quarantine .` in the unzipped folder. A copy you build yourself is never flagged. The Android package **is** signed, with the project's own upload key.
 
 ## Verify a download
 

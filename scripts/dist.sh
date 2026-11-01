@@ -124,33 +124,42 @@ EOF
 }
 
 # Windows, cross-compiled with MinGW-w64 (release.yml's windows job): the CLI
-# with the web GUI and LAN sync, and the .bat launcher.
+# with the web GUI and LAN sync, and ais-gui.exe, the launcher (gui/win/). The
+# installer (installer/ais.iss) is built from this zip's contents on a Windows
+# runner, by the same workflow.
 build_win() {
     cc=${MINGW_CC:-x86_64-w64-mingw32-gcc}
     make -C c clean >/dev/null && make -C c AIS_VERSION="$VERSION" CC="$cc" LDFLAGS=-static >/dev/null
+    make -C gui/win clean >/dev/null && make -C gui/win AIS_VERSION="$VERSION" CC="$cc" >/dev/null
     name="ais-$VERSION-windows-x86_64"; out="releases/windows"; stage="$out/$name"
     mkdir -p "$out"; rm -rf "$stage"; mkdir -p "$stage"
 
-    cp c/ais.exe "$stage/ais.exe"
-    cp gui/ais-web.bat "$stage/"
+    cp c/ais.exe gui/win/ais-gui.exe "$stage/"
     # Leave no Windows object or exe behind: the next plain `make` here would
     # link the objects into the Linux binary and fail on every symbol. The
     # mingw CC is what makes clean name the .exe targets.
     make -C c CC="$cc" clean >/dev/null
+    make -C gui/win clean >/dev/null
     [ -f COPYING ]       && cp COPYING       "$stage/"
     [ -f doc/about.txt ] && cp doc/about.txt "$stage/"
     [ -f doc/USING.txt ] && cp doc/USING.txt "$stage/"
     [ -f man/ais.1 ] && { mkdir -p "$stage/man"; sed "s/@VERSION@/$VERSION/" man/ais.1 > "$stage/man/ais.1"; }
     cat > "$stage/README.txt" <<EOF
-AIS $VERSION  (windows/x86_64) -- your memory, yours to keep.
+AIS $VERSION  (windows/x86_64, portable) -- your memory, yours to keep.
 
-GUI:   double-click  ais-web.bat    (opens the app in your browser; sync by QR
-                                     with a phone is in its menu)
-CLI:   ais --help    in a terminal   (e.g.  ais venice italy)
+GUI:   double-click  ais-gui.exe    (opens the app in your browser and sits in
+                                     the notification area: right-click it to
+                                     Quit; sync by QR with a phone is in the
+                                     app's menu)
+CLI:   ais --help    in a terminal   (e.g.  ais venice italy; add this folder
+                                     to your PATH to use it anywhere)
 New?   open USING.txt for a one-minute guide.
 
-Your data is plain text you can find, back up, edit, or delete.
-Run  ais --where  for its exact path.
+Portable: nothing is installed, so to remove AIS delete this folder. The
+installer download (ais-...-setup.exe) puts AIS in the Start menu instead.
+
+Your data is plain text you can find, back up, edit, or delete. It lives in
+your user profile, not in this folder; run  ais --where  for its exact path.
 
 The program is not code-signed, so Windows shows "Windows protected your PC"
 the first time: More info, then Run anyway. That is a new-and-unsigned notice,

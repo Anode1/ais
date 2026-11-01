@@ -1,26 +1,22 @@
-AIS -- your memory, yours to keep.
+AIS -- your memory, yours to keep.   (Windows, installed)
 
-First run: this build is not yet code-signed, so Windows may show a blue
-"Windows protected your PC" screen. That is SmartScreen flagging a new file,
-not a virus warning -- click "More info", then "Run anyway" (once per file).
+Open it:      "AIS" in the Start menu, or the AIS icon on the Desktop. It opens
+              in your browser and puts an icon in the notification area (the
+              corner by the clock, behind the ^ if hidden): left-click it to
+              open AIS again, right-click it to Quit.
+Command line: open a terminal and run
+                  ais --help            e.g.  ais venice italy
+                  ais --where           print where your memory is stored
+              (the installer added this folder to your PATH; a terminal opened
+              before the install does not see it yet)
 
-Command line: open a NEW terminal and run
-    ais --help            e.g.  ais venice italy
-    ais --serve           open the web GUI in your browser instead
-    ais --where           print where your memory is stored
-
-Your memory (the index) lives in your user profile, NOT in the program folder:
+Your memory (the index) lives in your user profile, not in this folder:
     %USERPROFILE%\.ais
-so removing AIS never touches your data. It is plain text you can read, back
-up, or copy elsewhere.
+so removing AIS (Settings > Apps) never touches it. It is plain text you can
+read, back up, or copy elsewhere.
 
-No Cygwin, no .NET, nothing else to install: ais.exe is a self-contained
-native program.
+ais.exe is the command line; opened by a double-click it only prints its help.
+ais-gui.exe is the window: it runs ais.exe as a local server and opens the page.
 
-Installed vs Portable:
-  Installed (this build): Start Menu shortcut "AIS" opens the web GUI in your
-    browser; remove via the uninstaller (Add/Remove Programs).
-  Portable build: double-click ais-web.bat in its folder; remove by deleting
-    the folder (no registry, no Program Files).
-
+No .NET, no runtime: both programs are self-contained.
 New here? Open USING.txt for a one-minute guide, or about.txt for what AIS is.

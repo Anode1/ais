@@ -101,6 +101,12 @@ int ais_console_present(void)
     return 0;
 }
 
+int ais_console_own(void)
+{
+    DWORD pid;
+    return _isatty(_fileno(stdin)) && GetConsoleProcessList(&pid, 1) == 1;
+}
+
 void ais_net_init(void)
 {
     static int done = 0;

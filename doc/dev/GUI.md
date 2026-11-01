@@ -35,9 +35,9 @@ Change a label in one, change it in all three.
 ## Layout
 - **Phone (Flutter):** search header on top; the three views in a bottom `NavigationBar`;
   Add as a FAB.
-- **Web (`serve.c`) and the PWA (`app/`):** same, bottom nav + Add FAB.
-- **Desktop (Win32):** search box + a **Search** button on top; the three views as a row of
-  tabs/buttons; Add as a normal button (NOT a phone-style bottom bar).
+- **Web (`serve.c`) and the PWA (`app/`):** same, bottom nav + Add FAB. On the
+  desktops this is the GUI; the Windows launcher (`gui/win/`) only opens it and
+  draws nothing of its own but a tray menu (Open AIS, Quit AIS).
 
 ## The project chip
 

@@ -9,14 +9,17 @@ keywords. Think of a private search box over your own stuff.
 OPEN IT
 -------
 
-  Windows   Double-click  ais-web.bat  (or type  ais --serve  in a terminal)
+  Windows   AIS in the Start menu or on the Desktop (installed), or double-click
+            ais-gui.exe (unzipped); or type  ais --serve  in a terminal
   macOS     Double-click  ais-web.command
             (the first time: in Terminal, run  xattr -dr com.apple.quarantine .
             in the unzipped folder)
   Linux     Double-click  ais-web.desktop , or type  ais --serve  in a terminal
 
-Each one opens AIS in your web browser at  http://127.0.0.1:8765 . A small
-window may stay open while AIS runs; close it when you are done.
+Each one opens AIS in your web browser at  http://127.0.0.1:8765 . On macOS and
+Linux a small window stays open while AIS runs; close it when you are done. On
+Windows an icon sits in the notification area by the clock instead: left-click
+it to open AIS again, right-click it to Quit.
 
 
 USE IT

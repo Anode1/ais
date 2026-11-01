@@ -96,6 +96,10 @@ void ais_net_init(void);
  * one a CI job runs under, and a read on that waits forever. */
 int ais_console_present(void);
 
+/* 1 when this process is the only one on its console and stdin is that console:
+ * ais.exe was double-clicked in Explorer, and the window closes with it. */
+int ais_console_own(void);
+
 /* socket I/O is recv()/send()/closesocket() here: a SOCKET is not a file
  * descriptor, and read()/close() on one corrupt the CRT's fd table. */
 #define SOCK_READ(fd, b, n)  recv((SOCKET)(fd), (char *)(b), (int)(n), 0)

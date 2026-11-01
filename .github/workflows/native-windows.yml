@@ -2,27 +2,33 @@
 # exercised on a Windows runner.
 #
 #   build : cross-compiles the CLI (ais.exe, with the web GUI and LAN sync over
-#           Winsock). It gates: it runs on every push/PR touching c/, the two
+#           Winsock) and the launcher (ais-gui.exe, gui/win/). It gates: it runs
+#           on every push/PR touching c/, gui/win/, the installer, the two
 #           suites or this file, and must stay green.
 #   test  : runs the CLI black-box suite (tests/cli.sh) and the loopback sync
-#           (tests/sync.sh) against ais.exe on windows-latest, under Git Bash.
-#           This is the only place the Windows binary is ever run: the
-#           developers' machines have no Windows and no wine. The engine's
-#           in-process tests (c/tests.c) fork and exec, so they are not built
-#           for Windows; the CLI suite covers the same engine from outside.
+#           (tests/sync.sh) against ais.exe on windows-latest, under Git Bash;
+#           starts and quits the launcher; builds the installer with the Inno
+#           Setup the runner image carries, installs it silently, checks the
+#           files, the shortcuts and the PATH entry, and uninstalls it. This is
+#           the only place the Windows binaries are ever run: the developers'
+#           machines have no Windows and no wine. The engine's in-process tests
+#           (c/tests.c) fork and exec, so they are not built for Windows; the
+#           CLI suite covers the same engine from outside.
 name: native-windows
 
 on:
   push:
     branches: [main]
-    paths: ['c/**', 'tests/cli.sh', 'tests/sync.sh', '.github/workflows/native-windows.yml']
+    paths: ['c/**', 'gui/win/**', 'icons/ais.ico', 'installer/ais.iss', 'installer/README.txt',
+            'tests/cli.sh', 'tests/sync.sh', '.github/workflows/native-windows.yml']
   pull_request:
-    paths: ['c/**', 'tests/cli.sh', 'tests/sync.sh', '.github/workflows/native-windows.yml']
+    paths: ['c/**', 'gui/win/**', 'icons/ais.ico', 'installer/ais.iss', 'installer/README.txt',
+            'tests/cli.sh', 'tests/sync.sh', '.github/workflows/native-windows.yml']
   workflow_dispatch:
 
 jobs:
   build:
-    name: cross-compile ais.exe (gates)
+    name: cross-compile ais.exe and ais-gui.exe (gates)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -33,20 +39,25 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y gcc-mingw-w64-x86-64 binutils-mingw-w64-x86-64
 
       # A CC naming mingw makes c/Makefile pick gnu99, the Winsock libraries and
-      # the .exe name; -static folds in libgcc so the exe stands alone.
-      - name: cross-compile the CLI
+      # the .exe name; -static folds in libgcc so the exe stands alone. The
+      # launcher's own Makefile defaults to the same compiler.
+      - name: cross-compile the CLI and the launcher
         run: |
           make -C c clean
           make -C c CC=x86_64-w64-mingw32-gcc LDFLAGS=-static
-          file c/ais.exe
+          make -C gui/win
+          file c/ais.exe gui/win/ais-gui.exe
+          mkdir -p bin && cp c/ais.exe gui/win/ais-gui.exe bin/
 
+      # Both files under one directory, so the artifact's root is that directory
+      # and they land flat in bin/ on download.
       - uses: actions/upload-artifact@v4
         with:
           name: ais-windows-x86_64
-          path: c/ais.exe
+          path: bin/*
 
   test:
-    name: run the CLI and sync suites on Windows (gates)
+    name: run the CLI and sync suites, the launcher and the installer on Windows (gates)
     needs: build
     runs-on: windows-latest
     # The suites take minutes here (Defender scans each of the ~1500 process
@@ -59,9 +70,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # A one-file artifact holds the file alone, no directory: the exe lands
-      # at bin/ais.exe. With two files (ais.exe and the native window, until
-      # 0.3.38) it kept the paths and the exe was bin/c/ais.exe.
       - uses: actions/download-artifact@v4
         with:
           name: ais-windows-x86_64
@@ -91,3 +99,27 @@ jobs:
           ./bin/ais.exe -f "$A" -v hello trace >/dev/null
           ./bin/ais.exe -d -f "$A" --sync-folder "$F"
           ls -la "$F"
+
+      # The launcher: it starts ais.exe --serve beside it, the port answers,
+      # --quit ends both. AIS_NO_OPEN keeps the runner's browser closed. A
+      # second start while one runs must exit at once, not start a second
+      # server; a --quit with none running exits 1.
+      - name: ais-gui.exe starts the server and quits it
+        if: always()
+        run: sh tests/gui/windows-launcher.sh "$PWD/bin/ais-gui.exe"
+
+      # The installer, from the same two exes: built with the runner's Inno
+      # Setup, installed silently, checked, uninstalled. The checks are what a
+      # user meets: the two exes in %LOCALAPPDATA%\Programs\AIS, "AIS" in the
+      # Start menu and on the Desktop, the folder on the user's PATH, the
+      # launcher running from there; then nothing of it left.
+      - name: the installer installs and uninstalls
+        if: always()
+        env:
+          MSYS_NO_PATHCONV: 1       # /DSrcDir and /O are switches, not paths
+        run: |
+          set -e
+          mkdir -p src && cp bin/*.exe COPYING doc/about.txt doc/USING.txt src/
+          iscc "/DSrcDir=$(cygpath -w "$PWD/src")" /DAppVersion=0.0.1 /Odist installer/ais.iss
+          ls -l dist
+          sh tests/gui/windows-installer.sh dist/ais-0.0.1-windows-x86_64-setup.exe

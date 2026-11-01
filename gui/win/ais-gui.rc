@@ -1,0 +1,32 @@
+/* ais-gui.rc -- the icon and the version block of ais-gui.exe. The Makefile
+ * writes version.h: AIS_VERSION (the string) and AIS_VER_NUM (four numbers). */
+#include <windows.h>
+#include "version.h"
+
+1 ICON "../../icons/ais.ico"
+
+1 VERSIONINFO
+FILEVERSION    AIS_VER_NUM
+PRODUCTVERSION AIS_VER_NUM
+FILEOS         VOS_NT_WINDOWS32
+FILETYPE       VFT_APP
+BEGIN
+  BLOCK "StringFileInfo"
+  BEGIN
+    BLOCK "040904B0"
+    BEGIN
+      VALUE "CompanyName",      "Vasili Gavrilov"
+      VALUE "FileDescription",  "AIS"
+      VALUE "FileVersion",      AIS_VERSION
+      VALUE "InternalName",     "ais-gui"
+      VALUE "OriginalFilename", "ais-gui.exe"
+      VALUE "ProductName",      "AIS"
+      VALUE "ProductVersion",   AIS_VERSION
+      VALUE "LegalCopyright",   "Vasili Gavrilov; licence in COPYING"
+    END
+  END
+  BLOCK "VarFileInfo"
+  BEGIN
+    VALUE "Translation", 0x409, 1200
+  END
+END

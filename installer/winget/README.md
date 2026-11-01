@@ -9,10 +9,18 @@ The package is the release zip, `ais-v<x.y.z>-windows-x86_64.zip`, declared as
 `InstallerType: zip` with `NestedInstallerType: portable`: winget unpacks the
 whole zip under its packages folder and puts `ais` on the PATH through its
 `PortableCommandAlias` entry (manifests up to 0.3.37 also alias the native
-window, dropped after that release). `ais-web.bat`, `USING.txt` and
+window, dropped after that release). `ais-gui.exe`, `USING.txt` and
 the man page land in the same folder. No installer runs, so there is no
 product code and nothing to uninstall but the folder, which `winget uninstall`
 removes.
+
+The release also carries `ais-v<x.y.z>-windows-x86_64-setup.exe`, the Inno
+Setup installer (`../ais.iss`). It is not in the manifests yet. When it goes
+in: `InstallerType: inno`, `Scope: user`, `ProductCode:
+'{BE2750EB-72A2-4016-AFD0-98818CBB51E7}_is1'` (Inno's AppId plus `_is1`), no
+switches (winget knows Inno's silent ones), and the zip stays a portable
+package under a second identifier rather than a mixed version, since the
+client may prefer the portable entry otherwise.
 
 `0.2.3/` is the Inno Setup installer manifest from before the Windows build was
 dropped and recovered; it is kept as history only. Its `InstallerUrl` is dead.

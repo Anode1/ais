@@ -590,6 +590,15 @@ int main(int argc, char **argv)
     if (cmd == 0 && nval == 0 && !interactive && !encrypt &&
         optind >= argc && nexk == 0) {
         usage_short(stderr);
+#ifdef _WIN32
+        /* Double-clicked in Explorer: the console is ours and would close with
+         * us before the text could be read. Hold it, and name the GUI. */
+        if (ais_console_own()) {
+            fputs("\nThis is the command line. For the window, open AIS from the Start"
+                  " menu, or double-click ais-gui.exe.\nPress Enter to close.\n", stderr);
+            getchar();
+        }
+#endif
         return 2;
     }
 

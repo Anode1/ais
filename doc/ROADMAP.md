@@ -25,10 +25,12 @@ Help is welcome: open an issue to claim a piece.
   on-device recognition only ([dev/SPEECH.md](dev/SPEECH.md)).
 - **Multiple named indexes** (`--switch` / `--indexes` / `--forget`) with a default
   project (`--project`).
-- **Windows**: the CLI with the web GUI and LAN sync (Winsock) ships in one
-  zip per release, cross-compiled from Linux; what ships on each platform is in
+- **Windows**: the CLI with the web GUI and LAN sync (Winsock) and `ais-gui.exe`,
+  a tray launcher for the web GUI, ship per release as a per-user installer
+  ("AIS" in the Start menu and on the Desktop, `ais` on the PATH) and as a zip,
+  cross-compiled from Linux; what ships on each platform is in
   [`dev/DISTRIBUTION.md`](dev/DISTRIBUTION.md). The native window that shipped
-  beside it up to v0.3.37 was removed: search and add only, one line of text,
+  up to v0.3.37 was removed: search and add only, one line of text,
   its own vocabulary, and the first thing a Windows user opened.
 
 ## Planned
@@ -206,10 +208,14 @@ Each needs hardware or time rather than code:
   a week of use, clock skew between two machines, or an index that grew.
 - **Backgrounding mid-sync, and doze during the 300-second host wait.** The
   screen-awake flag is set on the host screen and the rest is unknown.
-- **The Windows zip by a person.** `native-windows.yml` runs the CLI and sync
-  suites against `ais.exe` on a Windows runner. The release zip was run by hand
-  on a Windows PC on 2026-10-09: `ais-web.bat` opened the web GUI and a sync
-  with an iPhone converged. Neither developer has a Windows machine.
+- **The Windows installer and launcher by a person.** `native-windows.yml`
+  runs the CLI and sync suites against `ais.exe`, starts and quits
+  `ais-gui.exe`, and installs and uninstalls the setup exe silently, all on a
+  Windows runner. No person has yet run the installer wizard, clicked the
+  Start-menu entry or the tray icon, or seen the icon at Desktop size. The
+  earlier zip was run by hand on a Windows PC on 2026-10-09: its `.bat`
+  launcher opened the web GUI and a sync with an iPhone converged. Neither
+  developer has a Windows machine.
 
 ### 3. The desktop UI test cannot see
 

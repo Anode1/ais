@@ -121,8 +121,8 @@ resolves no mDNS names, so from an Android phone type the number.
 
 #### From Windows
 
-The Windows build hosts and joins exactly as Linux does: `ais-web.bat` opens the GUI,
-Sync is in its menu. The first Host asks Windows Defender Firewall to allow `ais.exe`
+The Windows build hosts and joins exactly as Linux does: AIS from the Start menu (or
+`ais-gui.exe` in the unzipped folder) opens the GUI, Sync is in its menu. The first Host asks Windows Defender Firewall to allow `ais.exe`
 on private networks; say yes, or the phone cannot reach port 8766.
 
 If you run the Linux build under the Windows Subsystem for Linux instead, hosting has

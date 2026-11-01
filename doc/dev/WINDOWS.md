@@ -1,14 +1,26 @@
 # Windows: what is built, and what is planned
 
-**One zip per release, `ais-<tag>-windows-x86_64.zip`, cross-compiled from Linux
-with MinGW-w64.** It holds `ais.exe`, the full CLI with the web GUI
-(`ais --serve`, launched by `ais-web.bat`) and LAN sync over Winsock, so a
-Windows user hosts and joins a QR sync with a phone exactly as on Linux. No
-Cygwin, no `cygwin1.dll`, no runtime. A native window (`win32/`, search and add
-only, one line of text, no sync) shipped beside it up to v0.3.37 and was
-removed: it had half the product under other names, and it was the first thing
-a Windows user opened. The web GUI is the Windows GUI. [`DISTRIBUTION.md`](DISTRIBUTION.md)
-covers what every other platform gets.
+**Two files per release: `ais-<tag>-windows-x86_64-setup.exe`, a per-user
+installer, and `ais-<tag>-windows-x86_64.zip`, the same two programs to unzip
+and run; both cross-compiled from Linux with MinGW-w64.** The programs are
+`ais.exe`, the full CLI with the web GUI (`ais --serve`) and LAN sync over
+Winsock, so a Windows user hosts and joins a QR sync with a phone exactly as
+on Linux, and `ais-gui.exe` (`gui/win/`), the launcher: no console, runs
+`ais.exe --serve` hidden, opens the browser, an icon in the notification area
+with Open and Quit. The pair follows `vim.exe`/`gvim.exe` and
+`git.exe`/`git-gui.exe`: the GUI twin gets the shortcuts, the CLI keeps its
+name and goes on the PATH. No Cygwin, no `cygwin1.dll`, no runtime. A native
+window (`win32/`, search and add only, one line of text, no sync) shipped up
+to v0.3.37 and was removed: it had half the product under other names, and it
+was the first thing a Windows user opened. The web GUI is the Windows GUI.
+[`DISTRIBUTION.md`](DISTRIBUTION.md) covers what every other platform gets.
+
+Why the launcher exists: a user who unzipped the old zip later typed "ais" in
+the Start menu, found `ais.exe` (Windows Search indexes Downloads) and
+double-clicked it, and the console opened and closed. Now `ais.exe` with no
+arguments on its own console prints the help, names the window and waits for
+Enter (`ais_console_own` in `win.c`), the installer's shortcut "AIS" is what
+Search shows, and the install folder under `%LOCALAPPDATA%` is not indexed.
 
 ## How it is built and tested
 
@@ -25,15 +37,24 @@ covers what every other platform gets.
   `open_memstream`/`fmemopen` and uses the temp file where MinGW has neither.
 - `serve.c`'s Host forks a child on POSIX; on Windows it is a thread with a
   fresh handle to the same index, serialised by the store's per-handle file lock.
-- `native-windows.yml` cross-compiles the exe on every push and PR touching
-  `c/`, the two suites or itself, then runs `tests/cli.sh` and `tests/sync.sh` against
-  `ais.exe` on a Windows runner. That job is the only place the Windows binary
-  is ever executed: the developers' machines have no Windows and no wine. The
-  engine's in-process tests (`c/tests.c`) fork and exec, so they are not built
-  for Windows.
+- `gui/win/Makefile` builds `ais-gui.exe` with the same compiler: `-mwindows`
+  for the GUI subsystem, `windres` for the icon (`icons/ais.ico`, 16 to 256 px)
+  and the version block. `tests/gui/windows.sh` cross-compiles both here.
+- `native-windows.yml` cross-compiles both exes on every push and PR touching
+  `c/`, `gui/win/`, the installer, the two suites or itself, then on a Windows
+  runner runs `tests/cli.sh` and `tests/sync.sh` against `ais.exe`,
+  `tests/gui/windows-launcher.sh` against `ais-gui.exe` (start, second start,
+  `--quit`), and `tests/gui/windows-installer.sh` against a setup exe built
+  there with the runner's Inno Setup (silent install, the files, the two
+  shortcuts, the PATH entry, the installed launcher, silent uninstall). That
+  job is the only place the Windows binaries are ever executed: the
+  developers' machines have no Windows and no wine. The engine's in-process
+  tests (`c/tests.c`) fork and exec, so they are not built for Windows.
 - `release.yml`'s `windows` job runs `scripts/dist.sh win`, which cross-compiles
-  and packages the zip. The MCP bundle (`mcpb/`) still carries the Linux and
-  macOS binaries only; `ais.exe` has `--mcp` but is not listed in its manifest.
+  and packages the zip; its `windows-installer` job unzips that on a Windows
+  runner and runs `iscc installer/ais.iss` over it. The MCP bundle (`mcpb/`)
+  still carries the Linux and macOS binaries only; `ais.exe` has `--mcp` but
+  is not listed in its manifest.
 
 ## Known limits on Windows
 
@@ -110,9 +131,12 @@ then and nothing breaks.
 2. Install the **SignPath GitHub app** and connect this repository, so SignPath
    can fetch the build artifact to sign.
 3. In SignPath create a **project** (e.g. slug `ais`), an **artifact
-   configuration** that signs `ais.exe` and the window's exe inside the
-   `ais-windows-x86_64` artifact (Authenticode), and a **signing policy** (e.g.
-   slug `release-signing`).
+   configuration** that signs `ais.exe` and `ais-gui.exe` inside the
+   `ais-windows-x86_64` artifact and the setup exe inside
+   `ais-windows-x86_64-setup` (Authenticode), and a **signing policy** (e.g.
+   slug `release-signing`). The setup exe matters most: a downloaded file
+   carries the mark of the web, so SmartScreen warns on it once per release,
+   while the files Setup writes carry no mark and run clean unsigned.
 4. Create a SignPath **API token** for a CI user.
 
 ### Repository configuration (Settings -> Secrets and variables -> Actions)
@@ -144,5 +168,18 @@ clears the warning immediately.
 
 ## Packaging: the installer and winget
 
+`installer/ais.iss` is the Inno Setup script: per-user into
+`%LOCALAPPDATA%\Programs\AIS` (where VS Code and Ollama install, no admin
+prompt), one Start-menu entry "AIS" and a Desktop icon, both to `ais-gui.exe`,
+the folder on the user's PATH for `ais` (undone on uninstall), no Start-menu
+folder and no Uninstall shortcut (Settings > Apps is where Windows uninstalls).
+`AppMutex=ais-gui` is the mutex the launcher holds, so Setup asks the user to
+Quit a running AIS instead of replacing its files. The Desktop icon is a ticked
+task; Microsoft's guideline and VS Code, Git and Ollama leave it unticked, and
+the project ticks it because the audience that needs the installer is the one
+that looks for an icon.
+
 `installer/winget/` holds the winget manifests, one directory per version,
-declaring the release zip as a portable package (`ais` on the PATH). That directory's README has the regeneration and submission steps.
+declaring the release zip as a portable package (`ais` on the PATH). That
+directory's README has the regeneration and submission steps, and how the
+installer would enter them.

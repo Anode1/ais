@@ -72,11 +72,11 @@ jobs:
           name: ais-${{ matrix.name }}
           path: dist/*
 
-  # Windows: cross-compiled from Linux with MinGW-w64 (no Windows runner, no
-  # Cygwin). The zip holds the CLI, which carries the web GUI and LAN sync over
-  # Winsock, the native window and the .bat launcher. native-windows.yml builds
-  # its own binary and runs the CLI suites on a Windows runner, on pushes that
-  # touch c/ or win32/.
+  # Windows: cross-compiled from Linux with MinGW-w64 (no Cygwin). The zip holds
+  # the CLI, which carries the web GUI and LAN sync over Winsock, and ais-gui.exe,
+  # the launcher (gui/win/). native-windows.yml builds its own binaries and runs
+  # the CLI suites, the launcher and the installer on a Windows runner, on
+  # pushes that touch c/, gui/win/ or installer/.
   windows:
     name: build windows-x86_64 (cross)
     runs-on: ubuntu-latest
@@ -100,6 +100,45 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: ais-windows-x86_64
+          path: dist/*
+
+  # The Windows installer (installer/ais.iss), from the zip above, with the Inno
+  # Setup the runner image carries (iscc is on its PATH). Per-user, no admin:
+  # "AIS" in the Start menu and on the Desktop, ais on the PATH. Unsigned like
+  # the zip, so SmartScreen warns once on the setup exe; the files it installs
+  # carry no download mark and run without the warning.
+  windows-installer:
+    name: build the Windows installer
+    needs: windows
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: ais-windows-x86_64
+          path: zip
+
+      - name: Inno Setup
+        env:
+          MSYS_NO_PATHCONV: 1       # /DSrcDir and /O are switches, not paths
+        run: |
+          set -e
+          unzip -q zip/*.zip -d unz
+          src=$(cygpath -w "$(ls -d unz/ais-*/ | head -n1)")
+          ver="${GITHUB_REF_NAME#v}"
+          iscc "/DSrcDir=$src" "/DAppVersion=$ver" /Odist installer/ais.iss
+          name="ais-${GITHUB_REF_NAME}-windows-x86_64-setup"
+          mv dist/ais-*-setup.exe "dist/$name.exe"
+          ( cd dist && sha256sum "$name.exe" > "$name.exe.sha256" )
+          ls -l dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ais-windows-x86_64-setup
           path: dist/*
 
   # Android: the Flutter app (FFI to the C engine). The .apk is the installable
@@ -190,13 +229,14 @@ jobs:
 
   publish:
     name: publish release
-    needs: [build, windows, android]
+    needs: [build, windows, windows-installer, android]
     runs-on: ubuntu-latest
     # publish only on a tag, and only if the platform builds succeeded.
     if: >-
       ${{ startsWith(github.ref, 'refs/tags/')
           && needs.build.result == 'success'
           && needs.windows.result == 'success'
+          && needs.windows-installer.result == 'success'
           && needs.android.result == 'success' }}
     permissions:
       contents: write
