@@ -41,8 +41,10 @@ fi
 # the launcher writes beside the user's temp files (GetTempPath), which is
 # %LOCALAPPDATA%\Temp here; Git Bash's own $TEMP is its /tmp, another place
 log=$(cygpath -u "$LOCALAPPDATA")/Temp/ais-serve.log
-trap '"$G" --quit >/dev/null 2>&1 || { echo "  (killing the launcher and the server by force)";
-      taskkill /IM ais-gui.exe /F >/dev/null 2>&1; taskkill /IM ais.exe /F >/dev/null 2>&1; }' EXIT
+gui_running() { tasklist /FI "IMAGENAME eq ais-gui.exe" 2>/dev/null | grep -qi "ais-gui.exe"; }
+trap 'if gui_running || ais_running; then "$G" --quit >/dev/null 2>&1; sleep 2;
+      if gui_running || ais_running; then echo "  (killing the launcher and the server by force)";
+      taskkill /IM ais-gui.exe /F >/dev/null 2>&1; taskkill /IM ais.exe /F >/dev/null 2>&1; fi; fi' EXIT
 if "$G" --quit; then
     echo "  FAIL --quit with no launcher running exited 0"; exit 1
 fi

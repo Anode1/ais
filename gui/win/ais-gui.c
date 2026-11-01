@@ -115,17 +115,16 @@ static void set_logpath(void)
     strcat(logpath, "ais-serve.log");
 }
 
-/* A line of the launcher's own, with the last error: into the log, and onto a
- * stdout a shell handed over (a GUI program has none of its own), so a test
- * sees it. */
+/* A line of the launcher's own: into the log, and onto a stdout a shell handed
+ * over (a GUI program has none of its own), so a test sees it. fail() adds
+ * the last error. */
 static void note(const char *s)
 {
     char line[256];
     DWORD n, w;
     HANDLE f;
 
-    n = (DWORD)snprintf(line, sizeof line, "ais-gui: %s (error %lu)\r\n",
-                        s, (unsigned long)GetLastError());
+    n = (DWORD)snprintf(line, sizeof line, "ais-gui: %s\r\n", s);
     f = GetStdHandle(STD_OUTPUT_HANDLE);
     if (f != NULL && f != INVALID_HANDLE_VALUE)
         WriteFile(f, line, n, &w, NULL);
@@ -135,6 +134,13 @@ static void note(const char *s)
         return;
     WriteFile(f, line, n, &w, NULL);
     CloseHandle(f);
+}
+
+static void fail(const char *s)
+{
+    char line[200];
+    snprintf(line, sizeof line, "%s (error %lu)", s, (unsigned long)GetLastError());
+    note(line);
 }
 
 static void stop_server(void);
@@ -318,13 +324,13 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmdline, int show)
             SetEvent(quit);
             return 0;
         }
-        note("--quit: no event of a running launcher");
+        fail("--quit: no event of a running launcher");
         h = FindWindowA(CLASS_NAME, NULL);
         if (h != NULL) {
             PostMessageA(h, WM_CLOSE, 0, 0);
             return 0;
         }
-        note("--quit: no window of a running launcher either");
+        fail("--quit: no window of a running launcher either");
         return 1;
     }
     if (cmdline[0] >= '1' && cmdline[0] <= '9') {
@@ -347,8 +353,10 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmdline, int show)
     /* the quit signal exists before the server does, so a --quit that arrives
      * while the port is coming up is heard too (start_server watches it) */
     quit = CreateEventA(NULL, TRUE, FALSE, QUIT_EVENT);
-    note(quit != NULL ? "quit event created"
-                      : "CreateEvent failed: --quit will not reach this launcher");
+    if (quit != NULL)
+        note("quit event created");
+    else
+        fail("CreateEvent failed: --quit will not reach this launcher");
 
     switch (start_server(err, sizeof err)) {
     case 0:
@@ -365,10 +373,10 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmdline, int show)
     wc.hInstance = inst;
     wc.lpszClassName = CLASS_NAME;
     if (!RegisterClassA(&wc))
-        note("RegisterClass failed");
+        fail("RegisterClass failed");
     h = CreateWindowExA(0, CLASS_NAME, "AIS", 0, 0, 0, 0, 0, NULL, NULL, inst, NULL);
     if (h == NULL) {
-        note("CreateWindow failed; stopping the server");
+        fail("CreateWindow failed; stopping the server");
         stop_server();
         return 1;
     }
@@ -384,8 +392,10 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmdline, int show)
                                   GetSystemMetrics(SM_CXSMICON),
                                   GetSystemMetrics(SM_CYSMICON), LR_DEFAULTCOLOR);
     snprintf(nid.szTip, sizeof nid.szTip, "AIS  %s", url);
-    note(Shell_NotifyIconA(NIM_ADD, &nid) ? "tray icon added"
-                                          : "no notification area icon (no shell here?)");
+    if (Shell_NotifyIconA(NIM_ADD, &nid))
+        note("tray icon added");
+    else
+        fail("no notification area icon (no shell here?)");
 
     open_page();
     SetTimer(h, TIMER_CHILD, 2000, NULL);
