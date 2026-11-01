@@ -38,7 +38,9 @@ fi
 # a failure must not leave the launcher up: it holds the mutex the installer
 # test checks, and the next step would fail for the wrong reason. When --quit
 # itself is what failed, kill both, loudly.
-log=$(cygpath -u "${TEMP:-/tmp}")/ais-serve.log
+# the launcher writes beside the user's temp files (GetTempPath), which is
+# %LOCALAPPDATA%\Temp here; Git Bash's own $TEMP is its /tmp, another place
+log=$(cygpath -u "$LOCALAPPDATA")/Temp/ais-serve.log
 trap '"$G" --quit >/dev/null 2>&1 || { echo "  (killing the launcher and the server by force)";
       taskkill /IM ais-gui.exe /F >/dev/null 2>&1; taskkill /IM ais.exe /F >/dev/null 2>&1; }' EXIT
 if "$G" --quit; then

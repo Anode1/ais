@@ -52,6 +52,8 @@ static HANDLE child;                    /* ais.exe --serve, NULL once gone */
 static char logpath[MAX_PATH];
 static NOTIFYICONDATAA nid;
 
+static int wsa_err;                     /* why the last listening() said no */
+
 /* 1 when 127.0.0.1:port accepts a connection: a server is up. */
 static int listening(void)
 {
@@ -60,13 +62,17 @@ static int listening(void)
     int ok;
 
     s = socket(AF_INET, SOCK_STREAM, 0);
-    if (s == INVALID_SOCKET)
+    if (s == INVALID_SOCKET) {
+        wsa_err = WSAGetLastError();
         return 0;
+    }
     memset(&a, 0, sizeof a);
     a.sin_family = AF_INET;
     a.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
     a.sin_port = htons((u_short)port);
     ok = connect(s, (struct sockaddr *)&a, sizeof a) == 0;
+    if (!ok)
+        wsa_err = WSAGetLastError();
     closesocket(s);
     return ok;
 }
@@ -187,8 +193,15 @@ static int start_server(char *err, size_t errsz)
     child = pi.hProcess;
 
     for (waited = 0; waited < START_WAIT_MS; waited += 100) {
-        if (listening())
+        if (listening()) {
+            snprintf(err, errsz, "port %d answers after %lu ms", port, (unsigned long)waited);
+            note(err);
             return 0;
+        }
+        if (waited == 0) {
+            snprintf(err, errsz, "waiting for port %d (WSA error %d)", port, wsa_err);
+            note(err);
+        }
         if (WaitForSingleObject(child, 100) == WAIT_OBJECT_0) {
             DWORD code = 0;
             GetExitCodeProcess(child, &code);
@@ -329,8 +342,8 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmdline, int show)
     }
 
     quit = CreateEventA(NULL, TRUE, FALSE, QUIT_EVENT);
-    if (quit == NULL)
-        note("CreateEvent failed: --quit will not reach this launcher");
+    note(quit != NULL ? "quit event created"
+                      : "CreateEvent failed: --quit will not reach this launcher");
     memset(&wc, 0, sizeof wc);
     wc.lpfnWndProc = wndproc;
     wc.hInstance = inst;
@@ -343,6 +356,7 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmdline, int show)
         stop_server();
         return 1;
     }
+    note("window created");
 
     memset(&nid, 0, sizeof nid);
     nid.cbSize = sizeof nid;
@@ -354,8 +368,8 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmdline, int show)
                                   GetSystemMetrics(SM_CXSMICON),
                                   GetSystemMetrics(SM_CYSMICON), LR_DEFAULTCOLOR);
     snprintf(nid.szTip, sizeof nid.szTip, "AIS  %s", url);
-    if (!Shell_NotifyIconA(NIM_ADD, &nid))
-        note("no notification area icon (no shell here?)");
+    note(Shell_NotifyIconA(NIM_ADD, &nid) ? "tray icon added"
+                                          : "no notification area icon (no shell here?)");
 
     open_page();
     SetTimer(h, TIMER_CHILD, 2000, NULL);
