@@ -128,7 +128,7 @@ jobs:
         run: |
           set -e
           unzip -q zip/*.zip -d unz
-          src=$(cygpath -w "$(ls -d unz/ais-*/ | head -n1)")
+          src=$(cygpath -w "$PWD/$(ls -d unz/ais-*/ | head -n1)")   # absolute: Inno resolves a relative one against the .iss
           ver="${GITHUB_REF_NAME#v}"
           iscc "/DSrcDir=$src" "/DAppVersion=$ver" /Odist installer/ais.iss
           name="ais-${GITHUB_REF_NAME}-windows-x86_64-setup"
