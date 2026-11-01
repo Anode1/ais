@@ -87,7 +87,7 @@ begin
   Result := Pos(';' + Uppercase(Param) + ';', ';' + Uppercase(Orig) + ';') = 0;
 end;
 
-{ Uninstall: take {app} back out of the user's PATH, wherever it sits in it. }
+{ Uninstall: take the install folder back out of the user's PATH, wherever it sits. }
 procedure RemoveFromPath(Dir: string);
 var
   Orig, Upper: string;

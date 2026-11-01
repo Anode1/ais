@@ -57,7 +57,12 @@ fi
 curl -fs "$URL" >/dev/null || { echo "  FAIL the server went away after the second start"; exit 1; }
 echo "  ok   a second start exits at once, the server stays"
 
-"$G" --quit || { echo "  FAIL --quit found no launcher"; exit 1; }
+"$G" --quit || {
+    echo "  FAIL --quit found no launcher"
+    tasklist /FI "IMAGENAME eq ais-gui.exe"; tasklist /FI "IMAGENAME eq ais.exe"
+    cat "${TEMP:-/tmp}/ais-serve.log" 2>/dev/null | tail -20
+    exit 1
+}
 if ! wait_port down; then
     echo "  FAIL the server still answers 20 s after --quit"; exit 1
 fi

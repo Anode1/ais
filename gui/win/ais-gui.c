@@ -35,8 +35,10 @@
 #include <string.h>
 
 #define PORT_DEFAULT  8765
-#define CLASS_NAME    "AISGuiLauncher"  /* found by --quit */
+#define CLASS_NAME    "AISGuiLauncher"
 #define MUTEX_NAME    "ais-gui"         /* named in installer/ais.iss (AppMutex) */
+#define QUIT_EVENT    "ais-gui-quit"    /* set by --quit; a named object, found
+                                           where a hidden window may not be */
 #define IDI_AIS       1                 /* the icon in ais-gui.rc */
 #define WM_TRAY       (WM_APP + 1)
 #define ID_OPEN       1
@@ -94,6 +96,22 @@ static void read_log_tail(char *buf, size_t n)
     }
     if (ReadFile(f, buf, (DWORD)(n - 1), &got, NULL))
         buf[got] = 0;
+    CloseHandle(f);
+}
+
+/* A line of the launcher's own in the server's log, for a failure no one saw. */
+static void note(const char *s)
+{
+    HANDLE f = CreateFileA(logpath, FILE_APPEND_DATA, FILE_SHARE_READ, NULL,
+                           OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+    char line[256];
+    DWORD n;
+
+    if (f == INVALID_HANDLE_VALUE)
+        return;
+    n = (DWORD)snprintf(line, sizeof line, "ais-gui: %s (error %lu)\r\n",
+                        s, (unsigned long)GetLastError());
+    WriteFile(f, line, n, &n, NULL);
     CloseHandle(f);
 }
 
@@ -253,6 +271,7 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmdline, int show)
     WSADATA wsa;
     WNDCLASSA wc;
     HWND h;
+    HANDLE quit;
     MSG m;
     char err[2048];
 
@@ -261,10 +280,10 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmdline, int show)
     WSAStartup(MAKEWORD(2, 2), &wsa);
 
     if (strstr(cmdline, "--quit") != NULL) {
-        h = FindWindowA(CLASS_NAME, NULL);
-        if (h == NULL)
+        quit = OpenEventA(EVENT_MODIFY_STATE, FALSE, QUIT_EVENT);
+        if (quit == NULL)
             return 1;
-        PostMessageA(h, WM_CLOSE, 0, 0);
+        SetEvent(quit);
         return 0;
     }
     if (cmdline[0] >= '1' && cmdline[0] <= '9') {
@@ -289,13 +308,16 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmdline, int show)
         return 1;
     }
 
+    quit = CreateEventA(NULL, TRUE, FALSE, QUIT_EVENT);
     memset(&wc, 0, sizeof wc);
     wc.lpfnWndProc = wndproc;
     wc.hInstance = inst;
     wc.lpszClassName = CLASS_NAME;
-    RegisterClassA(&wc);
+    if (!RegisterClassA(&wc))
+        note("RegisterClass failed");
     h = CreateWindowExA(0, CLASS_NAME, "AIS", 0, 0, 0, 0, 0, NULL, NULL, inst, NULL);
     if (h == NULL) {
+        note("CreateWindow failed; stopping the server");
         stop_server();
         return 1;
     }
@@ -310,13 +332,27 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmdline, int show)
                                   GetSystemMetrics(SM_CXSMICON),
                                   GetSystemMetrics(SM_CYSMICON), LR_DEFAULTCOLOR);
     snprintf(nid.szTip, sizeof nid.szTip, "AIS  %s", url);
-    Shell_NotifyIconA(NIM_ADD, &nid);
+    if (!Shell_NotifyIconA(NIM_ADD, &nid))
+        note("no notification area icon (no shell here?)");
 
     open_page();
     SetTimer(h, TIMER_CHILD, 2000, NULL);
-    while (GetMessageA(&m, NULL, 0, 0) > 0) {
-        TranslateMessage(&m);
-        DispatchMessageA(&m);
+    /* the message loop, which also wakes when --quit sets the event */
+    for (;;) {
+        DWORD n = quit != NULL ? 1 : 0;
+        if (MsgWaitForMultipleObjects(n, &quit, FALSE, INFINITE, QS_ALLINPUT)
+                == WAIT_OBJECT_0 && n == 1) {
+            ResetEvent(quit);
+            DestroyWindow(h);           /* WM_DESTROY stops the server, posts WM_QUIT */
+        }
+        while (PeekMessageA(&m, NULL, 0, 0, PM_REMOVE)) {
+            if (m.message == WM_QUIT)
+                goto done;
+            TranslateMessage(&m);
+            DispatchMessageA(&m);
+        }
     }
+done:
+    stop_server();                      /* no launcher, no server: nothing is left behind */
     return 0;
 }
