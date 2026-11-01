@@ -49,6 +49,7 @@
 static int port = PORT_DEFAULT;
 static char url[48];
 static HANDLE child;                    /* ais.exe --serve, NULL once gone */
+static HANDLE quit;                     /* QUIT_EVENT, held from before the server starts */
 static char logpath[MAX_PATH];
 static NOTIFYICONDATAA nid;
 
@@ -136,8 +137,11 @@ static void note(const char *s)
     CloseHandle(f);
 }
 
+static void stop_server(void);
+
 /* Start `ais.exe --serve PORT` from the launcher's own folder, windowless, and
- * wait for the port. 0 when the server answers; -1 with ERR filled otherwise. */
+ * wait for the port. 0 when the server answers, 1 when --quit arrived first
+ * (the server is stopped again), -1 with ERR filled otherwise. */
 static int start_server(char *err, size_t errsz)
 {
     char dir[MAX_PATH], exe[MAX_PATH + 16], cmd[MAX_PATH + 48], tail[1536];
@@ -201,6 +205,11 @@ static int start_server(char *err, size_t errsz)
         if (waited == 0) {
             snprintf(err, errsz, "waiting for port %d (WSA error %d)", port, wsa_err);
             note(err);
+        }
+        if (quit != NULL && WaitForSingleObject(quit, 0) == WAIT_OBJECT_0) {
+            note("--quit arrived during start-up");
+            stop_server();
+            return 1;
         }
         if (WaitForSingleObject(child, 100) == WAIT_OBJECT_0) {
             DWORD code = 0;
@@ -295,7 +304,6 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmdline, int show)
     WSADATA wsa;
     WNDCLASSA wc;
     HWND h;
-    HANDLE quit;
     MSG m;
     char err[2048];
 
@@ -336,14 +344,22 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmdline, int show)
         return 0;
     }
 
-    if (start_server(err, sizeof err) != 0) {
+    /* the quit signal exists before the server does, so a --quit that arrives
+     * while the port is coming up is heard too (start_server watches it) */
+    quit = CreateEventA(NULL, TRUE, FALSE, QUIT_EVENT);
+    note(quit != NULL ? "quit event created"
+                      : "CreateEvent failed: --quit will not reach this launcher");
+
+    switch (start_server(err, sizeof err)) {
+    case 0:
+        break;
+    case 1:                             /* --quit during start-up: leave quietly */
+        return 0;
+    default:
         MessageBoxA(NULL, err, "AIS could not start", MB_ICONERROR);
         return 1;
     }
 
-    quit = CreateEventA(NULL, TRUE, FALSE, QUIT_EVENT);
-    note(quit != NULL ? "quit event created"
-                      : "CreateEvent failed: --quit will not reach this launcher");
     memset(&wc, 0, sizeof wc);
     wc.lpfnWndProc = wndproc;
     wc.hInstance = inst;
