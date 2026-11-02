@@ -8,6 +8,10 @@ Before tagging, run `scripts/release-notes.sh vX.Y.Z`: it prepends the commit
 subjects since the previous tag, then edit them down to what a user needs to
 know. The old entries below the two newest are the raw subjects.
 
+## v0.3.42 (2026-11-02)
+
+- Windows: a tag holding a colon, or another of the characters a Windows file name cannot hold, is listed by `--tags`, `--keys` and `--due`. Until now its postings were filed where no listing could see them, so a due tag did not come due there. An index written by an earlier Windows build lists them after one `ais --compact`.
+
 ## v0.3.41 (2026-11-02)
 
 - Reminders: a tag `due:2028`, `due:2028-11` or `due:2028-11-02` makes a note due from that year, month or day. From then on it sits under "Due" at the top of Recent, in the app, the web page and the PWA, until its menu's Done removes the tag or Later moves it to another day, both with Undo. Nothing rings: a due note is seen when AIS is opened, and it keeps its tags and its place in the timeline.
