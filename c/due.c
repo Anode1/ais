@@ -13,6 +13,7 @@
 
 #include "ais.h"
 #include "common.h"
+#include "key.h"       /* key_fsdecode: a shard lists file names, not keys */
 #include "compact.h"   /* tomb_contains: a posting may still list deleted ids */
 #include "post.h"      /* the key's id stream, to see whether anything is live */
 
@@ -154,11 +155,15 @@ int ais_due(ais *a, const char *today, ais_tl_cb cb, void *ctx)
         return 0;                       /* no shard, or no idx/ yet: nothing due */
     set.n = 0;
     while ((e = readdir(d)) != NULL) {
-        int n = due_date_len(e->d_name);
+        char key[AIS_KEY_MAX];      /* the file name is not the key on Windows */
+        int n;
+        if (key_fsdecode(e->d_name, key, sizeof key) != 0)
+            continue;
+        n = due_date_len(key);
         /* elapsed: the key's date, at its own precision, is not after today */
-        if (n > 0 && strncmp(e->d_name + DUE_PREFIX_LEN, day, (size_t)n) <= 0
-            && !due_key_dead(a, e->d_name))
-            due_set_add(&set, e->d_name + DUE_PREFIX_LEN);
+        if (n > 0 && strncmp(key + DUE_PREFIX_LEN, day, (size_t)n) <= 0
+            && !due_key_dead(a, key))
+            due_set_add(&set, key + DUE_PREFIX_LEN);
     }
     closedir(d);
     if (set.n == 0)

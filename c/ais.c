@@ -1994,6 +1994,7 @@ int ais_keys(ais *a, ais_key_cb cb, void *ctx)
             continue;   /* not a dir (or unreadable): skip, stay local */
         while ((ke = readdir(pd)) != NULL) {
             char kpath[AIS_PATH_MAX];
+            char kname[AIS_KEY_MAX];
             if (ke->d_name[0] == '.')
                 continue;
             /* Skip a key whose every record is deleted -- the posting keeps their
@@ -2003,7 +2004,9 @@ int ais_keys(ais *a, ais_key_cb cb, void *ctx)
                             < (int)sizeof kpath &&
                 tag_count_file(a, kpath, dead) == 0)
                 continue;
-            if (key_buf_add(&b, ke->d_name) != 0) {
+            if (key_fsdecode(ke->d_name, kname, sizeof kname) != 0)
+                continue;           /* not a name this platform wrote */
+            if (key_buf_add(&b, kname) != 0) {
                 rc = -1;
                 closedir(pd);
                 goto cleanup;

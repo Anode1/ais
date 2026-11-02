@@ -231,6 +231,32 @@ static void test_key_encode(void)
 /* A key becomes a filename, so 255 bytes is the wall. Past it post_append could
  * not open the posting, the put failed AFTER the store line and next_id were
  * committed, and every later compaction failed on the same line. */
+/* the Windows posting name: the six NTFS-reserved bytes become U+F000+byte
+ * and come back; every other byte, UTF-8 included, is itself */
+static void test_key_fsname(void)
+{
+    char fs[64], back[64];
+    CHECK(key_fsname_win("due:2020", fs, sizeof fs) == 0
+          && strcmp(fs, "due\xEF\x80\xBA" "2020") == 0,
+          "fsname: a colon becomes EF 80 BA on Windows");
+    CHECK(key_fsdecode_win(fs, back, sizeof back) == 0 && strcmp(back, "due:2020") == 0,
+          "fsname: and decodes back to the colon");
+    CHECK(key_fsname_win("a<b>c\"d?e*f", fs, sizeof fs) == 0
+          && strlen(fs) == 6 + 5 * 3
+          && key_fsdecode_win(fs, back, sizeof back) == 0
+          && strcmp(back, "a<b>c\"d?e*f") == 0,
+          "fsname: the other five reserved bytes round-trip");
+    CHECK(key_fsname_win("ключ.x_y", fs, sizeof fs) == 0 && strcmp(fs, "ключ.x_y") == 0,
+          "fsname: UTF-8 and the safe ASCII punctuation are untouched");
+    CHECK(key_fsdecode_win("\xEF\x80\x81", back, sizeof back) == 0
+          && strcmp(back, "\xEF\x80\x81") == 0,
+          "fsname: a private-use character that is not one of the six stays");
+    CHECK(key_fsname_win("a:b", fs, 4) == -1, "fsname: a name that does not fit is refused");
+    CHECK(key_fsname("due:2020", fs, sizeof fs) == 0 && strcmp(fs, "due:2020") == 0
+          && key_fsdecode("due:2020", back, sizeof back) == 0 && strcmp(back, "due:2020") == 0,
+          "fsname: on POSIX the name is the key");
+}
+
 static void test_key_too_long(void)
 {
     ais a;
@@ -7947,6 +7973,7 @@ int main(void)
     test_sync_url();
     printf("key:\n");
     test_key_encode();
+    test_key_fsname();
     test_key_prefix();
     test_key_too_long();
     test_timeline_long_value();

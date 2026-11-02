@@ -22,18 +22,22 @@ static int post_mkdir(const char *path)
 }
 
 /* Build idx/<p>/<key> for (raw) KEY into OUT, creating idx/ and idx/<p>/ when
- * MAKE is nonzero. Returns 0, -1 on error, 1 if the key encodes empty (skip). */
+ * MAKE is nonzero. The name is the platform's (key_fsname): on Windows a
+ * colon in a key is not a colon on disk. Returns 0, -1 on error, 1 if the key encodes empty (skip). */
 static int post_path(const ais *a, const char *key, int make,
                      char *out, size_t outsz)
 {
     char enc[AIS_KEY_MAX];
+    char fs[AIS_KEY_MAX * 3];   /* Windows: a reserved byte takes three */
     char pre[AIS_PREFIX_MAX];
     char dir[AIS_PATH_MAX];
     int n;
 
     if (key_encode(key, enc, sizeof(enc)) != 0)
         return 1;
-    if (key_prefix(enc, pre, sizeof(pre)) != 0)
+    if (key_fsname(enc, fs, sizeof(fs)) != 0)
+        return -1;
+    if (key_prefix(fs, pre, sizeof(pre)) != 0)
         return 1;
 
     n = snprintf(dir, sizeof(dir), "%s/idx", a->dir);
@@ -48,7 +52,7 @@ static int post_path(const ais *a, const char *key, int make,
     if (make && post_mkdir(dir) != 0)
         return -1;
 
-    n = snprintf(out, outsz, "%s/idx/%s/%s", a->dir, pre, enc);
+    n = snprintf(out, outsz, "%s/idx/%s/%s", a->dir, pre, fs);
     if (n < 0 || (size_t)n >= outsz)
         return -1;
     return 0;

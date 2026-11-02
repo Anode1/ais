@@ -263,6 +263,13 @@ store is plain text (damage stays local, never global). It is the
 log-structured-merge / git pattern: sharded loose files on write, packed on
 compaction.
 
+On Windows the file name is not the key when the key holds one of the six
+bytes NTFS refuses in a name (`: < > " ? *`): each becomes the private-use
+character U+F000 + byte, three bytes, and comes back on read (`key_fsname`,
+`key_fsdecode` in key.c). A colon is the one that matters, `due:2020`: NTFS
+would otherwise open it as a stream of a file called `due`, which no listing
+shows. POSIX names are the key itself.
+
 Sorted by construction (with one ordered-insert exception): for a brand-new
 value `put` appends the new largest id to each key file, ascending by pure
 append. The exception is re-filing an *existing* (older) value under a NEW key:

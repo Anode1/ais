@@ -58,6 +58,12 @@ Search shows, and the install folder under `%LOCALAPPDATA%` is not indexed.
 
 ## Known limits on Windows
 
+- A key holding `: < > " ? *` is filed under a name NTFS accepts (each byte
+  becomes U+F000 + byte, three bytes; `doc/dev/LAYOUT.md`). Two consequences:
+  such a key reaches `AIS_KEY_NAME_MAX` sooner, and an index that a Windows
+  build before this mapping wrote holds those keys' postings as file streams
+  it cannot list; `ais --compact` rebuilds `idx/` from the store and files
+  them under the mapped names.
 - A key near the 255-byte limit can exceed `MAX_PATH` (260 characters for the
   whole path) once the index sits a few folders deep: the posting file for it
   cannot be created, and the record's store line is written without it.

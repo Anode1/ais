@@ -77,3 +77,80 @@ int key_prefix(const char *enc, char *out, size_t outsz)
     out[n] = '\0';
     return 0;
 }
+
+/* NTFS's reserved bytes, all below 0x40, so U+F000 + c is EF 80 (0x80 | c). */
+static int key_fs_reserved(unsigned char c)
+{
+    return c == ':' || c == '<' || c == '>' || c == '"' || c == '?' || c == '*';
+}
+
+int key_fsname_win(const char *enc, char *out, size_t outsz)
+{
+    const unsigned char *p = (const unsigned char *)enc;
+    size_t i = 0;
+
+    if (enc == NULL || outsz == 0)
+        return -1;
+    for (; *p != '\0'; p++) {
+        if (key_fs_reserved(*p)) {
+            if (i + 4 > outsz)
+                return -1;
+            out[i++] = (char)0xEF;
+            out[i++] = (char)0x80;
+            out[i++] = (char)(0x80 | *p);
+        } else {
+            if (i + 2 > outsz)
+                return -1;
+            out[i++] = (char)*p;
+        }
+    }
+    out[i] = '\0';
+    return 0;
+}
+
+int key_fsdecode_win(const char *name, char *out, size_t outsz)
+{
+    const unsigned char *p = (const unsigned char *)name;
+    size_t i = 0;
+
+    if (name == NULL || outsz == 0)
+        return -1;
+    for (; *p != '\0'; p++) {
+        if (i + 2 > outsz)
+            return -1;
+        if (p[0] == 0xEF && p[1] == 0x80 && key_fs_reserved((unsigned char)(p[2] & 0x3F))
+            && (p[2] & 0xC0) == 0x80) {
+            out[i++] = (char)(p[2] & 0x3F);
+            p += 2;
+        } else {
+            out[i++] = (char)*p;
+        }
+    }
+    out[i] = '\0';
+    return 0;
+}
+
+#ifdef _WIN32
+int key_fsname(const char *enc, char *out, size_t outsz)
+{
+    return key_fsname_win(enc, out, outsz);
+}
+
+int key_fsdecode(const char *name, char *out, size_t outsz)
+{
+    return key_fsdecode_win(name, out, outsz);
+}
+#else
+int key_fsname(const char *enc, char *out, size_t outsz)
+{
+    if (enc == NULL || outsz == 0 || strlen(enc) + 1 > outsz)
+        return -1;
+    memcpy(out, enc, strlen(enc) + 1);
+    return 0;
+}
+
+int key_fsdecode(const char *name, char *out, size_t outsz)
+{
+    return key_fsname(name, out, outsz);
+}
+#endif

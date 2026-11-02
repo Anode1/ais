@@ -30,4 +30,19 @@ int key_encode(const char *key, char *out, size_t outsz);
  * iOS. OUT needs AIS_PREFIX_MAX bytes. */
 int key_prefix(const char *enc, char *out, size_t outsz);
 
+/* The file name a posting takes on THIS platform for an encoded key, and the
+ * encoded key back from a file name read out of a shard. POSIX: the identity.
+ * Windows: NTFS refuses the six bytes : < > " ? * in a name, and a colon is
+ * worse than refused, "due:2020" opens a stream called 2020 of a file called
+ * due, which no directory listing shows. Each of the six becomes the
+ * private-use character U+F000 + byte (three bytes, EF 80 80+byte), the
+ * mapping Cygwin and Samba use, and comes back on read. OUT needs up to three
+ * bytes per input byte; a name that would not fit returns -1. The shard
+ * prefix is taken from the file name, so it is a legal directory name too. */
+int key_fsname(const char *enc, char *out, size_t outsz);
+int key_fsdecode(const char *name, char *out, size_t outsz);
+/* The Windows mapping itself, on every platform, so the tests can see it. */
+int key_fsname_win(const char *enc, char *out, size_t outsz);
+int key_fsdecode_win(const char *name, char *out, size_t outsz);
+
 #endif /* AIS_KEY_H */
