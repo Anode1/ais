@@ -397,6 +397,34 @@ static void test_mcp_key_rule(void)
     scratch_rm(dir);
 }
 
+/* The due tool: listed, answers with the elapsed records, takes no argument. */
+static void test_mcp_due(void)
+{
+    ais a;
+    const char *dir = "/tmp/ais_ut_mcpdue";
+    const char *req =
+        "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{}}\n"
+        "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/list\"}\n"
+        "{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"tools/call\",\"params\":"
+        "{\"name\":\"due\",\"arguments\":{}}}\n"
+        "{\"jsonrpc\":\"2.0\",\"id\":4,\"method\":\"tools/call\",\"params\":"
+        "{\"name\":\"due\",\"arguments\":{\"since\":\"2020\"}}}\n";
+    static char out[65536];
+
+    scratch_rm(dir);
+    CHECK(ais_open(&a, dir) == 0, "mcp due: scratch index opens");
+    ais_put(&a, "tank due:2020", "flush the tank");
+    ais_put(&a, "roof due:2099", "check the roof");
+    mcp_session(&a, 0, req, out, sizeof out);
+    CHECK(strstr(out, "\\\"name\\\":\\\"due\\\"") != NULL || strstr(out, "\"name\":\"due\"") != NULL,
+          "mcp due: the tool is listed");
+    CHECK(strstr(out, "|tank due:2020|flush the tank") != NULL, "mcp due: the elapsed record is a timeline row");
+    CHECK(strstr(out, "check the roof") == NULL, "mcp due: a future key is not listed");
+    CHECK(strstr(out, "due has no argument since; it takes none") != NULL, "mcp due: an argument is refused by name");
+    ais_close(&a);
+    scratch_rm(dir);
+}
+
 /* Another writer saves after this server opened the index, so the handle's
  * next_id is behind. A save of that same value attaches keys to the existing
  * record, and the reply must say so rather than call it new. */
@@ -1723,6 +1751,248 @@ static void test_timeline_stale_off_slot(void)
 }
 
 /* ---- timeline under one key: the page comes from the posting list -------- */
+/* A reminder is a key "due:DATE"; ais_due emits the live records under every
+ * elapsed one, once each, id ascending, judged against a given day. */
+static void test_due(void)
+{
+    const char *dir = "/tmp/ais_ut_due";
+    ais a;
+    struct tlvec v;
+    char *k[1];
+    struct idvec ids;
+
+    scratch_rm(dir);
+    ais_open(&a, dir);
+    ais_put(&a, "tank flush due:2020",        "flush the tank");        /* 1: elapsed by year   */
+    ais_put(&a, "party due:2026-11",          "the november party");    /* 2: elapsed by month  */
+    ais_put(&a, "dentist due:2026-11-03",     "call the dentist");      /* 3: tomorrow          */
+    ais_put(&a, "roof due:2099",              "check the roof");        /* 4: far future        */
+    ais_put(&a, "vague due:soon",             "not a date");            /* 5: a plain key       */
+    ais_put(&a, "short due:2026-1",           "malformed date");        /* 6: never elapses     */
+    ais_put(&a, "twice due:2020 due:2021",    "two elapsed keys");      /* 7: emitted once      */
+    ais_put(&a, "gone due:2019",              "deleted record");        /* 8: deleted below     */
+    ais_put(&a, "upper DUE:2018",             "typed in capitals");     /* 9: keys fold case    */
+    ais_del(&a, 8);
+
+    v.n = 0; ais_due(&a, "2026-11-02", collect_tl, &v);
+    CHECK(v.n == 4 && v.r[0].id == 1 && v.r[1].id == 2 && v.r[2].id == 7 && v.r[3].id == 9,
+          "due: elapsed year, month, two keys once, folded case; ascending {1,2,7,9}");
+    CHECK(v.n == 4 && strcmp(v.r[0].value, "flush the tank") == 0
+          && strstr(v.r[0].keys, "due:2020") != NULL,
+          "due: a row is a timeline row and its keys carry the due key");
+    v.n = 0; ais_due(&a, "2026-11-03", collect_tl, &v);
+    CHECK(v.n == 5 && v.r[2].id == 3, "due: a day key elapses on its own day");
+    v.n = 0; ais_due(&a, "2026-10-31", collect_tl, &v);
+    CHECK(v.n == 3, "due: a month key is not due the day before its month");
+    v.n = 0; ais_due(&a, "2025-12-31", collect_tl, &v);
+    CHECK(v.n == 3 && v.r[0].id == 1 && v.r[1].id == 7 && v.r[2].id == 9,
+          "due: a year key is due from its first day; 2026-11 is not due in 2025");
+    v.n = 0; ais_due(&a, "2099-01-01", collect_tl, &v);
+    CHECK(v.n == 6 && v.r[3].id == 4, "due: due:2099 elapses on 2099-01-01; the plain and malformed keys never");
+    CHECK(ais_due(&a, "2026", collect_tl, &v) == -1, "due: a day that is not YYYY-MM-DD is an error");
+    CHECK(ais_due(&a, NULL, collect_tl, &v) == 0, "due: NULL means today and is not an error");
+
+    /* Done is detaching the key: the record stays, recalls, and is no longer due */
+    ais_update(&a, 2, "-due:2026-11");
+    v.n = 0; ais_due(&a, "2026-11-02", collect_tl, &v);
+    CHECK(v.n == 3 && v.r[1].id == 7, "due: detaching the due key clears the reminder");
+    k[0] = "party"; ids.n = 0;
+    ais_get(&a, k, 1, AIS_AND, collect_id, &ids);
+    CHECK(ids.n == 1 && ids.ids[0] == 2, "due: the record itself stays and still recalls by its other keys");
+
+    /* Later is re-dating: the key moves, the record is due again on the new day */
+    ais_update(&a, 2, "due:2027-03");
+    v.n = 0; ais_due(&a, "2027-02-28", collect_tl, &v);
+    CHECK(v.n == 4 && v.r[1].id == 3, "due: re-dated to 2027-03, not due in February (the dentist is)");
+    v.n = 0; ais_due(&a, "2027-03-01", collect_tl, &v);
+    CHECK(v.n == 5 && v.r[1].id == 2, "due: and due from the first of that month");
+
+    /* an index with no due key at all costs one readdir and emits nothing */
+    ais_close(&a);
+    scratch_rm(dir);
+    ais_open(&a, dir);
+    ais_put(&a, "plain", "nothing due here");
+    v.n = 0;
+    CHECK(ais_due(&a, "2026-11-02", collect_tl, &v) == 0 && v.n == 0, "due: no due key, nothing emitted");
+    ais_close(&a);
+    scratch_rm(dir);
+}
+
+/* ais_due's edges: calendar boundaries, malformed shapes, the AIS_KEYS_MAX cap,
+ * deleted records, several due keys on one record, the callback's stop code,
+ * and the MCP tool after a save through the MCP. Nothing here is in test_due. */
+struct duevec { long ids[128]; int n; int stop; };
+
+static int collect_due(long id, const char *ts, const char *keys,
+                       const char *value, void *ctx)
+{
+    struct duevec *v = ctx;
+    (void)ts; (void)keys; (void)value;
+    if (v->n < 128)
+        v->ids[v->n] = id;
+    v->n++;
+    return (v->stop != 0 && v->n >= v->stop) ? -7 : 0;
+}
+
+/* How many ids ais_due emits on DAY; the ids themselves stay in V. */
+static int due_count(ais *a, const char *day, struct duevec *v)
+{
+    v->n = 0; v->stop = 0;
+    ais_due(a, day, collect_due, v);
+    return v->n;
+}
+
+static void test_due_edges(void)
+{
+    const char *dir = "/tmp/ais_ut_due_edges";
+    ais a;
+    struct duevec v;
+    struct tlvec t;
+    char keys[64], val[64];
+    int i, rc;
+    static char out[65536];
+
+    scratch_rm(dir);
+    ais_open(&a, dir);
+
+    /* calendar boundaries: the compare is on strings cut to the key's length */
+    ais_put(&a, "eom due:2026-11-30",   "last day of november");       /* 1 */
+    ais_put(&a, "dec due:2026-12",      "december");                   /* 2 */
+    ais_put(&a, "nye due:2026-12-31",   "new year's eve");             /* 3 */
+    ais_put(&a, "leap due:2028-02-29",  "a leap day");                 /* 4 */
+    ais_put(&a, "noday due:2027-02-29", "a day that does not exist");  /* 5 */
+    ais_put(&a, "m13 due:2026-13",      "a thirteenth month");         /* 6 */
+    ais_put(&a, "d31 due:2026-11-31",   "november the 31st");          /* 7 */
+    CHECK(due_count(&a, "2026-11-29", &v) == 0, "due edges: nothing before the month's last day");
+    CHECK(due_count(&a, "2026-11-30", &v) == 1 && v.ids[0] == 1, "due edges: a day key on its day, the month's last");
+    CHECK(due_count(&a, "2026-12-01", &v) == 3 && v.ids[1] == 2 && v.ids[2] == 7,
+          "due edges: the next month's key from its 1st; due:2026-11-31 passes the shape and elapses on 12-01");
+    CHECK(due_count(&a, "2026-12-30", &v) == 3, "due edges: 31 December is not due on the 30th");
+    CHECK(due_count(&a, "2026-12-31", &v) == 4 && v.ids[2] == 3, "due edges: 31 December on its day");
+    CHECK(due_count(&a, "2027-01-01", &v) == 5 && v.ids[3] == 6, "due edges: still due in the new year; due:2026-13 elapses on 2027-01-01");
+    CHECK(due_count(&a, "2027-02-28", &v) == 5, "due edges: due:2027-02-29 is not due on the 28th");
+    CHECK(due_count(&a, "2027-03-01", &v) == 6 && v.ids[3] == 5, "due edges: a non-existent day elapses on the day after it would be");
+    CHECK(due_count(&a, "2028-02-28", &v) == 6, "due edges: a leap day is not due on the 28th");
+    CHECK(due_count(&a, "2028-02-29", &v) == 7, "due edges: a leap day on its day");
+    CHECK(due_count(&a, "2028-03-01", &v) == 7, "due edges: and after it");
+    ais_close(&a);
+
+    /* malformed shapes: never elapse, even on the last representable day */
+    scratch_rm(dir);
+    ais_open(&a, dir);
+    ais_put(&a, "a due:20261102",         "no dashes");                 /* 1 */
+    ais_put(&a, "b due:2026-11-02T10:00", "with a time");               /* 2 */
+    ais_put(&a, "c due:2026-11-02x",      "trailing character");        /* 3 */
+    ais_put(&a, "d due:2026/11/02",       "slashes (encoded to _)");    /* 4 */
+    ais_put(&a, "e due:2026-11-0",        "a one-digit day");           /* 5 */
+    ais_put(&a, "f due:\xef\xbc\x92\xef\xbc\x90\xef\xbc\x92\xef\xbc\x90", "fullwidth digits"); /* 6 */
+    ais_put(&a, "g due:\xd9\xa2\xd9\xa0\xd9\xa2\xd9\xa0", "arabic-indic digits");           /* 7 */
+    ais_put(&a, "h due:",                 "the bare prefix");           /* 8 */
+    ais_put(&a, "i due:-026",             "a dash for a digit");        /* 9 */
+    ais_put(&a, "j due:2026--1",          "a dash for a digit, later"); /* 10 */
+    ais_put(&a, "k due:2026-11-",         "a trailing dash");           /* 11 */
+    ais_put(&a, "l due:2026-11-02-",      "an 11th character");         /* 12 */
+    ais_put(&a, "m due:2026-11-02.",      "a trailing dot");            /* 13 */
+    CHECK(due_count(&a, "9999-12-31", &v) == 0, "due edges: 13 malformed shapes, none elapses");
+    ais_put(&a, "n Due:2026-11-02", "mixed case");                      /* 14 */
+    CHECK(due_count(&a, "2026-11-02", &v) == 1 && v.ids[0] == 14, "due edges: Due: folds like DUE:");
+    CHECK(ais_update(&a, 14, "-due:2026-11-02") == 0 && due_count(&a, "2026-11-02", &v) == 0,
+          "due edges: a mixed-case key detaches by its folded name");
+    CHECK(ais_due(&a, "", collect_due, &v) == 0, "due edges: an empty today means today, not an error");
+    CHECK(ais_due(&a, "2026-11-2", collect_due, &v) == -1, "due edges: a 9-character today is an error");
+    CHECK(ais_due(&a, "2026-11-02T", collect_due, &v) == -1, "due edges: an 11-character today is an error");
+    CHECK(ais_due(&a, "2026-11-02", NULL, &v) == -1, "due edges: a NULL callback is an error");
+    CHECK(ais_due(NULL, "2026-11-02", collect_due, &v) == -1, "due edges: a NULL handle is an error");
+    ais_close(&a);
+
+    /* the cap: 70 elapsed keys, one per record; the 64 lexically smallest are
+     * merged, the rest appear as those are cleared */
+    scratch_rm(dir);
+    ais_open(&a, dir);
+    for (i = 0; i < 70; i++) {
+        snprintf(keys, sizeof keys, "cap due:%04d", 1900 + i);
+        snprintf(val, sizeof val, "capped %d", i);
+        ais_put(&a, keys, val);                                   /* id i + 1 */
+    }
+    CHECK(due_count(&a, "2026-11-02", &v) == AIS_KEYS_MAX && v.ids[0] == 1 && v.ids[63] == 64,
+          "due edges: 70 elapsed keys, the 64 smallest dates are merged, ids 1..64");
+    ais_update(&a, 1, "-due:1900");
+    CHECK(due_count(&a, "2026-11-02", &v) == AIS_KEYS_MAX && v.ids[0] == 2 && v.ids[63] == 65,
+          "due edges: clearing the smallest lets the 65th key in");
+    for (i = 1; i < 6; i++) {
+        snprintf(keys, sizeof keys, "-due:%04d", 1900 + i);
+        ais_update(&a, i + 1, keys);
+    }
+    CHECK(due_count(&a, "2026-11-02", &v) == AIS_KEYS_MAX && v.ids[0] == 7 && v.ids[63] == 70,
+          "due edges: six cleared, all 64 remaining keys merged");
+    /* a record under a kept key and a dropped one is emitted once, by the kept */
+    ais_update(&a, 70, "due:1800");
+    CHECK(due_count(&a, "2026-11-02", &v) == AIS_KEYS_MAX && v.ids[0] == 7 && v.ids[63] == 70,
+          "due edges: a record under a kept and a dropped key is emitted once, by the kept");
+    ais_close(&a);
+
+    /* deleted records: a deleted record's due key still has a posting file, so
+     * 64 of them must not hide a live reminder under a larger key */
+    scratch_rm(dir);
+    ais_open(&a, dir);
+    for (i = 0; i < AIS_KEYS_MAX; i++) {
+        snprintf(keys, sizeof keys, "dead due:%04d", 1900 + i);
+        snprintf(val, sizeof val, "deleted %d", i);
+        ais_put(&a, keys, val);                                   /* id i + 1 */
+        ais_del(&a, i + 1);
+    }
+    ais_put(&a, "alive due:2000", "the live reminder");           /* id 65 */
+    CHECK(due_count(&a, "2026-11-02", &v) == 1 && v.ids[0] == 65,
+          "due edges: 64 deleted records under smaller due keys do not hide the live one");
+    CHECK(ais_compact(&a) == 0 && due_count(&a, "2026-11-02", &v) == 1 && v.ids[0] == 65,
+          "due edges: after compaction the live one is still the one");
+    CHECK(ais_update(&a, 1, "due:1700") != 0, "due edges: a due key cannot be attached to a deleted record");
+    CHECK(due_count(&a, "2026-11-02", &v) == 1, "due edges: so it is not due");
+    ais_close(&a);
+
+    /* several due keys on one record, and the row's keys field */
+    scratch_rm(dir);
+    ais_open(&a, dir);
+    ais_put(&a, "tri due:2020 due:2021 due:2099", "three reminders");    /* 1 */
+    t.n = 0; ais_due(&a, "2026-11-02", collect_tl, &t);
+    CHECK(t.n == 1 && strstr(t.r[0].keys, "due:2020") != NULL && strstr(t.r[0].keys, "due:2021") != NULL
+          && strstr(t.r[0].keys, "due:2099") != NULL,
+          "due edges: two elapsed keys and a future one: once, all three keys shown");
+    ais_update(&a, 1, "-due:2020");
+    CHECK(due_count(&a, "2026-11-02", &v) == 1, "due edges: still due by the second elapsed key");
+    ais_update(&a, 1, "-due:2021");
+    CHECK(due_count(&a, "2026-11-02", &v) == 0, "due edges: both detached: not due, the future key waits");
+    CHECK(due_count(&a, "2099-01-01", &v) == 1, "due edges: and comes due in 2099");
+    t.n = 0; ais_due(&a, "2099-01-01", collect_tl, &t);
+    CHECK(t.n == 1 && strstr(t.r[0].keys, "due:2020") == NULL && strstr(t.r[0].keys, "due:2099") != NULL,
+          "due edges: the detached keys are gone from the row's keys field");
+
+    /* the callback's stop code comes back and stops the walk (ais.h) */
+    ais_put(&a, "s1 due:2000", "stop one");                             /* 2 */
+    ais_put(&a, "s2 due:2001", "stop two");                             /* 3 */
+    v.n = 0; v.stop = 1;
+    rc = ais_due(&a, "2026-11-02", collect_due, &v);
+    CHECK(rc == -7, "due edges: a callback returning -7 makes ais_due return -7");
+    CHECK(v.n == 1, "due edges: and the walk stops after that row");
+    ais_close(&a);
+
+    /* the MCP tool after a save through the MCP itself (a read-write session) */
+    scratch_rm(dir);
+    ais_open(&a, dir);
+    mcp_session(&a, 0,
+        "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{}}\n"
+        "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/call\",\"params\":"
+        "{\"name\":\"save\",\"arguments\":{\"value\":\"saved by the agent\",\"keys\":\"agent due:2020\"}}}\n"
+        "{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"tools/call\",\"params\":{\"name\":\"due\"}}\n"
+        "{\"jsonrpc\":\"2.0\",\"id\":4,\"method\":\"tools/call\",\"params\":"
+        "{\"name\":\"due\",\"arguments\":{}}}\n",
+        out, sizeof out);
+    CHECK(strstr(out, "|agent due:2020|saved by the agent") != NULL, "due edges: mcp save with a due key, then due lists it");
+    CHECK(strstr(out, "takes none") == NULL, "due edges: mcp due with no arguments field at all is not refused");
+    ais_close(&a);
+    scratch_rm(dir);
+}
+
 static void test_timeline_key(void)
 {
     const char *dir = "/tmp/ais_ut_tlkey";
@@ -2012,6 +2282,15 @@ static void test_embed(void)
     ais_embed_free(r);
     CHECK(ais_embed_timeline_key(h, "", 0, 0, "", "") == NULL,
           "embed: timeline_key with an empty key is NULL");
+    ais_embed_store(h, "due-test due:2030", "a reminder");
+    r = ais_embed_due(h, "2099-12-31");         /* every due key elapses by then */
+    CHECK(r != NULL && strstr(r, "|due-test due:2030|a reminder") != NULL,
+          "embed due: a timeline row per elapsed due key, today given by the host");
+    ais_embed_free(r);
+    r = ais_embed_due(h, "2029-12-31");
+    CHECK(r != NULL && r[0] == '\0', "embed due: nothing due before the key's year, an empty string");
+    ais_embed_free(r);
+    CHECK(ais_embed_due(NULL, "2029-12-31") == NULL, "embed due: a NULL handle is NULL");
 
     r = ais_embed_tags(h);                               /* count|key, busiest first */
     CHECK(r != NULL && strncmp(r, "2|venice\n", 9) == 0,
@@ -7672,6 +7951,7 @@ int main(void)
     test_key_too_long();
     test_timeline_long_value();
     test_mcp_key_rule();
+    test_mcp_due();
     test_mcp_save_after_another_writer();
     test_blob_symlink();
     test_store_overlong_line();
@@ -7724,6 +8004,9 @@ int main(void)
     test_timeline_stale_off_slot();
     test_timeline_dates();
     test_timeline_key();
+    printf("due keys (due.c):\n");
+    test_due();
+    test_due_edges();
     printf("tags:\n");
     test_tags();
     printf("keyset pages (get_page / tags_page):\n");

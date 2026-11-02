@@ -201,6 +201,12 @@ char *ais_embed_timeline(void *handle, long before_id, int count,
 char *ais_embed_timeline_key(void *handle, const char *key, long before_id,
                              int count, const char *from, const char *to);
 
+/* The due rows (ais_due): every live record under an elapsed "due:DATE" key,
+ * once each, id ascending, as the same "id|ts|keys|value\n" lines. TODAY is
+ * "YYYY-MM-DD" in the host's local time, or "" / NULL for the engine's own
+ * local day. Free with ais_embed_free(); NULL only on bad args. */
+char *ais_embed_due(void *handle, const char *today);
+
 /* Every distinct key as "count|key\n" lines, busiest first. Free with
  * ais_embed_free(). NULL only on bad args / allocation failure. */
 char *ais_embed_tags(void *handle);

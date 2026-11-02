@@ -525,6 +525,17 @@ char *ais_embed_timeline_key(void *handle, const char *key, long before_id,
     return buf_finish(&b, c.oom);
 }
 
+char *ais_embed_due(void *handle, const char *today)
+{
+    struct buf b = { NULL, 0, 0 };
+    struct emit_ctx c = { &b, 0 };
+
+    if (handle == NULL)
+        return NULL;
+    ais_due((ais *)handle, (today && today[0]) ? today : NULL, tl_emit, &c);
+    return buf_finish(&b, c.oom);
+}
+
 char *ais_embed_tags_page(void *handle, long after_count, const char *after_key,
                           int count)
 {

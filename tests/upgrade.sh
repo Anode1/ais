@@ -72,6 +72,13 @@ ok "upgrade: compaction keeps the old records"  "example.org/one" "$("$NEW" -f "
 ok "upgrade: and the old document"              "second line"     "$("$NEW" -f "$A" paper 2>/dev/null)"
 no "upgrade: and does not revive the deleted one" "doomed"        "$("$NEW" -f "$A" --dump 2>/dev/null)"
 
+# --- a reminder key is a plain key to the old binary ---------------------------
+"$NEW" -f "$A" -v "flush the tank" tank due:2020 >/dev/null
+ok "due: the new binary lists the elapsed reminder"  "flush the tank" "$("$NEW" -f "$A" --due 2>/dev/null)"
+ok "due: the old binary recalls it by the due key"   "flush the tank" "$("$OLD" -f "$A" due:2020 2>/dev/null)"
+ok "due: and by its other key"                       "flush the tank" "$("$OLD" -f "$A" tank 2>/dev/null)"
+no "due: the old binary's recall output is unchanged" "due: ais"     "$("$OLD" -f "$A" tank 2>&1)"
+
 # --- the OLD binary can still use the index the new one has now written -------
 ok "downgrade: the old binary still reads it" "added after the upgrade" \
    "$("$OLD" -f "$A" fresh 2>/dev/null)"

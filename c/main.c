@@ -7,7 +7,7 @@
  *   -k KEY        an explicit key (the same as a bare KEY)
  *   -i            interactive: ask keys per piped line
  *   --CMD         a command: find add update set del del-under (del-key, its
- *                 old name) untag dedupe-docs dump keys tags timeline stats
+ *                 old name) untag dedupe-docs dump keys tags timeline due stats
  *                 compact init import import-interactively import-bookmarks
  *                 import-keep export sync sync-folder where serve mcp project
  *                 default switch indexes forget doc. Operands are the bare
@@ -325,6 +325,29 @@ static int print_tl(long id, const char *ts, const char *keys,
     return 0;
 }
 
+/* The due rows (see ais_due): --due prints them as --timeline rows; the hint
+ * before a recall or --timeline only counts them. */
+struct due_out { FILE *fp; long n; };
+static int due_tl(long id, const char *ts, const char *keys, const char *value, void *vp)
+{
+    struct due_out *o = vp;
+    o->n++;
+    return o->fp != NULL ? print_tl(id, ts, keys, value, o->fp) : 0;
+}
+
+/* One line, "N due: ais --due", on stderr and only at a terminal, before a
+ * recall or --timeline: a script reading stdout sees nothing new, and an index
+ * with no due key costs one readdir. */
+static void due_hint(ais *a)
+{
+    struct due_out o = { NULL, 0 };
+    if (!isatty(STDERR_FILENO))
+        return;
+    if (ais_due(a, NULL, due_tl, &o) < 0 || o.n == 0)
+        return;
+    fprintf(stderr, "%ld due: ais --due\n", o.n);
+}
+
 /* One registered index as "<*| > name\tpath" for --indexes; '*' = the current. */
 struct index_ctx { const char *cur; };
 static int print_index(const char *name, const char *path, void *vp)
@@ -447,7 +470,7 @@ enum { OPT_HELP = 1000, OPT_VERSION, OPT_TOKEN, OPT_PURGE,
        CMD_COMPACT, CMD_INIT, CMD_IMPORT, CMD_IMPORTI, CMD_WHERE, CMD_SERVE, CMD_PROJECT,
        CMD_DOC, CMD_TIMELINE, CMD_TAGS, CMD_DEFAULT, CMD_UPDATE, CMD_SET, CMD_UNTAG,
        CMD_SWITCH, CMD_INDEXES, CMD_FORGET, CMD_EXPORT, CMD_SYNC, CMD_SYNCFOLDER,
-       CMD_DEDUPE, CMD_IMPORTBM, CMD_IMPORTKEEP, CMD_MCP };
+       CMD_DEDUPE, CMD_IMPORTBM, CMD_IMPORTKEEP, CMD_MCP, CMD_DUE };
 static const struct option longopts[] = {
     { "index",       required_argument, NULL, 'f' },
     { "or",          no_argument,       NULL, 'o' },
@@ -477,6 +500,7 @@ static const struct option longopts[] = {
     { "keys",        no_argument,       NULL, CMD_KEYS },
     { "tags",        no_argument,       NULL, CMD_TAGS },
     { "timeline",    no_argument,       NULL, CMD_TIMELINE },
+    { "due",         no_argument,       NULL, CMD_DUE },
     { "stats",       no_argument,       NULL, CMD_STATS },
     { "compact",     no_argument,       NULL, CMD_COMPACT },
     { "forget-deleted", no_argument,    NULL, OPT_PURGE },
@@ -568,7 +592,7 @@ int main(int argc, char **argv)
         case CMD_DEFAULT: case CMD_UPDATE: case CMD_SET: case CMD_UNTAG:
         case CMD_SWITCH: case CMD_INDEXES: case CMD_FORGET: case CMD_SYNC:
         case CMD_SYNCFOLDER: case CMD_DEDUPE: case CMD_IMPORTBM: case CMD_IMPORTKEEP:
-        case CMD_MCP:
+        case CMD_MCP: case CMD_DUE:
             if (cmd != 0) die("only one command at a time");
             cmd = c;
             break;
@@ -653,7 +677,14 @@ int main(int argc, char **argv)
         case CMD_TAGS:  if (ais_tags(&a, print_tag, stdout) < 0) die("tags failed"); break;
         case CMD_TIMELINE: {
             int lim = (optind < argc) ? atoi(argv[optind]) : 0;   /* optional N */
+            due_hint(&a);
             if (ais_timeline(&a, 0, lim, "", "", print_tl, stdout) < 0) die("timeline failed");
+            break;
+        }
+        case CMD_DUE: {                       /* the records whose due: key has elapsed */
+            struct due_out o = { stdout, 0 };
+            if (ais_due(&a, NULL, due_tl, &o) < 0) die("due failed");
+            if (o.n == 0) rc = 1;             /* nothing due, like grep */
             break;
         }
         case CMD_STATS: if (ais_stats(&a, stdout) != 0) die("stats failed"); break;
@@ -1217,6 +1248,7 @@ int main(int argc, char **argv)
             kv[nk++] = tok;
         int rfail = 0;
         if (nk == 0) { usage_short(stderr); ais_close(&a); return 2; }
+        due_hint(&a);
         if (do_get(&a, kv, nk, mode, &rfail) == 0) {
             hint_command_word(kv[0]);   /* `ais dump` was probably `ais --dump` */
             ais_close(&a);

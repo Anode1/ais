@@ -10,13 +10,14 @@ GUI is still in progress. The layers also have their own targets (`codeut`, `cli
 
 | Layer | What it covers | Where |
 |-------|----------------|-------|
-| engine (codeut) | the `ais.h` API directly: key/store/get/add/del, compact, find, timeline, crypto + secret marker | `c/tests.c` (`make codeut`) |
+| engine (codeut) | the `ais.h` API directly: key/store/get/add/del, compact, find, timeline, due keys, crypto + secret marker | `c/tests.c` (`make codeut`) |
 | ffi stack budget | that the save and import paths still fit the ~512 KB stack a Dart isolate gives the engine | `tests/stack/` |
 | upgrade from a release | an index a PREVIOUS release made, opened, written and compacted by this build, plus the mixed old/new mesh a staggered rollout creates | `tests/upgrade.sh` (set `AIS_OLD`; SKIPs without it) |
 | cli (cliut) | the real binary: streaming stdin (`-v -`), pipelines, argv, index discovery | `tests/cli.sh` (`make cliut`) |
 | two-way sync (loopback) | two CLI peers on 127.0.0.1: the transport, and a wrong `--token` refused | `tests/sync.sh` |
 | mesh sync (four devices) | the merge across a four-device topology with saves, edits, deletes, detaches and re-attaches between legs | `tests/mesh.sh` |
 | encrypt over a pty | the CLI `-e` prompts end to end over a real pseudo-terminal | `tests/pty/encrypt.sh` |
+| due hint over a pty | the one-line `N due` hint a recall or `--timeline` prints only at a terminal | `tests/pty/due.sh` |
 
 **GUI -- the front-ends over the one engine. May lag; absent toolchain SKIPs.**
 

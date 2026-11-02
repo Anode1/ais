@@ -466,11 +466,14 @@ static const char PAGE[] =
 "if(added)$('count').textContent=tagN?tagN+' result'+(tagN==1?'':'s')+' + '+added+' in the text':added+' result'+(added==1?'':'s');"
 "if(rcProj&&(added||tagN))o.appendChild(scopeLine())}"
 /* per-row edit (attach/detach keys by id), which refreshes the view, and delete,
- * which hides the row behind Undo */
-"function rowActions(id,v){var d=document.createElement('div');d.className='act';"
+ * which hides the row behind Undo. Done and Later (GUI.md, "The Due group")
+ * appear above edit when the row's keys, where known, hold an elapsed due key. */
+"function rowActions(id,v,ks){var d=document.createElement('div');d.className='act';"
 "var m=document.createElement('button');m.className='actbtn';m.textContent='\\u22EE';m.title='more';m.style.fontSize='1.2rem';"
 "var box=document.createElement('span');box.className='actmenu';box.hidden=true;"
 "if(v.indexOf('aisc:')!=0){var c=document.createElement('button');c.className='actbtn';c.textContent='copy';c.onclick=function(){copyText(v.indexOf('aisdoc:')==0?docText(v):v,c)};box.appendChild(c)}"
+"var dk=dueKeys(ks);if(dk.length){var dn=document.createElement('button');dn.className='actbtn due';dn.textContent='Done';dn.onclick=function(){dueDone(id,dk)};"
+"var lt=document.createElement('button');lt.className='actbtn due';lt.textContent='Later';lt.onclick=function(){dueLater(id,dk,lt)};box.appendChild(dn);box.appendChild(lt)}"
 "var e=document.createElement('button');e.className='actbtn';e.textContent='edit';e.onclick=function(){openEdit(id,v)};"
 "var x=document.createElement('button');x.className='actbtn del';x.textContent='\\u2715 delete';x.onclick=function(){delRec(id)};"
 "box.appendChild(e);box.appendChild(x);m.onclick=function(){box.hidden=!box.hidden};"
@@ -538,24 +541,65 @@ static const char PAGE[] =
 "var d=new Date(ts);if(isNaN(d.getTime()))return null;"
 "var p=function(n){return(n<10?'0':'')+n};"
 "return{day:d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate()),time:p(d.getHours())+':'+p(d.getMinutes())}}"
+/* one Recent row from a parsed timeline line: the Due group builds its rows here too */
+"function metaText(tm,ks){var kk=ks?metaKeys(ks):'(no tags)';return tm&&kk?tm+' \\u00b7 '+kk:tm||kk}"
+"function tlRow(r){var lt=locDT(r.ts),row=document.createElement('div');row.className='hit';if(r.id)row.dataset.id=r.id;"
+"(r.value.indexOf('aisc:')==0?fillSecret(row,r.value):r.value.indexOf('aisdoc:')==0?fillDoc(row,r.value):fillVal(row,r.value));if(notHere(r.value))row.appendChild(awayBadge());"
+"var m=document.createElement('div');m.className='meta';row.dataset.tm=lt&&lt.time?lt.time:'';row.dataset.keys=r.keys||'';"
+"m.textContent=metaText(row.dataset.tm,row.dataset.keys);row.appendChild(m);"
+"if(r.id)row.appendChild(rowActions(r.id,r.value,r.keys));return row}"
+/* The Due group (GUI.md): /api/due on every fresh Recent load, whatever the chip
+ * or the range; absent when nothing is due; five rows, the rest behind "N more
+ * due". A key has elapsed when its date, YYYY[-MM[-DD]], is not after the local
+ * day cut to the same length: the engine's rule, on the page's clock. */
+"function dueToday(){var d=new Date(),p=function(n){return(n<10?'0':'')+n};return d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate())}"
+"function dueKeys(ks){if(!ks)return[];var t=dueToday();return ks.split(' ').filter(function(k){var m=/^due:(\\d{4}(?:-\\d{2}(?:-\\d{2})?)?)$/.exec(k);return !!m&&m[1]<=t.slice(0,m[1].length)})}"
+"async function dueRows(){try{return(await(await fetch('/api/due')).text()).split('\\n').filter(function(s){return s.length}).map(parseTL)}catch(e){return[]}}"
+"function dueRender(o,R){var old=$('due');if(old)old.remove();if(!R.length)return;"
+"var g=document.createElement('div');g.id='due';var h=document.createElement('div');h.className='daygroup';h.textContent='Due';g.appendChild(h);"
+"var rest=[];R.forEach(function(r,i){var row=tlRow(r);if(i>=5){row.style.display='none';rest.push(row)}g.appendChild(row)});"
+"if(rest.length){var b=document.createElement('button');b.className='loadmore';b.id='duemore';b.textContent=rest.length+' more due';"
+"b.onclick=function(){rest.forEach(function(r){r.style.display=''});b.remove()};g.appendChild(b)}"
+"o.insertBefore(g,o.firstChild)}"
+"async function dueRefresh(){if(view!='timeline')return;var g=viewGen,R=await dueRows();if(g!=viewGen)return;dueRender($('out'),R)}"
+"function dueGroupRows(id){return[].filter.call(document.querySelectorAll('#due .hit'),function(r){return r.dataset.id==id})}"
+/* the header goes with its last visible row, and comes back with it on Undo */
+"function dueTrim(){var g=$('due');if(!g)return;var vis=function(){return[].filter.call(g.querySelectorAll('.hit'),function(r){return r.style.display!='none'}).length};"
+"var b=$('duemore');if(!vis()&&b)b.onclick();g.style.display=vis()?'':'none'}"
+/* the same record's other rows: the keys change on their tag line, the two buttons go */
+"function dueDrop(id,dk,nk){[].forEach.call(document.querySelectorAll('.hit'),function(r){if(r.dataset.id!=id||r.dataset.keys===undefined||r.parentNode.id=='due')return;"
+"var ks=r.dataset.keys.split(' ').filter(function(k){return k&&dk.indexOf(k)<0});if(nk)ks.push(nk);r.dataset.keys=ks.join(' ');"
+"var m=r.querySelector('.meta');if(m)m.textContent=metaText(r.dataset.tm,r.dataset.keys);"
+"[].forEach.call(r.querySelectorAll('.actbtn.due'),function(b){b.remove()})})}"
+/* Done: the delete's deferred-commit window; the detach is sent when it lapses, never on Undo */
+"function dueDone(id,dk){delFlush();toastClaim();$('toast').firstChild.textContent='Done';"
+"var rows=dueGroupRows(id);rows.forEach(function(r){r.style.display='none'});dueTrim();delRow=null;"
+"delCommit=function(){fetch('/api/update?id='+id+'&keys='+encodeURIComponent(dk.map(function(k){return'-'+k}).join(' ')),{method:'POST'}).then(function(){dueDrop(id,dk);dueRefresh()})};"
+"delUndoFn=function(){rows.forEach(function(r){r.style.display=''});dueTrim()};"
+"$('toast').hidden=false;delTimer=setTimeout(delFlush,5000)}"
+/* Later: the button becomes a date input; a chosen day rewrites the key at once */
+"function dueLater(id,dk,btn){var i=document.createElement('input');i.type='date';i.className='duedate';btn.replaceWith(i);i.focus();"
+"i.onkeydown=function(e){if(e.key==='Escape')i.replaceWith(btn)};"
+"i.onchange=async function(){var d=i.value;if(!d)return;var ks=dk.map(function(k){return'-'+k});ks.push('due:'+d);"
+"try{var r=await fetch('/api/update?id='+id+'&keys='+encodeURIComponent(ks.join(' ')),{method:'POST'});if(!r.ok){alert((await r.text()).trim());return}}"
+"catch(e){alert('Couldn\\'t reach AIS. Check it is still running, then try again.');return}"
+"dueGroupRows(id).forEach(function(r){r.style.display='none'});dueTrim();dueDrop(id,dk,'due:'+d);if(syncFolderSaved())syncFolderRun(true);dueRefresh()}}"
 /* keyset paging: each call fetches `count` records older than the last id shown
  * (tlBefore); 'more' appends, otherwise it reloads from the newest. */
 "async function loadTimeline(more){var o=$('out');var g=viewGen;"
 "var f=$('tlfrom')?$('tlfrom').value:'',tt=$('tlto')?$('tlto').value:'';"
 "if(!more){tlBefore=0;tlDay=null;tlN=0;o.className='';o.innerHTML=''}"
 "var u='/api/timeline?count='+tlPage+(tlBefore>0?'&before='+tlBefore:'')+(f?'&from='+f:'')+(tt?'&to='+tt:'')+(proj?'&key='+encodeURIComponent(proj):'');"
+"var D=more?[]:await dueRows();"                          /* a fresh load asks what is due first */
 "var L=(await(await fetch(u)).text()).split('\\n').filter(function(s){return s.length});"
 "if(g!=viewGen)return;"                                  /* the view moved on: drop it */
 "var mb=$('tlmore');if(mb)mb.remove();"
-"if(!tlN&&!L.length){if(proj&&!f&&!tt){projEnded();return}o.innerHTML=(f||tt)?'<div class=empty><p>Nothing in that range.</p></div>':emptyCTA;$('count').textContent='';return}"
+"if(!tlN&&!L.length){if(proj&&!f&&!tt){projEnded();return}o.innerHTML=(f||tt)?'<div class=empty><p>Nothing in that range.</p></div>':emptyCTA;$('count').textContent='';dueRender(o,D);return}"
 "L.forEach(function(ln){var r=parseTL(ln),lt=locDT(r.ts),d=lt?lt.day:'';"
 "if(d!==tlDay){tlDay=d;var h=document.createElement('div');h.className='daygroup';"
 "h.textContent=d?fmtDay(d):'(undated)';o.appendChild(h)}"
-"var row=document.createElement('div');row.className='hit';if(r.id)row.dataset.id=r.id;(r.value.indexOf('aisc:')==0?fillSecret(row,r.value):r.value.indexOf('aisdoc:')==0?fillDoc(row,r.value):fillVal(row,r.value));if(notHere(r.value))row.appendChild(awayBadge());"
-"var m=document.createElement('div');m.className='meta';"
-"var tm=lt&&lt.time?lt.time:'',kk=r.keys?metaKeys(r.keys):'(no tags)';"
-"m.textContent=tm&&kk?tm+' \\u00b7 '+kk:tm||kk;row.appendChild(m);"
-"if(r.id){row.appendChild(rowActions(r.id,r.value));tlBefore=r.id}o.appendChild(row)});"
+"o.appendChild(tlRow(r));if(r.id)tlBefore=r.id});"
+"if(!more)dueRender(o,D);"
 "tlN+=L.length;$('count').textContent=tlN+' item'+(tlN==1?'':'s');"
 "if(L.length==tlPage){var b=document.createElement('button');b.id='tlmore';b.className='loadmore';"
 "b.textContent='Load more';b.onclick=pageMore;o.appendChild(b)}}"
@@ -2216,6 +2260,13 @@ static void handle(ais *a, int fd)
             ais_timeline_key(a, tlkey, before, count, tlfrom, tlto, tl_sink, &s);
         else
             ais_timeline(a, before, count, tlfrom, tlto, tl_sink, &s);  /* keyset page + date range */
+    } else if (strcmp(method, "GET") == 0 && strcmp(path, "/api/due") == 0) {
+        /* The reminders: every record under an elapsed due: key, the timeline's
+         * row shape, id ascending. The server's local day decides. */
+        struct sink s;
+        s.a = a; s.fd = fd;
+        send_head(fd, "text/plain");
+        ais_due(a, NULL, tl_sink, &s);
     } else if (strcmp(method, "GET") == 0 && strcmp(path, "/api/tags") == 0) {
         struct sink s;
         s.a = a; s.fd = fd;

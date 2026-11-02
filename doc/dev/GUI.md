@@ -47,6 +47,26 @@ a search is ANDed with it, a new item gets it, and it is kept per device and per
 library. The engine sees an ordinary tag. The behaviour, gestures and words are
 in [project-chip/SPEC.md](project-chip/SPEC.md), with a mock beside it.
 
+## The Due group (the wording, LOCKED)
+
+A record filed under `due:YYYY[-MM[-DD]]` is due from that day. Each front end
+asks the engine on open (`/api/due`, `ais_embed_due`) and shows the rows at the
+top of Recent as a group headed **Due**, in the day headers' style, built by the
+same row code as every Recent row: same tap, same menu, the due key visible on
+the tag line. The group is absent when nothing is due, scrolls with the list,
+takes no focus, and has no tint, no animation and no badge. At most five rows
+show; a sixth line, **N more due**, expands the group in place. The record
+keeps its place in its own day group below, and the group ignores the project
+chip: a record is due whatever the user is working in.
+
+Two actions, in the row menu above "Edit tags" on any row whose tag line
+carries an elapsed due key, both edits that sync: **Done** detaches that key,
+with the delete snackbar's Undo window ("Done" with Undo, as "Deleted" has),
+and **Later** opens the date picker and rewrites the key to the chosen day,
+`due:YYYY-MM-DD`. No dismiss, no snooze that hides without editing, no "Done
+all", no confirmation dialog. The engine side is in LAYOUT.md, "Reminders: the
+due key".
+
 ## Untag vs delete-under (the wording, LOCKED)
 
 `--untag KEY` and `--del-under KEY` are one keystroke apart and opposite in

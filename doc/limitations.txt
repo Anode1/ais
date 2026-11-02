@@ -16,6 +16,8 @@ Sizes (compile-time, c/common.h)
                          before anything is stored, because a posting that cannot
                          be opened leaves the record under no tag.
   AIS_KEYS_MAX      64   keys per record AND per query (the k-way merge width).
+                         Also the most elapsed due: keys --due merges at once
+                         (the earliest dates first; the rest follow as those clear).
   AIS_PATH_MAX    4096   any built path (dir + "idx/" + prefix + key).
   AIS_OFF_WIDTH     12   "off" entry = 11-digit (offset+1): the store is capped
                          near 90 GB before offsets overflow (raise to lift it).

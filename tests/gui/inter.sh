@@ -43,6 +43,8 @@ fi
 "$AIS" -f "$IDX" -v "https://example.org/venice" venice >/dev/null 2>&1
 "$AIS" -f "$IDX" -v "https://example.org/canal"  venice trip >/dev/null 2>&1
 "$AIS" -f "$IDX" --add 2 -v "https://example.org/canal-2" >/dev/null 2>&1  # a 2nd LINK, not a 2nd record
+"$AIS" -f "$IDX" -v "https://example.org/tank-flush" tank due:2020 >/dev/null 2>&1   # due, lists in the Due group
+"$AIS" -f "$IDX" -v "https://example.org/tank-later" tank due:2099 >/dev/null 2>&1   # not yet
 AIS_NO_OPEN=1 "$AIS" -f "$IDX" --serve "$SPORT" >/dev/null 2>&1 &
 SRV=$!
 "$BR" --headless --disable-gpu --no-sandbox --disable-extensions --no-first-run \
@@ -69,6 +71,8 @@ IDX2="$TMP/idx2"; SPORT2=$(( SPORT + 900 )); SRV2=   # +1 would collide with ui.
 "$AIS" -f "$IDX2" -v "https://example.org/venice" venice >/dev/null 2>&1
 "$AIS" -f "$IDX2" -v "https://example.org/canal"  venice trip >/dev/null 2>&1
 "$AIS" -f "$IDX2" --add 2 -v "https://example.org/canal-2" >/dev/null 2>&1
+"$AIS" -f "$IDX2" -v "https://example.org/tank-flush" tank due:2020 >/dev/null 2>&1   # due, lists in the Due group
+"$AIS" -f "$IDX2" -v "https://example.org/tank-later" tank due:2099 >/dev/null 2>&1   # not yet
 AIS_WEB="$APPDIR" AIS_NO_OPEN=1 "$AIS" -f "$IDX2" --serve "$SPORT2" >/dev/null 2>&1 &
 SRV2=$!
 S2="http://127.0.0.1:$SPORT2"

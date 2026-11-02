@@ -326,6 +326,24 @@ int ais_timeline(ais *a, long before_id, int count,
 int ais_timeline_key(ais *a, const char *key, long before_id, int count,
                      const char *from, const char *to, ais_tl_cb cb, void *ctx);
 
+/* A reminder is a key: "due:" followed by a date in the store's own ISO shape cut
+ * to what is known, due:2028, due:2028-11 or due:2028-11-02. The key is ELAPSED
+ * once TODAY, cut to the key's length, is not before its date, so due:2028 is due
+ * from 2028-01-01 and due:2028-11 from 2028-11-01; any other text after "due:"
+ * is a plain key and never elapses. TODAY is "YYYY-MM-DD", the local calendar
+ * day (a reminder is a day where the user is, not the UTC the store stamps), or
+ * NULL for today. Emits every live record filed under an elapsed key, once each,
+ * id ascending (oldest saved first), as timeline rows; the keys field carries
+ * the due key, so a caller can show it and detach it (ais_update "-due:...").
+ * Reads only the "du" shard, so an index with no due key costs one readdir.
+ * Bounded: at most AIS_KEYS_MAX elapsed keys with a live record are merged at
+ * once, the lexically smallest (longest overdue) first; the rest appear as
+ * those are cleared, and a key whose every record is deleted takes no slot.
+ * The record itself is unchanged: nothing on disk marks a reminder as seen.
+ * Returns 0, the callback's stop code, or -1 on error (a TODAY that is not
+ * exactly "YYYY-MM-DD" among them). */
+int ais_due(ais *a, const char *today, ais_tl_cb cb, void *ctx);
+
 /* Callback for ais_tags(): one distinct key and how many records are filed
  * under it (its posting count). Return 0 to continue, negative to stop. */
 typedef int (*ais_tag_cb)(const char *key, long count, void *ctx);

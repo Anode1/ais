@@ -57,6 +57,9 @@ typedef _TimelineKeyC = Pointer<Utf8> Function(
     Pointer<Void>, Pointer<Utf8>, Int64, Int32, Pointer<Utf8>, Pointer<Utf8>);
 typedef _TimelineKeyD = Pointer<Utf8> Function(
     Pointer<Void>, Pointer<Utf8>, int, int, Pointer<Utf8>, Pointer<Utf8>);
+// (handle, today): the rows under an elapsed due:DATE key, id ascending
+typedef _DueC = Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>);
+typedef _DueD = Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>);
 // (handle, after_count, after_key, count) -- keyset page over the tag cloud
 typedef _TagsPageC = Pointer<Utf8> Function(Pointer<Void>, Int64, Pointer<Utf8>, Int32);
 typedef _TagsPageD = Pointer<Utf8> Function(Pointer<Void>, int, Pointer<Utf8>, int);
@@ -174,6 +177,7 @@ class AisEngine {
       _lib.lookupFunction<_TimelineC, _TimelineD>('ais_embed_timeline');
   late final _TimelineKeyD _timelineKeyFn =
       _lib.lookupFunction<_TimelineKeyC, _TimelineKeyD>('ais_embed_timeline_key');
+  late final _DueD _dueFn = _lib.lookupFunction<_DueC, _DueD>('ais_embed_due');
   late final _TagsPageD _tagsPageFn =
       _lib.lookupFunction<_TagsPageC, _TagsPageD>('ais_embed_tags_page');
   late final _KeysD _keysFn = _lib.lookupFunction<_KeysC, _KeysD>('ais_embed_keys');
@@ -277,17 +281,38 @@ class AisEngine {
         p = _timelineKeyFn(_h, k, before, count, f, t);
       }
       if (p == nullptr) return const [];
-      return p.toDartString().split('\n').where((l) => l.isNotEmpty).map((l) {
+      return _rows(p.toDartString());
+    } finally {
+      if (f != nullptr) calloc.free(f);
+      if (t != nullptr) calloc.free(t);
+      if (k != nullptr) calloc.free(k);
+      if (p != nullptr) _free(p);
+    }
+  }
+
+  // "id|ts|keys|value" lines, the timeline's and the due list's shape.
+  static List<TlRow> _rows(String s) =>
+      s.split('\n').where((l) => l.isNotEmpty).map((l) {
         final a = l.indexOf('|'),
             b = l.indexOf('|', a + 1),
             c = l.indexOf('|', b + 1); // value may contain '|', so take the rest
         return TlRow(int.tryParse(l.substring(0, a)) ?? 0,
             l.substring(a + 1, b), l.substring(b + 1, c), l.substring(c + 1));
       }).toList();
+
+  /// The due rows: every live record under an elapsed due:DATE key, once each,
+  /// id ascending, in the timeline's row shape. [today] is "YYYY-MM-DD" in the
+  /// app's local time ('' = the engine's own local day); pass the app's so the
+  /// two agree on the day.
+  List<TlRow> due({String today = ''}) {
+    final d = today.toNativeUtf8();
+    Pointer<Utf8> p = nullptr;
+    try {
+      p = _dueFn(_h, d);
+      if (p == nullptr) return const [];
+      return _rows(p.toDartString());
     } finally {
-      if (f != nullptr) calloc.free(f);
-      if (t != nullptr) calloc.free(t);
-      if (k != nullptr) calloc.free(k);
+      calloc.free(d);
       if (p != nullptr) _free(p);
     }
   }

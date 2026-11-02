@@ -231,9 +231,15 @@ reports instead of gating (see the note in `.github/workflows/flutter.yml`), and
 the Android layers carry the real UI coverage. Fixing it would be worth it: the
 desktop harness needs no device and runs in seconds.
 
-### 4. Six limits are knowingly left
+### 4. Seven limits are knowingly left
 
 Each is understood, loses no data, and is left for a stated reason.
+
+- **The web page's count and toast are silent to a screen reader.** `#count`
+  and `#toast` in `c/serve.c` are plain spans, so "12 items" and "Deleted" are
+  never announced; the Due group is a named region, but its count shares the
+  fate. The fix is `role=status` on both spans and the same on the PWA, found
+  during the Due design review of 2026-11-02 and left for a change of its own.
 
 - **A locked note holds at most 6000 bytes (3000 Cyrillic letters) in the
   app and on the web page.** An inline secret seals into

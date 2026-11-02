@@ -41,6 +41,12 @@ static void *work(void *unused)
         /* the app's auto-sync: import a shared folder's bundles. The deepest
          * chain in the engine -- import -> put -> post_keys -> a store seek. */
         g_rc = (ais_embed_sync_folder_force(h, g_folder, 0) < -1) ? 4 : 0;
+    } else if (strcmp(g_mode, "due") == 0) {
+        /* the app's Recent on open: the due rows, ais_get over the elapsed keys
+         * and one timeline seek per row, on top of the readdir. */
+        char *r = ais_embed_due(h, "2030-01-01");
+        g_rc = (r == NULL || r[0] == '\0') ? 7 : 0;
+        ais_embed_free(r);
     } else if (strcmp(g_mode, "links") == 0) {
         /* the app's links import: a bookmarks HTML or a links CSV, parsed in
          * its own frame, then the batched store pass. */
@@ -61,7 +67,7 @@ int main(int argc, char **argv)
     size_t kb;
 
     if (argc < 5) {
-        fprintf(stderr, "usage: %s KB INDEX FOLDER|LINKS store|resurrect|folder|links\n", argv[0]);
+        fprintf(stderr, "usage: %s KB INDEX FOLDER|LINKS store|resurrect|folder|links|due\n", argv[0]);
         return 2;
     }
     kb = (size_t)atol(argv[1]);

@@ -57,6 +57,11 @@ COMMANDS (--word; operands are bare args, values via -v; an ID is the number
                                  (links and documents travel only by --export)
   ais --timeline [N]             the N most recent records, newest first (default 500;
                                  a GUI pages through older ones on demand)
+  ais --due                      the reminders: records filed under a key due:2028,
+                                 due:2028-11 or due:2028-11-02 whose day has come,
+                                 oldest saved first; a recall or --timeline at a
+                                 terminal says 'N due' first. Done is removing the
+                                 key: ais --update ID -- -due:2028-11
   ais --tags                     every key with how many records use it (busiest first)
   ais --compact                  reclaim space from deleted records
   ais --compact --forget-deleted also forget WHAT was deleted (sync first:
@@ -92,7 +97,7 @@ COMMANDS (--word; operands are bare args, values via -v; an ID is the number
                                  runs it headless (no browser) -- for agent/CI testing
                                  (a PORT, here and on --export/--sync --serve, is 1..65535)
   ais --mcp [rw]                 serve MCP on stdin/stdout for an agent (Claude Code, or
-                                 any MCP client): recall/find/tags/timeline; 'rw' adds saving
+                                 any MCP client): recall/find/tags/timeline/due; 'rw' adds saving
                                  a .ais found by walking up is refused: name it with -f
                                  on an -f index (not ~/.ais) the agent picks from keys in use
   ais --project [KEY]            show / set / clear ('') the default project key

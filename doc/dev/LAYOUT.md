@@ -499,6 +499,8 @@ writers serialize without colliding on an id, and a long-lived reader
     merge.c/.h     the k-way streaming merge (AND/OR) over sorted id streams
     compact.c/.h   tombstones + compaction
     find.c/.h      substring search over values (ASCII case folding, streaming)
+    due.c          reminders: which due:DATE keys have elapsed on a given day, and
+                   their live records through ais_get (nothing of its own on disk)
     stats.c/.h     live records, keys and tombstones, counted in one pass
     doc.c/.h       a multi-line value as a blob file under blobs/, and the one
                    containment predicate every join goes through
@@ -525,6 +527,41 @@ writers serialize without colliding on an id, and a long-lived reader
     main.c         CLI / getopt_long dispatch (recall is the default; -v/-k, --commands)
     tests.c        the test bundle (linear, inline, one comment per test)
 
+## Reminders: the due key
+
+A reminder is a key, `due:2028`, `due:2028-11` or `due:2028-11-02`: the ISO date
+the `ts` field uses, cut to what is known, after a fixed prefix. The key has
+elapsed once the local calendar day, cut to the key's length, is not before its
+date, so `due:2028` is due from 2028-01-01 and `due:2028-11` from 2028-11-01;
+one string compare decides it. Anything else after `due:` is a plain key.
+
+`ais_due` reads the `du` shard (one `readdir`; an index with no due key pays
+nothing more), keeps the elapsed keys, at most `AIS_KEYS_MAX` of them and the
+lexically smallest first, and runs `ais_get` in OR mode over them, so a record
+under two elapsed keys is emitted once, ascending by id, with the keys field
+showing which key it is due by. Nothing marks a reminder as seen: a record is due
+until its key is detached (`--update ID -- -due:2028-11`), and that detach is a
+`K|` line to every peer, so the other devices stop showing it too. Re-dating is
+the same edit with a new key. The record keeps its id, its save time and its
+other keys, so a flushed tank stays findable under `tank`, dated when it was
+filed.
+
+Why a key and not a record type: the `aisc:` marker sits on the value because
+the value needs handling on reveal; a date needs finding, and keys are the index.
+A key gets the posting list, sync, export and recall for nothing, and the store
+line, the dump grammar and the format version are untouched, so an older build
+reads an index with due keys as plain keys. The precedent is the author's photo
+archive, folders named `YYYY_MM_DD-DD_description` with the date cut to what is
+remembered, published as "How do you store your photos?" (2013,
+https://siberean.wordpress.com/2013/03/17/how-do-you-store-your-photos/).
+
+What is deliberately absent: a clock time, an alarm, recurrence, a daemon, a
+per-device "seen" flag (it would reappear on the next device) and a count badge.
+The calendar does interrupts; ais shows what is due when it is opened: `--due`,
+one `N due` line on stderr before a recall or `--timeline` at a terminal, the
+`due` MCP tool, `/api/due`, `ais_embed_due`, and a "Due" group of ordinary rows
+at the top of Recent in the three front ends (GUI.md).
+
 ## CLI
 
 Flag-based so no tag is shadowed: a bare word is always a KEY (recall is the
@@ -550,6 +587,7 @@ web-GUI obligations that go with them.
 
     ais [-f DIR] --del ID | --dump | --keys | --stats | --compact
     ais [-f DIR] --tags | --timeline       browse keys, or records newest-first
+    ais [-f DIR] --due                     the records whose due:DATE key has come (below)
     ais [-f DIR] --import < FILE | --where | --project [KEY] | --serve [PORT]
     ais [-f DIR] --import-interactively   like --import, but y/N per record (answers on the tty)
     ais [-f DIR] --import-bookmarks FILE | --import-keep DIR   file a browser's, a links app's

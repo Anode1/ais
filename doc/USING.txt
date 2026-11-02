@@ -44,6 +44,13 @@ The everyday actions are recall and add; you can also fix or remove an item.
 
 The timeline shows your most recent items; "Load more" reveals older ones.
 
+Reminders  A keyword due:2028, due:2028-11 or due:2028-11-02 makes an item a
+           reminder. From that year, month or day on, the item is listed under
+           "Due" at the top of Recent until you choose Done (which removes the
+           keyword) or Later (which moves it to a new date). The item itself
+           stays, with its other keywords, and so does its place in the
+           timeline. Nothing rings: a due item is seen when you open AIS.
+
 
 PREFER TYPING? (any OS)
 -----------------------

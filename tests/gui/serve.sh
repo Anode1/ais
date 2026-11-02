@@ -443,5 +443,12 @@ ok "put: a value naming /api/import-links still 413s when oversized" "413" \
    "$(head -c 80000 /dev/zero | tr '\0' 'x' | { printf 'see /api/import-links '; cat; } | \
       curl -s -o /dev/null -w '%{http_code}' -X POST --data-binary @- "$B/api/put?keys=oversize")"
 
+
+# --- /api/due: the records under an elapsed due: key, seeded through the CLI ---
+"$AIS" -f "$IDX" -v "flush the tank" tank due:2020 >/dev/null 2>&1
+"$AIS" -f "$IDX" -v "service the boat" boat due:2099 >/dev/null 2>&1
+ok "due: a record under an elapsed due key is listed" "flush the tank" "$(curl -s "$B/api/due")"
+ok "due: its row carries the key"                    "due:2020"       "$(curl -s "$B/api/due")"
+no "due: one dated ahead is not"                     "service the boat" "$(curl -s "$B/api/due")"
 echo "serve: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]

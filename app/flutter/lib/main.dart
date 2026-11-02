@@ -148,6 +148,24 @@ class AisApp extends StatelessWidget {
   }
 }
 
+/// The local calendar day as "YYYY-MM-DD", what the engine's due rule takes.
+String todayLocal() {
+  final t = DateTime.now();
+  return '${t.year.toString().padLeft(4, '0')}-'
+      '${t.month.toString().padLeft(2, '0')}-${t.day.toString().padLeft(2, '0')}';
+}
+
+/// The elapsed due keys among [keys] (space-separated) on [today]: a `due:`
+/// key whose date part is YYYY, YYYY-MM or YYYY-MM-DD and is not after the
+/// day cut to that length. The engine's string rule (LAYOUT.md).
+List<String> elapsedDueKeys(String keys, String today) => [
+      for (final k in keys.split(RegExp(r'\s+')))
+        if (k.startsWith('due:') &&
+            RegExp(r'^\d{4}(-\d{2}(-\d{2})?)?$').hasMatch(k.substring(4)) &&
+            k.substring(4).compareTo(today.substring(0, k.length - 4)) <= 0)
+          k
+    ];
+
 class RecallPage extends StatefulWidget {
   // Test seam for the tag-suggestion rows: `flutter test` runs with no engine
   // (CI builds no libais.so), so the lookup is injectable. Null = the engine's
@@ -161,6 +179,10 @@ class RecallPage extends StatefulWidget {
   final List<TagRow> Function()? tagCloud;
   // Same seam for Recent: page one, under the project tag ('' = all).
   final List<TlRow> Function(String key)? timelineLookup;
+  // Same seam for the Due group: the rows under an elapsed due key.
+  final List<TlRow> Function()? dueLookup;
+  // Same seam for a key edit (Done, Later): true when the engine took it.
+  final bool Function(int id, String keys)? updateHook;
   // Same seam for the uninstall-survival flow (survival.dart): a fake mobile
   // store the tests save into and restore from. Null = the real engine.
   final SurvivalHarness? survival;
@@ -171,6 +193,8 @@ class RecallPage extends StatefulWidget {
       this.findLookup,
       this.tagCloud,
       this.timelineLookup,
+      this.dueLookup,
+      this.updateHook,
       this.survival});
   @override
   State<RecallPage> createState() => _RecallPageState();
@@ -195,6 +219,11 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
   // "Found in the text" separator. Empty = no value section.
   Set<int> _valueOnly = const {};
   List<TlRow> _tl = const [];
+  // The Due group at the top of Recent (GUI.md): loaded with the timeline,
+  // whatever the project and the date range. Five rows show unless expanded.
+  List<TlRow> _due = const [];
+  bool _dueAll = false;
+  static const int _dueShow = 5;
   List<TagRow> _tags = const [];
   int _tlBefore = 0; // keyset cursor: last id of the loaded timeline page
   bool _tlMore = false; // last page was full, so more may exist
@@ -225,6 +254,12 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
   // would fake-restore a row the engine no longer holds, so a commit dismisses it.
   final Map<int, ScaffoldFeatureController<SnackBar, SnackBarClosedReason>>
       _delSnack = {};
+  // Done on a due row: the same deferred commit as a delete. The pending edit
+  // is the "-due:X" tokens to send when the Undo window lapses.
+  final Map<int, String> _pendingDone = {};
+  final Map<int, Timer> _doneTimers = {};
+  final Map<int, ScaffoldFeatureController<SnackBar, SnackBarClosedReason>>
+      _doneSnack = {};
   bool _voice = false;
   bool _searched = false;
   // Full-text mode: set when the user taps "Search note text instead" on the
@@ -719,11 +754,18 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
       _loadTimeline();
       return;
     }
+    final due = widget.dueLookup?.call() ??
+        _ais?.due(today: todayLocal()) ??
+        const <TlRow>[];
     setState(() {
       // Hide ids inside their Undo window; cursor/more come from the raw page.
       _tl = page.where((r) => !_pendingDelete.contains(r.id)).toList();
       _tlBefore = page.isNotEmpty ? page.last.id : 0;
       _tlMore = page.length == _tlPage;
+      _due = due
+          .where((r) =>
+              !_pendingDelete.contains(r.id) && !_pendingDone.containsKey(r.id))
+          .toList();
     });
   }
 
@@ -2825,6 +2867,111 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
     for (final id in _pendingDelete.toList()) {
       _commitDelete(id);
     }
+    for (final id in _pendingDone.keys.toList()) {
+      _commitDone(id); // an armed Done has the same window and the same exits
+    }
+  }
+
+  // A key edit through the seam the tests inject, else the engine.
+  bool _updateKeys(int id, String delta) =>
+      widget.updateHook?.call(id, delta) ?? _ais?.update(id, delta) ?? false;
+
+  // Done on a due row: pull it from the Due group NOW, send the detach of its
+  // elapsed due keys only when the Undo window lapses. The record keeps its
+  // place in its day group; the reload after the commit redraws its tag line.
+  void _deferDone(int id, String keys) {
+    if (_syncBlocks()) return;
+    final delta = elapsedDueKeys(keys, todayLocal()).map((k) => '-$k').join(' ');
+    if (delta.isEmpty) return;
+    _flushPendingDeletes();
+    final messenger = ScaffoldMessenger.of(context);
+    final idx = _due.indexWhere((r) => r.id == id);
+    final TlRow? row = idx >= 0 ? _due[idx] : null;
+    _pendingDone[id] = delta;
+    _doneTimers[id] = Timer(const Duration(milliseconds: 4500), () => _commitDone(id));
+    setState(() {
+      if (row != null) _due = [..._due]..removeAt(idx);
+    });
+    var undone = false;
+    final ctl = messenger.showSnackBar(SnackBar(
+      content: const Text('Done'),
+      duration: const Duration(seconds: 4),
+      action: SnackBarAction(
+        label: 'UNDO',
+        onPressed: () {
+          if (!_pendingDone.containsKey(id)) return;
+          undone = true;
+          _doneTimers.remove(id)?.cancel();
+          _pendingDone.remove(id);
+          setState(() {
+            if (row != null) {
+              final l = [..._due];
+              l.insert(idx.clamp(0, l.length), row);
+              _due = l;
+            }
+          });
+        },
+      ),
+    ));
+    _doneSnack[id] = ctl;
+    ctl.closed.then((_) {
+      _doneSnack.remove(id);
+      if (undone) return;
+      _commitDone(id);
+      if (_pendingDelete.isEmpty && _pendingDone.isEmpty && mounted) {
+        _setView(_view); // the detach is real: redraw the tag lines
+      }
+    });
+  }
+
+  // Commit a still-pending Done for real. Idempotent, like _commitDelete.
+  void _commitDone(int id) {
+    _doneTimers.remove(id)?.cancel();
+    final delta = _pendingDone.remove(id);
+    if (delta != null) {
+      _backupDirty = true;
+      if (!_updateKeys(id, delta) && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(tagsUpdateMessage(false))));
+        _setView(_view);
+      }
+    }
+    _doneSnack.remove(id)?.close();
+  }
+
+  // Later on a due row: the date picker, then one edit that detaches the
+  // elapsed due keys and attaches due:YYYY-MM-DD for the chosen day.
+  Future<void> _dueLater(int id, String keys) async {
+    if (_ais == null && widget.updateHook == null) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Still loading. Try again in a moment.')));
+      return;
+    }
+    if (_syncBlocks()) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('A sync is running. Try again in a moment.')));
+      return;
+    }
+    final old = elapsedDueKeys(keys, todayLocal());
+    if (old.isEmpty) return;
+    final day = await showDatePicker(
+      context: context,
+      initialDate: DateTime.now(),
+      firstDate: DateTime(2000),
+      lastDate: DateTime(2100),
+    );
+    if (day == null || !mounted) return;
+    final d = '${day.year.toString().padLeft(4, '0')}-'
+        '${day.month.toString().padLeft(2, '0')}-${day.day.toString().padLeft(2, '0')}';
+    final updated = _updateKeys(id, [for (final k in old) '-$k', 'due:$d'].join(' '));
+    if (mounted) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(tagsUpdateMessage(updated))));
+    }
+    if (updated) {
+      _backupDirty = true;
+      _setView(_view); // reloads Recent and the Due group: the row leaves it
+    }
   }
 
   // The standard delete: pull the row from the visible list NOW and offer Undo in
@@ -3440,6 +3587,10 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
                 _share(v);
               } else if (a == 'value') {
                 _editValue(hit.id, v);
+              } else if (a == 'done') {
+                _deferDone(hit.id, _resultKeys[hit.id] ?? '');
+              } else if (a == 'later') {
+                _dueLater(hit.id, _resultKeys[hit.id] ?? '');
               } else if (a == 'edit') {
                 _editKeys(hit);
               } else if (a == 'delete') {
@@ -3454,6 +3605,11 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
               // plain and document rows edit as text; encrypted/away rows omit this
               if (!isSecret && !away)
                 const PopupMenuItem(value: 'value', child: Text('Edit text')),
+              // a row with an elapsed due key: detach it, or re-date it
+              if (elapsedDueKeys(_resultKeys[hit.id] ?? '', todayLocal()).isNotEmpty) ...[
+                const PopupMenuItem(value: 'done', child: Text('Done')),
+                const PopupMenuItem(value: 'later', child: Text('Later')),
+              ],
               const PopupMenuItem(value: 'edit', child: Text('Edit tags')),
               const PopupMenuItem(value: 'delete', child: Text('Delete')),
             ],
@@ -3605,13 +3761,34 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
     // Opening or open-failed must not read as an empty timeline.
     final gate = _engineGate(cs);
     if (gate != null) return gate;
-    if (_tl.isEmpty) {
+    if (_tl.isEmpty && _due.isEmpty) {
       assert(_emptyStateOffersAdd);   // the FAB stands down on exactly this branch
       return _emptyState(cs,
           icon: Icons.note_add_outlined,
           line: 'Nothing saved yet. Add your first note or link.');
     }
     final items = <Widget>[];
+    // The Due group first: the same header and rows as a day, no tint. Its
+    // records keep their place in their day groups below.
+    if (_due.isNotEmpty) {
+      items.add(_dayHeader('Due', cs));
+      final shown = _dueAll ? _due : _due.take(_dueShow).toList();
+      for (final r in shown) {
+        items.add(_tlTile(r, cs, key: ValueKey('due-${r.id}')));
+      }
+      if (!_dueAll && _due.length > _dueShow) {
+        items.add(Padding(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 4),
+          child: Align(
+            alignment: Alignment.centerLeft,
+            child: TextButton(
+              onPressed: () => setState(() => _dueAll = true),
+              child: Text('${_due.length - _dueShow} more due'),
+            ),
+          ),
+        ));
+      }
+    }
     String? day;
     String p2(int n) => n.toString().padLeft(2, '0');
     for (final r in _tl) {
@@ -3620,74 +3797,9 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
       final d = dt == null ? '' : '${dt.year}-${p2(dt.month)}-${p2(dt.day)}';
       if (d != day) {
         day = d;
-        items.add(Padding(
-          padding: const EdgeInsets.fromLTRB(16, 18, 16, 4),
-          child: Text(d.isEmpty ? '(undated)' : _fmtDay(d),
-              style: Theme.of(context)
-                  .textTheme
-                  .titleSmall
-                  ?.copyWith(color: cs.onSurface)),
-        ));
+        items.add(_dayHeader(d.isEmpty ? '(undated)' : _fmtDay(d), cs));
       }
-      final time = (dt != null && r.ts.contains('T')) ? '${p2(dt.hour)}:${p2(dt.minute)}' : '';
-      final kk = r.keys.isEmpty ? '(no tags)' : _metaKeys(r.keys);
-      items.add(ListTile(
-        key: ValueKey(r.id),
-        // Tap opens the detail/edit page; carry the ts so it can show the save time.
-        onTap: () => _openDetail(r.id, r.value, ts: r.ts),
-        visualDensity: const VisualDensity(vertical: -1),
-        minVerticalPadding: 10,
-        contentPadding: const EdgeInsets.symmetric(horizontal: 16),
-        title: Row(mainAxisSize: MainAxisSize.min, children: [
-          Flexible(
-            child: r.value.startsWith('aisc:')
-                ? Row(mainAxisSize: MainAxisSize.min, children: [
-                    Icon(Icons.lock_outline, size: 16, color: cs.outline),
-                    const SizedBox(width: 6),
-                    Text('locked', style: TextStyle(color: cs.outline)),
-                  ])
-                : _rowLabel(r.value, cs),
-          ),
-          if (_notHere(r.value)) _notHereBadge(cs),
-        ]),
-        subtitle: Text([if (time.isNotEmpty) time, if (kk.isNotEmpty) kk].join(' · '),
-            style: Theme.of(context)
-                .textTheme
-                .bodySmall
-                ?.copyWith(color: cs.onSurfaceVariant)),
-        // The recall rows' overflow, so a keyless add stays actionable here too.
-        trailing: PopupMenuButton<String>(
-          icon: const Icon(Icons.more_vert),
-          tooltip: 'More',
-          onSelected: (a) {
-            final hit = Hit(r.id, r.value);
-            if (a == 'copy') {
-              Clipboard.setData(ClipboardData(text: _display(r.value)));
-              ScaffoldMessenger.of(context)
-                  .showSnackBar(const SnackBar(content: Text('Copied')));
-            } else if (a == 'share') {
-              _share(r.value);
-            } else if (a == 'value') {
-              _editValue(r.id, r.value);
-            } else if (a == 'edit') {
-              _editKeys(hit);
-            } else if (a == 'delete') {
-              _deferDelete(r.id);
-            }
-          },
-          itemBuilder: (_) => [
-            const PopupMenuItem(value: 'copy', child: Text('Copy')),
-            // sharing ciphertext / a missing blob is useless; gate like Edit text
-            if (!r.value.startsWith('aisc:') && !_notHere(r.value))
-              const PopupMenuItem(value: 'share', child: Text('Share')),
-            // plain and document rows edit as text; encrypted/away rows omit this
-            if (!r.value.startsWith('aisc:') && !_notHere(r.value))
-              const PopupMenuItem(value: 'value', child: Text('Edit text')),
-            const PopupMenuItem(value: 'edit', child: Text('Edit tags')),
-            const PopupMenuItem(value: 'delete', child: Text('Delete')),
-          ],
-        ),
-      ));
+      items.add(_tlTile(r, cs, key: ValueKey(r.id)));
     }
     if (_tlMore) {
       // Infinite scroll pages this in; the button stays as an explicit fallback.
@@ -3711,6 +3823,89 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
         padding: const EdgeInsets.only(bottom: 88),
         itemCount: items.length,
         itemBuilder: (_, i) => items[i],
+      ),
+    );
+  }
+
+  // A group header in Recent: a day, or "Due".
+  Widget _dayHeader(String text, ColorScheme cs) => Padding(
+        padding: const EdgeInsets.fromLTRB(16, 18, 16, 4),
+        child: Text(text,
+            style: Theme.of(context)
+                .textTheme
+                .titleSmall
+                ?.copyWith(color: cs.onSurface)),
+      );
+
+  // ONE row builder for every Recent row, in a day group or the Due group.
+  Widget _tlTile(TlRow r, ColorScheme cs, {required Key key}) {
+    String p2(int n) => n.toString().padLeft(2, '0');
+    final dt = r.ts.isEmpty ? null : DateTime.tryParse(r.ts)?.toLocal();
+    final time = (dt != null && r.ts.contains('T')) ? '${p2(dt.hour)}:${p2(dt.minute)}' : '';
+    final kk = r.keys.isEmpty ? '(no tags)' : _metaKeys(r.keys);
+    final due = elapsedDueKeys(r.keys, todayLocal()).isNotEmpty;
+    return ListTile(
+      key: key,
+      // Tap opens the detail/edit page; carry the ts so it can show the save time.
+      onTap: () => _openDetail(r.id, r.value, ts: r.ts),
+      visualDensity: const VisualDensity(vertical: -1),
+      minVerticalPadding: 10,
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+      title: Row(mainAxisSize: MainAxisSize.min, children: [
+        Flexible(
+          child: r.value.startsWith('aisc:')
+              ? Row(mainAxisSize: MainAxisSize.min, children: [
+                  Icon(Icons.lock_outline, size: 16, color: cs.outline),
+                  const SizedBox(width: 6),
+                  Text('locked', style: TextStyle(color: cs.outline)),
+                ])
+              : _rowLabel(r.value, cs),
+        ),
+        if (_notHere(r.value)) _notHereBadge(cs),
+      ]),
+      subtitle: Text([if (time.isNotEmpty) time, if (kk.isNotEmpty) kk].join(' · '),
+          style: Theme.of(context)
+              .textTheme
+              .bodySmall
+              ?.copyWith(color: cs.onSurfaceVariant)),
+      // The recall rows' overflow, so a keyless add stays actionable here too.
+      trailing: PopupMenuButton<String>(
+        icon: const Icon(Icons.more_vert),
+        tooltip: 'More',
+        onSelected: (a) {
+          final hit = Hit(r.id, r.value);
+          if (a == 'copy') {
+            Clipboard.setData(ClipboardData(text: _display(r.value)));
+            ScaffoldMessenger.of(context)
+                .showSnackBar(const SnackBar(content: Text('Copied')));
+          } else if (a == 'share') {
+            _share(r.value);
+          } else if (a == 'value') {
+            _editValue(r.id, r.value);
+          } else if (a == 'done') {
+            _deferDone(r.id, r.keys);
+          } else if (a == 'later') {
+            _dueLater(r.id, r.keys);
+          } else if (a == 'edit') {
+            _editKeys(hit);
+          } else if (a == 'delete') {
+            _deferDelete(r.id);
+          }
+        },
+        itemBuilder: (_) => [
+          const PopupMenuItem(value: 'copy', child: Text('Copy')),
+          // sharing ciphertext / a missing blob is useless; gate like Edit text
+          if (!r.value.startsWith('aisc:') && !_notHere(r.value))
+            const PopupMenuItem(value: 'share', child: Text('Share')),
+          // plain and document rows edit as text; encrypted/away rows omit this
+          if (!r.value.startsWith('aisc:') && !_notHere(r.value))
+            const PopupMenuItem(value: 'value', child: Text('Edit text')),
+          // a row with an elapsed due key: detach it, or re-date it
+          if (due) const PopupMenuItem(value: 'done', child: Text('Done')),
+          if (due) const PopupMenuItem(value: 'later', child: Text('Later')),
+          const PopupMenuItem(value: 'edit', child: Text('Edit tags')),
+          const PopupMenuItem(value: 'delete', child: Text('Delete')),
+        ],
       ),
     );
   }

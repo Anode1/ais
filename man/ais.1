@@ -51,7 +51,7 @@ ais \- associative index: save values under keys, get them back by keys
 .B ais
 .RB [ \-f
 .IR DIR ]
-.BR \-\-del | \-\-set | \-\-del-under | \-\-dedupe-docs | \-\-untag | \-\-dump | \-\-keys | \-\-stats | \-\-timeline | \-\-tags | \-\-compact | \-\-export | \-\-import | \-\-import-interactively | \-\-import-bookmarks | \-\-import-keep | \-\-sync | \-\-sync-folder | \-\-where | \-\-project | \-\-switch | \-\-indexes | \-\-forget | \-\-default | \-\-serve | \-\-mcp | \-\-init
+.BR \-\-del | \-\-set | \-\-del-under | \-\-dedupe-docs | \-\-untag | \-\-dump | \-\-keys | \-\-stats | \-\-timeline | \-\-due | \-\-tags | \-\-compact | \-\-export | \-\-import | \-\-import-interactively | \-\-import-bookmarks | \-\-import-keep | \-\-sync | \-\-sync-folder | \-\-where | \-\-project | \-\-switch | \-\-indexes | \-\-forget | \-\-default | \-\-serve | \-\-mcp | \-\-init
 .RI [ ARG ]
 .SH DESCRIPTION
 .B ais
@@ -302,6 +302,21 @@ The
 .I N
 most recent records, newest first (default 500, at most 10000 in one page); a
 GUI pages through older ones on demand.
+.TP
+.B \-\-due
+The reminders: every record filed under a key
+.BR due:2028 ", " due:2028-11 " or " due:2028-11-02
+whose day has come, oldest saved first, in the rows
+.B \-\-timeline
+prints. A year key is due from 1 January, a month key from the first of the
+month, and a record stays due until the key is removed:
+.BR "ais \-\-update ID \-\- \-due:2028-11" .
+At a terminal, a recall or
+.B \-\-timeline
+first says
+.I N due
+on stderr. The exit status is 1 when nothing is due. No alarm, no clock time, no
+process: a due record is seen when ais is used.
 .TP
 .B \-\-tags
 Every key with how many records use it, busiest first.

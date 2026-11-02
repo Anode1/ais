@@ -707,8 +707,12 @@ static int args_ok(const jdoc *d, int args, const struct req *q,
     for (i = d->v[args].kid; i >= 0; i = d->v[i].sib) {
         if (d->v[i].key == NULL || word_in(accepted, d->v[i].key))
             continue;
-        snprintf(msg, sizeof msg, "%s has no argument %s; it takes %s",
-                 tool, d->v[i].key, accepted);
+        if (accepted[0] == '\0')
+            snprintf(msg, sizeof msg, "%s has no argument %s; it takes none",
+                     tool, d->v[i].key);
+        else
+            snprintf(msg, sizeof msg, "%s has no argument %s; it takes %s",
+                     tool, d->v[i].key, accepted);
         text_reply(q, msg, 1);
         return -1;
     }
@@ -889,6 +893,21 @@ static void tool_timeline(ais *a, const jdoc *d, int args, const struct req *q)
     ais_timeline(a, 0, (int)(want + 1), NULL, NULL, on_tl, &s);
     /* Timeline has no filter to miss with: nothing back means nothing is here. */
     rows_done(&s, "the index is empty");
+    text_close(0);
+}
+
+/* The reminders: a record filed under due:YYYY[-MM[-DD]] is due from that day,
+ * and stays due until the key is detached. No argument: the index's own clock. */
+static void tool_due(ais *a, const jdoc *d, int args, const struct req *q)
+{
+    struct sink s;
+
+    if (args_ok(d, args, q, "due", "") != 0)
+        return;
+    sink_init(&s, a, MCP_TL_DEF);
+    text_open(q);
+    ais_due(a, NULL, on_tl, &s);
+    rows_done(&s, "nothing is due");
     text_close(0);
 }
 
@@ -1184,7 +1203,13 @@ static const char TOOLS[] =
     "\"count\":{\"type\":\"integer\",\"description\":\"how many records, a whole number "
     "from 1 to 1000 (default 20)\"},"
     "\"limit\":{\"type\":\"integer\",\"description\":\"the same as count; pass one "
-    "name or the other, never both with different numbers\"}}}}";
+    "name or the other, never both with different numbers\"}}}},"
+"{\"name\":\"due\",\"description\":\""
+    "The user's reminders that have come due: every record filed under a key due:YYYY, "
+    "due:YYYY-MM or due:YYYY-MM-DD whose date has arrived, as 'id|timestamp|keys|value' "
+    "per line, oldest saved first. A record stays due until the user removes its due key. "
+    "Answers 'what is due', 'anything I should do', 'what did I plan'. Takes no arguments."
+    "\",\"inputSchema\":{\"type\":\"object\",\"properties\":{}}}";
 
 static const char TOOL_SAVE[] =
 ",{\"name\":\"save\",\"description\":\""
@@ -1345,6 +1370,7 @@ static void handle(ais *a, int allow_write, int shared, char *line)
     else if (strcmp(tool, "find") == 0)            tool_find(a, &d, args, &q);
     else if (strcmp(tool, "tags") == 0)            tool_tags(a, &d, args, &q);
     else if (strcmp(tool, "timeline") == 0)        tool_timeline(a, &d, args, &q);
+    else if (strcmp(tool, "due") == 0)             tool_due(a, &d, args, &q);
     else if (strcmp(tool, "save") == 0)            tool_save(a, &d, args, &q, allow_write, shared);
     else                                           reply_error(&q, -32602, "unknown tool");
 }

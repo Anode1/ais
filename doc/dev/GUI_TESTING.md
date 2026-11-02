@@ -166,6 +166,17 @@ deciding one.
 
     adb exec-out screencap -p > /tmp/fail.png
 
+**Flutter text is `content-desc`, never `text=`.** In a `uiautomator dump` a
+Flutter `Text` widget is a `View` whose words sit in `content-desc`, and a row
+is a `Button` whose `content-desc` joins its lines with `&#10;`. A grep for
+`text="Due"` fails with the word plainly on screen; the Due step of
+`flutter-crud-android.sh` paid for this once. The first dump after a launch can
+also precede the semantics tree, so retry a few times before calling a thing
+absent, as `tap_text` does. And a needle must name one node: the host layer
+tapped "Show a code" for months after a design review put those words into the
+paragraph above the tile, whose node comes first in the dump. Match a tile by
+its title and the newline before its subtitle, `Show a code&#10;`.
+
 **Be careful whose data you are on.** A device may hold a real index. The layer
 is additive by default: it merges one proof record and asserts that record
 crossed. `AIS_ANDROID_CLEAR=1` wipes the app's data for a clean-room run, and is

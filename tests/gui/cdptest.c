@@ -40,6 +40,84 @@ int main(int argc, char **argv) {
     ok("no stuck Loading...", cdp_wait_bool(c,
         "document.getElementById('out').innerText.indexOf('Loading')<0", 3000) == 0);
 
+    /* ---- the Due group (doc/dev/GUI.md, "The Due group") ----------------
+     * inter.sh seeds one record under due:2020 and one under due:2099. A cold
+     * open lists the first at the top under a "Due" header, in its day group
+     * too, with the key on its tag line and Done/Later in its menu. Done hides
+     * it at once behind the delete's Undo window and sends nothing until the
+     * window lapses; the commit detaches the key and the record stays. */
+#define DUEROW "[].slice.call(document.querySelectorAll('#due .hit')).filter(function(r){return r.innerText.indexOf('tank-flush')>=0})[0]"
+#define TANKROWS "[].slice.call(document.querySelectorAll('#out .hit')).filter(function(r){return r.innerText.indexOf('tank-flush')>=0})"
+    ok("the Due group heads the timeline", cdp_wait_bool(c,
+        "(function(){var g=document.getElementById('out').firstElementChild;"
+        "return !!g&&g.id==='due'&&g.firstElementChild.className==='daygroup'&&g.firstElementChild.textContent==='Due'})()", 5000) == 0);
+    ok("with the due record in it", truthy(c, "!!" DUEROW));
+    ok("its tag line shows the due key", truthy(c, DUEROW ".querySelector('.meta').textContent.indexOf('due:2020')>=0"));
+    ok("the record keeps its place in its day group", truthy(c, TANKROWS ".length===2"));
+    ok("a record dated ahead is not in the group", truthy(c,
+        "document.getElementById('due').innerText.indexOf('tank-later')<0&&" HIT));
+    ok("the count is the timeline's, not the group's", cdp_wait_bool(c,
+        "document.getElementById('count').textContent==='4 items'", 3000) == 0);
+    cdp_eval_bool(c, "(function(){" DUEROW ".querySelector('.actbtn').click();return true})()", &(int){0});
+    ok("its menu offers Done and Later above edit", cdp_wait_bool(c,
+        "(function(){var b=[].slice.call(" DUEROW ".querySelectorAll('.actmenu .actbtn')).map(function(x){return x.textContent});"
+        "return b.indexOf('Done')>=0&&b.indexOf('Later')===b.indexOf('Done')+1&&b.indexOf('edit')===b.indexOf('Later')+1})()", 3000) == 0);
+    /* a row with no due key offers neither */
+    ok("a row without a due key offers neither", truthy(c,
+        "(function(){var r=[].slice.call(document.querySelectorAll('#out .hit')).filter(function(r){return r.innerText.indexOf('tank-later')>=0})[0];"
+        "return !!r&&r.querySelectorAll('.actbtn.due').length===0})()"));
+    cdp_eval_bool(c, "(function(){[].slice.call(" DUEROW ".querySelectorAll('.actbtn')).filter(function(x){return x.textContent==='Done'})[0].click();return true})()", &(int){0});
+    ok("Done hides the group at once", cdp_wait_bool(c,
+        "document.getElementById('due').style.display==='none'", 3000) == 0);
+    ok("behind 'Done' with Undo", cdp_wait_bool(c,
+        "!document.getElementById('toast').hidden&&document.getElementById('toast').firstChild.textContent==='Done'"
+        "&&!document.getElementById('toastundo').hidden", 3000) == 0);
+    ok("and nothing was sent yet",
+       cdp_eval_bool(c, "(function(){window.__k=null;fetch('/api/due')"
+                        ".then(function(r){return r.text()}).then(function(t){window.__k=t});return true})()",
+                     &(int){0}) == 0 &&
+       cdp_wait_bool(c, "window.__k!==null&&window.__k.indexOf('tank-flush')>=0", 5000) == 0);
+    cdp_eval_bool(c, "(function(){document.getElementById('toastundo').click();return true})()", &(int){0});
+    ok("Undo brings the group back", cdp_wait_bool(c,
+        "document.getElementById('due').style.display===''&&" DUEROW ".style.display===''", 3000) == 0);
+    cdp_eval_bool(c, "(function(){[].slice.call(" DUEROW ".querySelectorAll('.actbtn')).filter(function(x){return x.textContent==='Done'})[0].click();delFlush();return true})()", &(int){0});
+    ok("a committed Done detaches the key",
+       cdp_eval_bool(c, "(function(){window.__k=null;fetch('/api/due')"
+                        ".then(function(r){return r.text()}).then(function(t){window.__k=t});return true})()",
+                     &(int){0}) == 0 &&
+       cdp_wait_bool(c, "window.__k!==null&&window.__k.indexOf('tank-flush')<0", 5000) == 0);
+    ok("and the group is gone", cdp_wait_bool(c, "!document.getElementById('due')", 5000) == 0);
+    ok("the record is still in its day group", truthy(c, TANKROWS ".length===1"));
+    ok("under its other key, without the due key", truthy(c,
+        "(function(){var m=" TANKROWS "[0].querySelector('.meta').textContent;return m.indexOf('tank')>=0&&m.indexOf('due:')<0})()"));
+    ok("and its menu no longer offers Done", truthy(c, TANKROWS "[0].querySelectorAll('.actbtn.due').length===0"));
+    /* Later: the button turns into a date input, and a chosen day rewrites the
+     * key to due:YYYY-MM-DD at once, so the record leaves the group */
+    cdp_eval_bool(c, "(function(){window.__p=0;fetch('/api/put?keys='+encodeURIComponent('boat due:2021-06'),{method:'POST',body:'https://example.org/boat-service'})"
+                     ".then(function(){window.__p=1});return true})()", &(int){0});
+    cdp_wait_bool(c, "window.__p===1", 5000);
+    cdp_eval_bool(c, "(function(){setView('timeline');return true})()", &(int){0});
+#define BOATROW "[].slice.call(document.querySelectorAll('#due .hit')).filter(function(r){return r.innerText.indexOf('boat-service')>=0})[0]"
+    ok("a reload lists a new due record in the group", cdp_wait_bool(c, "!!" BOATROW, 5000) == 0);
+    cdp_eval_bool(c, "(function(){" BOATROW ".querySelector('.actbtn').click();"
+                     "[].slice.call(" BOATROW ".querySelectorAll('.actbtn')).filter(function(x){return x.textContent==='Later'})[0].click();return true})()", &(int){0});
+    ok("Later opens a date input in the row", cdp_wait_bool(c,
+        BOATROW ".querySelector('input[type=date]')!==null", 3000) == 0);
+    cdp_eval_bool(c, "(function(){var i=" BOATROW ".querySelector('input[type=date]');i.value='2031-03-09';i.dispatchEvent(new Event('change'));return true})()", &(int){0});
+    ok("a chosen day takes the record out of the group", cdp_wait_bool(c, "!document.getElementById('due')", 5000) == 0);
+    ok("and rewrote the key to that day",
+       cdp_eval_bool(c, "(function(){window.__k=null;fetch('/api/get?keys=boat')"
+                        ".then(function(r){return r.text()}).then(function(t){window.__k=t});return true})()",
+                     &(int){0}) == 0 &&
+       cdp_wait_bool(c, "window.__k!==null&&window.__k.indexOf('boat-service')>=0", 5000) == 0 &&
+       cdp_eval_bool(c, "(function(){window.__k=null;fetch('/api/get?keys=due:2031-03-09')"
+                        ".then(function(r){return r.text()}).then(function(t){window.__k=t});return true})()",
+                     &(int){0}) == 0 &&
+       cdp_wait_bool(c, "window.__k!==null&&window.__k.indexOf('boat-service')>=0", 5000) == 0);
+    ok("its day-group row shows the new key", truthy(c,
+        "(function(){var r=[].slice.call(document.querySelectorAll('#out .hit')).filter(function(r){return r.innerText.indexOf('boat-service')>=0})[0];"
+        "var m=r.querySelector('.meta').textContent;return m.indexOf('due:2031-03-09')>=0&&m.indexOf('due:2021-06')<0})()"));
+
     /* The page now OPENS on Recent (which lists every record), so switch to the
      * empty Search view first to establish the "absent until queried" baseline. */
     cdp_eval_bool(c, "(function(){setView('recall');return true})()", &(int){0});

@@ -119,7 +119,9 @@ tap_text 'Settings' 10       || { echo "  SKIP could not find the Settings menu"
 sleep 2
 tap_text 'Sync &amp; backup' 8 || tap_text 'Sync' 8 || { echo "  SKIP could not open the sync sheet"; exit 77; }
 sleep 2
-tap_text 'Show a code' 8     || { echo "  SKIP could not find 'Show a code'"; exit 77; }
+# The tile, not the paragraph above it that also says "Show a code": a tile's
+# content-desc joins its title and subtitle with a newline.
+tap_text 'Show a code&#10;' 8 || { echo "  SKIP could not find 'Show a code'"; exit 77; }
 sleep 6
 
 # --- read the address and token the app is showing ---------------------------

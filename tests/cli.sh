@@ -278,6 +278,124 @@ ok    "timeline: hand-pasted record survived"   "pasted with no date" "$tl"
 okeq  "timeline: all four records listed"        "4" "$(printf '%s\n' "$tl" | grep -c .)"
 rm -rf "$TT"
 
+# 16b. --due lists the records whose due:DATE key has come; Done is detaching it.
+DU=$(mktemp -d "${TMPDIR:-/tmp}/ais_due.XXXXXX") || exit 2
+"$AIS" -f "$DU" -v "flush the tank"  tank due:2020    >/dev/null
+"$AIS" -f "$DU" -v "check the roof"  roof due:2099    >/dev/null
+"$AIS" -f "$DU" -v "not a reminder"  vague due:soon   >/dev/null
+due=$("$AIS" -f "$DU" --due 2>&1)
+okeq  "due: exit 0 when something is due"            "0" "$?"
+ok    "due: the elapsed record is listed"            "flush the tank" "$due"
+ok    "due: as a timeline row carrying its due key"  "due:2020" "$due"
+okempty "due: a future key is not listed"            "$(printf '%s\n' "$due" | grep roof)"
+okempty "due: due:soon is a plain key, never due"    "$(printf '%s\n' "$due" | grep vague)"
+okempty "due: piped, no 'N due' hint before a recall" "$("$AIS" -f "$DU" tank 2>&1 | grep 'due: ais')"
+ok    "due: the key recalls as any key"              "flush the tank" "$("$AIS" -f "$DU" due:2020)"
+tid=$("$AIS" -f "$DU" tank | head -1 | cut -d'|' -f1)
+"$AIS" -f "$DU" --update "$tid" -- -due:2020 >/dev/null
+"$AIS" -f "$DU" --due >/dev/null 2>&1
+okeq  "due: exit 1 once nothing is due (Done = detach)" "1" "$?"
+ok    "due: the record itself stays"                 "flush the tank" "$("$AIS" -f "$DU" tank)"
+okempty "due: --dump carries no id and the key as a plain key"         "$("$AIS" -f "$DU" --dump | grep -v '^[^|]*due:2099 -v\|^roof\|^vague\|^tank' | grep due)"
+ok    "due: the export stream carries the key like any other" "due:2099" "$("$AIS" -f "$DU" --export 2>/dev/null)"
+rm -rf "$DU"
+
+# 16c. --due edges: case folding, malformed shapes, the project chip, deleted
+# records, compaction, the dump and export round trips, a detach that meets a
+# peer still holding the key, exit codes, and /api/due.
+DE=$(mktemp -d "${TMPDIR:-/tmp}/ais_due_edges.XXXXXX") || exit 2
+"$AIS" -f "$DE" -v "typed in capitals" tank DUE:2020 >/dev/null
+ok    "due edges: DUE:2020 typed in capitals is due"          "typed in capitals" "$("$AIS" -f "$DE" --due 2>&1)"
+tid=$("$AIS" -f "$DE" tank | head -1 | cut -d'|' -f1)
+"$AIS" -f "$DE" --update "$tid" -- -due:2020 >/dev/null
+"$AIS" -f "$DE" --due >/dev/null 2>&1
+okeq  "due edges: and detaches by its folded name"            "1" "$?"
+"$AIS" -f "$DE" -v "no dashes"   a due:20261102          >/dev/null
+"$AIS" -f "$DE" -v "with a time" b due:2026-11-02T10:00  >/dev/null
+"$AIS" -f "$DE" -v "slashes"     c due:2026/11/02        >/dev/null
+"$AIS" -f "$DE" -v "bare prefix" d due:                  >/dev/null
+"$AIS" -f "$DE" -v "month 13"    e due:2026-13           >/dev/null
+"$AIS" -f "$DE" --due >/dev/null 2>&1
+okeq  "due edges: five malformed shapes, nothing is due, exit 1" "1" "$?"
+ok    "due edges: a malformed due key still recalls"          "no dashes" "$("$AIS" -f "$DE" due:20261102)"
+ok    "due edges: a slashed one recalls by its encoded name"  "slashes"   "$("$AIS" -f "$DE" due:2026/11/02)"
+ok    "due edges: --keys lists a due key as any key"          "due:20261102" "$("$AIS" -f "$DE" --keys)"
+ok    "due edges: --tags counts it as any key"                "due:20261102" "$("$AIS" -f "$DE" --tags)"
+"$AIS" -f "$DE" --due --timeline >/dev/null 2>"$DE/err"
+okeq  "due edges: --due with another command exits 1"         "1" "$?"
+ok    "due edges: and says so"                                "only one command" "$(cat "$DE/err")"
+"$AIS" -f "$DE/nope" --due >/dev/null 2>"$DE/err"
+okeq  "due edges: --due on a missing index exits 1"           "1" "$?"
+ok    "due edges: and names the missing index"                "no index" "$(cat "$DE/err")"
+# the project chip is one more key on the row; --due ignores the chip
+"$AIS" -f "$DE" -p work -v "a chore" chore due:2020 >/dev/null
+ok    "due edges: a chip key rides the due row"               "work chore due:2020" "$("$AIS" -f "$DE" --due)"
+ok    "due edges: --due under another chip still lists it"    "a chore" "$("$AIS" -f "$DE" -p other --due)"
+okeq  "due edges: a due row is the record's --timeline row"   "$("$AIS" -f "$DE" --timeline | grep chore)" "$("$AIS" -f "$DE" --due | grep chore)"
+# a deleted record is not due; its key's posting file goes at compaction
+"$AIS" -f "$DE" -v "gone" gone due:2019 >/dev/null
+gid=$("$AIS" -f "$DE" gone | head -1 | cut -d'|' -f1)
+"$AIS" -f "$DE" -y --del "$gid" >/dev/null 2>&1
+okempty "due edges: a deleted record is not due"              "$("$AIS" -f "$DE" --due | grep gone)"
+"$AIS" -f "$DE" --update "$gid" due:2018 >/dev/null 2>&1
+okeq  "due edges: a due key cannot be attached to a deleted record" "1" "$?"
+"$AIS" -f "$DE" -y --compact >/dev/null
+ok    "due edges: the live reminder survives --compact"       "a chore" "$("$AIS" -f "$DE" --due)"
+okempty "due edges: the deleted record's due key is gone from idx/du" "$(ls "$DE/idx/du" | grep 'due:2019')"
+"$AIS" -f "$DE" -y --compact --forget-deleted >/dev/null 2>&1
+ok    "due edges: and survives --compact --forget-deleted"    "a chore" "$("$AIS" -f "$DE" --due)"
+okempty "due edges: the deleted one stays gone"               "$("$AIS" -f "$DE" --due | grep gone)"
+# 64 deleted records under smaller due keys must not hide a live one (the
+# engine merges at most 64 keys, and a deleted record's posting file lingers)
+DH=$(mktemp -d "${TMPDIR:-/tmp}/ais_due_hide.XXXXXX") || exit 2
+i=0; while [ $i -lt 64 ]; do
+    did=$("$AIS" -f "$DH" -v "deleted $i" dead "due:$((1900 + i))")
+    "$AIS" -f "$DH" -y --del "$did" >/dev/null 2>&1
+    i=$((i + 1))
+done
+"$AIS" -f "$DH" -v "the live reminder" alive due:2000 >/dev/null
+ok    "due edges: 64 deleted records do not hide the live reminder" "the live reminder" "$("$AIS" -f "$DH" --due 2>&1)"
+rm -rf "$DH"
+# the dump grammar round trip and the export stream between two indexes
+DI=$(mktemp -d "${TMPDIR:-/tmp}/ais_due_imp.XXXXXX") || exit 2
+"$AIS" -f "$DE" --dump > "$DI/dump"
+ok    "due edges: --dump carries the due key as a key"        "work chore due:2020 -v a chore" "$(cat "$DI/dump")"
+"$AIS" -f "$DI" --init >/dev/null
+"$AIS" -f "$DI" --import < "$DI/dump" >/dev/null 2>&1
+ok    "due edges: --dump | --import, the reminder is due in the new index" "a chore" "$("$AIS" -f "$DI" --due)"
+rm -rf "$DI"
+# Done on A, while B still holds the key: the detach wins on both after a sync each way
+DA=$(mktemp -d "${TMPDIR:-/tmp}/ais_due_a.XXXXXX") || exit 2
+DB=$(mktemp -d "${TMPDIR:-/tmp}/ais_due_b.XXXXXX") || exit 2
+"$AIS" -f "$DA" -v "flush the tank" tank due:2020 >/dev/null
+"$AIS" -f "$DA" --export > "$DA/s1" 2>/dev/null; "$AIS" -f "$DB" --import < "$DA/s1" >/dev/null 2>&1
+ok    "due edges: the reminder reaches the peer"              "flush the tank" "$("$AIS" -f "$DB" --due)"
+sleep 1                                                      # the detach must be later than the attach
+aid=$("$AIS" -f "$DA" tank | head -1 | cut -d'|' -f1)
+"$AIS" -f "$DA" --update "$aid" -- -due:2020 >/dev/null
+"$AIS" -f "$DB" --export > "$DB/s2" 2>/dev/null; "$AIS" -f "$DA" --import < "$DB/s2" >/dev/null 2>&1
+okempty "due edges: the peer's older copy does not bring the key back" "$("$AIS" -f "$DA" --due 2>/dev/null)"
+"$AIS" -f "$DA" --export > "$DA/s3" 2>/dev/null; "$AIS" -f "$DB" --import < "$DA/s3" >/dev/null 2>&1
+okempty "due edges: and the detach reaches the peer"          "$("$AIS" -f "$DB" --due 2>/dev/null)"
+ok    "due edges: the record itself is still on the peer"     "flush the tank" "$("$AIS" -f "$DB" tank)"
+# Later on A: the new key travels, the peer is due on the new day, not before
+"$AIS" -f "$DA" --update "$aid" due:2099 >/dev/null
+"$AIS" -f "$DA" --export > "$DA/s4" 2>/dev/null; "$AIS" -f "$DB" --import < "$DA/s4" >/dev/null 2>&1
+ok    "due edges: a re-dated key reaches the peer"            "flush the tank" "$("$AIS" -f "$DB" due:2099)"
+okempty "due edges: and is not due there before its day"      "$("$AIS" -f "$DB" --due 2>/dev/null)"
+rm -rf "$DA" "$DB"
+# /api/due over --serve, headless: the same rows as the timeline's shape
+if command -v curl >/dev/null 2>&1; then
+    DP=$((20000 + $$ % 20000))
+    AIS_NO_OPEN=1 "$AIS" -f "$DE" --serve "$DP" >/dev/null 2>&1 &
+    DSP=$!
+    i=0; while [ $i -lt 50 ]; do curl -s -o /dev/null "http://127.0.0.1:$DP/" && break; i=$((i+1)); sleep 0.1; done
+    ok    "due edges: /api/due lists the due row as id|ts|keys|value" "|work chore due:2020|a chore" "$(curl -s "http://127.0.0.1:$DP/api/due")"
+    okempty "due edges: /api/due has no future or malformed key" "$(curl -s "http://127.0.0.1:$DP/api/due" | grep -v 'due:2020')"
+    kill "$DSP" 2>/dev/null; wait "$DSP" 2>/dev/null
+fi
+rm -rf "$DE"
+
 # 17b. --update edits a record's keys by id: -KEY detaches, KEY attaches.
 UP=$(mktemp -d "${TMPDIR:-/tmp}/ais_upd.XXXXXX") || exit 2
 uid=$("$AIS" -f "$UP" -v "https://trip.example/venice" venice italy)
@@ -1903,8 +2021,8 @@ pathok  "mcpproj: and names the index it declined"         "$(cd "$PJ/.ais" && p
 # Naming the same index serves it, at either setting.
 mout=$(printf '%s\n' "$MLIST" | "$AIS" -f "$PJ/.ais" --mcp 2>/dev/null)
 jsonok  "mcpproj: the named session is valid JSON"         "$mout"
-okeq    "mcpproj: -f serves the four read tools"           "4" "$(ntools "$mout")"
-okeq    "mcpproj: -f rw adds save"                         "5" \
+okeq    "mcpproj: -f serves the five read tools"           "5" "$(ntools "$mout")"
+okeq    "mcpproj: -f rw adds save"                         "6" \
         "$(ntools "$(printf '%s\n' "$MLIST" | "$AIS" -f "$PJ/.ais" --mcp rw 2>/dev/null)")"
 
 "$AIS" -f "$PJ/.ais" --mcp rw extra >/dev/null 2>&1

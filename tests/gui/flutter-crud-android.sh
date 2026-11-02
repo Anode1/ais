@@ -1,7 +1,9 @@
 #!/bin/sh
 # flutter-crud-android.sh -- the everyday loop, driven through the REAL app on a
-# device: ADD a record, CHANGE its tags, DELETE it, with each step asserted
-# against the app's own index rather than against the screen.
+# device: ADD a record, CHANGE its tags, DELETE it, then a record under an
+# elapsed due key: the DUE group heads Recent and Done clears it. Each step is
+# asserted against the app's own index rather than against the screen, except
+# the Due group itself, which only the screen can show.
 #
 # The other two Android layers cover sync. This one covers what every user does
 # every day, and what nothing else tested: the paths where a Flutter dialog owns
@@ -13,8 +15,9 @@
 # fields), never by fixed screen coordinates, so a layout change cannot silently
 # stop this from asserting anything.
 #
-# DESTRUCTIVE ONLY OF ITS OWN RECORD: it adds one record with a unique marker,
-# edits that one, deletes that one, and touches nothing else on the device.
+# DESTRUCTIVE ONLY OF ITS OWN RECORDS: it adds two records with unique markers,
+# edits, clears and deletes those, and touches nothing else on the device.
+# AIS_DUE_SHOT=PATH keeps a screenshot with the Due group on screen.
 #
 # Exit 0 = pass, 1 = fail, 77 = SKIP (no device, no flutter toolchain).
 
@@ -128,6 +131,7 @@ type_into() {
 
 store()  { "$ADB" shell run-as "$PKG" cat app_flutter/ais/store 2>/dev/null; }
 tomb()   { "$ADB" shell run-as "$PKG" cat app_flutter/ais/tomb 2>/dev/null; }
+ktomb()  { "$ADB" shell run-as "$PKG" cat app_flutter/ais/ktomb 2>/dev/null; }
 
 pass=0; fail=0
 ok()  { pass=$((pass+1)); echo "  ok   $1"; }
@@ -216,8 +220,66 @@ sleep 10
 ui_dump | grep -q "$MARK" && bad "delete: the record is back after a restart" \
                           || ok "delete: and it is still gone after a restart"
 
+# --- DUE ---------------------------------------------------------------------
+# A record under an elapsed due key heads Recent as the "Due" group (GUI.md),
+# loaded with Recent on open. Filed through the app's own Add sheet with the
+# key due:2020, seen after a relaunch, cleared with Done: the key is detached
+# when the Undo window lapses, and the group stays gone after a restart.
+DUE="DUE-$$"
+tap_text 'Add something' 3 || tap_text 'Add' 5 || { echo "  FAIL no Add control for the due record"; exit 1; }
+sleep 3
+type_into 1 "$DUE" || { echo "  FAIL could not type the due record"; exit 1; }
+type_into 2 "due:2020" || { echo "  FAIL could not type the due key"; exit 1; }
+tap_text 'Save' 5 || { echo "  FAIL no Save button for the due record"; exit 1; }
+sleep 4
+store | grep "$DUE" | grep -q "due:2020" && ok "due: the record is filed under due:2020" \
+                                         || bad "due: the key did not land on the record"
+
+"$ADB" shell am force-stop "$PKG" >/dev/null 2>&1 || true
+"$ADB" shell monkey -p "$PKG" -c android.intent.category.LAUNCHER 1 >/dev/null 2>&1
+# Flutter exposes a Text to uiautomator as content-desc, never as text=, and
+# the first dump after a launch can precede the semantics tree, so look more
+# than once before calling it absent.
+i=0; seen=
+while [ $i -lt 8 ]; do
+    ui_dump | grep -q 'content-desc="Due"' && { seen=1; break; }
+    i=$((i + 1)); sleep 2
+done
+[ -n "$seen" ] && ok "due: the Due group heads Recent after a relaunch" \
+               || bad "due: no Due group on screen"
+"$ADB" exec-out screencap -p > "${AIS_DUE_SHOT:-$work/due.png}" 2>/dev/null || true
+
+# The group is first in the list, so the first row menu on screen is its row's.
+tap_text 'More' 6 || { echo "  FAIL no row menu on the due row"; exit 1; }
+sleep 2
+tap_text 'Done' 5 || { echo "  FAIL no Done action"; exit 1; }
+sleep 1
+ui_dump | grep -q 'content-desc="Due"' && bad "due: the row did not leave the group at once" \
+                                || ok "due: Done took the row out of the group at once"
+sleep 6                                   # past the 4.5s Undo window: the detach is sent
+ktomb | grep -q "due:2020" && ok "due: the detach reached the index (ktomb)" \
+                           || bad "due: nothing in ktomb (the armed Done was lost)"
+"$ADB" shell am force-stop "$PKG" >/dev/null 2>&1 || true
+"$ADB" shell monkey -p "$PKG" -c android.intent.category.LAUNCHER 1 >/dev/null 2>&1
+sleep 10
+ui_dump | grep -q 'content-desc="Due"' && bad "due: the group is back after a restart (the detach never reached the index)" \
+                                || ok "due: and it stays gone after a restart"
+
+# Leave the device as found: the due record is this run's, delete it as above.
+tap_text 'More' 6 || { echo "  FAIL no row menu to delete the due record"; exit 1; }
+sleep 2
+tap_text 'Delete' 5 || { echo "  FAIL no Delete action for the due record"; exit 1; }
+sleep 1
+"$ADB" shell input keyevent KEYCODE_HOME >/dev/null 2>&1
+sleep 4
+"$ADB" shell am force-stop "$PKG" >/dev/null 2>&1 || true
+"$ADB" shell monkey -p "$PKG" -c android.intent.category.LAUNCHER 1 >/dev/null 2>&1
+sleep 10
+ui_dump | grep -q "$DUE" && bad "due: the due record is back after its delete" \
+                         || ok "due: the due record is gone"
+
 if [ "$fail" -eq 0 ]; then
-    echo "  ok   flutter add / update / delete on Android (asserted on the index)"
+    echo "  ok   flutter add / update / delete / due on Android (asserted on the index)"
     exit 0
 fi
 echo "       screenshots of the failure(s) are in $work (kept)"

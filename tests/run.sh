@@ -42,6 +42,7 @@ layer fail_core "two-way sync (loopback)" sh "$root/tests/sync.sh" "$AIS"
 layer fail_core "mesh sync (four devices)" sh "$root/tests/mesh.sh" "$AIS"
 layer fail_core "upgrade from a release" sh "$root/tests/upgrade.sh" "$AIS"
 layer fail_core "encrypt over a pty"    sh "$root/tests/pty/encrypt.sh" "$AIS"
+layer fail_core "due hint over a pty"   sh "$root/tests/pty/due.sh" "$AIS"
 
 echo "GUI  (one engine, many front-ends; absent toolchain = SKIP)"
 sub

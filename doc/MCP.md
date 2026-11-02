@@ -61,6 +61,7 @@ alike.
 | `find` | `text`, `limit` | 50 | `id\|value` per line, values holding TEXT (case folded over ASCII) |
 | `tags` | `limit` | 200 | `count\|key` per line, busiest first |
 | `timeline` | `count`, or `limit` for the same thing | 20 | `id\|timestamp\|keys\|value` per line, newest first |
+| `due` | none | 20 | `id\|timestamp\|keys\|value` per line, oldest saved first: the records under a `due:YYYY[-MM[-DD]]` key whose day has come |
 | `save` | `value`, `keys`, both required | | `saved as record N under KEYS`; present only with `rw` |
 
 A row budget is a JSON integer from 1 to 1000. A string, a fraction, a zero or a
