@@ -2572,7 +2572,8 @@ int ais_tags_page(ais *a, long after_count, const char *after_key, int count,
             if (snprintf(kpath, sizeof(kpath), "%s/%s", pdir, ke->d_name)
                     >= (int)sizeof(kpath))
                 continue;
-            snprintf(tags[ntags].key, sizeof(tags[ntags].key), "%s", ke->d_name);
+            if (key_fsdecode(ke->d_name, tags[ntags].key, sizeof(tags[ntags].key)) != 0)
+                continue;                 /* not a name this platform wrote */
             tags[ntags].count = tag_count_file(a, kpath, dead);
             if (tags[ntags].count == 0)
                 continue;                 /* every record under it is deleted */
