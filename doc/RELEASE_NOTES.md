@@ -8,6 +8,13 @@ Before tagging, run `scripts/release-notes.sh vX.Y.Z`: it prepends the commit
 subjects since the previous tag, then edit them down to what a user needs to
 know. The old entries below the two newest are the raw subjects.
 
+## v0.3.41 (2026-11-02)
+
+- Reminders: a tag `due:2028`, `due:2028-11` or `due:2028-11-02` makes a note due from that year, month or day. From then on it sits under "Due" at the top of Recent, in the app, the web page and the PWA, until its menu's Done removes the tag or Later moves it to another day, both with Undo. Nothing rings: a due note is seen when AIS is opened, and it keeps its tags and its place in the timeline.
+- CLI: `ais --due` lists the due notes; a recall or `--timeline` at a terminal first says how many are due. An older ais reads the tag as a plain tag, and a due tag syncs like any other.
+- API: `/api/due`; the FFI gains `ais_embed_due`; the MCP server gains a `due` tool.
+- Tests: the Android host layer finds the Show a code tile again (the October wording put the same words into the paragraph above it).
+
 ## v0.3.40 (2026-11-01)
 
 - Windows: an installer, `ais-vX.Y.Z-windows-x86_64-setup.exe`. It installs for your user only (no admin prompt), puts AIS in the Start menu and on the Desktop, and the `ais` command on your PATH; uninstall from Settings > Apps leaves your index where it was. Your data is never inside the program folder.
