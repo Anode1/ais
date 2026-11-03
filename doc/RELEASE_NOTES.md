@@ -8,6 +8,13 @@ Before tagging, run `scripts/release-notes.sh vX.Y.Z`: it prepends the commit
 subjects since the previous tag, then edit them down to what a user needs to
 know. The old entries below the two newest are the raw subjects.
 
+## v0.3.43 (2026-11-02)
+
+- A calendar icon in the Tags field, in the app, the web page and the PWA, writes a `due:YYYY-MM-DD` tag for you; a month or a year is still typed by hand. Help gains Reminders and Projects.
+- CLI: `--due` rows start with the id, so Done is one command; a tag like `due:2026-13-45` or `due:tomorrow` gets a warning that it never comes due; `--del` of a missing id exits 1 and `/api/del` answers 404; a blank value is refused; `--update ID -KEY` without `--` gets the one-line fix; `--timeline` refuses a bad count; `--init` on an index says so; `--compact` prints what it kept and dropped; a save that merged into an existing note says so at a terminal.
+- App: Copy on a locked note opens Unlock, and the Unlocked dialog has Copy; the microphone keeps the typed words until it hears something and says "Nothing heard" otherwise; an empty sync code is answered; Save stays reachable in landscape; the sync dialogs name the menu item as it is written.
+- Documentation checked against the code, about 25 corrections; the man page and help text among them.
+
 ## v0.3.42 (2026-11-02)
 
 - Windows: a tag holding a colon, or another of the characters a Windows file name cannot hold, is listed by `--tags`, `--keys` and `--due`. Until now its postings were filed where no listing could see them, so a due tag did not come due there. An index written by an earlier Windows build lists them after one `ais --compact`.
