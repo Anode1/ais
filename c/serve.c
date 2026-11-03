@@ -32,6 +32,7 @@
 #include "find.h"        /* ais_find: the /api/find content search */
 #include "secret.h"      /* GUI encrypt: secret_encrypt for the "aisc:" marker */
 #include "stats.h"       /* ais_stats: the GUI shows what clean-up would reclaim */
+#include "compact.h"     /* tomb_contains: /api/del answers 404 for a deleted id */
 #include "locate.h"       /* store_persist: the chosen store is the default next run */
 #include "win.h"          /* Winsock + socket shims on native Windows; empty on POSIX */
 #include "import.h"       /* import_links_fp: POST /api/import-links */
@@ -1795,6 +1796,15 @@ static int serve_shred_value(long id, const char *value, void *vp)
     return 0;
 }
 
+/* Count a record's links without reading them: is there a live record at all?
+ * VP is a long *. */
+static int count_link_cb(long id, const char *value, void *vp)
+{
+    (void)id; (void)value;
+    (*(long *)vp)++;
+    return 0;
+}
+
 /* Same, per MATCHED RECORD: the bulk-delete pre-pass. VP is the ais handle. */
 static int serve_shred_id(long id, void *vp)
 {
@@ -2114,7 +2124,18 @@ static void handle(ais *a, int fd)
          * secret must not leave its ciphertext on disk, and exportable,
          * afterwards -- but the delete goes first (see ais_embed_del), so a
          * refused one cannot destroy the payload of a record that stays. */
-        if (reqid > 0 && ais_del(a, reqid) == 0) {
+        long nlive = 0;
+        if (reqid > 0 && tomb_contains(a, reqid) == 0)
+            ais_record(a, reqid, count_link_cb, &nlive);
+        if (reqid > 0 && nlive == 0) {
+            /* no live record: nothing to delete, and the page says which id */
+            char msg[64];
+            int len = snprintf(msg, sizeof msg, "no record %ld\n", reqid);
+            static const char h[] = "HTTP/1.0 404 Not Found\r\nContent-Type: text/plain\r\n"
+                "Connection: close\r\n\r\n";
+            write_all(fd, h, sizeof(h) - 1);
+            write_all(fd, msg, (size_t)len);
+        } else if (reqid > 0 && ais_del(a, reqid) == 0) {
             send_head(fd, "text/plain");
             write_all(fd, "deleted\n", 8);
         } else {

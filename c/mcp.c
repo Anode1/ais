@@ -34,6 +34,7 @@
 #include "doc.h"       /* ais_put_value: one record, blob-backed if multi-line */
 #include "find.h"      /* ais_find: the content search behind the find tool    */
 #include "secret.h"    /* secret_is_marked: ciphertext never reaches a model    */
+#include "due.h"       /* due_key_check: a save names a key that never comes due */
 #include "mcp.h"
 
 #define MCP_REQ_MAX   AIS_LINE_MAX  /* one request line; longer is refused     */
@@ -1079,6 +1080,15 @@ static AIS_NOINLINE void tool_save(ais *a, const jdoc *d, int args, const struct
         jout(blob);
         jout(" (find does not search inside documents)");
     }
+    /* A key that starts due: but is not a date is filed as a plain key: say
+     * so in the reply, where the model can offer the date it meant. */
+    for (i = 0; i < nkeys; i++)
+        if (due_key_check(kv[i]) == 0) {
+            jout("; ");
+            jout(kv[i]);
+            jout(" " DUE_SHAPE_HINT);
+            break;
+        }
     text_close(0);
 }
 

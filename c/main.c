@@ -45,6 +45,7 @@
 #include "serve.h"
 #include "sync.h"
 #include "secret.h"
+#include "due.h"          /* due_key_check: warn once about a key that never comes due */
 
 /* Stamped from the git tag at build time (-DAIS_VERSION, c/Makefile, the single
  * source of truth). This default applies only to a build with no git tag. */
@@ -325,14 +326,82 @@ static int print_tl(long id, const char *ts, const char *keys,
     return 0;
 }
 
-/* The due rows (see ais_due): --due prints them as --timeline rows; the hint
- * before a recall or --timeline only counts them. */
+/* The due rows (see ais_due): --due prints them as --timeline rows with the
+ * record id in front, "ID\tWHEN\tKEYS\tVALUE", so Done is one command away
+ * (ais --update ID -- -due:X); the hint before a recall or --timeline only
+ * counts them. */
 struct due_out { FILE *fp; long n; };
 static int due_tl(long id, const char *ts, const char *keys, const char *value, void *vp)
 {
     struct due_out *o = vp;
     o->n++;
-    return o->fp != NULL ? print_tl(id, ts, keys, value, o->fp) : 0;
+    if (o->fp == NULL)
+        return 0;
+    fprintf(o->fp, "%ld\t", id);
+    return print_tl(id, ts, keys, value, o->fp);
+}
+
+/* A key that starts "due:" but is not a date is stored as a plain key and
+ * never comes due. Say so once per command, on stderr, for the first such key
+ * in KEYS (space-separated; a "-key" is a detach and is skipped). */
+static void warn_due_keys(const char *keys)
+{
+    const char *p = keys;
+
+    while (*p != '\0') {
+        size_t n;
+        char tok[AIS_KEY_MAX];
+        while (*p == ' ' || *p == '\t') p++;
+        for (n = 0; p[n] != '\0' && p[n] != ' ' && p[n] != '\t'; n++)
+            ;
+        if (n == 0)
+            break;
+        if (n < sizeof tok && p[0] != '-') {
+            memcpy(tok, p, n);
+            tok[n] = '\0';
+            if (due_key_check(tok) == 0) {
+                fprintf(stderr, "ais: %s %s\n", tok, DUE_SHAPE_HINT);
+                return;
+            }
+        }
+        p += n;
+    }
+}
+
+/* A value with nothing in it (empty, or blank space only) is refused at the
+ * CLI as the MCP server refuses it: the index would hold a record no recall
+ * can show. 1 = blank. */
+static int value_blank(const char *v)
+{
+    for (; *v != '\0'; v++)
+        if (*v != ' ' && *v != '\t' && *v != '\n' && *v != '\r')
+            return 0;
+    return 1;
+}
+
+/* The ID operand of --del, --update, --add and --set: a whole number from 1.
+ * Returns it, or -1 having said why (a usage error, exit 2 at the caller). */
+static long id_operand(const char *cmdname, const char *arg)
+{
+    char *end;
+    long id;
+
+    errno = 0;
+    id = strtol(arg, &end, 10);
+    if (end == arg || *end != '\0' || errno != 0 || id < 1) {
+        fprintf(stderr, "ais: --%s needs a record ID, a number from 1, not '%s'\n",
+                cmdname, arg);
+        return -1;
+    }
+    return id;
+}
+
+/* Count a record's links without printing them (an ais_record callback). */
+static int count_link_cb(long id, const char *value, void *vp)
+{
+    (void)id; (void)value;
+    (*(long *)vp)++;
+    return 0;
 }
 
 /* One line, "N due: ais --due", on stderr and only at a terminal, before a
@@ -459,6 +528,21 @@ static int serve_port(const char *arg, int dflt)
         return -1;
     }
     return port;
+}
+
+/* Is DIR already an index: does it hold the format stamp every open writes, or
+ * a store (a legacy index from before the stamp)? */
+static int ais_index_present(const char *dir)
+{
+    char path[AIS_PATH_MAX];
+
+    if (snprintf(path, sizeof path, "%s/version", dir) >= (int)sizeof path)
+        return 0;
+    if (access(path, F_OK) == 0)
+        return 1;
+    if (snprintf(path, sizeof path, "%s/store", dir) >= (int)sizeof path)
+        return 0;
+    return access(path, F_OK) == 0;
 }
 
 /* ---- main --------------------------------------------------------------- */
@@ -596,7 +680,20 @@ int main(int argc, char **argv)
             if (cmd != 0) die("only one command at a time");
             cmd = c;
             break;
-        default: usage_short(stderr); return 2;
+        default:
+            /* `ais --update 42 -venice` lands here on the 'v' of a detach key
+             * typed without the '--'; one line that says what to type beats the
+             * whole usage. optopt names the offending short option. */
+            if (cmd == CMD_UPDATE && optopt != 0 && strchr("fvkp", optopt) == NULL) {
+                fprintf(stderr, "ais: put -- before the first -KEY: ais --update ID -- -KEY\n");
+                return 2;
+            }
+            if (cmd == CMD_TIMELINE && optopt >= '0' && optopt <= '9') {
+                fprintf(stderr, "ais: --timeline N is a count from 1 to %d\n", AIS_TL_MAX);
+                return 2;
+            }
+            usage_short(stderr);
+            return 2;
         }
     }
 
@@ -645,6 +742,12 @@ int main(int argc, char **argv)
                     resolved, resolved);
             dir = resolved;
         }
+        if (cmd == CMD_INIT && ais_index_present(dir)) {
+            /* Already an index: say so and touch nothing, not even the format
+             * stamp an open would rewrite. */
+            fprintf(stderr, "ais: already an AIS index: %s\n", dir);
+            return 0;
+        }
     }
 
     if (ais_open(&a, dir) != 0) {
@@ -676,7 +779,18 @@ int main(int argc, char **argv)
         case CMD_KEYS:  if (ais_keys(&a, print_key, stdout) < 0) die("keys failed"); break;
         case CMD_TAGS:  if (ais_tags(&a, print_tag, stdout) < 0) die("tags failed"); break;
         case CMD_TIMELINE: {
-            int lim = (optind < argc) ? atoi(argv[optind]) : 0;   /* optional N */
+            int lim = 0;                                   /* optional N */
+            if (optind < argc) {
+                char *end;
+                long n = strtol(argv[optind], &end, 10);
+                if (end == argv[optind] || *end != '\0' || n < 1) {
+                    fprintf(stderr, "ais: --timeline N is a count from 1 to %d, not '%s'\n",
+                            AIS_TL_MAX, argv[optind]);
+                    ais_close(&a);
+                    return 2;
+                }
+                lim = (n > AIS_TL_MAX) ? AIS_TL_MAX : (int)n;
+            }
             due_hint(&a);
             if (ais_timeline(&a, 0, lim, "", "", print_tl, stdout) < 0) die("timeline failed");
             break;
@@ -837,15 +951,24 @@ int main(int argc, char **argv)
         case CMD_UPDATE: {
             long id;
             if (optind >= argc) die("--update needs an ID");
-            id = atol(argv[optind]);
+            id = id_operand("update", argv[optind]);
+            if (id < 0) { ais_close(&a); return 2; }
             /* keys after the ID; -key detaches. Leading-'-' keys need '--':
              *   ais --update 42 rome        (attach rome)
              *   ais --update 42 -- -venice  (detach venice) */
             if (collect_keys(argv, optind + 1, argc, exkeys, nexk, keys, sizeof(keys)) != 0)
                 die("key list too long");
+            if (keys[0] == '\0' && nval > 0) {
+                /* `-venice` parsed as -v enice: the same slip the option parser
+                 * catches for a letter that is not an option. */
+                fprintf(stderr, "ais: put -- before the first -KEY: ais --update ID -- -KEY\n");
+                ais_close(&a);
+                return 2;
+            }
             if (keys[0] == '\0')
                 die("--update needs at least one key (KEY to add, -KEY to remove)");
             check_keys_len(keys);
+            warn_due_keys(keys);
             if (ais_update(&a, id, keys) != 0)
                 /* ais_update fails for several reasons -- unknown or deleted id,
                  * a key that would push the line past AIS_LINE_MAX, IO -- so
@@ -855,29 +978,32 @@ int main(int argc, char **argv)
             break;
         }
         case CMD_DEL: {
-            long id;
+            long id, nlive = 0;
+            int gone;
             if (optind >= argc) die("--del needs an ID");
-            id = atol(argv[optind]);
+            id = id_operand("del", argv[optind]);
+            if (id < 0) { ais_close(&a); return 2; }
+            /* ais_record reads the STORE, which still holds tombstoned lines
+             * until compaction, so an already-deleted id is screened first. An
+             * id with no live record is nothing to delete: say so and exit 1,
+             * with or without -y, and never prompt over an empty manifest. */
+            gone = tomb_contains(&a, id);
+            if (gone < 0) die("--del: cannot read the tombstone log");
+            if (!gone)
+                ais_record(&a, id, count_link_cb, &nlive);
+            if (nlive == 0) {
+                fprintf(stderr, "ais: nothing to delete: no record %ld\n", id);
+                ais_close(&a);
+                return 1;
+            }
             if (!assume_yes) {
                 char p[64];
                 /* SHOW the record before asking: an id is not something anyone
                  * recognises, so "Delete record 42?" alone gives the user
                  * nothing to check. */
                 long nlink = 0;
-                /* ais_record reads the STORE, which still holds tombstoned lines
-                 * until compaction, so an already-deleted id is screened here. */
-                int gone = (id > 0) ? tomb_contains(&a, id) : 0;
-                if (gone < 0) die("--del: cannot read the tombstone log");
                 fprintf(stderr, "About to delete:\n");
-                if (!gone)
-                    ais_record(&a, id, delkey_line_cb, &nlink);
-                if (nlink == 0) {
-                    /* Nothing to show means nothing to delete: never prompt over
-                     * an empty manifest. */
-                    fprintf(stderr, "  no live record %ld\n", id);
-                    ais_close(&a);
-                    return 1;
-                }
+                ais_record(&a, id, delkey_line_cb, &nlink);
                 if (nlink > 1)
                     fprintf(stderr, "     (+%ld more link%s on this record)\n",
                             nlink - 1, nlink == 2 ? "" : "s");
@@ -1038,6 +1164,8 @@ int main(int argc, char **argv)
                         "The deletions themselves are kept. Proceed?")) {
                 if (ais_compact(&a) != 0) die("compact failed");
             } else { fprintf(stderr, "aborted\n"); ais_close(&a); return 1; }
+            printf("compacted: %ld records kept, %ld deleted dropped\n",
+                   a.compact_kept, a.compact_dropped);
             break;
         case CMD_SERVE: {
             int port = serve_port((optind < argc) ? argv[optind] : NULL, 8765);
@@ -1172,6 +1300,7 @@ int main(int argc, char **argv)
             if (collect_keys(argv, optind, argc, exkeys, nexk, keys, sizeof(keys)) != 0)
                 die("key list too long");
             build_keys(project, keys, full, sizeof(full));
+            warn_due_keys(full);
             if (encrypt)
                 feed_encrypt_doc(&a, full);       /* mode 2: big encrypted note -> blob */
             else
@@ -1204,6 +1333,16 @@ int main(int argc, char **argv)
             die("key list too long");
         build_keys(project, keys, full, sizeof(full));
         check_keys_len(full);                     /* before any branch writes */
+        warn_due_keys(full);
+        {
+            int j;
+            for (j = 0; j < nval; j++)
+                if (strcmp(values[j], "-") != 0 && value_blank(values[j])) {
+                    fprintf(stderr, "ais: needs a value with something in it\n");
+                    ais_close(&a);
+                    return 2;
+                }
+        }
 
         if (encrypt) {                            /* -e: store one value encrypted */
             if (full[0] == '\0')
@@ -1231,6 +1370,14 @@ int main(int argc, char **argv)
             for (j = 1; j < nval; j++)            /* extra -v = multi-link */
                 if (ais_add(&a, id, values[j]) != 0) die("add failed");
             printf("%ld\n", id);
+            /* A value already filed: the keys went onto its record. Said at a
+             * terminal only, like the due hint, so stdout stays the id alone. */
+            if (!a.put_created && isatty(STDERR_FILENO)) {
+                if (full[0] != '\0')
+                    fprintf(stderr, "added %s to record %ld\n", full, id);
+                else
+                    fprintf(stderr, "already saved as record %ld\n", id);
+            }
         }
         ais_close(&a);
         return 0;

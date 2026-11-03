@@ -543,7 +543,12 @@ one string compare decides it. Anything else after `due:` is a plain key.
 nothing more), keeps the elapsed keys, at most `AIS_KEYS_MAX` of them and the
 lexically smallest first, and runs `ais_get` in OR mode over them, so a record
 under two elapsed keys is emitted once, ascending by id, with the keys field
-showing which key it is due by. Nothing marks a reminder as seen: a record is due
+showing which key it is due by. The CLI prints each as the `--timeline` row with
+the record id in front, `ID\tWHEN\tKEYS\tVALUE`, so the detach is one command away;
+`--timeline` itself is unchanged, scripts read it. A key that starts `due:` but is
+not a date of that shape (`due_key_check` in due.c: month 01..12, day 01..31) is
+stored as a plain key, and the CLI and the MCP save reply say so once, naming the
+key. Nothing marks a reminder as seen: a record is due
 until its key is detached (`--update ID -- -due:2028-11`), and that detach is a
 `K|` line to every peer, so the other devices stop showing it too. Re-dating is
 the same edit with a new key. The record keeps its id, its save time and its
@@ -591,8 +596,9 @@ The two are one keystroke apart and opposite in consequence; GUI.md carries the
 locked wording every surface uses and the web-GUI obligations.
 
     ais [-f DIR] --del ID | --dump | --keys | --stats | --compact
-    ais [-f DIR] --tags | --timeline       browse keys, or records newest-first
-    ais [-f DIR] --due                     the records whose due:DATE key has come (below)
+    ais [-f DIR] --tags | --timeline [N]   browse keys, or records newest-first (N is 1..10000)
+    ais [-f DIR] --due                     the records whose due:DATE key has come (below),
+                                           each a --timeline row with the id in front
     ais [-f DIR] --import < FILE | --where | --project [KEY] | --serve [PORT]
     ais [-f DIR] --import-interactively   like --import, but y/N per record (answers on the tty)
     ais [-f DIR] --import-bookmarks FILE | --import-keep DIR   file a browser's, a links app's

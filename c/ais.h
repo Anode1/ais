@@ -67,6 +67,10 @@ typedef struct ais {
                                * Decided under the writer lock, so it holds when
                                * another process has moved next_id since this
                                * handle last read it. Not persisted. */
+    long compact_kept;        /* after ais_compact / ais_compact_purge: the records
+                               * the rewritten store holds, and the deleted ones
+                               * whose lines it dropped. Not persisted. */
+    long compact_dropped;
 } ais;
 
 /* Open (creating if absent) the INDEX directory `dir`. Takes no lock: each write
@@ -306,6 +310,12 @@ void ais_dump(ais *a, FILE *out);
  * ("YYYY-MM-DDThh:mm:ss") or "" if it has none. Return 0 to continue. */
 typedef int (*ais_tl_cb)(long id, const char *ts, const char *keys,
                          const char *value, void *ctx);
+
+/* One timeline page holds at most AIS_TL_MAX rows (a larger COUNT is cut to
+ * it; it bounds the heap of the no-"off" fallback) and AIS_TL_DEFAULT when
+ * COUNT <= 0. */
+#define AIS_TL_DEFAULT   500
+#define AIS_TL_MAX     10000
 
 /* Emit one timeline page: the COUNT live records with id < BEFORE_ID (BEFORE_ID
  * <= 0 = from the newest; COUNT <= 0 = a default), newest id first, one row per

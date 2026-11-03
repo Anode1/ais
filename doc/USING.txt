@@ -66,6 +66,7 @@ PREFER TYPING? (any OS)
   ais --update 42 rome -- -venice   on item 42 (the id shown as id|value):
                                     add 'rome', remove 'venice'
   ais --del 42                      delete item 42
+  ais --due                         what is due, the item id first
   ais --help                        the full list of commands
 
 A coding agent can read the same index as a tool: see doc/MCP.md.

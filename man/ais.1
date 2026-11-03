@@ -231,7 +231,8 @@ A detached key is hidden at once and removed from the store by
 .BR \-\-compact .
 .TP
 .B \-\-del \fIID\fR
-Delete record ID.
+Delete record ID. No live record with that id is nothing to delete (exit 1);
+an ID that is not a number is a usage error (exit 2).
 .TP
 .B \-\-del-under \fIKEY\fR
 Delete every record filed under KEY. The RECORDS go, not just the tag, and
@@ -308,7 +309,8 @@ Print counts of records, keys, and deleted records.
 .B \-\-timeline \fR[\fIN\fR]
 The
 .I N
-most recent records, newest first (default 500, at most 10000 in one page); a
+most recent records, newest first (default 500, at most 10000 in one page;
+anything but a count from 1 is a usage error); a
 GUI pages through older ones on demand. The time in each row is UTC, marked
 .BR Z ;
 the GUIs and blob names use local time.
@@ -316,11 +318,17 @@ the GUIs and blob names use local time.
 .B \-\-due
 The reminders: every record filed under a key
 .BR due:2028 ", " due:2028-11 " or " due:2028-11-02
-whose day has come, oldest saved first, in the rows
+whose day has come, oldest saved first, each the row
 .B \-\-timeline
-prints. A year key is due from 1 January, a month key from the first of the
+prints with the record id in front:
+.IR ID ", " when ", " keys ", " value ,
+tab-separated. A year key is due from 1 January, a month key from the first of the
 month, and a record stays due until the key is removed:
 .BR "ais \-\-update ID \-\- \-due:2028-11" .
+A key that starts
+.B due:
+but is not such a date is a plain key that never comes due; saving or
+attaching one says so on standard error.
 At a terminal, a recall or
 .B \-\-timeline
 first says
@@ -332,7 +340,9 @@ process: a due record is seen when ais is used.
 Every key with how many records use it, busiest first.
 .TP
 .B \-\-compact
-Reclaim the space of deleted records and rebuild the index. The deletions
+Reclaim the space of deleted records and rebuild the index, then print
+.IR "compacted: N records kept, M deleted dropped" .
+The deletions
 themselves are KEPT: they are what tells your other devices a record is gone. See
 .B \-\-forget-deleted
 to drop those too.
@@ -459,7 +469,8 @@ to sync with it as it now stands. Each failure says which it was
 .B \-\-init
 Create a local
 .I .ais
-index in the current directory (then found from any subdirectory, like git).
+index in the current directory (then found from any subdirectory, like git). On
+a directory that is already an index it says so and changes nothing (exit 0).
 .TP
 .B \-\-where
 Print the resolved index directory (e.g. to locate a blob file).
@@ -584,7 +595,9 @@ or the action was not performed: a declined confirmation, or nothing to
 delete or untag; or an error. Grep semantics, so a script can tell hit from miss.
 .TP
 .B 2
-Unknown option, no arguments, a port out of range,
+Unknown option, no arguments, a port or
+.B \-\-timeline
+count out of range, an ID that is not a number, a value with nothing in it,
 .B \-\-mcp
 refused, or no terminal to confirm on.
 .SH FILES

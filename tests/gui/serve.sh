@@ -328,7 +328,14 @@ ok "del-under: an empty tag is refused"  "400" \
 printf 'to be deleted' | curl -s -X POST --data-binary @- "$B/api/put?keys=cmpk" >/dev/null
 printf 'to be kept'    | curl -s -X POST --data-binary @- "$B/api/put?keys=cmpkeep" >/dev/null
 delid=$(curl -s "$B/api/get?keys=cmpk" | head -1 | cut -d'|' -f1)
-curl -s -X POST "$B/api/del?id=$delid" >/dev/null
+ok "del: a live id is deleted"                 "deleted" "$(curl -s -X POST "$B/api/del?id=$delid")"
+ok "del: the same id again is 404"             "404" \
+   "$(curl -s -o /dev/null -w '%{http_code}' -X POST "$B/api/del?id=$delid")"
+ok "del: and the body names the id"            "no record $delid" "$(curl -s -X POST "$B/api/del?id=$delid")"
+ok "del: an id never issued is 404"            "404" \
+   "$(curl -s -o /dev/null -w '%{http_code}' -X POST "$B/api/del?id=999999")"
+ok "del: a missing id is still 400"            "400" \
+   "$(curl -s -o /dev/null -w '%{http_code}' -X POST "$B/api/del?id=abc")"
 # earlier cases in this file already deleted things, so assert "some", not "one"
 okd=$(curl -s "$B/api/stats" | grep -c 'deleted: [1-9]')
 okeq2() { if [ "$2" = "$3" ]; then pass=$((pass+1)); echo "  ok   $1"; else fail=$((fail+1)); echo "  FAIL $1 (want '$2', got '$3')"; fi; }
@@ -377,13 +384,13 @@ ok    "del: the record is there before"       "delete me" "$(curl -s "$B/api/get
 ok    "del: reports what it removed"          "deleted"   "$(curl -s -X POST "$B/api/del?id=$did")"
 empty "del: and the record is really gone"    "$(curl -s "$B/api/get?keys=delk")"
 ok    "del: the neighbour is untouched"       "keep me"   "$(curl -s "$B/api/get?keys=delkeep")"
-# Deleting an already-gone id reports "deleted" and succeeds, matching `ais -y
-# --del <gone-id>`, so a double-tap on a phone raises no error. It does mean a
-# wrong id reports success.
-ok    "del: a second delete is idempotent, not an error" "deleted" \
+# Deleting an already-gone id is 404 "no record N", matching `ais -y --del
+# <gone-id>` (nothing to delete, exit 1), so a wrong id never reports success;
+# the page's delete does not read the reply, so a double-tap raises nothing.
+ok    "del: a second delete is 404, nothing to delete" "no record $did" \
       "$(curl -s -X POST "$B/api/del?id=$did")"
-ok    "del: and the CLI agrees, so the front ends match" "deleted" \
-      "$(curl -s -X POST "$B/api/del?id=999999")"
+ok    "del: and the CLI agrees, so the front ends match" "nothing to delete: no record $did" \
+      "$("$AIS" -f "$IDX" -y --del "$did" 2>&1)"
 
 # --- the bundle endpoints: "Export to a file" / "Import from a file" ---------
 #     import-bundle carries a special case in the request reader: it is the one

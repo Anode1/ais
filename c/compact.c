@@ -1248,7 +1248,11 @@ struct compact_ctx {
     FILE *out;
     FILE *off_out;     /* rebuilding "off": first-line offset per id          */
     FILE *multi_out;   /* rebuilding "multi": ids that carry >1 line          */
-    long  maxid;       /* highest id seen; first-appearance test + next_id    */
+    long  maxid;       /* highest KEPT id seen; first-appearance test + next_id */
+    long  maxseen;     /* highest id seen at all: a record's first line, kept or
+                        * dropped, is the one whose id exceeds it (ids are
+                        * issued in order; a continuation repeats its id)    */
+    long  kept, dropped; /* records, counted once each, for the caller         */
     long  last_off_id; /* highest id written to "off" (drives gap sentinels)  */
     int   filter;      /* 1 if ktomb has entries: strip detached keys         */
     int   error;
@@ -1301,6 +1305,10 @@ static int compact_line(long id, const char *ts, const char *keys,
     if (t < 0) {
         c->error = 1;
         return -1;
+    }
+    if (id > c->maxseen) {
+        c->maxseen = id;
+        if (t == 1) c->dropped++; else c->kept++;
     }
     if (t == 1) {
         /* Dropped: this line was the last thing pointing at any blob it holds,
@@ -1510,6 +1518,9 @@ static int compact_locked(ais *a)
     c.off_out = NULL;
     c.multi_out = NULL;
     c.maxid = 0;
+    c.maxseen = 0;
+    c.kept = 0;
+    c.dropped = 0;
     c.last_off_id = 0;
     c.error = 0;
     c.filter = ktomb_active(a);              /* strip detached keys if any */
@@ -1672,6 +1683,8 @@ static int compact_locked(ais *a)
 
     if (store_write_version(a) != 0)   /* refresh the format stamp to the current version */
         goto cleanup;
+    a->compact_kept = c.kept;
+    a->compact_dropped = c.dropped;
     rc = 0;
 
 cleanup:

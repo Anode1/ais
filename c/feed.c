@@ -1158,8 +1158,9 @@ void feed_doc(ais *a, const char *keys)
     char blobpath[AIS_PATH_MAX], relval[AIS_PATH_MAX];
     FILE *bf;
     char buf[8192];
-    size_t n;
+    size_t n, i;
     long got;
+    int blank = 1;                        /* nothing but blank space so far */
 
     if (ais_doc_blobname(a, relval, sizeof(relval), blobpath, sizeof(blobpath)) != 0)
         die("doc: cannot prepare blob path under '%s'", a->dir);
@@ -1167,13 +1168,24 @@ void feed_doc(ais *a, const char *keys)
     bf = fopen(blobpath, "w");
     if (bf == NULL)
         die("doc: cannot write '%s'", blobpath);
-    while ((n = fread(buf, 1, sizeof(buf), stdin)) > 0)
+    while ((n = fread(buf, 1, sizeof(buf), stdin)) > 0) {
+        for (i = 0; blank && i < n; i++)
+            if (buf[i] != ' ' && buf[i] != '\t' && buf[i] != '\n' && buf[i] != '\r')
+                blank = 0;
         if (fwrite(buf, 1, n, bf) != n) {
             fclose(bf);
             die("doc: write failed");
         }
+    }
     if (fclose(bf) != 0)
         die("doc: close failed");
+    if (blank) {
+        /* An empty document is a record no recall can show: refused as -v ""
+         * is, with the usage status, and the blob it would have pointed at goes. */
+        unlink(blobpath);
+        fprintf(stderr, "ais: needs a value with something in it\n");
+        exit(2);
+    }
 
     /* store the relative path as the value */
     got = ais_put(a, keys, relval);

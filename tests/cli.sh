@@ -116,6 +116,11 @@ if [ -d "$TREE/.ais" ]; then
 else
     fail=$((fail + 1)); echo "  FAIL init: no .ais created"
 fi
+rm -f "$TREE/.ais/lock"                      # an open would recreate it
+ierr=$(cd "$TREE" && "$AIS" --init 2>&1 >/dev/null); irc=$?
+okeq "init: a second --init exits 0"                     "0" "$irc"
+ok   "init: and says the index is already there"         "ais: already an AIS index: .ais" "$ierr"
+okempty "init: and opened nothing (no lock file minted)" "$(ls "$TREE/.ais/lock" 2>/dev/null)"
 mkdir -p "$TREE/sub/deep"
 ( cd "$TREE/sub/deep" && printf 'a note\n' | "$AIS" -v - memo >/dev/null )
 out=$(cd "$TREE" && "$AIS" memo)
@@ -133,6 +138,15 @@ ok      "guard: del without confirmation is refused" "scratch value" "$out"
 "$AIS" -f "$DD" -y --del "$id" >/dev/null                  # -y -> deletes
 out=$("$AIS" -f "$DD" tmp)
 okempty "guard: del -y removes the record" "$out"
+derr=$("$AIS" -f "$DD" -y --del "$id" 2>&1 >/dev/null); drc=$?
+okeq    "del: -y on an already-deleted id exits 1"    "1" "$drc"
+ok      "del: and says there is nothing to delete"    "ais: nothing to delete: no record $id" "$derr"
+derr=$("$AIS" -f "$DD" -y --del 777 2>&1 >/dev/null); drc=$?
+okeq    "del: -y on an id never issued exits 1"       "1" "$drc"
+ok      "del: and names it"                           "nothing to delete: no record 777" "$derr"
+derr=$("$AIS" -f "$DD" -y --del abc 2>&1 >/dev/null); drc=$?
+okeq    "del: a non-numeric ID is a usage error, exit 2" "2" "$drc"
+ok      "del: and says what an ID is"                 "needs a record ID" "$derr"
 rm -rf "$DD"
 
 # 6. interactive: stdin = values, keys read per line from $AIS_TTY (scripted tty)
@@ -241,7 +255,8 @@ CP=$(mktemp -d "${TMPDIR:-/tmp}/ais_cp.XXXXXX") || exit 2
 cid=$("$AIS" -f "$CP" -v doomed scratch)
 "$AIS" -f "$CP" -v survivor scratch >/dev/null   # a store wiped to nothing must fail
 "$AIS" -f "$CP" -y --del "$cid" >/dev/null
-"$AIS" -f "$CP" -y --compact >/dev/null
+okeq "compact: says what it kept and dropped" "compacted: 1 records kept, 1 deleted dropped" "$("$AIS" -f "$CP" -y --compact)"
+okeq "compact: a second pass drops nothing"   "compacted: 1 records kept, 0 deleted dropped" "$("$AIS" -f "$CP" -y --compact --forget-deleted 2>/dev/null)"
 ok "compact: the live record is still there" "survivor" "$(cat "$CP"/store)"
 ok "compact: and still answers by key"       "survivor" "$("$AIS" -f "$CP" scratch)"
 case "$(cat "$CP"/store)" in
@@ -282,7 +297,7 @@ rm -rf "$TT"
 DU=$(mktemp -d "${TMPDIR:-/tmp}/ais_due.XXXXXX") || exit 2
 "$AIS" -f "$DU" -v "flush the tank"  tank due:2020    >/dev/null
 "$AIS" -f "$DU" -v "check the roof"  roof due:2099    >/dev/null
-"$AIS" -f "$DU" -v "not a reminder"  vague due:soon   >/dev/null
+"$AIS" -f "$DU" -v "not a reminder"  vague due:soon   >/dev/null 2>&1
 due=$("$AIS" -f "$DU" --due 2>&1)
 okeq  "due: exit 0 when something is due"            "0" "$?"
 ok    "due: the elapsed record is listed"            "flush the tank" "$due"
@@ -310,17 +325,34 @@ tid=$("$AIS" -f "$DE" tank | head -1 | cut -d'|' -f1)
 "$AIS" -f "$DE" --update "$tid" -- -due:2020 >/dev/null
 "$AIS" -f "$DE" --due >/dev/null 2>&1
 okeq  "due edges: and detaches by its folded name"            "1" "$?"
-"$AIS" -f "$DE" -v "no dashes"   a due:20261102          >/dev/null
-"$AIS" -f "$DE" -v "with a time" b due:2026-11-02T10:00  >/dev/null
-"$AIS" -f "$DE" -v "slashes"     c due:2026/11/02        >/dev/null
-"$AIS" -f "$DE" -v "bare prefix" d due:                  >/dev/null
-"$AIS" -f "$DE" -v "month 13"    e due:2026-13           >/dev/null
+"$AIS" -f "$DE" -v "no dashes"   a due:20261102          >/dev/null 2>&1
+"$AIS" -f "$DE" -v "with a time" b due:2026-11-02T10:00  >/dev/null 2>&1
+"$AIS" -f "$DE" -v "slashes"     c due:2026/11/02        >/dev/null 2>&1
+"$AIS" -f "$DE" -v "bare prefix" d due:                  >/dev/null 2>&1
+"$AIS" -f "$DE" -v "month 13"    e due:2026-13           >/dev/null 2>&1
 "$AIS" -f "$DE" --due >/dev/null 2>&1
 okeq  "due edges: five malformed shapes, nothing is due, exit 1" "1" "$?"
 ok    "due edges: a malformed due key still recalls"          "no dashes" "$("$AIS" -f "$DE" due:20261102)"
 ok    "due edges: a slashed one recalls by its encoded name"  "slashes"   "$("$AIS" -f "$DE" due:2026/11/02)"
 ok    "due edges: --keys lists a due key as any key"          "due:20261102" "$("$AIS" -f "$DE" --keys)"
 ok    "due edges: --tags counts it as any key"                "due:20261102" "$("$AIS" -f "$DE" --tags)"
+# a key that starts due: but is not a date is stored as a plain key, and the
+# CLI says so once at save and at --update; a good key and a detach stay silent
+"$AIS" -f "$DE" -v "month 13 day 45" f due:2099-13-45 >/dev/null 2>"$DE/err"
+okeq  "due warn: a malformed due key still saves, exit 0"      "0" "$?"
+ok    "due warn: and stderr names the key and the shape"       "ais: due:2099-13-45 is not a date, so it never comes due; a reminder is due:YYYY" "$(cat "$DE/err")"
+"$AIS" -f "$DE" -v "day 00" g due:2099-01-00 due:2099-00-01 >/dev/null 2>"$DE/err"
+okeq  "due warn: said once per command, for the first bad key" "1" "$(grep -c 'never comes due' "$DE/err")"
+"$AIS" -f "$DE" -v "a good one" h due:2099-11-02 >/dev/null 2>"$DE/err"
+okempty "due warn: a well-formed key is not warned about"      "$(cat "$DE/err")"
+"$AIS" -f "$DE" -v "a year" i DUE:2097 >/dev/null 2>"$DE/err"
+okempty "due warn: nor a year key typed in capitals"           "$(cat "$DE/err")"
+hid=$("$AIS" -f "$DE" h | cut -d'|' -f1)
+"$AIS" -f "$DE" --update "$hid" due:2099-1 >/dev/null 2>"$DE/err"
+okeq  "due warn: --update attaches it, exit 0"                 "0" "$?"
+ok    "due warn: and warns at the attach"                      "due:2099-1 is not a date" "$(cat "$DE/err")"
+"$AIS" -f "$DE" --update "$hid" -- -due:2099-1 >/dev/null 2>"$DE/err"
+okempty "due warn: a detach of it is silent"                   "$(cat "$DE/err")"
 "$AIS" -f "$DE" --due --timeline >/dev/null 2>"$DE/err"
 okeq  "due edges: --due with another command exits 1"         "1" "$?"
 ok    "due edges: and says so"                                "only one command" "$(cat "$DE/err")"
@@ -331,7 +363,11 @@ ok    "due edges: and names the missing index"                "no index" "$(cat 
 "$AIS" -f "$DE" -p work -v "a chore" chore due:2020 >/dev/null
 ok    "due edges: a chip key rides the due row"               "work chore due:2020" "$("$AIS" -f "$DE" --due)"
 ok    "due edges: --due under another chip still lists it"    "a chore" "$("$AIS" -f "$DE" -p other --due)"
-okeq  "due edges: a due row is the record's --timeline row"   "$("$AIS" -f "$DE" --timeline | grep chore)" "$("$AIS" -f "$DE" --due | grep chore)"
+cid=$("$AIS" -f "$DE" chore | cut -d'|' -f1)
+okeq  "due edges: a due row is the record's --timeline row with the id in front" \
+      "$(printf '%s\t%s' "$cid" "$("$AIS" -f "$DE" --timeline | grep chore)")" "$("$AIS" -f "$DE" --due | grep chore)"
+okeq  "due edges: and --timeline's row shape is unchanged (no id column)" "2" \
+      "$("$AIS" -f "$DE" --timeline | grep chore | tr -cd '\t' | wc -c | tr -d ' ')"
 # a deleted record is not due; its key's posting file goes at compaction
 "$AIS" -f "$DE" -v "gone" gone due:2019 >/dev/null
 gid=$("$AIS" -f "$DE" gone | head -1 | cut -d'|' -f1)
@@ -840,7 +876,8 @@ DD=$(mktemp -d "${TMPDIR:-/tmp}/ais_deldead.XXXXXX") || exit 2
 "$AIS" -f "$DD" -y --del 1 >/dev/null
 printf 'y\n' > "$DD/ans"
 dead=$(AIS_TTY="$DD/ans" "$AIS" -f "$DD" --del 1 2>&1); drc=$?
-ok      "del: an already-deleted id says so"          "no live record 1" "$dead"
+ok      "del: an already-deleted id says so"          "nothing to delete: no record 1" "$dead"
+okempty "del: and shows no manifest to confirm"       "$(printf '%s' "$dead" | grep 'About to delete')"
 okeq    "del: and exits non-zero without asking"      "1" "$drc"
 okeq    "del: no second tombstone was appended"       "1" "$(grep -c '^1|' "$DD"/tomb)"
 rm -rf "$DD"
@@ -853,10 +890,41 @@ MS=$(mktemp -d "${TMPDIR:-/tmp}/ais_misc.XXXXXX") || exit 2
 okeq    "untag: a missing KEY is an error, not a no-op" "1" "$?"
 "$AIS" -f "$MS" --del-under >/dev/null 2>&1
 okeq    "del-under: a missing KEY is an error too"      "1" "$?"
+# a value with nothing in it is refused with the usage status, nothing stored
+berr=$("$AIS" -f "$MS" -v "" mk 2>&1 >/dev/null); brc=$?
+okeq    "blank: -v '' is refused, exit 2"               "2" "$brc"
+ok      "blank: and says what is missing"               "ais: needs a value with something in it" "$berr"
+"$AIS" -f "$MS" -v "   " mk >/dev/null 2>&1
+okeq    "blank: blank space only is refused too"        "2" "$?"
+"$AIS" -f "$MS" -v m1 -v "" mk >/dev/null 2>&1
+okeq    "blank: a blank second link is refused too"     "2" "$?"
+printf '  \n\n' | "$AIS" -f "$MS" --doc mk >/dev/null 2>&1
+okeq    "blank: --doc with a blank body is refused"     "2" "$?"
+okempty "blank: and left no blob behind"                "$(ls "$MS/blobs" 2>/dev/null)"
+okeq    "blank: nothing was stored"                     "1" "$("$AIS" -f "$MS" mk | grep -c .)"
+# a detach key typed without the '--' is told what to type, in one line
+uerr=$("$AIS" -f "$MS" --update 1 -todo 2>&1 >/dev/null); urc=$?
+okeq    "update: -KEY without -- is a usage error"      "2" "$urc"
+ok      "update: and says to put -- first"              "ais: put -- before the first -KEY: ais --update ID -- -KEY" "$uerr"
+okempty "update: without the whole usage"               "$(printf '%s' "$uerr" | grep 'bare words are ALWAYS keys')"
+uerr=$("$AIS" -f "$MS" --update 1 -venice 2>&1 >/dev/null); urc=$?
+okeq    "update: a -KEY that parses as -v is told too"  "2" "$urc"
+ok      "update: with the same line"                    "put -- before the first -KEY" "$uerr"
+# --timeline N: a count from 1; the usage status for anything else
+for bad in 0 abc -5; do
+    terr=$("$AIS" -f "$MS" --timeline $bad 2>&1 >/dev/null); trc=$?
+    okeq    "timeline: N='$bad' is a usage error, exit 2"   "2" "$trc"
+    ok      "timeline: and names the range"                 "a count from 1 to 10000" "$terr"
+done
+okeq    "timeline: N=1 is one row"                      "1" "$("$AIS" -f "$MS" --timeline 1 | grep -c .)"
 printf 'n\n' > "$MS/ans"
 AIS_TTY="$MS/ans" "$AIS" -f "$MS" --compact >/dev/null 2>&1
 okeq    "compact: declining exits non-zero"             "1" "$?"
 ok      "compact: and the record is still there"        "m1" "$("$AIS" -f "$MS" mk)"
+# a re-save of a stored value prints its id alone when piped (the "added KEYS to
+# record N" line exists only at a terminal: tests/pty/due.sh)
+mout=$("$AIS" -f "$MS" -v m1 mk2 2>&1)
+okeq    "resave: piped, stdout and stderr are the id alone" "1" "$mout"
 # --set rewrites the line in place and the record stays one live record.
 "$AIS" -f "$MS" --set 1 -v m1 -v m2 >/dev/null 2>&1
 ok      "set: the record reads back edited"             "m2" "$("$AIS" -f "$MS" mk)"
@@ -1693,6 +1761,12 @@ okempty "mcp: nothing was written"                         "$("$AIS" -f "$MI" k 
 mout=$(mcprw '{"jsonrpc":"2.0","id":12,"method":"tools/call","params":{"name":"save","arguments":{"value":"written by the agent","keys":["k"]}}}')
 ok      "mcp: rw saves and names the record"               "saved as record" "$mout"
 ok      "mcp: and the CLI sees it"                         "written by the agent" "$("$AIS" -f "$MI" k)"
+mout=$(mcprw '{"jsonrpc":"2.0","id":12,"method":"tools/call","params":{"name":"save","arguments":{"value":"a bad reminder","keys":["k","due:2026-13"]}}}')
+ok      "mcp: a malformed due key still saves"             "saved as record" "$mout"
+ok      "mcp: and the reply says it never comes due"       "due:2026-13 is not a date, so it never comes due; a reminder is due:YYYY" "$mout"
+okempty "mcp: and marks no error"                          "$(printf '%s' "$mout" | grep -o '"isError":true')"
+mout=$(mcprw '{"jsonrpc":"2.0","id":12,"method":"tools/call","params":{"name":"save","arguments":{"value":"a good reminder","keys":["k","due:2099-01"]}}}')
+okempty "mcp: a well-formed due key draws no such note"     "$(printf '%s' "$mout" | grep -o 'never comes due')"
 
 # JSON the server must survive: escapes, a bad message, an unknown method.
 mout=$(mcprw '{"jsonrpc":"2.0","id":13,"method":"tools/call","params":{"name":"save","arguments":{"value":"caf\u00e9 \"quoted\" \ud83d\ude00","keys":["esc"]}}}')

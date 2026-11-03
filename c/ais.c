@@ -2111,8 +2111,7 @@ void ais_dump(ais *a, FILE *out)
  * asked for is read, never the whole store. One row per record (its first/canonical
  * line). When "off" is absent or stale (a legacy index before --compact) it falls
  * back to a bounded scan -- correct, not scalable. */
-#define AIS_TL_DEFAULT  500    /* page size when COUNT <= 0                      */
-#define AIS_TL_MAX    10000    /* hard cap on one page (bounds the fallback heap)*/
+/* AIS_TL_DEFAULT and AIS_TL_MAX are in ais.h: the CLI names the cap. */
 
 /* Forward a record to the caller's cb -- hiding ktomb-detached keys, and only if
  * its date falls in the [from,to] range. Counts the rows actually emitted, so

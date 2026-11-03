@@ -317,4 +317,22 @@ void main() {
     await tester.pumpAndSettle();
     expect(saved.length, 1);
   });
+
+  // A slot too short for the old split (a landscape phone with the keyboard
+  // folded away) still pins Save and Cancel inside it; the fields scroll.
+  testWidgets('a short slot keeps Save and Cancel on screen', (tester) async {
+    saved.clear();
+    await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+            body: Align(
+                alignment: Alignment.topCenter,
+                child: SizedBox(
+                    height: 275,
+                    child: AddSheet(suggest: (_) => const [], onSave: onSave))))));
+    await tester.pump();
+    for (final label in ['Save', 'Cancel']) {
+      expect(tester.getRect(find.text(label)).bottom, lessThanOrEqualTo(275),
+          reason: '$label is below the slot');
+    }
+  });
 }

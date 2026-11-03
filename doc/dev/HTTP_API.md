@@ -46,7 +46,7 @@ editable there.
 | POST | `/api/put?keys=A+B[&enc=1]` | save; body is the value, or `passphrase\nvalue` when `enc=1` |
 | POST | `/api/update?id=N&keys=A+-B` | attach/detach tags (a `-` prefix detaches) |
 | POST | `/api/setvalue?id=N` | replace one value in place; body is `oldvalue\nnewtext`. The old value is one line (a document's is its `blobs/` path, from the row's `aisdoc:` header line); the new text may span lines, and the engine stores it inline or as a fresh document blob, as saving does |
-| POST | `/api/del?id=N` | delete one record |
+| POST | `/api/del?id=N` | delete one record; 404 with the body `no record N` when no live record has that id, 400 when `id` is missing |
 | POST | `/api/reveal` | body is `passphrase\nmarked-value`; replies with the cleartext, or empty |
 
 There is deliberately no `/api/add`: the CLI's `--add ID -v VALUE` (a second link

@@ -210,7 +210,143 @@ List<String> withDueChip(List<String> tags, String day) {
   return at < 0 ? [...kept, tag] : (kept..insert(at, tag));
 }
 
+/// What _listen needs from the microphone, so a widget test can fake a
+/// session: the speech_to_text plugin on a phone (PluginVoice).
+abstract class Voice {
+  /// True when the recognizer is usable; the first call asks permission.
+  Future<bool> init(
+      {required void Function(String status) onStatus,
+      required void Function(String error) onError});
+
+  /// One session; each result says whether it is the final one.
+  Future<void> listen(void Function(String words, bool isFinal) onResult);
+  Future<void> stop();
+  void cancel();
+}
+
+class PluginVoice implements Voice {
+  final _s = SpeechToText();
+  @override
+  Future<bool> init(
+          {required void Function(String status) onStatus,
+          required void Function(String error) onError}) =>
+      _s.initialize(onStatus: onStatus, onError: (e) => onError(e.errorMsg));
+
+  // ON-DEVICE ONLY. The package default is onDevice: false, which streams the
+  // audio to the platform's cloud recogniser, Google's on Android. A device
+  // with no local recogniser gets no dictation and is told why.
+  // A pause of 3 s, or 30 s in all, ends the session, so each tap transcribes
+  // one phrase and the final result arrives without a stop.
+  @override
+  Future<void> listen(void Function(String words, bool isFinal) onResult) =>
+      _s.listen(
+        onResult: (r) => onResult(r.recognizedWords, r.finalResult),
+        listenOptions: SpeechListenOptions(
+            onDevice: true,
+            pauseFor: const Duration(seconds: 3),
+            listenFor: const Duration(seconds: 30)),
+      );
+  @override
+  Future<void> stop() => _s.stop();
+  @override
+  void cancel() => _s.cancel();
+}
+
+/// The Unlocked dialog: the plain text, with Copy, since a password exists
+/// to be pasted.
+Future<void> showUnlocked(BuildContext context, String clear) => showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Unlocked'),
+        content: SelectableText(clear),
+        actions: [
+          TextButton(
+              onPressed: () {
+                Clipboard.setData(ClipboardData(text: clear));
+                ScaffoldMessenger.of(ctx).showSnackBar(
+                    const SnackBar(content: Text('Copied')));
+              },
+              child: const Text('Copy')),
+          TextButton(
+              onPressed: () => Navigator.pop(ctx), child: const Text('Close')),
+        ],
+      ),
+    );
+
+/// The Scan or type a code dialog: the address and code, typed or scanned
+/// (the prefill), or null on Cancel. Sync with no code says so and stays
+/// open. Top-level so a widget test can pump it without the page.
+Future<(String, String)?> askJoinCode(BuildContext context,
+    {String? prefillUrl,
+    String? prefillToken,
+    bool afterTimeout = false}) async {
+  final scanned = prefillUrl != null && prefillToken != null;
+  final urlCtrl = TextEditingController(text: prefillUrl ?? 'http://');
+  final tokCtrl = TextEditingController(text: prefillToken ?? '');
+  final go = await showDialog<bool>(
+    context: context,
+    builder: (ctx) {
+      void sync() {
+        if (tokCtrl.text.trim().isEmpty) {
+          ScaffoldMessenger.of(ctx).showSnackBar(const SnackBar(
+              content: Text('Type the code shown on the other device')));
+          return;
+        }
+        Navigator.pop(ctx, true);
+      }
+
+      return _OwnedFields(
+        owned: [urlCtrl, tokCtrl],
+        child: AlertDialog(
+          title: const Text('Scan or type a code'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: urlCtrl,
+                autofocus: !scanned, // don't pop the keyboard when it's already filled
+                decoration: const InputDecoration(
+                    labelText: 'Address',
+                    hintText: 'http://192.168.1.5:8766',
+                    helperText: 'As shown under the code on the other device'),
+              ),
+              TextField(
+                controller: tokCtrl,
+                onSubmitted: (_) => sync(), // Enter = Sync
+                decoration: const InputDecoration(labelText: 'Code'),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                  afterTimeout
+                      ? 'It did not answer in time. If iOS just asked to allow '
+                          'local network access, tap Sync again.'
+                      : scanned
+                          ? 'Scanned from the other device. Tap Sync to connect.'
+                          : "These come from the OTHER device: open AIS there, tap "
+                              "Sync & backup, choose Show a code, and it shows both. "
+                              "Scanning it with your camera fills them in for you.",
+                  style: Theme.of(ctx).textTheme.bodySmall),
+            ],
+          ),
+          actions: [
+            TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: const Text('Cancel')),
+            FilledButton(onPressed: sync, child: const Text('Sync')),
+          ],
+        ),
+      );
+    },
+  );
+  // Read the fields now; _OwnedFields frees the controllers with the route.
+  final url = urlCtrl.text.trim();
+  final token = tokCtrl.text.trim();
+  return go == true ? (url, token) : null;
+}
+
 class RecallPage extends StatefulWidget {
+  // Test seam for the microphone. Null = the plugin.
+  final Voice? voice;
   // Test seam for the tag-suggestion rows: `flutter test` runs with no engine
   // (CI builds no libais.so), so the lookup is injectable. Null = the engine's
   // whole tag cloud (_tagMatches).
@@ -232,6 +368,7 @@ class RecallPage extends StatefulWidget {
   final SurvivalHarness? survival;
   const RecallPage(
       {super.key,
+      this.voice,
       this.tagLookup,
       this.recallLookup,
       this.findLookup,
@@ -247,7 +384,8 @@ class RecallPage extends StatefulWidget {
 class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
   final _q = TextEditingController();
   final _qFocus = FocusNode(); // so a suggestion tap can hand focus back
-  final _speech = SpeechToText();
+  late final Voice _speech = widget.voice ?? PluginVoice();
+  bool _listening = false; // a session is open: the mic shows it
   // Live search: each keystroke reschedules this, _recall() fires on the pause.
   Timer? _debounce;
   AisEngine? _ais;
@@ -850,9 +988,9 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
     // A tap while listening ends the session. iOS keeps one open until it is
     // stopped and reports the transcript since it began, so without a stop the
     // next phrase lands after the earlier ones, even in a field cleared between.
-    if (_speech.isListening) {
+    if (_listening) {
       await _speech.stop();
-      if (mounted) setState(() {});
+      if (mounted) setState(() => _listening = false);
       return;
     }
     // First tap: init the recognizer, which triggers the runtime mic-permission
@@ -862,18 +1000,27 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
         // onError carries the case that matters most: a device with no OFFLINE
         // language model refuses an on-device session rather than falling back to
         // the cloud, and with no listener that arrives as silence.
-        _voice = await _speech.initialize(
-            onStatus: (_) { if (mounted) setState(() {}); }, // repaint the mic
+        _voice = await _speech.init(
+            // The recognizer ended on its own: a pause, the limit, an error.
+            onStatus: (st) {
+              if (mounted && st != 'listening') {
+                setState(() => _listening = false);
+              }
+            },
             onError: (e) {
           if (!mounted) return;
-          final noModel = e.errorMsg.contains('language') ||
-              e.errorMsg.contains('no_match') ||
-              e.errorMsg.contains('not_available');
-          setState(() => _status = noModel
-              ? 'Dictation needs an offline language pack for your language. '
+          final noModel = e.contains('language') ||
+              e.contains('no_match') ||
+              e.contains('not_available');
+          setState(() {
+            _listening = false;
+            if (noModel) {
+              _status = 'Dictation needs an offline language pack for your language. '
                   'Install it in your phone settings (AIS never sends audio away), '
-                  'or type instead.'
-              : 'Could not hear that. Try again, or type instead.');
+                  'or type instead.';
+            }
+          });
+          _nothingHeard();
         });
       } catch (_) {
         _voice = false;
@@ -884,23 +1031,24 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
         return;
       }
     }
-    // ON-DEVICE ONLY. The package default is onDevice: false, which streams the
-    // audio to the platform's cloud recogniser -- Google's, on Android. A device
-    // with no local recogniser gets no dictation and is told why.
-    // A pause of 3 s, or 30 s in all, ends the session, so each tap transcribes
-    // one phrase and the final result (and the search) arrives without a stop.
-    await _speech.listen(
-      onResult: (r) {
-        _q.text = r.recognizedWords;  // programmatic: onChanged does not fire
-        if (r.finalResult) _recallLive(); // and bring the Search tab forward
-      },
-      listenOptions: SpeechListenOptions(
-          onDevice: true,
-          pauseFor: const Duration(seconds: 3),
-          listenFor: const Duration(seconds: 30)),
-    );
+    // The typed query stays until a final result replaces it: a partial
+    // result is often empty, and a session that heard nothing ends with one.
+    setState(() => _listening = true);
+    await _speech.listen((words, isFinal) {
+      if (!isFinal || !mounted) return;
+      setState(() => _listening = false);
+      if (words.isEmpty) {
+        _nothingHeard();
+        return;
+      }
+      _q.text = words; // programmatic: onChanged does not fire
+      _recallLive();   // and bring the Search tab forward
+    });
     if (mounted) setState(() {});
   }
+
+  void _nothingHeard() => ScaffoldMessenger.of(context)
+      .showSnackBar(const SnackBar(content: Text('Nothing heard')));
 
   bool _isUrl(String v) => v.startsWith('http://') || v.startsWith('https://');
 
@@ -1115,7 +1263,7 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
             ListTile(
               leading: const Icon(Icons.qr_code_scanner),
               title: const Text('Scan or type a code'),
-              subtitle: const Text('Use this on the second device.'),
+              subtitle: const Text('Use this on the second device'),
               onTap: () => Navigator.pop(ctx, 'join'),
             ),
             const Divider(height: 24),
@@ -1123,7 +1271,10 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
             ListTile(
               leading: const Icon(Icons.save_alt),
               title: const Text('Export to a file'),
-              subtitle: const Text('Save all your notes to a file'),
+              // Phones hand the file to the share sheet; desktops save it.
+              subtitle: Text(Platform.isAndroid || Platform.isIOS
+                  ? 'Send all your notes as a file'
+                  : 'Save all your notes to a file'),
               onTap: () => Navigator.pop(ctx, 'export'),
             ),
             ListTile(
@@ -1143,7 +1294,7 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
                 subtitle: Text(_syncFolder.isEmpty
                     // I5: a versioning cloud keeps old plaintext copies, which can
                     // defeat tombstones (a delete reappears); Syncthing does not.
-                    ? 'A folder that Syncthing or a cloud drive copies to your other devices.'
+                    ? 'A folder that Syncthing or a cloud drive copies to your other devices'
                     : folderLabel(_syncFolder)),
                 onTap: () => Navigator.pop(ctx, 'folder'),
               ),
@@ -2008,55 +2159,12 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
   // Prefill (URL, token) arrives from a scanned ais:// QR (see _handleLink).
   Future<void> _syncJoin(
       {String? prefillUrl, String? prefillToken, bool afterTimeout = false}) async {
-    final scanned = prefillUrl != null && prefillToken != null;
-    final urlCtrl = TextEditingController(text: prefillUrl ?? 'http://');
-    final tokCtrl = TextEditingController(text: prefillToken ?? '');
-    final go = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => _OwnedFields(
-        owned: [urlCtrl, tokCtrl],
-        child: AlertDialog(
-        title: const Text('Scan or type a code'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: urlCtrl,
-              autofocus: !scanned, // don't pop the keyboard when it's already filled
-              decoration: const InputDecoration(
-                  labelText: 'Address',
-                  hintText: 'http://192.168.1.5:8766',
-                  helperText: 'As shown under the code on the other device'),
-            ),
-            TextField(
-              controller: tokCtrl,
-              onSubmitted: (_) => Navigator.pop(ctx, true), // Enter = Sync
-              decoration: const InputDecoration(labelText: 'Code'),
-            ),
-            const SizedBox(height: 8),
-            Text(
-                afterTimeout
-                    ? 'It did not answer in time. If iOS just asked to allow '
-                        'local network access, tap Sync again.'
-                    : scanned
-                    ? 'Scanned from the other device. Tap Sync to connect.'
-                    : "These come from the OTHER device: open AIS there, tap Sync, "
-                        "choose Show a code, and it shows both. Scanning it with your "
-                        "camera fills them in for you.",
-                style: Theme.of(ctx).textTheme.bodySmall),
-          ],
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
-          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Sync')),
-        ],
-        ),
-      ),
-    );
-    // Read the fields now; _OwnedFields frees the controllers with the route.
-    final url = urlCtrl.text.trim();
-    final token = tokCtrl.text.trim();
-    if (go != true || _ais == null) return;
+    final typed = await askJoinCode(context,
+        prefillUrl: prefillUrl,
+        prefillToken: prefillToken,
+        afterTimeout: afterTimeout);
+    if (typed == null || _ais == null) return;
+    final (url, token) = typed;
     if (url.isEmpty || token.isEmpty) return;
     await _runJoin(url, token, retryOffered: afterTimeout);
   }
@@ -2175,8 +2283,8 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
               commandLabel: 'Or type the address and code on the other device:',
               command: detail,
               intro: 'On your OTHER device: point its camera at this code and tap '
-                  'the link, or open AIS, tap Sync, choose Scan or type a code and '
-                  'type what is below. Keep this screen open.',
+                  'the link, or open AIS, tap Sync & backup, choose Scan or type '
+                  'a code and type what is below. Keep this screen open.',
               waiting: 'Waiting for the other device...',
               note: 'Keep AIS open until the other device has joined.',
               done: fut),
@@ -2608,7 +2716,7 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
                             child: const ListTile(
                               contentPadding: EdgeInsets.zero,
                               leading: Icon(Icons.folder_outlined),
-                              title: Text('Change Library'),
+                              title: Text('Change library'),
                             ),
                           ),
                           PopupMenuItem(
@@ -2724,15 +2832,18 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
                               ),
                               // mic on mobile so the first tap can request permission
                               suffixIcon:
-                                  (_voice || Platform.isAndroid || Platform.isIOS)
+                                  (_voice ||
+                                          widget.voice != null ||
+                                          Platform.isAndroid ||
+                                          Platform.isIOS)
                                       ? IconButton(
-                                          icon: Icon(_speech.isListening
+                                          icon: Icon(_listening
                                               ? Icons.mic
                                               : Icons.mic_none),
-                                          color: _speech.isListening
+                                          color: _listening
                                               ? cs.primary
                                               : null,
-                                          tooltip: _speech.isListening
+                                          tooltip: _listening
                                               ? 'Stop listening'
                                               : 'Voice search',
                                           onPressed: _listen)
@@ -3344,16 +3455,19 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
           .showSnackBar(const SnackBar(content: Text('Wrong password. Try again.')));
       return;
     }
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Unlocked'),
-        content: SelectableText(clear),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Close')),
-        ],
-      ),
-    );
+    showUnlocked(context, clear);
+  }
+
+  // Copy a record's text. A locked one is unlocked first, so the clipboard
+  // gets plain text or nothing.
+  void _copyValue(BuildContext ctx, int id, String v) {
+    if (v.startsWith('aisc:')) {
+      _revealHit(Hit(id, v));
+      return;
+    }
+    Clipboard.setData(ClipboardData(text: _display(v)));
+    ScaffoldMessenger.of(ctx)
+        .showSnackBar(const SnackBar(content: Text('Copied')));
   }
 
   // A full-screen detail/edit page for one record, opened by TAPPING a row. Reuses
@@ -3399,11 +3513,7 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
                   IconButton(
                     icon: const Icon(Icons.copy_outlined),
                     tooltip: 'Copy',
-                    onPressed: () {
-                      Clipboard.setData(ClipboardData(text: _display(curValue)));
-                      ScaffoldMessenger.of(ctx).showSnackBar(
-                          const SnackBar(content: Text('Copied')));
-                    },
+                    onPressed: () => _copyValue(ctx, id, curValue),
                   ),
                   // sharing ciphertext / a missing blob is useless; gate like the row
                   if (!isSecret && !away)
@@ -3618,9 +3728,7 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
             tooltip: 'More',
             onSelected: (a) {
               if (a == 'copy') {
-                Clipboard.setData(ClipboardData(text: _display(v)));
-                ScaffoldMessenger.of(context)
-                    .showSnackBar(const SnackBar(content: Text('Copied')));
+                _copyValue(context, hit.id, v);
               } else if (a == 'share') {
                 _share(v);
               } else if (a == 'value') {
@@ -3913,9 +4021,7 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
         onSelected: (a) {
           final hit = Hit(r.id, r.value);
           if (a == 'copy') {
-            Clipboard.setData(ClipboardData(text: _display(r.value)));
-            ScaffoldMessenger.of(context)
-                .showSnackBar(const SnackBar(content: Text('Copied')));
+            _copyValue(context, r.id, r.value);
           } else if (a == 'share') {
             _share(r.value);
           } else if (a == 'value') {
@@ -4512,7 +4618,10 @@ class _AddSheetState extends State<AddSheet> {
         // the keyboard, out of sight until the user guessed to scroll. When
         // the keyboard leaves too little for that split (a phone in landscape
         // left a 10 px slit for the fields), the whole form scrolls, Save last.
-        final pinned = box.maxHeight >= 280;
+        // 240 leaves the fields about 100 px, one note field, before the
+        // split is given up: a landscape phone with the keyboard folded away
+        // kept Save below the fold at 280.
+        final pinned = box.maxHeight >= 240;
         final fields = _fields(context);
         if (!pinned) {
           return SingleChildScrollView(
@@ -4782,11 +4891,6 @@ class _SyncWaitDialogState extends State<_SyncWaitDialog> {
                   ),
                 ),
               ),
-              const SizedBox(height: 8),
-              Text(
-                  "If its camera won't open the code, copy the address and code "
-                  "below and type them in under Scan or type a code there.",
-                  style: Theme.of(context).textTheme.bodySmall),
               const SizedBox(height: 16),
             ],
             if (widget.command != null) ...[

@@ -1,5 +1,6 @@
 #!/bin/sh
-# due.sh -- the one-line "N due" hint, which exists only at a terminal.
+# due.sh -- the stderr lines that exist only at a terminal: the "N due" hint,
+# and "added KEYS to record N" on a re-save.
 #
 # A recall or --timeline at a tty says "N due: ais --due" on stderr before its
 # output, and a piped run says nothing new, so a script reading stdout is
@@ -65,6 +66,14 @@ ok "hint: stdout piped, stderr at the tty: the line is said"  "1 due: ais --due"
 no "hint: stdout at the tty, stderr to a file: nothing there" "due"            "$(cat "$W/err")"
 out=$("$RUN" "$W/answers" "$AIS" -f "$W/idx" nosuchkey 2>&1)
 ok "hint: a recall that matches nothing still says it"       "1 due: ais --due" "$out"
+
+# a re-save of a stored value: the keys went onto its record, said on stderr at
+# the tty only (tests/cli.sh pins the piped side: the id alone)
+out=$("$RUN" "$W/answers" "$AIS" -f "$W/idx" -v "check the roof" gutters 2>&1)
+ok "resave: at a tty, says which record took the keys"       "added gutters to record" "$out"
+ok "resave: and still prints the id"                         "2"                      "$(printf '%s\n' "$out" | grep -v added)"
+out=$("$RUN" "$W/answers" "$AIS" -f "$W/idx" -v "brand new" fresh 2>&1)
+no "resave: a new record draws no such line"                 "added"                  "$out"
 
 echo "due: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]

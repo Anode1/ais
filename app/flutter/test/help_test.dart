@@ -39,8 +39,9 @@ void main() {
       (tester) async {
     final opened = <String>[];
     await tester.pumpWidget(MaterialApp(home: HelpPage(open: opened.add)));
+    // 100 px steps: a 200 px one ran past the last two titles.
     for (final (title, _) in helpSections) {
-      await tester.scrollUntilVisible(find.text(title), 200);
+      await tester.scrollUntilVisible(find.text(title), 100);
       expect(find.text(title), findsOneWidget);
     }
     for (final label in [
@@ -101,6 +102,8 @@ void main() {
     final text = helpSections.map((s) => s.$2).join(' ');
     for (final label in [
       'Any tag',
+      'Make it the project',
+      'Search all items',
       'Lock with a password',
       'Sync & backup',
       'Keep a copy in a folder',

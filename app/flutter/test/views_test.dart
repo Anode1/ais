@@ -364,7 +364,7 @@ void main() {
       expect(items.map((i) => i.enabled).toList(),
           [false, false, false, false, true, true, true]);
       for (final t in [
-        'Change Library',
+        'Change library',
         'Sync & backup',
         'Import bookmarks',
         'Free up space',
@@ -378,7 +378,7 @@ void main() {
       expect(find.text("Pocket, Instapaper, Raindrop, or a browser's bookmarks file"),
           findsOneWidget);
       double top(String t) => tester.getTopLeft(find.text(t)).dy;
-      expect(top('Change Library'), lessThan(top('Sync & backup')));
+      expect(top('Change library'), lessThan(top('Sync & backup')));
       expect(top('Free up space'), lessThan(top('Theme')));
       expect(top('Help'), lessThan(top('About')));
     });

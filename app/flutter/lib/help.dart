@@ -34,6 +34,15 @@ const _find = (
       'Recent lists everything by date. Tags lists every tag you used.'
 );
 
+const _projects = (
+  'Projects',
+  'A project is a tag you work in for a while. Make it the project, in a '
+      "tag's menu on the Tags view, puts it in the search bar as a chip. A "
+      'search then finds only its items, Recent lists only them, and every '
+      'new note carries it. The X on the chip leaves the project. Search all '
+      'items, under the results, runs one search without it.'
+);
+
 const _secrets = (
   'Secrets',
   'Turn on Lock with a password in the Add sheet and set a password. The text '
@@ -52,6 +61,7 @@ const helpSections = <(String, String)>[
   ),
   _reminders,
   _find,
+  _projects,
   _secrets,
   (
     'Keep a copy',
@@ -85,6 +95,7 @@ const helpSectionsIos = <(String, String)>[
   ),
   _reminders,
   _find,
+  _projects,
   _secrets,
   (
     'Keep a copy',

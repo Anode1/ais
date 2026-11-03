@@ -13,6 +13,7 @@
 
 #include "ais.h"
 #include "common.h"
+#include "due.h"
 #include "key.h"       /* key_fsdecode: a shard lists file names, not keys */
 #include "compact.h"   /* tomb_contains: a posting may still list deleted ids */
 #include "post.h"      /* the key's id stream, to see whether anything is live */
@@ -41,6 +42,41 @@ static int due_date_len(const char *name)
             return 0;
     }
     return (int)n;
+}
+
+int due_key_check(const char *key)
+{
+    static const char shape[] = "dddd-dd-dd";
+    size_t n, i;
+    int mm, dd;
+
+    if (key == NULL)
+        return -1;
+    for (i = 0; i < DUE_PREFIX_LEN; i++) {
+        char c = key[i];
+        if (c >= 'A' && c <= 'Z')
+            c = (char)(c - 'A' + 'a');
+        if (c != DUE_PREFIX[i])
+            return -1;
+    }
+    key += DUE_PREFIX_LEN;
+    n = strlen(key);
+    if (n != 4 && n != 7 && n != 10)
+        return 0;
+    for (i = 0; i < n; i++)
+        if (shape[i] == 'd' ? !(key[i] >= '0' && key[i] <= '9') : key[i] != '-')
+            return 0;
+    if (n >= 7) {
+        mm = (key[5] - '0') * 10 + (key[6] - '0');
+        if (mm < 1 || mm > 12)
+            return 0;
+    }
+    if (n == 10) {
+        dd = (key[8] - '0') * 10 + (key[9] - '0');
+        if (dd < 1 || dd > 31)
+            return 0;
+    }
+    return 1;
 }
 
 /* Today as "YYYY-MM-DD" in local time. */

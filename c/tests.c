@@ -43,6 +43,7 @@
 #include "secret.h"
 #include "serve.h"     /* ais_serve: the hardening block forks a live server */
 #include "mcp.h"       /* ais_mcp: the key rule the CLI tests cannot reach */
+#include "due.h"       /* due_key_check: the shape the front ends warn about */
 #include "b64.h"
 
 /* The crypto round-trip test compiles only once Monocypher has been vendored
@@ -1774,6 +1775,31 @@ static void test_timeline_stale_off_slot(void)
 
     ais_close(&a);
     scratch_rm(dir);
+}
+
+/* due_key_check: 1 for a key that can come due, 0 for a "due:" key that never
+ * will (the front ends warn about these), -1 for any other key. */
+static void test_due_key_check(void)
+{
+    CHECK(due_key_check("due:2026") == 1,       "due shape: a year");
+    CHECK(due_key_check("due:2026-11") == 1,    "due shape: a month");
+    CHECK(due_key_check("due:2026-11-02") == 1, "due shape: a day");
+    CHECK(due_key_check("DUE:2026-11-02") == 1, "due shape: the prefix folds case");
+    CHECK(due_key_check("due:2026-11-31") == 1, "due shape: a day 01..31 passes whatever the month");
+    CHECK(due_key_check("due:2026-13") == 0,    "due shape: month 13");
+    CHECK(due_key_check("due:2026-00") == 0,    "due shape: month 00");
+    CHECK(due_key_check("due:2026-11-00") == 0, "due shape: day 00");
+    CHECK(due_key_check("due:2026-11-32") == 0, "due shape: day 32");
+    CHECK(due_key_check("due:2026-1") == 0,     "due shape: a short month");
+    CHECK(due_key_check("due:20261102") == 0,   "due shape: no dashes");
+    CHECK(due_key_check("due:2026/11/02") == 0, "due shape: slashes");
+    CHECK(due_key_check("due:2026-11-02T10:00") == 0, "due shape: a time");
+    CHECK(due_key_check("due:soon") == 0,       "due shape: a word");
+    CHECK(due_key_check("due:") == 0,           "due shape: the bare prefix");
+    CHECK(due_key_check("due") == -1,           "due shape: not a due key");
+    CHECK(due_key_check("overdue:2026") == -1,  "due shape: the prefix is at the start");
+    CHECK(due_key_check("") == -1,              "due shape: empty");
+    CHECK(due_key_check(NULL) == -1,            "due shape: NULL");
 }
 
 /* ---- timeline under one key: the page comes from the posting list -------- */
@@ -8034,6 +8060,7 @@ int main(void)
     printf("due keys (due.c):\n");
     test_due();
     test_due_edges();
+    test_due_key_check();
     printf("tags:\n");
     test_tags();
     printf("keyset pages (get_page / tags_page):\n");

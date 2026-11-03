@@ -18,8 +18,10 @@ GET (default)
 
 SAVE (-v marks the value; bare args and -k are keys; keys are optional)
   ais -v VALUE KEY...            save VALUE under one or more keys (again on a value
-                                 already saved ADDS the keys; on one that was deleted
-                                 the record returns with only the keys given)
+                                 already saved ADDS the keys, and a terminal is told
+                                 'added KEYS to record N'; on one that was deleted
+                                 the record returns with only the keys given). A
+                                 value with nothing in it is refused
   ais -v A -v B KEY...           two values -> one multi-link record
   ais -v VALUE                   keyless (or under the default project); find/tag later
   ais -v - KEY...                save each stdin line (a value) under these keys
@@ -47,7 +49,7 @@ COMMANDS (--word; operands are bare args, values via -v; an ID is the number
   ais --update ID KEY...         edit record ID's keys: KEY attaches, -KEY detaches.
                                  Put -- before the first -KEY, or it is read as an
                                  option:  ais --update 42 rome -- -venice
-  ais --del ID                   delete record ID
+  ais --del ID                   delete record ID (no live record ID: exit 1)
   ais --untag KEY                remove the tag KEY, KEEPING every record
   ais --del-under KEY            DELETE every record filed under KEY (not just the tag)
   ais --dedupe-docs              DELETE documents that are byte-for-byte copies of another
@@ -59,19 +61,26 @@ COMMANDS (--word; operands are bare args, values via -v; an ID is the number
                                  (links and documents travel only by --export: a
                                  dump line naming blobs/X imports as that path,
                                  with no file behind it)
-  ais --timeline [N]             the N most recent records, newest first (default 500;
-                                 a GUI pages through older ones on demand); the time
-                                 is UTC, marked Z (the GUIs and blob names use local)
+  ais --timeline [N]             the N most recent records, newest first (N is 1 to
+                                 10000, default 500; a GUI pages through older ones on
+                                 demand); the time is UTC, marked Z (the GUIs and
+                                 blob names use local)
   ais --due                      the reminders: records filed under a key due:2028,
                                  due:2028-11 or due:2028-11-02 whose day has come,
-                                 oldest saved first; a recall or --timeline at a
-                                 terminal says 'N due' first. Done is removing the
-                                 key: ais --update ID -- -due:2028-11
+                                 oldest saved first, each a --timeline row with the
+                                 record id in front (ID, when, keys, value, tab-separated);
+                                 a recall or --timeline at a terminal says 'N due'
+                                 first. Done is removing the key:
+                                 ais --update ID -- -due:2028-11
+                                 A due: key that is not such a date is a plain key;
+                                 saving or attaching one says so on stderr
   ais --tags                     every key with how many records use it (busiest first)
-  ais --compact                  reclaim space from deleted records
+  ais --compact                  reclaim space from deleted records; prints
+                                 'compacted: N records kept, M deleted dropped'
   ais --compact --forget-deleted also forget WHAT was deleted (sync first:
                                  an unsynced device can send them back)
-  ais --init                     create a local .ais index here (git-style)
+  ais --init                     create a local .ais index here (git-style); on
+                                 an existing index it says so and changes nothing
   ais --import < FILE            add 'KEY... -v VALUE' lines (the inverse of --dump;
                                  -v takes the REST of the line, so a value may
                                  contain '|', '#' or quotes with no escaping.
@@ -143,8 +152,9 @@ OPTIONS
   --version         print version and exit
 
 EXIT STATUS  0 success; 1 no match, nothing done, or an error (grep semantics);
-             2 unknown option, no arguments, a port out of range, --mcp refused,
-               or no terminal to confirm on
+             2 unknown option, no arguments, a port or --timeline N out of range,
+               an ID that is not a number, a value with nothing in it, --mcp
+               refused, or no terminal to confirm on
 
 INDEX LOCATION (when -f is not given; no env vars -- -f is the only override)
   1. the nearest .ais/ at or above the current directory (the walk stops at home)
