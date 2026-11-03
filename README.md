@@ -96,7 +96,7 @@ The measurement: eight questions, five repeats each, `claude-sonnet-4-6` run bot
 
 Four times fewer tokens at the median and nine at the mean, and 69x less content dragged into the context window. Run `ais` yourself at the terminal and the cost is zero, because no model is involved.
 
-The measurement is the paper *Compress the Access, Not the Store*, [doi.org/10.5281/zenodo.20764255](https://doi.org/10.5281/zenodo.20764255). Its harness, the deposited run and a public photo-library stand-in are beside the paper, in [`ais/experiment/`](https://github.com/Anode1/articles/tree/main/ais/experiment) of the articles repository; the deposited run reproduces there with no API key. The headline numbers come from the same method over a private 100k-line code project.
+The measurement is the paper *Key Lookup versus File Search for a Coding Agent*, [doi.org/10.5281/zenodo.20764255](https://doi.org/10.5281/zenodo.20764255). Its harness, the deposited run and a public photo-library stand-in are beside the paper, in [`ais/experiment/`](https://github.com/Anode1/articles/tree/main/ais/experiment) of the articles repository; the deposited run reproduces there with no API key. The headline numbers come from the same method over a private 100k-line code project.
 
 ## Download
 
