@@ -24,8 +24,7 @@ date you deleted, and a short fingerprint of the deleted value. The value itself
 is not kept. The marker stays for the life of the index, so a device that was
 switched off when you deleted something does not push it back later.
 
-Be aware of what that marker means. The fingerprint is a fast checksum, not a
-cryptographic one. Someone who can read your index files, and who already guesses
+The fingerprint is a fast checksum, not a cryptographic one. Someone who can read your index files, and who already guesses
 what a deleted entry might have been, can test that guess against the fingerprint
 in seconds. It will not tell them what you deleted, but it can confirm a guess,
 and it tells them the date. Until you run `ais --compact`, your index also still
@@ -97,9 +96,9 @@ to dictate a search, and only for as long as you are dictating. Speech is
 recognised **on the device**: the app requests on-device recognition explicitly
 and does not fall back to a cloud recogniser, so your audio and the words it
 becomes are not sent to us or to anyone else. If your phone has no offline
-language pack installed for your language, dictation simply does not work and the
-app says so, rather than sending the audio away. Nothing is recorded or stored:
-the recognised words go into the search box, and that is all.
+language pack installed for your language, dictation does not work and the app
+says so, rather than sending the audio away. Nothing is recorded or stored: the
+recognised words go into the search box.
 
 ## Children's privacy
 

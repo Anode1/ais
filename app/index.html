@@ -104,6 +104,9 @@
     <div id="vkwrap" class="tagfield">
       <span id="vkchip" class="pchip" hidden><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M17.63 5.84C17.27 5.33 16.67 5 16 5L5 5.01C3.9 5.01 3 5.9 3 7v10c0 1.1.9 1.99 2 1.99L16 19c.67 0 1.27-.33 1.63-.84L22 12l-4.37-6.16z"/></svg><span id="vkname" class="pname"></span><button id="vkout" class="px" aria-label="Leave this item out of the project">&#x2715;</button></span>
       <input id="vk" aria-label="Tags" placeholder="Tags">
+      <!-- the due date helper (GUI.md): a calendar button at the right end of the field -->
+      <button type="button" id="vkcal" class="cal" tabindex="-1" aria-label="Remind me on a day" title="Remind me on a day"><svg viewBox="0 0 24 24" width=18 height=18 fill="currentColor" aria-hidden=true><path d="M19 4h-1V2h-2v2H8V2H6v2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2zm0 16H5V9h14v11z"/></svg></button>
+      <input type="date" id="vkdate" class="caldate" tabindex="-1" aria-label="Day">
     </div>
     <p class="hint">Separate with spaces</p>
     <div id="vksuggest" class="chips"></div>  <!-- tag-autocomplete chips for #vk -->
@@ -133,7 +136,11 @@
     </div>
     <label class="muted" style="font-size:.8rem" for="edtag">Tags</label>
     <div id="edchips" class="chips"></div>
-    <input id="edtag" placeholder="Add a tag">
+    <div class="calw">
+      <input id="edtag" placeholder="Add a tag">
+      <button type="button" id="edcal" class="cal" tabindex="-1" aria-label="Remind me on a day" title="Remind me on a day"><svg viewBox="0 0 24 24" width=18 height=18 fill="currentColor" aria-hidden=true><path d="M19 4h-1V2h-2v2H8V2H6v2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2zm0 16H5V9h14v11z"/></svg></button>
+      <input type="date" id="eddate" class="caldate" tabindex="-1" aria-label="Day">
+    </div>
     <div id="edsuggest" class="chips"></div>  <!-- tag-autocomplete chips for #edtag -->
     <div class="actions">
       <button id="edcancel" class="ghost">Cancel</button>
@@ -516,6 +523,17 @@ function delRec(id) {
 // +key/-key delta. The old prompt() asked the user to compose that delta by hand
 // in a grammar they had to remember -- and did nothing at all in an installed PWA.
 function normkeys(s){ return s.replace(/,/g,' ').trim().replace(/\s+/g,' '); }
+// due:YYYY-MM-DD for the chosen day: in place of a due:DATE token, else appended
+function withDueTag(s, day) {
+  var re = /^due:\d{4}(?:-\d{2}(?:-\d{2})?)?$/, o = [], i = -1;
+  normkeys(s).split(' ').forEach(function (k) {
+    if (!k) return;
+    if (re.test(k)) { if (i < 0) i = o.length; return; }
+    o.push(k);
+  });
+  o.splice(i < 0 ? o.length : i, 0, 'due:' + day);
+  return o.join(' ');
+}
 function ulen(s){ return new TextEncoder().encode(s).length; }  // UTF-8 bytes: the engine's unit
 var edId = 0, edTags = [], edWas = '', edOldVal = '', edOrig = '', edEdit = false;
 function edChips() {
@@ -1130,6 +1148,26 @@ $('edtag').addEventListener('keydown', function (e) {
   if (e.key == 'Enter' || e.key == ',') { e.preventDefault(); edAdd(); }
 });
 $('edtag').addEventListener('blur', edAdd);   // a key left in the field still counts
+// The due date helper (GUI.md): showPicker() where it exists, else the date
+// input is revealed beside the field as Later does; a chosen day goes to PUT,
+// a cancelled picker fires no change
+function calWire(btn, d, inp, put) {
+  btn.onmousedown = function (e) { e.preventDefault(); };   // the field keeps focus
+  btn.onclick = function () {
+    d.value = '';
+    if (d.showPicker) { try { d.showPicker(); return; } catch (e) {} }
+    d.classList.add('open'); d.focus();
+  };
+  d.onchange = function () { d.classList.remove('open'); if (d.value) put(d.value); };
+  d.onblur = function () { d.classList.remove('open'); };
+  d.onkeydown = function (e) { if (e.key === 'Escape') { e.stopPropagation(); d.classList.remove('open'); inp.focus(); } };
+}
+calWire($('vkcal'), $('vkdate'), $('vk'), function (day) { $('vk').value = withDueTag($('vk').value, day); $('vk').focus(); });
+// the chips and the typed text, recommitted through edAdd as a typed token is
+calWire($('edcal'), $('eddate'), $('edtag'), function (day) {
+  $('edtag').value = withDueTag(edTags.join(' ') + ' ' + $('edtag').value, day);
+  edTags = []; edAdd(); $('edtag').focus();
+});
 backdrop('editsheet', function () { if (editUntouched()) $('editsheet').hidden = true; });
 $('toastundo').onclick = delUndo;
 $('dscancel').onclick = closeDel;
@@ -1226,7 +1264,8 @@ fetch('/api/version').then(function (r) { return r.text(); }).then(function (t) 
 }).catch(noop);
 libLoad().then(function () {
   setView(h0 == 'tags' || h0 == 'recall' || h0 == 'timeline' ? h0 : 'timeline'); // else open on content, not a blank search
-  if (h0 == 'sync') openSync(); // #sync: the sheet, for a screenshot or a UI test
+  if (h0 == 'sync') openSync(); // #sync, #add: a sheet, for a screenshot or a UI test
+  if (h0 == 'add') openSheet();
 });
 
 // ---- Sync (nearby device / a file / a shared folder) ----------------------

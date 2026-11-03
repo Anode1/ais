@@ -24,7 +24,9 @@ listens on a socket unless the user asks for it (`ais --serve` binds 127.0.0.1;
   primitives (Monocypher) are vendored under `c/crypto/`, so there is nothing to
   unbundle unless your distro requires it, in which case say so in an issue.
 - `CC`, `CFLAGS`, `CPPFLAGS`, `LDFLAGS` and `LDLIBS` are honoured; the project's
-  own flags are appended, never substituted, so hardening flags pass through.
+  own flags come first on the line, so yours win and hardening flags pass through.
+  `make release` and `make debug` replace `CFLAGS`; the sanitizer targets ignore
+  `CFLAGS` and `LDFLAGS` (the header of `c/Makefile` lists these).
 
 **Version, the one gotcha.** `AIS_VERSION` comes from `git describe --tags`. A
 release tarball has no `.git`, so an unpatched build reports `0.0.0-dev`. Pass the
@@ -39,7 +41,7 @@ page's footer at install time.
 
     make codeut                # engine tests, in-process, fast
     make cliut                 # black-box: the built binary through a shell
-    make ut                    # both, plus the GUI layer if its deps are present
+    make ut                    # every layer (tests/README.md); a GUI layer without its deps SKIPs
 
 `codeut` and `cliut` need no network, no display and no fixtures beyond the tree;
 they are safe in a clean chroot. `make ut` also tries the GUI tests, which

@@ -2,7 +2,8 @@
 # run.sh -- the whole ais test suite (what `make ut` runs), in two groups:
 #
 #   CORE  the must-pass gate: engine tests (codeut), the FFI stack budget, CLI
-#         black-box (cliut), loopback and mesh sync, upgrade, encrypt over a pty.
+#         black-box (cliut), loopback and mesh sync, upgrade, encrypt and the
+#         due hint over a pty.
 #   GUI   the front-ends over the one engine. A layer whose toolchain is absent
 #         (no curl/Chrome, no MinGW, no Flutter SDK) reports SKIP, not FAIL.
 #

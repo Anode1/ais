@@ -28,6 +28,7 @@
     { "name": "find", "description": "Records whose value contains a text" },
     { "name": "tags", "description": "The keys in use, busiest first" },
     { "name": "timeline", "description": "The newest records" },
+    { "name": "due", "description": "The records whose due:DATE key has come" },
     { "name": "save", "description": "File a value under keys; offered only when saving is allowed" }
   ],
   "user_config": {

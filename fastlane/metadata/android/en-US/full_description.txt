@@ -23,6 +23,7 @@ Also
 - Share a link or text to AIS from any other app.
 - Import a browser's bookmarks file, or what Pocket, Instapaper or Raindrop export.
 - A timeline of everything saved, with a date range.
+- Reminders: tag a note due:2028-11 and it is listed under Due from that month until you mark it done. Nothing rings; you see it when you open AIS.
 - A list of every tag you have used.
 - Search inside the saved text when no tag matches.
 - Voice search, recognised on the device.

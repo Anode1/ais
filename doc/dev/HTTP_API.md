@@ -18,7 +18,7 @@ shapes the CLI prints. A GUI that can be debugged with `curl` is the point.
 | Method | Path | Answers |
 | --- | --- | --- |
 | GET | `/api/get?keys=A+B[&or=1][&count=N][&after=ID][&meta=1]` | `id\|value` per line, one line per LINK; `meta=1` emits `id\|keys\|value` (the record's visible tags, space-separated, possibly empty) |
-| GET | `/api/find?q=TEXT[&key=TAG]` | `id\|value` per line: live records whose value contains TEXT as a case-insensitive (ASCII) substring, as `--find` prints; `key=` keeps only the records filed under TAG (the project). Values come verbatim from the store, so a document row is its `blobs/` path: the search covers stored values, not document bodies. Both pages append these after the tag matches, deduped by id, under one "matched in the value" separator |
+| GET | `/api/find?q=TEXT[&key=TAG]` | `id\|value` per line: live records whose value contains TEXT as a case-insensitive (ASCII) substring, as `--find` prints; `key=` keeps only the records filed under TAG (the project). Values come verbatim from the store, so a document row is its `blobs/` path: the search covers stored values, not document bodies. Both pages append these after the tag matches, deduped by id, under one "Found in the text" separator |
 | GET | `/api/timeline?count=N[&before=ID][&from=D][&to=D][&key=TAG]` | `id\|ts\|keys\|value`, newest first; `key=` restricts the page to one tag (the project) |
 | GET | `/api/tags[?count=N&afterc=C&afterk=K]` | `count\|key`, busiest first |
 | GET | `/api/due` | `id\|ts\|keys\|value`, id ascending: every record under a `due:YYYY[-MM[-DD]]` key whose day has come, judged by the server's local day; empty when nothing is due |
@@ -71,12 +71,13 @@ Both take **one** tag, not the whitespace-separated list every other endpoint
 takes, and refuse a value containing whitespace with a 400. Folding `a b` to
 `a_b` and answering 200 for a tag that cannot exist is worse than saying no.
 
-`/api/del-under` shreds encrypted blobs before tombstoning, the same pre-pass
-`/api/del` and the CLI run.
+`/api/del-under` discards each record's document or encrypted blob
+(`ais_doc_discard`) before tombstoning, the same pre-pass the CLI's `--del-under`
+runs, because `ais_del_key` never calls the discard callback. `/api/del` runs no
+pre-pass: `ais_del` deletes first and the discard callback takes the blob after.
 
-These two are one keystroke apart and opposite in consequence, so the UI
-obligations are not optional; `GUI.md` carries the locked wording and the rest
-of them.
+The UI obligations for the pair, and the locked wording, are in `GUI.md`,
+"Untag vs delete-under".
 
 ## Maintenance
 
@@ -96,10 +97,19 @@ say the price out loud before asking: a device that has not synced since can
 push those records back. Both pages ask it as a **separate** question from
 "reclaim the space", because it is the one choice here another device can undo.
 
+## Importing a file
+
+| Method | Path | Does |
+| --- | --- | --- |
+| POST | `/api/import-links` | body is a browser's bookmarks HTML or a links CSV (Pocket, Instapaper, Raindrop, a spreadsheet), at most 64 MiB; replies `imported N skipped M new K under MARKER`, or 400 with the reason (`bad upload`, `no url column: ...`, `UTF-16 text: save it as UTF-8 first`, `a zip: open it, then pick the .csv inside`, `import failed`). The same importer as `--import-bookmarks` (`import.h`) |
+
 ## Sync
 
 `/api/sync/host`, `/api/sync/status`, `/api/sync/join`, `/api/sync-folder`,
 `/api/export-bundle`, `/api/import-bundle`, `/api/store`. See `SYNC_DESIGN.md`.
+The host, status, join, export-bundle, import-bundle and `POST /api/sync-folder`
+routes exist only in a build with the crypto module (`SERVE_HAVE_SYNC`) and are
+a 404 without it; `GET /api/sync-folder` and `/api/store` always exist.
 
 `GET /api/sync-folder` answers the folder this index syncs with (kept in
 `<index>/syncfolder`), or an empty body when none is set.
@@ -123,13 +133,15 @@ developer's saved default at a temp directory it then deleted.
 ## Static files
 
 `GET /` serves `$AIS_WEB/index.html` if that directory has one, else the
-embedded `PAGE`. Any other path is served from `$AIS_WEB` if present. The name
-must be one safe filename (the per-character filter rejects `/` and `..`, so
-traversal is not possible), but every file in that directory is
+embedded `PAGE`. Any other path is served from `$AIS_WEB`, or from `gui/web`
+under the working directory when `$AIS_WEB` is unset (the dev default). The name
+must be one safe filename: the per-character filter allows only `[0-9A-Za-z._-]`,
+so a `/` is refused and traversal is not possible (`..` passes the filter and
+opens a directory, which fails). Every file in that directory is
 web-readable, so do not point `$AIS_WEB` at a directory holding private files.
 
 `$AIS_WEB` was documented in `app/README.md` and `doc/android-install.md` for a
-long time before it was ever read: `serve_asset` hardcoded `gui/web`, so the
+long time before it was ever read: `serve_asset` used `gui/web` only, so the
 documented `AIS_WEB=app ./ais --serve` silently fell back to the embedded page
 and `app/` was unreachable.
 
@@ -139,5 +151,4 @@ and `app/` was unreachable.
 - `tests/gui/ui.sh`: both pages rendered in headless Chrome, asserting on the
   post-JS DOM.
 - `tests/gui/cdptest.c`: one CDP driver, run against **both** pages by
-  `tests/gui/inter.sh`. The element ids and function names are deliberately
-  identical across the two front ends so this works; keep them that way.
+  `tests/gui/inter.sh` (`GUI.md` says why one driver fits both).

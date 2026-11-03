@@ -6,7 +6,7 @@ database." This is the rebuttal, with measurements.
 ## It is not the 1980s
 
 The store is line-oriented plain text, read by streaming. On a modern CPU and
-SSD that is not slow; it is grep/cat class, I/O-bound at hundreds of MB/s. The
+SSD that is grep/cat class, I/O-bound at hundreds of MB/s. The
 numbers below are one desktop core over a 1,000,000-record store (85 MB). Full
 table and reproduction steps: `../performance.txt`.
 
@@ -24,9 +24,9 @@ Nothing scans superlinearly at query time.
 
 This is a *personal* memory, so estimate its ceiling. A person files on the
 order of 100 to 1,000,000 things in a whole lifetime (a few dozen a day for ~70
-years is about a million). So 1M records is not a waypoint we must scale past;
-it is the upper bound, and AIS already answers it in milliseconds to a couple of
-seconds. The key space is bounded too: human active vocabulary is ~10-20k words,
+years is about a million). So 1M records is the upper bound, and AIS already
+answers it in milliseconds to a couple of seconds. The key space is bounded
+too: human active vocabulary is ~10-20k words,
 so distinct keys stay few (the 1M test had 4,000). That bound is also why the
 index shards shallowly: keys live in `idx/<first-two-letters>/<key>` (`idx/ap/apple`), navigable and
 hash-free, and one fixed level keeps every bucket small enough to `ls`. Deeper,
@@ -36,8 +36,7 @@ versions balanced the tree deeply because filesystems then, Windows on
 first-generation Pentiums, slowed with only hundreds of files in one directory.
 Modern filesystems handle thousands without trouble, so the shallow scheme is a
 deliberate correction. Noted here to prevent re-introducing
-balancing that the hardware no longer requires.) The "it won't scale" critique
-assumes web scale; one person's memory is not web scale and never will be.
+balancing that the hardware no longer requires.)
 
 ## Unix tools and hand-editing are the point
 
@@ -54,13 +53,11 @@ example index).
 
 ## It outlives the program that made it
 
-Speed is not the deepest reason. A binary index is readable only while its
-program is maintained and still runs; when the app and its format are gone,
-and in fifty years they will be, the data goes with them. That is the real
-problem of a long-lived archive, and plain text is the answer: `cat`, any
-editor, or a tool not yet written reads the store directly, with nothing of
-AIS present. The format outlives the program that wrote it. Programs change;
-plain text does not.
+A binary index is readable only while its program is maintained and still
+runs; when the app and its format are gone, and in fifty years they will be,
+the data goes with them. That is the real problem of a long-lived archive, and
+plain text is the answer: `cat`, any editor, or a tool not yet written reads
+the store directly, with nothing of AIS present.
 
 ## What we gave up
 

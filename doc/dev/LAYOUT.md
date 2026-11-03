@@ -100,9 +100,8 @@ Three rules keep that raise from doing damage:
   arriving earlier compared against the creation time and won, and which you got
   was the order `readdir` returned the peer bundles in. It also rewrote the whole
   store and dropped the `off` accelerator on every sync round.
-- **A record that comes back adopts the key set it was just described with.**
-  Keeping the set it was deleted with would re-advertise tags other devices
-  removed (see MERGE.md).
+- **A record that comes back adopts the key set it was just described with**
+  (MERGE.md).
 
 Both files are cleared for an id the moment its record dies, by either delete path,
 and compaction blanks any that were missed.
@@ -132,8 +131,7 @@ record repeats the same keys field), the same rewrite compaction and
 `ais_set_value` perform. This is the one exception to append-only besides
 compaction and the in-place value edit; it is cheap because it is rare (a re-put
 with new keys, or `--update`). The keys field stays the authority on WHICH keys a
-record carries; `katt` (below) records only when a later one went on, which the
-field cannot say. Attach is folded first (`|` and
+record carries; `katt` (below) says when. Attach is folded first (`|` and
 control bytes to `_`, as `keys_attach_only` does for a put): a stored key shares
 the line's `|` delimiter, so a raw `a|b` would shift the value into the wrong
 field, and a raw newline would end the line and drop the value.
@@ -184,7 +182,7 @@ until somebody happens to compact again, measured at 180 of 1492 records.
 `compact_recover()` runs from `ais_open` and puts the staged tree back. Restoring
 it is safe in both windows because postings are keyed by id and compaction
 preserves ids, so the pre-compaction tree is a superset and reads filter
-tombstones anyway. A superset that reads correctly beats a subset that lies.
+tombstones anyway.
 
 **Tag counts are filtered at READ time.** A posting
 keeps a deleted record's id until the next compaction, so counting lines reported
@@ -259,9 +257,7 @@ own small file is also why sync is cheap: `rsync` transfers only the keys that
 changed and its log names them, where a single binary blob resends on any change.
 Per-key sharding is chosen for corruption-resilience too: a smashed shard costs
 only its keys while the rest of the index still answers, the same reason the
-store is plain text (damage stays local, never global). It is the
-log-structured-merge / git pattern: sharded loose files on write, packed on
-compaction.
+store is plain text (damage stays local).
 
 On Windows the file name is not the key when the key holds one of the six
 bytes NTFS refuses in a name (`: < > " ? *`): each becomes the private-use
@@ -475,9 +471,9 @@ prints the index dir so a front-end can resolve that relative path.
 
 `ais --mcp` hands an index to an agent, so its records reach a model as tool
 output. Step 2 of the location precedence, the nearest `.ais/` at or above the
-working directory, is the one step nobody asked for: a repository you cloned can
-ship a `.ais/`, and running an agent in that checkout would make a stranger's
-records its memory. So `--mcp` serves steps 1, 3 and 4 (`-f`, the current named
+working directory, is the one step the user did not ask for: a repository you
+cloned can ship a `.ais/`, and running an agent in that checkout would make a
+stranger's records its memory. So `--mcp` serves steps 1, 3 and 4 (`-f`, the current named
 index, home) and refuses step 2, printing one line naming `-f` and exiting 2
 before anything is served. `ais_locate_how` reports the step; main.c holds the
 rule. `ais_mcp` receives only a `shared` flag (named with `-f`, and not home),
@@ -490,9 +486,8 @@ purpose, because the index directory is exactly what arrives in a clone.
 
 ### Concurrency
 Reads take no lock; each writer takes an exclusive `flock` on `INDEX/lock` for
-the duration of one mutating op and reloads `next_id` under it, so concurrent
-writers serialize without colliding on an id, and a long-lived reader
-(`ais --serve`) never blocks the CLI. Full model: `LOCKING.md`.
+the duration of one mutating op. The model, and `next_id` under it:
+`LOCKING.md`.
 
 ## Module map (one concept per file; see STYLE.md)
 
@@ -504,7 +499,8 @@ writers serialize without colliding on an id, and a long-lived reader
     post.c/.h      posting lists: append an id to a key's file, open a key's
                    ascending id stream (uses key.c for placement)
     merge.c/.h     the k-way streaming merge (AND/OR) over sorted id streams
-    compact.c/.h   tombstones + compaction
+    compact.c/.h   tombstones, the ktomb/katt/edits logs, the mts/sts slots, and
+                   compaction
     find.c/.h      substring search over values (ASCII case folding, streaming)
     due.c          reminders: which due:DATE keys have elapsed on a given day, and
                    their live records through ais_get (nothing of its own on disk)
@@ -530,7 +526,8 @@ writers serialize without colliding on an id, and a long-lived reader
     embed.c/.h     in-process FFI seam (ais_embed_*) for Flutter / native hosts
     help.c/.h      usage_short / usage_long
     log.c/.h       die() (CLI fatal: stderr + exit) + debug() (runtime -d gated trace)
-    win.c/.h       native Windows (MinGW-w64) shims; on POSIX only the socket macros
+    win.c/.h       native Windows (MinGW-w64) shims; on POSIX seven pass-through
+                   macros (the SOCK_* four, ais_tmpfile, AIS_WRITER_TAG, AIS_SO_REUSE)
     main.c         CLI / getopt_long dispatch (recall is the default; -v/-k, --commands)
     tests.c        the test bundle (linear, inline, one comment per test)
 
@@ -551,7 +548,9 @@ until its key is detached (`--update ID -- -due:2028-11`), and that detach is a
 `K|` line to every peer, so the other devices stop showing it too. Re-dating is
 the same edit with a new key. The record keeps its id, its save time and its
 other keys, so a flushed tank stays findable under `tank`, dated when it was
-filed.
+filed. The front ends add one typing aid, a calendar icon in the Tags field
+that writes the day's key as text (GUI.md, "The due date helper"); the key
+stays the only thing stored.
 
 Why a key and not a record type: the `aisc:` marker sits on the value because
 the value needs handling on reveal; a date needs finding, and keys are the index.
@@ -588,9 +587,8 @@ flag selects a command; else `-v`/`-i` mean store; else recall the keys.
     ais [-f DIR] --del-under KEY       DELETE every record filed under KEY
                                        (--del-key is the old name, kept as an alias)
 
-The two are one keystroke apart and opposite in consequence, so every surface
-states the difference in the same locked words; GUI.md carries them, and the
-web-GUI obligations that go with them.
+The two are one keystroke apart and opposite in consequence; GUI.md carries the
+locked wording every surface uses and the web-GUI obligations.
 
     ais [-f DIR] --del ID | --dump | --keys | --stats | --compact
     ais [-f DIR] --tags | --timeline       browse keys, or records newest-first

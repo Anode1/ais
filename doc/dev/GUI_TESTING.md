@@ -14,8 +14,9 @@ suite unrunnable on a machine that lacks a browser, a Dart SDK or a device.
 ## The rule that comes before everything
 
 **Never open a window on the real display.** The rule, and the exact invocation
-every recipe below uses, is in `../../AGENTS.md`. A `PreToolUse` hook blocks the
-unsafe forms; treat a block as correct and fix the command.
+every recipe below uses, is in `../../AGENTS.md`. A `PreToolUse` hook in the
+owner's user-level Claude settings (not in this repository) blocks the unsafe
+forms; treat a block as correct and fix the command.
 
 ---
 
@@ -41,6 +42,8 @@ open the file:
     tests/shot/shot.sh http://127.0.0.1:8080/ /tmp/gui.png
 
 Guessing at layout from source is how a control ends up off-screen. Look at it.
+A hash opens what a screenshot cannot click: `#tags`, `#recall` and `#timeline`
+a view, `#add` the Add sheet, `#sync` the Sync sheet, on both pages.
 
 ### The trap this layer already caught
 
@@ -193,7 +196,7 @@ normal `make ut` stays fast; `AIS_ANDROID_BOOT=1` lets it start one.
   because a deliberate regression walked straight past the first version.
 - **Wire it into `tests/run.sh` the day you write it.** The Flutter sync harness
   existed for weeks, wired into nothing, and stopped testing sync entirely when a
-  control moved. Nobody noticed, because nothing ran it.
+  control moved; nothing ran it, so nothing reported it.
 - **Assert on the store, not the screen.** Every front-end here is a view over one
   engine; the durable assertion is what ended up in the index.
 - **A throwaway index, always.** `mktemp -d`, never the repo's `.ais` and never a

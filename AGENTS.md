@@ -40,12 +40,9 @@ already.
     make hooks  # enable the pre-push hook (runs codeut-asan + codeut-ubsan before a push)
     make clean
 
-`make ut` runs two groups: CORE (codeut, cliut, the FFI stack budget, loopback
-and mesh sync, upgrade, encrypt over a pty: the commit gate) and GUI (uiut, the
-wrapper build-checks, the native Flutter sync UI; a layer whose toolchain is
-absent SKIPs). A green CORE with a red or skipped GUI is fine to commit. Every
-layer, what it covers and how to run it alone:
-`tests/README.md`.
+`make ut` runs two groups, CORE (the commit gate) and GUI (a layer whose
+toolchain is absent SKIPs). A green CORE with a red or skipped GUI is fine to
+commit. Every layer, what it covers and how to run it alone: `tests/README.md`.
 
 Two of those layers exist because something broke without anything noticing, and
 both lessons generalise:
@@ -56,20 +53,17 @@ both lessons generalise:
   phone that is the app dying when the user saves a note. Do not measure this
   with `ulimit -s` on the CLI: `main()`'s own frame is ~141 KB the app never
   pays, so it overstates the need by a third.
-- **`tests/gui/flutter-sync.sh`** drives the real Host/Join UI. The harness
-  existed but was wired into nothing, so when the Sync control moved into the
-  overflow menu it silently stopped testing sync at all, for weeks, while the
-  merge code underneath was being rewritten. Wire a new layer into
-  `tests/run.sh` the day you write it.
+- **`tests/gui/flutter-sync.sh`** drives the real Host/Join UI. It sat unwired
+  for weeks and stopped testing sync when the control moved
+  (`doc/dev/GUI_TESTING.md`, "Making a GUI test worth having"). Wire a new
+  layer into `tests/run.sh` the day you write it.
 
-Before tagging a release, run `make codeut-asan` and `make codeut-ubsan`: they
-rebuild the engine tests under the compiler's sanitizers, so memory errors and
-undefined behavior abort with a file:line report instead of passing silently
-under `-O2`. `sanitizers.yml` runs both on every push to main, every pull request and on
-manual dispatch, and `make hooks` installs a
-pre-push hook that runs them first (bypass once with `git push --no-verify`).
-They stay out of the default build: 2-3x slower and not universally available, so
-`make` and `make ut` stay portable. The rest of the release procedure is in
+Before tagging a release, run `make codeut-asan` and `make codeut-ubsan`: a
+memory error or undefined behavior then aborts with a file:line report instead
+of passing under `-O2`. `sanitizers.yml` runs both on every push to main, every
+pull request and on manual dispatch; the pre-push hook can be bypassed once
+with `git push --no-verify`. They stay out of the default build: 2-3x slower
+and not universally available. The rest of the release procedure is in
 `doc/dev/VERSIONING.md`.
 
 **Never open a window on the real display.** Anything that can show one (the
@@ -107,14 +101,12 @@ rebuildable from it and disposable. `tests/cli.sh` proves it: it deletes
 
 Two identity rules the whole engine rests on, both now pinned by tests:
 
-- **A value names ONE record.** Every write path enforces it: `put` resolves an
-  existing record by value, `ais_merge_addval` by content hash, `ais_set_value`
-  and `ais_add` refuse a value another record holds. Two records sharing a value
-  make a peer collapse them, and a later delete of either takes both.
-- **An id never crosses a device boundary.** It is a local ordinal: the sort key
-  that makes posting lists mergeable and the recency order. Cross-device identity
-  is `content_hash` over the value, and the export stream carries no id field at
-  all. `tests/cli.sh` asserts that structurally, so adding one goes red.
+- **A value names ONE record.** Every write path enforces it
+  (`doc/dev/LAYOUT.md`, "A VALUE NAMES ONE RECORD").
+- **An id never crosses a device boundary.** Cross-device identity is
+  `content_hash` over the value, and the export stream carries no id field at
+  all; `tests/cli.sh` asserts that structurally, so adding one goes red
+  (`doc/dev/FORMAT_V2.md`, "Ids").
 
 ## A claim is not only prose
 

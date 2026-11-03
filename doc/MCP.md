@@ -28,8 +28,7 @@ release's `ais-vX.Y.Z.mcpb`, which carries the macOS and Linux binaries, so
 nothing goes on the PATH. Its two settings are an index to serve instead of the
 home one and whether to allow saving.
 
-Claude Code is the client the tests exercise. Nothing runs in the background,
-there is no account and no port.
+Claude Code is the client the tests exercise.
 
 ## Which index it opens
 
@@ -80,14 +79,14 @@ record comes back as its `blobs/` path, where recall at the terminal prints the
 body itself. An empty result is words rather than an empty block, because a
 model reads an empty block as a broken tool: `no match` from `recall` and
 `find`, `the index has no keys yet` from `tags`, `the index is empty` from
-`timeline`, which are three different facts. A reply that spent its budget ends
+`timeline`, `nothing is due` from `due`, which are four different facts. A reply that spent its budget ends
 with `(stopped at the limit; there may be more)`, and every tool marks it, and
 only when one more row exists, so a page is never read as the whole index.
 
 ## The keys stay yours
 
-Nobody types a tool call. People say "save this", "add it to my memory", "what
-did I file about venice", and the model decides what those mean. So the server
+People say "save this", "add it to my memory", "what did I file about venice",
+and the model decides what those mean. So the server
 tells it, in the `instructions` it hands every client on connect. The first line
 is the whole position:
 
@@ -98,10 +97,9 @@ The rule it spends most words on: when you have not said what to file something
 under, the model asks, and offers the keys your index already uses. It does not
 invent a vocabulary for you.
 
-This is the part no automatic tagger can copy without giving up its own premise.
 A model that files your things under the words it would have chosen has handed
-you the average of everyone's words, which is the thing this index exists not to
-be. See [`about.txt`](about.txt) for the argument in full.
+you the average of everyone's words; the argument is the README's
+[Why](../README.md#why).
 
 ## A project's or a group's index
 
@@ -157,11 +155,10 @@ default and has to be handed the write bit on purpose. Read-only is not a save
 that fails: the instructions then carry no save paragraph at all, and say that
 restarting as `ais --mcp rw` turns one on.
 
-There is no delete, no re-tag, no edit, at any setting. The index is a person's
-memory aid; an agent remembers its own session without one. An agent adds to
-what the person holds and never removes or rewrites a line of it: those are the
-operations whose damage you cannot see happening, and the CLI is two keystrokes
-away, where the person sees the change made.
+There is no delete, no re-tag, no edit, at any setting: those are the operations
+whose damage you cannot see happening, and the CLI is two keystrokes away, where
+the person sees the change made. The index is a person's memory aid; an agent
+remembers its own session without one.
 
 `save` itself refuses these seven things, among others, each in the words the
 model gets back:
@@ -216,9 +213,6 @@ inside, and the row keeps its id.
 
 It is not a vector store and not RAG; the reason is in the README under
 [Why not embeddings or a vector database](../README.md#questions).
-
-It is not a model deciding what to remember on your behalf. You name the keys,
-or the agent asks you for them.
 
 It is not a server: no daemon, no port, no account, nothing leaves the machine.
 

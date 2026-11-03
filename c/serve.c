@@ -59,6 +59,11 @@
  * edit the PAGE string below -- it is the only copy. Vanilla JS; the API is
  * form-encoded keys + a plain-text body/reply (no JSON, and a text/plain POST is a
  * "simple" request, so no CORS preflight). */
+/* The due date helper (GUI.md): the calendar button at the right end of a tag
+ * field; the date input beside it stays out of sight until the button asks */
+#define CALBTN(id) "<button type=button id=" id " class=cal tabindex=-1 aria-label='Remind me on a day' title='Remind me on a day'>" \
+    "<svg viewBox='0 0 24 24' width=18 height=18 fill='currentColor' aria-hidden=true><path d='M19 4h-1V2h-2v2H8V2H6v2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2zm0 16H5V9h14v11z'/></svg></button>"
+#define CALDATE(id) "<input type=date id=" id " class=caldate tabindex=-1 aria-label='Day'>"
 static const char PAGE[] =
 "<!doctype html><meta charset=utf-8>"
 "<meta name=viewport content='width=device-width,initial-scale=1'>"
@@ -175,9 +180,15 @@ static const char PAGE[] =
 ".pchip .px{border:0;background:none;color:var(--fabfg);font:inherit;font-size:.8rem;width:26px;height:26px;border-radius:13px;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;flex:none}"
 ".pchip .px:hover{background:rgba(0,0,0,.12)}"
 "#pmenu{left:0;right:auto;top:calc(100% + 4px)}.pop .cap{font-size:.8rem;color:var(--muted);padding:.4rem 1rem .5rem;white-space:nowrap}"
-".tagfield{display:flex;align-items:center;flex-wrap:wrap;gap:.4rem;min-height:48px;padding:.25rem .45rem;border:1px solid var(--line);border-radius:10px;margin-bottom:.8rem;background:var(--field)}"
+".tagfield{position:relative;display:flex;align-items:center;flex-wrap:wrap;gap:.4rem;min-height:48px;padding:.25rem .45rem;border:1px solid var(--line);border-radius:10px;margin-bottom:.8rem;background:var(--field)}"
 ".tagfield input{flex:1;width:auto;min-width:8rem;border:0;margin:0;padding:.45rem .3rem;background:none;outline:none}"
 ".tagfield:focus-within{outline:2px solid var(--accent);outline-offset:2px}"
+/* the calendar button sits over the right end of a plain field (.calw) or
+ * closes the tag field's row; its date input is sized away until .open */
+".calw{position:relative}.calw input{padding-right:2.6rem}.calw .cal{position:absolute;right:.5rem;top:.5rem}"
+".cal{border:0;background:none;color:var(--muted);cursor:pointer;padding:.3rem;flex:none;display:inline-flex;line-height:0}.cal:hover{color:var(--accent)}"
+".tagfield .caldate,.calw .caldate{position:absolute;right:0;bottom:0;width:0;height:0;min-width:0;opacity:0;border:0;padding:0;margin:0;flex:none;pointer-events:none}"
+".tagfield .caldate.open,.calw .caldate.open{position:static;width:auto;height:auto;opacity:1;pointer-events:auto;padding:.3rem;border:1px solid var(--line);border-radius:8px}"
 ".scope{font-size:.85rem;color:var(--muted);text-align:center;margin-top:1.4rem}"
 ".tagrow.proj{background:var(--fabbg);border-radius:10px;padding:0 .4rem;margin:0 -.4rem}.tagrow.proj .taglink{color:var(--fabfg);font-weight:600;display:flex;align-items:center;gap:.4rem}"
 "#toast{position:fixed;left:50%;bottom:82px;transform:translateX(-50%);z-index:20;display:flex;align-items:center;gap:1rem;background:#2b2b33;color:#fff;padding:.65rem 1.1rem;border-radius:10px;box-shadow:0 4px 16px rgba(0,0,0,.35)}"
@@ -233,7 +244,7 @@ static const char PAGE[] =
 "<textarea id=v rows=3 aria-label='Text' placeholder='A link, a note, a number...'></textarea>"
 "<div id=vkwrap class=tagfield><span id=vkchip class=pchip hidden>" "<svg viewBox='0 0 24 24' width=16 height=16 aria-hidden=true><path d='M17.63 5.84C17.27 5.33 16.67 5 16 5L5 5.01C3.9 5.01 3 5.9 3 7v10c0 1.1.9 1.99 2 1.99L16 19c.67 0 1.27-.33 1.63-.84L22 12l-4.37-6.16z'/></svg>"
 "<span id=vkname class=pname></span><button id=vkout class=px aria-label='Leave this item out of the project'>&#x2715;</button></span>"
-"<input id=vk aria-label='Tags' placeholder='Tags'></div>"
+"<input id=vk aria-label='Tags' placeholder='Tags'>" CALBTN("vkcal") CALDATE("vkdate") "</div>"
 "<p class=hint>Separate with spaces</p>"
 "<div id=vksuggest class=chips></div>"   /* tag-autocomplete chips for #vk */
 "<label class=switch><input id=enc type=checkbox role=switch> Lock with a password</label>"
@@ -251,7 +262,7 @@ static const char PAGE[] =
 "<textarea id=edval rows=3></textarea></div>"
 "<label class=muted style='font-size:.8rem'>Tags</label>"
 "<div id=edchips class=chips></div>"
-"<input id=edtag placeholder='Add a tag (space or comma to add)'>"
+"<div class=calw><input id=edtag placeholder='Add a tag (space or comma to add)'>" CALBTN("edcal") CALDATE("eddate") "</div>"
 "<div id=edsuggest class=chips></div>"   /* tag-autocomplete chips for #edtag */
 "<div class=actions><button id=edcancel class=ghost>Cancel</button><button id=edsave class=primary>Save</button></div>"
 "</div></div>"
@@ -312,6 +323,10 @@ static const char PAGE[] =
 /* accept a comma as an optional tag separator; collapse extra whitespace, so
  * \"home, wifi\" and \"home   wifi\" both mean the tags home + wifi (Flutter parity) */
 "function normkeys(s){return s.replace(/,/g,' ').trim().replace(/\\s+/g,' ')}"
+/* due:YYYY-MM-DD for the chosen day: in place of a due:DATE token, else appended */
+"function withDueTag(s,day){var re=/^due:\\d{4}(?:-\\d{2}(?:-\\d{2})?)?$/,o=[],i=-1;"
+"normkeys(s).split(' ').forEach(function(k){if(!k)return;if(re.test(k)){if(i<0)i=o.length;return}o.push(k)});"
+"o.splice(i<0?o.length:i,0,'due:'+day);return o.join(' ')}"
 "function ulen(s){return new TextEncoder().encode(s).length}"   /* UTF-8 bytes: the engine's unit */
 "var tlBefore=0,tlDay=null,tlN=0,tlPage=100;"   /* timeline keyset paging state */
 "var rcAfter=0,rcN=0,rcMore=false,rcQ='',rcOr='';"   /* recall keyset paging */
@@ -799,6 +814,16 @@ static const char PAGE[] =
 "$('edcancel').onclick=function(){$('editsheet').hidden=true};$('edsave').onclick=edSave;"
 "$('edtag').addEventListener('keydown',function(e){if(e.key=='Enter'||e.key==','){e.preventDefault();edAdd()}});"
 "$('edtag').addEventListener('blur',edAdd);"
+/* The due date helper (GUI.md): showPicker() where it exists, else the date
+ * input is revealed beside the field as Later does; a chosen day goes to PUT,
+ * a cancelled picker fires no change */
+"function calWire(btn,d,inp,put){btn.onmousedown=function(e){e.preventDefault()};"   /* the field keeps focus */
+"btn.onclick=function(){d.value='';if(d.showPicker){try{d.showPicker();return}catch(e){}}d.classList.add('open');d.focus()};"
+"d.onchange=function(){d.classList.remove('open');if(d.value)put(d.value)};d.onblur=function(){d.classList.remove('open')};"
+"d.onkeydown=function(e){if(e.key==='Escape'){e.stopPropagation();d.classList.remove('open');inp.focus()}}}"
+"calWire($('vkcal'),$('vkdate'),$('vk'),function(day){$('vk').value=withDueTag($('vk').value,day);$('vk').focus()});"
+/* the chips and the typed text, recommitted through edAdd as a typed token is */
+"calWire($('edcal'),$('eddate'),$('edtag'),function(day){$('edtag').value=withDueTag(edTags.join(' ')+' '+$('edtag').value,day);edTags=[];edAdd();$('edtag').focus()});"
 "backdrop('editsheet',function(){if(editUntouched())$('editsheet').hidden=true});"
 "$('enc').onchange=function(){$('pp').hidden=$('pp2').hidden=$('ppnote').hidden=!$('enc').checked;"
 "if($('enc').checked)$('pp').focus()};"
@@ -841,7 +866,7 @@ static const char PAGE[] =
 /* the menu ends with the version line: the numbers a bug report needs, as the app's About has them */
 "fetch('/api/version').then(function(r){return r.text()}).then(function(t){t=t.trim();if(t){$('ver').textContent=t.split('\\n').join(' · ');$('ver').hidden=false}}).catch(noop);"
 "libLoad().then(function(){setView(h=='tags'||h=='recall'||h=='timeline'?h:'timeline');"   /* else open on content, not a blank search */
-"if(h=='sync')openSync()});"                                    /* #sync: the sheet, for a screenshot or a UI test */
+"if(h=='sync')openSync();if(h=='add')openSheet()});"            /* #sync, #add: a sheet, for a screenshot or a UI test */
 /* ---- Sync (Host / Join), mirroring the mobile Sync feature ---------------
  * qrGen: a small pure-JS byte-mode QR encoder (ECC level L, mask 0, versions 1-5)
  * so a phone can scan the url+token with no server-side or network dependency.
@@ -1503,8 +1528,8 @@ static int serve_asset(int fd, const char *name)
 
     if (webdir == NULL || webdir[0] == '\0')
         webdir = "gui/web";               /* the dev default */
-    if (name[0] == '\0')
-        return 0;
+    if (name[0] == '\0' || strcmp(name, ".") == 0 || strcmp(name, "..") == 0)
+        return 0;                         /* a directory, not an asset */
     /* ASCII by hand, not isalnum(): what counts as alphanumeric above 0x7F is a
      * locale question, and an allowlist guarding a filesystem path must not have
      * a different answer on another machine. */
@@ -1513,7 +1538,7 @@ static int serve_asset(int fd, const char *name)
         int ok = (c >= '0' && c <= '9') || (c >= 'a' && c <= 'z') ||
                  (c >= 'A' && c <= 'Z') || c == '.' || c == '_' || c == '-';
         if (!ok)
-            return 0;                     /* reject '/', '..', anything unsafe */
+            return 0;                     /* reject '/', '\\', anything unsafe */
     }
     if (snprintf(path, sizeof(path), "%s/%s", webdir, name) >= (int)sizeof(path))
         return 0;

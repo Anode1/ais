@@ -31,8 +31,6 @@ the `android` job turns back into `key.properties` at build time:
   from debug to release signing.
 - `ANDROID_STORE_PASSWORD`, `ANDROID_KEY_ALIAS` (e.g. `ais`), `ANDROID_KEY_PASSWORD`.
 
-The keystore never enters git, only the CI secret store.
-
 ## 1. Get a release-signed bundle
 
 **A. Take the one CI built (recommended).** Every tag attaches
@@ -47,6 +45,7 @@ upload format), each with a `.sha256`, signed with the upload key from the
 cd app/flutter
 flutter build appbundle --release $(sh tool/version.sh)
 # output: build/app/outputs/bundle/release/app-release.aab
+flutter build apk --release $(sh tool/version.sh)   # the .apk step 2 installs
 ```
 
 Two ways that goes wrong, both silent:

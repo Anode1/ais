@@ -1,8 +1,8 @@
 /* ais.h -- AIS public API: a plain-text associative index.
  *
  * An INDEX is a directory (see doc/dev/LAYOUT.md). Open it, then put/get/del/etc.
- * Calls use fixed-size buffers; memory never scales with the data. Three listing
- * calls (ais_keys, ais_tags_page, the timeline scan) take one bounded heap block.
+ * Calls use fixed-size buffers; memory never scales with the data. Four listing
+ * calls (ais_keys, ais_tags_page, the two timeline scans) take one bounded heap block.
  * get() streams matching ids through a callback.
  */
 #ifndef AIS_H

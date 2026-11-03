@@ -109,6 +109,9 @@ void main() {
       'Scan or type a code',
       'Recent',
       'Tags',
+      'Due',
+      'Done',
+      'Later',
     ]) {
       expect(text, contains(label), reason: 'help no longer names $label');
       expect(src, contains("'$label'"), reason: 'main.dart lost $label');

@@ -104,8 +104,8 @@ decryption, before anything is merged. So the transfer is end-to-end encrypted
 and authenticated between the two devices.
 
 Each receiver merges the stream into its store: tombstone-union, last-write-wins
-by timestamp, content-addressed and idempotent (re-syncing is safe; only
-genuinely new records land). Only non-rebuildable data moves (store, tombstones,
+by timestamp, content-addressed and idempotent (re-syncing is safe; only new
+records land). Only non-rebuildable data moves (store, tombstones,
 saved blobs); the index is rebuilt locally. The server is single-use and exits
 after one transfer.
 

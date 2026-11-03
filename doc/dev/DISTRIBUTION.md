@@ -18,10 +18,6 @@ Each shipped asset (Windows, macOS, Linux, Android) is accompanied by a matching
 `.sha256`. **Not shipped:** source bundles or duplicate engines. The CLI is
 present under every desktop download.
 
-Rule of thumb, matching how normal apps ship: the desktops get the universal
-web GUI, Android gets the Flutter app, and the CLI is under every desktop
-download.
-
 ## Windows
 
 The zip is cross-compiled from Linux with MinGW-w64; the installer is built
@@ -59,7 +55,9 @@ stand alone by compiling the engine to **WebAssembly** (emcc over the same
 storage (IDBFS now, OPFS later). The WASM build (`WASM_SRC` in `c/Makefile`)
 compiles the engine, the FFI and what `embed.c` reaches (`sync.c`, `feed.c`,
 `secret.c`, `win.c`, the crypto) and leaves out `main.c`, `serve.c`, `help.c`
-and the tests: no CLI, no listening sockets, no tty. The rule has never been
+and the tests: no CLI, no listening sockets, no tty. The list lacks `due.c` and
+`import.c`, which `embed.c` also calls (`ais_due`, `import_links_fp`), so the
+link would fail until they are added. The rule has never been
 run (`wasm-pwa.yml` is manual dispatch only), so whether those files compile
 under emcc is unverified; the one likely shim is `flock` -> no-op (a browser
 origin is single-threaded).

@@ -15,8 +15,8 @@ Dataset
 
 Timings (wall, one core)
   compact  (build whole index)        7.9  s    one streaming pass, 4000 lists
-  find SUBSTR (full scan)             1.64 s    875,688 hits    -- grep-class
-  dump (full scan)                    1.84 s    1,000,000 lines -- cat-class
+  find SUBSTR (full scan)             1.64 s    875,688 hits    (grep-class)
+  dump (full scan)                    1.84 s    1,000,000 lines (cat-class)
   stats (streaming, ids only)         0.04 s
   put (single, at n=1M)               0.05 s    one O(n) idempotent store scan
   timeline: awk date-range on meta    0.37 s    33,520 records in ~2007
@@ -29,7 +29,7 @@ Reading
   - put is 50 ms interactively (a few/day = invisible); an import batches it (item 2).
   - GET *was* the bottleneck: ais_record re-scanned the store per matched id
     (O(matches x store)). FIXED by the id->offset index "off": get is now
-    O(matches) seeks -- rare 1.02s -> 9 ms, hot (270k) hours -> 2.2 s.
+    O(matches) seeks: rare 1.02s -> 9 ms, hot (270k) hours -> 2.2 s.
 
 Root cause (get AND bulk-put)
   No way to find a record by id except scanning the store.

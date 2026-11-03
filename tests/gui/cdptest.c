@@ -118,6 +118,56 @@ int main(int argc, char **argv) {
         "(function(){var r=[].slice.call(document.querySelectorAll('#out .hit')).filter(function(r){return r.innerText.indexOf('boat-service')>=0})[0];"
         "var m=r.querySelector('.meta').textContent;return m.indexOf('due:2031-03-09')>=0&&m.indexOf('due:2021-06')<0})()"));
 
+    /* ---- the due date helper (doc/dev/GUI.md, "The due date helper") ----
+     * A calendar button at the right end of the Add sheet's Tags field and of
+     * the Edit dialog's field opens a date input; a headless picker cannot be
+     * driven, so the cases set the input's value and fire its change. */
+#define CALBTN(id) "(function(){var b=document.getElementById('" id "');return !!b&&b.type==='button'&&b.className==='cal'" \
+                   "&&b.getAttribute('aria-label')==='Remind me on a day'&&b.title==='Remind me on a day'})()"
+#define PICK(id, day) "(function(){var d=document.getElementById('" id "');d.value='" day "';d.dispatchEvent(new Event('change'));return true})()"
+    ok("the Tags field carries the calendar button", truthy(c, CALBTN("vkcal")));
+    ok("inside the field, after the input", truthy(c,
+        "document.getElementById('vkcal').parentNode.id==='vkwrap'&&document.getElementById('vkcal').previousElementSibling.id==='vk'"));
+    ok("the Edit field carries it too", truthy(c, CALBTN("edcal")));
+    ok("beside its input", truthy(c, "document.getElementById('edcal').previousElementSibling.id==='edtag'"));
+    ok("each has a date input of its own", truthy(c,
+        "document.getElementById('vkdate').type==='date'&&document.getElementById('eddate').type==='date'"));
+    cdp_eval_bool(c, "(function(){openSheet();document.getElementById('vk').value='alpha';return true})()", &(int){0});
+    cdp_eval_bool(c, PICK("vkdate", "2027-04-15"), &(int){0});
+    ok("a chosen day is appended to the typed tags", truthy(c, "document.getElementById('vk').value==='alpha due:2027-04-15'"));
+    cdp_eval_bool(c, PICK("vkdate", "2028-01-02"), &(int){0});
+    ok("a second day replaces the first", truthy(c, "document.getElementById('vk').value==='alpha due:2028-01-02'"));
+    cdp_eval_bool(c, "(function(){document.getElementById('vk').value='due:2027-04 beta';return true})()", &(int){0});
+    cdp_eval_bool(c, PICK("vkdate", "2028-01-02"), &(int){0});
+    ok("a typed month is replaced in place", truthy(c, "document.getElementById('vk').value==='due:2028-01-02 beta'"));
+    cdp_eval_bool(c, PICK("vkdate", ""), &(int){0});
+    ok("no day chosen changes nothing", truthy(c, "document.getElementById('vk').value==='due:2028-01-02 beta'"));
+    cdp_eval_bool(c, "(function(){document.getElementById('vk').value='';return true})()", &(int){0});
+    cdp_eval_bool(c, PICK("vkdate", "2028-01-02"), &(int){0});
+    ok("an empty field gets the tag alone", truthy(c, "document.getElementById('vk').value==='due:2028-01-02'"));
+    cdp_eval_bool(c, "(function(){document.getElementById('v').value='https://example.org/dentist';document.getElementById('save').click();return true})()", &(int){0});
+    ok("the sheet saves with the tag", cdp_wait_bool(c, "document.getElementById('sheet').hidden", 5000) == 0 &&
+       cdp_eval_bool(c, "(function(){window.__k=null;fetch('/api/get?keys=due:2028-01-02')"
+                        ".then(function(r){return r.text()}).then(function(t){window.__k=t});return true})()", &(int){0}) == 0 &&
+       cdp_wait_bool(c, "window.__k!==null&&window.__k.indexOf('dentist')>=0", 5000) == 0);
+    cdp_eval_bool(c, "(function(){document.getElementById('q').value='';return true})()", &(int){0});   /* a save fills the search box */
+    /* Edit: the day becomes a chip through the typed token's path, taking the
+     * text left in the field with it; a second day replaces the chip */
+    cdp_eval_bool(c, "(function(){openEdit(2,'https://example.org/canal');return true})()", &(int){0});
+    cdp_wait_bool(c, "document.getElementById('edchips').children.length===2", 5000);
+#define EDCHIPS "[].map.call(document.getElementById('edchips').children,function(x){return x.firstChild.textContent}).join(' ')"
+    cdp_eval_bool(c, "(function(){window.__c=" EDCHIPS ";document.getElementById('edtag').value='pending';return true})()", &(int){0});
+    cdp_eval_bool(c, PICK("eddate", "2029-05-06"), &(int){0});
+    ok("a chosen day becomes a chip, with the typed tag", truthy(c, EDCHIPS "===window.__c+' pending due:2029-05-06'"));
+    ok("and the field is empty", truthy(c, "document.getElementById('edtag').value===''"));
+    cdp_eval_bool(c, PICK("eddate", "2029-07-08"), &(int){0});
+    ok("a second day replaces the chip", truthy(c, EDCHIPS "===window.__c+' pending due:2029-07-08'"));
+    cdp_eval_bool(c, "(function(){document.getElementById('edcancel').click();return true})()", &(int){0});
+    ok("Cancel keeps the record as it was", cdp_wait_bool(c, "document.getElementById('editsheet').hidden", 3000) == 0 &&
+       cdp_eval_bool(c, "(function(){window.__k=null;fetch('/api/keys?id=2')"
+                        ".then(function(r){return r.text()}).then(function(t){window.__k=t.trim()});return true})()", &(int){0}) == 0 &&
+       cdp_wait_bool(c, "window.__k==='venice trip'||window.__k==='trip venice'", 5000) == 0);
+
     /* The page now OPENS on Recent (which lists every record), so switch to the
      * empty Search view first to establish the "absent until queried" baseline. */
     cdp_eval_bool(c, "(function(){setView('recall');return true})()", &(int){0});

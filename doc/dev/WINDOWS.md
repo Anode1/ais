@@ -2,7 +2,8 @@
 
 **Two files per release: `ais-<tag>-windows-x86_64-setup.exe`, a per-user
 installer, and `ais-<tag>-windows-x86_64.zip`, the same two programs to unzip
-and run; both cross-compiled from Linux with MinGW-w64.** The programs are
+and run; the programs cross-compiled from Linux with MinGW-w64, the installer
+built by Inno Setup on a Windows runner.** The programs are
 `ais.exe`, the full CLI with the web GUI (`ais --serve`) and LAN sync over
 Winsock, so a Windows user hosts and joins a QR sync with a phone exactly as
 on Linux, and `ais-gui.exe` (`gui/win/`), the launcher: no console, runs
@@ -40,8 +41,8 @@ Search shows, and the install folder under `%LOCALAPPDATA%` is not indexed.
 - `gui/win/Makefile` builds `ais-gui.exe` with the same compiler: `-mwindows`
   for the GUI subsystem, `windres` for the icon (`icons/ais.ico`, 16 to 256 px)
   and the version block. `tests/gui/windows.sh` cross-compiles both here.
-- `native-windows.yml` cross-compiles both exes on every push and PR touching
-  `c/`, `gui/win/`, the installer, the two suites or itself, then on a Windows
+- `native-windows.yml` cross-compiles both exes on every push to main and PR touching
+  `c/`, `gui/win/`, the icon, the installer, `tests/cli.sh`, `tests/sync.sh` or itself, then on a Windows
   runner runs `tests/cli.sh` and `tests/sync.sh` against `ais.exe`,
   `tests/gui/windows-launcher.sh` against `ais-gui.exe` (start, second start,
   `--quit`), and `tests/gui/windows-installer.sh` against a setup exe built
@@ -84,8 +85,7 @@ Search shows, and the install folder under `%LOCALAPPDATA%` is not indexed.
 
 ## Sync: a file bundle beside the sockets
 
-Key insight: **sync = merge + transport, and the transport is the part a file
-can replace.**
+Sync is merge plus transport, and the transport is the part a file can replace.
 The merge (LWW over content hashes, `ais_merge_*` in `ais.c` and the import in
 `feed.c`) is fully portable and already in
 the Windows build. A **file** is a valid transport: `export` a mergeable bundle,

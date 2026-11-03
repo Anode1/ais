@@ -21,8 +21,9 @@ Sizes (compile-time, c/common.h)
   AIS_PATH_MAX    4096   any built path (dir + "idx/" + prefix + key).
   AIS_OFF_WIDTH     12   "off" entry = 11-digit (offset+1): the store is capped
                          near 90 GB before offsets overflow (raise to lift it).
-  AIS_TL_MAX     10000   records in one --timeline page (default 500); a larger
-                         N is cut to it, and a front end pages for older ones.
+  AIS_TL_MAX     10000   records in one --timeline page (default 500; both in
+                         c/ais.c, not common.h); a larger N is cut to it, and a
+                         front end pages for older ones.
 
 Value rules
   - A value is ONE line: no newline.

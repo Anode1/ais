@@ -30,8 +30,7 @@ AIS is GPL v2 or later. Apple's Licensed Application End User License Agreement
 limits use to devices the buyer owns or controls, plus Family Sharing. Section 6
 of the GPL forbids imposing further restrictions on the rights it grants, and
 that clash is why VLC was pulled from the App Store in 2011, on a complaint from
-one of its copyright holders. It takes a copyright holder objecting; nobody
-enforces it unaided.
+one of its copyright holders. It takes a copyright holder objecting.
 
 You are the only one: the single commit under a second account (`.gitignore`,
 `.github/workflows/release.yml`) was the author's own work, so there is one
@@ -215,9 +214,9 @@ on a runner:
     CODE_SIGN_IDENTITY = "Apple Distribution";
     PROVISIONING_PROFILE_SPECIFIER = "AIS App Store";
 
-Editing that file by hand is the point rather than the compromise: the settings
-land in a diff instead of in Xcode state nobody can review, which is the reason
-the engine's file list lives in `ais_engine.podspec`. The existing `ios-build`
+Editing that file by hand is deliberate: the settings land in a diff instead of
+in Xcode's own state, which a review cannot see, and the engine's file list
+lives in `ais_engine.podspec` for the same reason. The existing `ios-build`
 job is unaffected, since `--no-codesign` never reaches signing.
 
 The `ios-release` job in `.github/workflows/flutter.yml` runs on a tag and
@@ -290,7 +289,7 @@ the owner's Apple ID.
 
 Then run the acceptance list in issue #1 on the phone. Nothing before this point
 exercises the camera QR scan, speech, sync over a real network, or force-quit
-persistence, and the simulator in CI covers none of them.
+persistence; the simulator in CI cannot.
 
 ## 8. The App Store
 

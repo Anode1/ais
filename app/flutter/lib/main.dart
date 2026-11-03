@@ -166,6 +166,50 @@ List<String> elapsedDueKeys(String keys, String today) => [
           k
     ];
 
+/// A `due:` key whose date part is YYYY, YYYY-MM or YYYY-MM-DD: what the
+/// calendar icon replaces. `due:soon` is a plain key.
+bool isDueDateTag(String k) =>
+    RegExp(r'^due:\d{4}(-\d{2}(-\d{2})?)?$').hasMatch(k);
+
+/// [day] as the date part of the key the calendar icon writes, YYYY-MM-DD.
+String dueDay(DateTime day) => '${day.year.toString().padLeft(4, '0')}-'
+    '${day.month.toString().padLeft(2, '0')}-${day.day.toString().padLeft(2, '0')}';
+
+/// The picker Later and the calendar icon share (GUI.md, "The due date
+/// helper"): today first, 2000 to 2100. Null on Cancel.
+Future<DateTime?> pickDueDay(BuildContext context) => showDatePicker(
+      context: context,
+      initialDate: DateTime.now(),
+      firstDate: DateTime(2000),
+      lastDate: DateTime(2100),
+    );
+
+/// The Add sheet's text rule: `due:[day]` replaces the first due:DATE token
+/// of [tags] (later ones go), or is appended after a space. The rest of the
+/// text, spacing included, stays as typed.
+String withDueTag(String tags, String day) {
+  final tag = 'due:$day';
+  final token = RegExp(r'(^|[\s,])(due:\d{4}(-\d{2}(-\d{2})?)?)(?=[\s,]|$)');
+  var seen = false;
+  final out = tags.replaceAllMapped(token, (m) {
+    if (seen) return '';
+    seen = true;
+    return '${m[1]}$tag';
+  });
+  if (seen) return out;
+  if (tags.isEmpty || tags.endsWith(' ')) return '$tags$tag';
+  return '$tags $tag';
+}
+
+/// The Edit tags rule: `due:[day]` takes the place of the first due:DATE chip
+/// (later ones go), or joins the end of the list.
+List<String> withDueChip(List<String> tags, String day) {
+  final tag = 'due:$day';
+  final at = tags.indexWhere(isDueDateTag);
+  final kept = tags.where((t) => !isDueDateTag(t)).toList();
+  return at < 0 ? [...kept, tag] : (kept..insert(at, tag));
+}
+
 class RecallPage extends StatefulWidget {
   // Test seam for the tag-suggestion rows: `flutter test` runs with no engine
   // (CI builds no libais.so), so the lookup is injectable. Null = the engine's
@@ -2954,16 +2998,10 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
     }
     final old = elapsedDueKeys(keys, todayLocal());
     if (old.isEmpty) return;
-    final day = await showDatePicker(
-      context: context,
-      initialDate: DateTime.now(),
-      firstDate: DateTime(2000),
-      lastDate: DateTime(2100),
-    );
+    final day = await pickDueDay(context);
     if (day == null || !mounted) return;
-    final d = '${day.year.toString().padLeft(4, '0')}-'
-        '${day.month.toString().padLeft(2, '0')}-${day.day.toString().padLeft(2, '0')}';
-    final updated = _updateKeys(id, [for (final k in old) '-$k', 'due:$d'].join(' '));
+    final updated =
+        _updateKeys(id, [for (final k in old) '-$k', 'due:${dueDay(day)}'].join(' '));
     if (mounted) {
       ScaffoldMessenger.of(context)
           .showSnackBar(SnackBar(content: Text(tagsUpdateMessage(updated))));
@@ -4324,6 +4362,20 @@ class _AddSheetState extends State<AddSheet> {
         onPressed: () => setState(() => _ppShow = !_ppShow),
       );
 
+  // The calendar icon in the Tags field: the chosen day lands in the text as
+  // due:YYYY-MM-DD, replacing a due:DATE tag already there, caret after it.
+  Future<void> _pickDue() async {
+    final day = await pickDueDay(context);
+    if (day == null || !mounted) return;
+    final tag = 'due:${dueDay(day)}';
+    final text = withDueTag(_keysCtrl.text, dueDay(day));
+    _keysCtrl.value = TextEditingValue(
+        text: text,
+        selection:
+            TextSelection.collapsed(offset: text.indexOf(tag) + tag.length));
+    _keysFocus.requestFocus();
+  }
+
   // The fields, in the order they are read; build() places them.
   List<Widget> _fields(BuildContext context) => [
         // The thing being saved comes first, then how to find it again. The
@@ -4349,6 +4401,11 @@ class _AddSheetState extends State<AddSheet> {
             hintText: 'e.g. venice italy hotel',
             helperText: 'Separate with spaces',
             border: const OutlineInputBorder(),
+            suffixIcon: IconButton(
+              icon: const Icon(Icons.event),
+              tooltip: 'Remind me on a day',
+              onPressed: _pickDue,
+            ),
             prefixIcon: widget.project.isEmpty || _projOut
                 ? null
                 : Padding(
@@ -4535,6 +4592,18 @@ class _EditTagsDialogState extends State<EditTagsDialog> {
     setState(() => _tags.addAll(fresh));
   }
 
+  // The calendar icon: the chosen day is committed as a chip, as a typed
+  // token is, in place of a due:DATE chip already there.
+  Future<void> _pickDue() async {
+    final day = await pickDueDay(context);
+    if (day == null || !mounted) return;
+    final tags = withDueChip(_tags, dueDay(day));
+    setState(() => _tags
+      ..clear()
+      ..addAll(tags));
+    _focus.requestFocus();
+  }
+
   // Same rule as the Add sheet: an edited tag list closes only by Cancel or Apply.
   bool get _untouched =>
       _ctrl.text.isEmpty && _tags.join(' ') == widget.initial.join(' ');
@@ -4566,7 +4635,14 @@ class _EditTagsDialogState extends State<EditTagsDialog> {
               controller: _ctrl,
               focusNode: _focus,
               autofocus: true,
-              decoration: const InputDecoration(hintText: 'Add a tag'),
+              decoration: InputDecoration(
+                hintText: 'Add a tag',
+                suffixIcon: IconButton(
+                  icon: const Icon(Icons.event),
+                  tooltip: 'Remind me on a day',
+                  onPressed: _pickDue,
+                ),
+              ),
               onChanged: (v) {
                 // a space or comma commits the token in progress
                 if (v.endsWith(' ') || v.endsWith(',')) {

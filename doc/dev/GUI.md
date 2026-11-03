@@ -67,6 +67,27 @@ and **Later** opens the date picker and rewrites the key to the chosen day,
 all", no confirmation dialog. The engine side is in LAYOUT.md, "Reminders: the
 due key".
 
+## The due date helper (the wording, LOCKED)
+
+The Tags field of the Add sheet and the field of the Edit tags dialog carry a
+calendar icon at their right end, inside the field, as the password fields
+carry the reveal eye: a suffix icon, no row of its own, label and tooltip
+**Remind me on a day**. Tapping it opens the date picker Later uses
+(`showDatePicker`, 2000 to 2100; the pages an `<input type=date>`) and writes
+`due:YYYY-MM-DD` into the field as text: appended after a space in the Add
+sheet, committed as a chip in Edit tags, as a typed token is. The user sees the
+tag and may edit it; a month, `due:2027-04`, or a year, `due:2027`, is typed by
+hand. If the field already holds a `due:DATE` tag the picker replaces it.
+Cancelling the picker changes nothing. Nothing else: no second field, no
+toggle, no date stored apart from the tag.
+
+The app's Help, under the heading **Reminders** (the pages have no Help
+page): "A tag like
+`due:2027-04-15` makes a note due from that day. It then waits under Due at
+the top of Recent until you choose Done or Later from its menu. The calendar
+icon beside Tags writes the tag for you; a month, `due:2027-04`, or a year,
+`due:2027`, is a reminder too."
+
 ## Untag vs delete-under (the wording, LOCKED)
 
 `--untag KEY` and `--del-under KEY` are one keystroke apart and opposite in

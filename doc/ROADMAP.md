@@ -35,9 +35,7 @@ Help is welcome: open an issue to claim a piece.
 
 ## Planned
 
-Roughly in priority order. These are now all UI or platform glue over the
-unchanged engine: the two former engine-level items, LAN sync and encrypted
-secrets, have shipped (see above).
+Roughly in priority order.
 
 ### iPhone (iOS) · next up
 
@@ -101,13 +99,12 @@ So a *downloaded* build runs without security warnings. **macOS notarization**
 binaries, but it requires the paid Apple Developer Program ($99/year) and is not
 planned. Meanwhile, clear the quarantine flag once with
 `xattr -dr com.apple.quarantine .` (see the README), verify a download by its
-SHA-256, or just build from source, which is never quarantined. **Windows
+SHA-256, or build from source, which is never quarantined. **Windows
 code-signing** is planned through the SignPath OSS program ([`dev/WINDOWS.md`](dev/WINDOWS.md)); the release workflow has no
 signing step. SignPath's Foundation program declined the project in June 2026
 as too new: it gates on community-adoption signals (stars, forks, third-party
 references) that a fresh repo cannot yet show. Paid signing is not planned.
-Reapply once the project has visible adoption. Until a build is signed, verify a
-download by its SHA-256 or build from source (see the README).
+Reapply once the project has visible adoption.
 
 ### Sync through any storage
 
@@ -140,9 +137,8 @@ that step.
 
 ## Known gaps, as of v0.3.42
 
-Four things are open, and this is the list to work from: the release chores that
-remain, coverage nobody has, a test that cannot see, and defects left on purpose
-with the reason for each.
+Four things are open: the release chores that remain, what is barely verified, a
+test that cannot see, and defects left on purpose with the reason for each.
 
 ### 1. Publishing is not finished
 
@@ -284,8 +280,8 @@ Each is understood, loses no data, and is left for a stated reason.
 
 - **Import bookmarks refuses Pocket's zip; the user opens it and picks the
   `part_NNNNNN.csv` files inside.** Reading the zip in place means an inflate
-  routine of a few hundred lines in the engine, for a download nobody can make
-  anew since Pocket's export window closed in October 2025. The pickers take
+  routine of a few hundred lines in the engine, for a download that cannot be
+  made anew since Pocket's export window closed in October 2025. The pickers take
   several files at once, so a library split across parts is one import.
 
 ## Not planned (non-goals)

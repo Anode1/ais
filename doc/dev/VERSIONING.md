@@ -1,7 +1,7 @@
 # Versioning
 
 Four things version independently here, and confusing them is how a two-week-old
-engine shipped inside the app with nobody noticing.
+engine shipped inside the app unnoticed.
 
 | What | Where | Breaks when |
 | --- | --- | --- |
@@ -13,7 +13,8 @@ engine shipped inside the app with nobody noticing.
 ## One source of truth: the git tag
 
 `c/Makefile` derives `AIS_VERSION` from `git describe --tags` and stamps it into
-every translation unit with `-D`. A source copy with no `.git` falls back to
+every object of the CLI binary with `-D` (the `%.o` rule; `libais.so`, the test
+binary and the sanitizer binaries do not get it and report `0.0.0-dev`). A source copy with no `.git` falls back to
 `0.0.0-dev`, which is visibly wrong rather than silently wrong.
 
 `app/flutter/tool/version.sh` derives the Flutter build's version from the same
@@ -101,20 +102,18 @@ Two things follow that are easy to get wrong:
 
 ## The wire is versioned separately again
 
-`AIS_SYNC_PROTO` and `AIS_FRAME_VER` (`c/sync.c`) gate the sealed payload and the
+`AIS_SYNC_PROTO` (`c/sync.h`) and `AIS_FRAME_VER` (`c/sync.c`) gate the sealed payload and the
 bundle frame. A mismatch fails loudly with "update both", which is the correct
 shape: a sync that silently does less than asked is worse than one that refuses.
 
 For the merge STREAM there is no version byte: extensibility comes from
-`--import` refusing verbs it does not know (see `MERGE.md`). That refusal is a
-prerequisite for ever adding one, and it is newer than the peers in the field, so
-a new verb may only be WRITTEN a full release after the refusing build has
-reached every device.
+`--import` refusing verbs it does not know, and the release rule that follows
+is in `MERGE.md`.
 
-## Where the version is surfaced
+## Where the version shows
 
 - `ais --version`
-- `/api/version` (`serve.c`); neither web page calls it or shows an About line
+- `/api/version` (`serve.c`); both web pages fetch it into the version line of their menu
 - Flutter's About: `AIS 0.3.10 (249) · engine: … · index format: v4`, copyable,
   because the first thing a bug report needs is which of the four numbers moved.
 
@@ -126,9 +125,10 @@ names the previous version.
 
 **1. Gate.** `make ut` green, then `make codeut-asan` and `make codeut-ubsan`
 (the pre-push hook and `sanitizers.yml` run the last two, `make hooks` installs
-the hook). Build from a clean tree: `AIS_VERSION` is stamped at compile time, so
-an object file left from before the tag keeps the old string and `make` has no
-reason to relink. `make clean` first, then check `./ais --version`.
+the hook). Build from a clean tree: `AIS_VERSION` is stamped at compile time, and only
+`main.o` is rebuilt when it changes (`version.stamp`), so `ais.o`, which holds
+`ais_version()` behind `/api/version` and the MCP `serverInfo`, keeps the old
+string and `./ais --version` would not show it. `make clean` first.
 
 **2. The bump commit,** `release: vX.Y.Z`, moving the six places that carry the
 number in text:
@@ -156,6 +156,7 @@ changed on screen). `git push --follow-tags`.
 
 **4. What the tag does.** `release.yml` builds and publishes: Linux x86_64 and
 arm64, macOS arm64, Windows x86_64 (cross-compiled with MinGW-w64), each a zip
+plus `.sha256`, the Windows `-setup.exe` (built by `iscc` on a Windows runner)
 plus `.sha256`, the Android `.apk`, `-arm64-v8a.apk` and `.aab`, and
 `ais-vX.Y.Z.mcpb`, the MCP Bundle made from those zips by `scripts/mcpb.sh`.
 Both workflows pin Flutter deliberately (currently 3.44.1); raise that pin and

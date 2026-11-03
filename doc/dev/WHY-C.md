@@ -1,10 +1,7 @@
 # Why C
 
 A recurring objection: "C is unsafe; a memory-safe language like Rust would be
-the responsible choice." This is the rebuttal. The short version: speed does not
-decide it, the one real gain (memory safety) is recovered by tooling without a
-rewrite, and the deciding factor is that a personal tool holding your secrets
-should be code you can read and verify yourself.
+the responsible choice." This is the rebuttal.
 
 ## Speed is not the argument, either way
 
@@ -42,9 +39,6 @@ That class is caught here:
   and strings are bounded (`snprintf`, never an unchecked `strcpy`). A small, disciplined heap
   surface is a small bug surface.
 
-Together these close most of the gap a rewrite would close, in the language we
-already read.
-
 ## The deciding reason: you can read it
 
 A safety guarantee is worth the most to someone who cannot audit the code, and
@@ -53,8 +47,7 @@ passwords and private pointers, so the code guarding those secrets should be cod
 its owner can inspect, byte for byte, in a language that is universally legible.
 A rewrite would replace "I verified it" with "the compiler says so", and the
 `unsafe` blocks an engine still needs (for mmap, raw I/O, and the FFI seam) are
-harder to audit than the equivalent C. For a tool you own and trust
-with secrets, staying legible beats a promise you cannot read.
+harder to audit than the equivalent C.
 
 ## When to revisit
 
@@ -62,6 +55,4 @@ Revisit the decision if AIS ever takes untrusted network input at
 scale, or a security posture demands provable memory safety. The port
 would be clean: the engine is a C-ABI library behind a stable seam (`embed.h`)
 and the on-disk formats are contracts, so a memory-safe engine would be a library
-swap. A proof of concept lives in
-`../../tests/poc-rust-merge/`. Until that need is real, C plus sanitizers is the
-better trade.
+swap. A proof of concept lives in `../../tests/poc-rust-merge/`.

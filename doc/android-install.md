@@ -18,9 +18,7 @@ desktop CLI.
 
 - Google Play: <https://play.google.com/store/apps/details?id=com.aisindex.ais>
 - Without Play: the `.apk` on <https://github.com/Anode1/ais/releases/latest>, or
-  add `https://github.com/Anode1/ais` in
-  [Obtainium](https://github.com/ImranR98/Obtainium), which installs each release
-  as it appears; the `-arm64-v8a.apk` fits a modern phone.
+  Obtainium, as in the README's [Download](../README.md#download).
 
 A local build leaves a debug APK at
 `app/flutter/build/app/outputs/flutter-apk/app-debug.apk`.
@@ -133,7 +131,7 @@ disables voice, install, and the service worker.
   produced `libais.so` for your device's ABI (`arm64-v8a` for phones). A debug
   build only carrying `x86_64` is emulator-only.
 - **Mic does nothing / no prompt**: confirm `RECORD_AUDIO` is in the manifest and
-  the device actually has Google's speech service. The prompt appears on the first
+  the device has Google's speech service. The prompt appears on the first
   mic tap; if previously denied, clear it in Settings -> Apps -> ais -> Permissions.
 - **Voice on the PWA is greyed out**: opened over `http://<ip>`, not a secure
   context. Use Termux + `http://localhost`, or HTTPS (Route B).
@@ -141,4 +139,4 @@ disables voice, install, and the service worker.
 ## See also
 
 - [`app/flutter/README.md`](../app/flutter/README.md): the native app internals (FFI seam, CMake wiring).
-- [`app/README.md`](../app/README.md): the PWA internals and the secure-context rule.
+- [`app/README.md`](../app/README.md): the PWA internals.

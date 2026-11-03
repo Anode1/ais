@@ -9,7 +9,7 @@ an exclusive flock for the duration of one mutating op.** A long-lived reader
 - `store_open` opens the lock file but does **not** lock it. Any number of
   readers (`get`, `find`, `dump`, `keys`, `where`, `stats`) run at once.
 - Each mutating op takes `store_wlock` (blocking `flock(LOCK_EX)`) and releases
-  with `store_wunlock`: `put`, `add`, `del`, `del-under`, `update`, `compact`
+  with `store_wunlock`: `put`, `add`, `set`, `del`, `del-under`, `update`, `compact`
   (and `import` and `doc`, which go through `put`; an import holds the lock across
   one batch of up to 256 puts, feed.c). Writers serialize; a second
   writer waits rather than failing.

@@ -12,7 +12,8 @@
 #   CC CFLAGS CPPFLAGS LDFLAGS LDLIBS  -- project flags come first on the line,
 #   so yours win (distros inject hardening; macOS/BSD supply clang as cc).
 #   Exceptions: `make release` and `make debug` replace CFLAGS; the test binary
-#   ignores CFLAGS; ut-asan and ut-ubsan ignore CFLAGS and LDFLAGS.
+#   takes CFLAGS only when set in the environment or on the command line (the
+#   rule says why); ut-asan and ut-ubsan ignore CFLAGS and LDFLAGS.
 # Profiles:  make | make release | make debug | make pedantic | make static
 #   `static` builds a self-contained binary on Linux (glibc) and on the native
 #   Windows cross-build (`make CC=x86_64-w64-mingw32-gcc LDFLAGS=-static`, which
@@ -182,9 +183,11 @@ libais.so: $(LIBSRC)
 # wasm-pwa.yml runs it on manual dispatch only and has never been run, so this
 # rule is UNVERIFIED. embed.c now reaches sync.c, secret.c and the crypto, and
 # doc.c calls aisc_random, so those are in the list; main/serve/help/tests stay
-# out (no CLI, listening sockets, or tty in a browser).
+# out (no CLI, listening sockets, or tty in a browser). embed.c reaches due.c
+# (ais_due) and import.c (import_links_fp); nm on the objects lists what the
+# seam pulls in when a module is added.
 WASM_SRC     = embed.c ais.c store.c post.c key.c merge.c compact.c stats.c find.c doc.c locate.c log.c \
-               sync.c feed.c secret.c b64.c win.c crypto/ais_crypto.c crypto/monocypher.c
+               due.c import.c sync.c feed.c secret.c b64.c win.c crypto/ais_crypto.c crypto/monocypher.c
 WASM_OUT     = ../app/engine/ais.js
 WASM_EXPORTS = _ais_embed_open,_ais_embed_close,_ais_embed_store,_ais_embed_recall,_ais_embed_timeline,_ais_embed_tags,_ais_embed_del,_ais_embed_update,_ais_embed_free,_malloc,_free
 wasm:

@@ -57,7 +57,7 @@ the new grammar cannot produce.
 
 Read it best-effort and **prefer visible noise over silent loss**: the leading
 field becomes a key rather than being discarded as an id. A real id becomes a
-junk key `1` that nobody will search for; a real tag like `2024` survives.
+junk key `1`; a real tag like `2024` survives.
 
 One case stays imperfect and cannot be fixed: an old two-field line whose value
 contains a `|` is indistinguishable from an old three-field line. It will read as
@@ -143,9 +143,9 @@ the command line, so `--del` cannot reach it.
 
 ## Front ends: deliberately unchanged
 
-`serve.c` and `embed.c` keep using ids as internal handles, and that is correct
-rather than a compromise. The API between the app and its own engine is **not a
-device boundary**: both sides share one store, the id is minted and consumed
+`serve.c` and `embed.c` keep using ids as internal handles. The API between the
+app and its own engine is **not a device boundary**: both sides share one
+store, the id is minted and consumed
 inside the same process, and it is never displayed. The rule being enforced is
 that an id must not cross a boundary where two indexes could disagree, and this
 is not one.
@@ -224,4 +224,4 @@ chronologically in `ls blobs/`, existing blobs keep their names so the directory
 becomes mixed, and it is a store-format change.
 
 Not scheduled, and the refcount is the reason. Recorded so the reasoning is not
-rediscovered, and so nobody mistakes the occurrence rule for an oversight again.
+rediscovered and the occurrence rule is not mistaken for an oversight again.

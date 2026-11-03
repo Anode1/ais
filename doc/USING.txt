@@ -33,7 +33,10 @@ The everyday actions are recall and add; you can also fix or remove an item.
 
   Add       Click  + Add . Type what you want to remember in the top box, add a
             few keywords below if you like (optional), then Save. It appears
-            right away.
+            right away. A keyword is filed lowercased, with a space, "/",
+            "|" or "\" inside it and a leading "." turned into "_", so A/B
+            and a b are both the tag a_b: the tag list shows that form, and
+            the item keeps the text you typed.
 
   Edit /    Each result has a three-dot menu with  copy ,  edit  and  delete .
   remove    "edit" opens one sheet: the Value box rewrites the item's text in
@@ -50,6 +53,8 @@ Reminders  A keyword due:2028, due:2028-11 or due:2028-11-02 makes an item a
            keyword) or Later (which moves it to a new date). The item itself
            stays, with its other keywords, and so does its place in the
            timeline. Nothing rings: a due item is seen when you open AIS.
+           The calendar icon in the Tags field writes due:YYYY-MM-DD for you;
+           a month or a year is typed by hand.
 
 
 PREFER TYPING? (any OS)
@@ -75,10 +80,10 @@ exact location. They are yours: read them, copy them, or delete them (BACKING
 UP, below). Nothing is ever uploaded anywhere.
 
 
-AIS writes no log when all is well: that is the rule. If it hits a real error
-it leaves a single file (Windows GUI: %LOCALAPPDATA%\AIS\ais-error.log); its
-mere existence means a genuine problem, not a typo, so send it along. On Linux
-and macOS, run AIS from a terminal to see any error.
+AIS itself writes no log. On Windows the launcher keeps the server's output in
+ais-serve.log in your temp folder (%TEMP%) and shows the last lines of it when
+AIS could not start; send that text along. On Linux and macOS, run AIS from a
+terminal to see any error.
 
 
 BACKING UP

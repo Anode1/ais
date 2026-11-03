@@ -19,7 +19,7 @@ URL); `ais --import <url> --token T` pulls and merges. Blob transfer is done (be
                              E|ts|hash|value   (in-place edits)
                              C|ts|hash         (the next A|'s TRUE time, when raised)
                              A|ts|keys|value  (live records)
-                             M|ts|hash|value   (an extra link on the record above)
+                             M|ts|hash|value   (an extra link, at its store position)
                              D|ts|hash         (record tombstones)
                              K|ts|hash|key     (key-detaches)
                              T|ts|hash|key     (key-ATTACHES; K|'s mirror)
@@ -32,7 +32,7 @@ URL); `ais --import <url> --token T` pulls and merges. Blob transfer is done (be
                                                       │
                                                aisc_unseal_key(k_seal) ◄─ wrong token / tampering
                                                       │                   rejected HERE, before
-                                               feed_import_from ──┐       anything is merged
+                                               feed_import_from_map ┐     anything is merged
                                                                   ▼
                                                           store (merge): live records arrive,
                                                           deletions propagate, last-write-wins by ts
@@ -43,7 +43,7 @@ URL); `ais --import <url> --token T` pulls and merges. Blob transfer is done (be
    and stays removed after sync.
 2. **Transport: `sync.c`**: **DONE**. `sync_export_sealed`/`sync_import_sealed` (seal / merge a
    stream), `sync_serve`/`sync_pull` (ephemeral single-client TCP, token auth, timeouts),
-   `aisc_seal`/`aisc_unseal`/`aisc_token` (crypto). Forked-loopback test green.
+   `aisc_seal_key`/`aisc_unseal_key`/`aisc_subkey`/`aisc_token` (crypto). Forked-loopback test green.
 3. **CLI surface**: **DONE**. `ais --export --serve [PORT]` (`sync_serve_lan`: token + pairing
    line, then `sync_serve`) and `ais --import <url> --token T` (`sync_pull_url`: parse host:port,
    `sync_pull`); `--token` flag added; `ais --export` to stdout unchanged.
@@ -66,9 +66,11 @@ Only the real, non-rebuildable data:
     edits      in-place value edits (E|)
     ktomb      key-detaches (K|)
     katt       key-attaches (T|)
-    blobs/     documents saved by `doc`
+    blobs/     documents saved by `doc` (only the bodies a live record points at)
 
-NOT `idx/`, `off`, `next_id`, `version`, `lock` (rebuilt or local-only).
+`sts` reaches the stream only as a raised `A|` time with its `C|`. NOT `idx/`, `off`,
+`multi`, `next_id`, `version`, `lock`, `mts`, `syncid`, `synced`, `foldsync` (rebuilt or
+local-only).
 
 The **full store** is sent: device id spaces are independent, so an id-delta
 ("records after id N") is meaningless across devices. `put`/`merge` are idempotent and
@@ -80,9 +82,9 @@ Reuses the existing dump/import vocabulary. The only new verb is `--export`; the
 `--remote` flag (a URL operand is self-evidently remote, otherwise it is stdin/file).
 
     ais --export --serve [PORT]
-        Serve to ONE authenticated peer over the LAN. Print the URL (ip:port), a one-time
-        high-entropy TOKEN, and a QR encoding both. Exit on the first successful import, or
-        at --timeout. (Bare `ais --export`, without `--serve`, writes the A|/D| merge stream
+        Serve to ONE authenticated peer over the LAN. Print the command the other device
+        runs (URL and a one-time high-entropy TOKEN; the QR is drawn by the web page and the
+        app, not the CLI). Exit on the first successful import, or after 120 s. (Bare `ais --export`, without `--serve`, writes the A|/D| merge stream
         to stdout; `--dump` prints plain records, local.)
 
     ais --import <url> --token TOK
@@ -90,11 +92,11 @@ Reuses the existing dump/import vocabulary. The only new verb is `--export`; the
         current index (last-write-wins; deletions included). Print
         `sync: merged from HOST:PORT` (`--sync`: `sync: converged with HOST:PORT`).
 
-    ais --import [< file]
-        Local: stdin or a file, unchanged surface, same merge path as the remote case.
+    ais --import < file
+        Local: stdin, unchanged surface, same merge path as the remote case.
 
-`--import` is merge-aware for EVERY source (stdin / file / URL); the operand's form selects
-it (a `http(s)://` URL is remote, otherwise local). The only remote-only flag is `--token`
+`--import` is merge-aware for both sources (stdin / URL); any operand is a peer address,
+`host[:port]` with or without `http(s)://` (`sync_parse_url`), never a file name. The only remote-only flag is `--token`
 (auth only). Phone GUI: scan the QR to fill url+token, one tap to import.
 
 ## Wire protocol (a raw length-framed exchange)
@@ -103,18 +105,21 @@ is NEVER sent; the client proves knowledge by answering a fresh challenge:
 
     server -> client:   challenge   (24 random bytes, fresh per session)
     client -> server:   proof       (32 bytes = BLAKE2b-keyed(token, "ais-sync-auth-v1" || challenge))
-    server verifies the proof in constant time; on a mismatch it serves nothing and closes
-      (no error body, so it does not reveal whether data exists).
+    server verifies the proof in constant time; on a mismatch it serves nothing, closes that
+      connection (no error body, so it does not reveal whether data exists), warns once on
+      stderr and keeps waiting for another attempt until the deadline.
     server -> client:   [4-byte big-endian length][sealed blob]
-       sealed = aisc_seal_key(k_seal, the full A|/D|/K| stream), k_seal = BLAKE2b-keyed(token,
+       sealed = aisc_seal_key(k_seal, the sealed payload below), k_seal = BLAKE2b-keyed(token,
        "ais-sync-seal-v1"), a DIFFERENT subkey than the proof.
-    client reads length + blob, aisc_unseal_key(k_seal, ...), then feed_import_from.
+    client reads length + blob, aisc_unseal_key(k_seal, ...), then feed_import_from_map.
 
 The token never crosses the wire and the seal key is a domain-separated subkey, so a passive
 sniffer who captures the whole handshake learns neither the token nor `k_seal` and cannot
 decrypt the stream. The sealed blob is `version(1) | nonce(24) | ciphertext | tag(16)` (the
 version byte authenticated as AD, for algorithm agility). The whole merge stream (records +
-tombstones, incl. any `aisc:` markers) is one blob, capped at 64 MiB on BOTH ends. Both sides
+tombstones, incl. any `aisc:` markers) is one blob, capped at 64 MiB (`AIS_SYNC_MAX_BLOB`) on
+both ends: the sender caps the plaintext, the receiver the sealed length, which is 41 bytes
+longer, so a plaintext within 41 bytes of the cap is sent and then refused. Both sides
 set `SO_RCVTIMEO`/`SO_SNDTIMEO` so a stalled peer cannot hang it; the server is single-client
 and exits after one pull.
 
@@ -123,14 +128,16 @@ Inside the sealed blob, the *plaintext* is versioned and self-describing:
 
     byte 0        AIS_SYNC_PROTO (=1), the payload-format version. This is distinct from the
                   AEAD-frame version byte above (line ~103): that one guards the crypto
-                  envelope, this one guards the plaintext layout. On a mismatch the importer
-                  merges NOTHING and returns loud (-2), surfaced as "the other device runs a
-                  different AIS version -- update both", so a format skew can never silently
-                  half-apply.
+                  envelope, this one guards the plaintext layout. Any other byte below 0x20,
+                  or an `AISB` folder-bundle header, makes the importer merge NOTHING and
+                  return loud (-2), reported as "the other device runs a different AIS
+                  version -- update both", so a format skew can never silently half-apply.
+                  A printable first byte is a bare merge stream (or a `--dump`) with no
+                  version byte.
     blob section  zero or more  B|blobs/<name>|<size>\n  headers, each followed by <size> raw
                   bytes: the doc blob FILES themselves. The section ends at the first line
                   that does not start with "B|".
-    record stream the A|/D|/K| feed_export text (records + tombstones + key-detaches), from there to end of
+    record stream the feed_export text (E|, C|, A|, M|, D|, K|, T|; the verbs below), from there to end of
                   payload, unchanged from the one-way format, so this byte-0 gate is the
                   only thing an older peer would trip on.
 
@@ -139,8 +146,9 @@ same name + identical bytes = skip (dedup); same name + different bytes = keep B
 incoming file lands as `blobs/<stem>~<16-hex FNV-1a of the body><ext>`, with `-N` added only
 on a hash collision; `ais_doc_blob_place`) and the incoming record's value is repointed,
 covering both the plain `blobs/X` and the encrypted `aisc:@blobs/X` value forms. The relpath is
-validated to stay inside `blobs/` (`ais_blob_rel_ok`: one name after `blobs/`); each blob and the whole payload are capped
-(`AIS_SYNC_MAX_BLOB` / 64 MiB) on both ends.
+validated to stay inside `blobs/` (`ais_blob_rel_ok`: one name after `blobs/`). The export skips a
+document once the running total of blob bytes passes `AIS_SYNC_MAX_BLOB` (64 MiB) and continues;
+the import checks only that each blob fits inside the payload; plain `--export` has no cap.
 
 ## Two-way in one round (`--sync`, bidir)
 `sync_serve`/`sync_pull` take a `bidir` flag; with it set, one connection carries the sealed
@@ -157,7 +165,8 @@ Reconcile is the content-keyed, ts-resolved tombstone-union merge (see `MERGE.md
 and `sync_import_plain` reads the blob section before the records; in-place edits
 (`E|ts|hash|value`); adds (`A|ts|keys|value`), each optionally preceded by a
 `C|ts|hash` carrying its TRUE time when the exported one was raised to beat a peer's
-tombstone, and followed by `M|ts|hash|value` for every extra link on a multi-value record;
+tombstone, and `M|ts|hash|value` for every extra link on a multi-value record (emitted where
+the extra line sits in the store, which may be after other records' `A|`);
 record tombstones (`D|ts|hash`); per-key detaches (`K|ts|hash|key`); and per-key ATTACHES (`T|ts|hash|key`),
 which say when a key went onto a record that already existed: without them a key any
 device had once detached could never be re-attached anywhere in the mesh.
@@ -173,12 +182,12 @@ and `ais_merge_attach_many` applies the attaches, likewise batched. `D|` and `T|
 buffered because resolving one means scanning the store for the value it names, and a scan
 per line made an import cost O(lines x records); the buffers preserve stream order.
 
-An older AIS skips a verb it does not know, loudly, and imports the rest intact, which
-is why a verb may only be WRITTEN one release after the skip that tolerates it shipped
-(`MERGE.md`). `C|` and `T|` are sanctioned from 0.3.15 on that rule, `E|` from 0.3.21.
+An older AIS skips a verb it does not know, loudly, and imports the rest intact
+(`MERGE.md` has the release rule that follows). `C|` and `T|` are sanctioned from
+0.3.15 on that rule, `E|` from 0.3.21.
 Additions and deletions both converge,
-last-write-wins by the store's `ts` column (delete-after-add wins; re-add-after-delete
-wins), deterministic for one user across their own devices. One-way by nature: after A
+last-write-wins by time: a record's effective time is `max(ts, mts, sts)` against a `D|`,
+`max(ts, katt)` against a `K|` (delete-after-add wins; re-add-after-delete wins), deterministic for one user across their own devices. One-way by nature: after A
 imports B, A holds A+B and B is unchanged; full convergence is both sides importing from
 the other.
 
@@ -200,7 +209,7 @@ end-to-end:
 
 Cost is negligible. Because the token is already high-entropy random, we do NOT use the
 memory-hard Argon2id (that exists to slow brute-force of weak passphrases). A fast KDF
-over the token (Monocypher `crypto_blake2b`, HKDF-style) yields the session key in
+over the token (Monocypher `crypto_blake2b_keyed`, HKDF-style) yields the session key in
 microseconds, and XChaCha20-Poly1305 runs at GB/s, so a personal store encrypts
 instantly. No Argon2 cost, no PAKE, no TLS/cert machinery.
 
@@ -237,5 +246,5 @@ the token, which is infeasible to brute-force. Still out of scope: cross-interne
 3. `--export` bind on multi-homed machines: all interfaces (current), or prompt which one?
 4. Full-store merge is an O(store) scan per sync: fine at personal scale.
 
-Resolved during implementation: identity = value (not keys+value); content hash is FNV-1a;
-no tomb migration (v1/v2 coexist); the merge IS built (was "does --merge union tombstones?").
+Resolved during implementation: the merge IS built (was "does --merge union tombstones?");
+the as-built refinements to identity, hash and migration are in `MERGE.md`'s header.

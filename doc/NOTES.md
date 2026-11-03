@@ -1,6 +1,6 @@
 # Notes an agent writes: plain text, bullets, one fact in one place
 
-**A person files a note the way they type it. An agent files a note in the shape below, so that a person reads it as easily as a machine, and a machine as easily as a person.** Plain text under `ais --doc`, never a Word document, JSON or XML.
+A person files a note the way they type it. An agent files a note in the shape below, which a person and a machine read alike: plain text under `ais --doc`, never a Word document, JSON or XML.
 
 ## The shape
 
@@ -34,7 +34,7 @@ One file rewritten this way on 2026-10-22, the same facts before and after:
 
 What went was the connective tissue a narrator adds and a reader skims. A model skims it too and pays for every token, on every read; a phone syncing the file carries it on every change. Bullets are also what a person edits on a phone without breaking anything, what `diff` and `grep` see line by line, and what any model reads in any year with nothing to parse.
 
-JSON and XML fail from the other side: a person cannot edit them on a phone without breaking them, a field name is a schema that needs a document of its own, and a quoted string carries a fact no better than a line does. The bullet is the unit a human writes and a model reads; both ends already agree on it.
+JSON and XML fail from the other side: a person cannot edit them on a phone without breaking them, a field name is a schema that needs a document of its own, and a quoted string carries a fact no better than a line does.
 
 ## What goes elsewhere
 

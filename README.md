@@ -8,7 +8,7 @@ One engine, thin front-ends. The CLI is the contract; the web GUI (`ais --serve`
 
 A coding agent can call `ais` the way it calls grep, except that it recalls what you filed instead of searching for it again: one line of config, 2,900 tokens a question against 24,500, and 40 of 40 answers exact. [The measurement, and how to reproduce it](#give-an-agent-your-index).
 
-Because it is plain text, it outlives its own tools: your index survives decades of archiving, still opens in fifty years, and exports into anything, no lock-in. Keeping data readable that long is computing's unsolved *digital dark age*, where file formats and the apps that open them die faster than the data. Plain text, readable since the 1960s on any machine with no special program, is the oldest and safest answer.
+Because it is plain text, it outlives its own tools: your index still opens in fifty years and exports into anything. Keeping data readable that long is computing's unsolved *digital dark age*, where file formats and the apps that open them die faster than the data. Plain text, readable since the 1960s on any machine with no special program, is the oldest answer.
 
 <p align="center">
   <img src="screenshots/demo.gif" width="78%" alt="Save a photo, two ssh tunnels and a link under your own keys, then recall them by key">
@@ -36,39 +36,39 @@ A search engine and an automatic tagger both answer with the *mean*: what these 
 
 Your keys are the deviation from that mean. "venice" is a week in 2023 for one person, a glass factory for another, a chapter of a thesis for a third. Nothing but you records which one it is, and no amount of training data recovers it, because averaging is precisely what removes it.
 
-So ais does not guess and does not tag for you. It saves what you give it under the words you chose, and hands it back when you say them again. That is the whole trade: you do the small work of naming a thing once, and in exchange the index is yours rather than an average of everyone's, in plain text you control, never taking your files hostage.
+So ais does not guess and does not tag for you. It saves what you give it under the words you chose, and hands it back when you say them again. That is the whole trade: you do the small work of naming a thing once, and in exchange the index is yours rather than an average of everyone's.
 
 See [`about.txt`](doc/about.txt) for the pitch and the memex origin, and [`foundation.md`](doc/foundation.md) for the prior/compression argument behind it.
 
 ## Questions
 
 **Why not SQLite, or a database?**
-A database is the right tool for an *app*; this is for a *person*. SQLite is a binary file one program understands; ais is line-oriented plain text you can read, grep, diff, and recover by hand. You trade query power you do not need for the durability and transparency of plain text (see [`about.txt`](doc/about.txt)).
+SQLite is a binary file one program understands; ais is line-oriented plain text you can read, grep, diff, and recover by hand. You trade query power you do not need for the durability and transparency of plain text (see [`about.txt`](doc/about.txt)).
 
 **Why not an embedded engine (BerkeleyDB, LMDB, gdbm)?**
-Because a bundled engine is a dependency you do not control. An early ais version actually ran on BerkeleyDB (both the Java and the C editions) right as it was acquired and relicensed; this plain-text design is that lesson, learned firsthand. A format only one library version can open is a bet that the library, its license, and its on-disk layout outlive your data; they rarely do. ais has no engine to depend on: any future ais, any unix tool, or any format you migrate to can read the store.
+Because a bundled engine is a dependency you do not control. An early ais version ran on BerkeleyDB (both the Java and the C editions) right as it was acquired and relicensed; this plain-text design is that lesson. A format only one library version can open is a bet that the library, its license, and its on-disk layout outlive your data; they rarely do. ais has no engine to depend on: any future ais, any unix tool, or any format you migrate to can read the store.
 
 **Is keys-only search not limiting?**
-On purpose. The keys you assign *are* the point: they are your prior, your ordering of the world. Full-text search finds words; keys find the meaning you committed to. (`ais --find` still searches values and paths.) To search a document's contents, keep it as a file and index its path.
+On purpose. The keys you assign are your prior, your ordering of the world. (`ais --find` still searches values and paths.) To search a document's contents, keep it as a file and index its path.
 
 **Is the built-in web server not a toy?**
-It is deliberately minimal and not the main interface. `ais --serve` is one thin wrapper over the CLI, a single-user loop that binds 127.0.0.1 only. The native Win32 app and the Flutter mobile app are other wrappers; the engine depends on none of them. The full front-end map is in [`dev/DISTRIBUTION.md`](doc/dev/DISTRIBUTION.md).
+`ais --serve` is one thin wrapper over the CLI, a single-user loop that binds 127.0.0.1 only. The full front-end map is in [`dev/DISTRIBUTION.md`](doc/dev/DISTRIBUTION.md).
 
 **Is this not just a bookmark manager / recoll / org-mode?**
-It overlaps all three and copies none. Not a bookmark manager: it saves *anything* under *any* keys, not URLs in a browser. Not full-text (recoll): it indexes the keys you choose, not document bodies. Not org-mode: no single tree, no app lock-in, no markup to learn, just keys with set algebra (AND / OR) over plain files. The distinctive part is that the index *is your bias*, kept unaveraged and portable.
+Not a bookmark manager: it saves *anything* under *any* keys, not URLs in a browser. Not full-text (recoll): it indexes the keys you choose, not document bodies. Not org-mode: no single tree, no app lock-in, no markup to learn, keys with set algebra (AND / OR) over plain files.
 
 **Why not embeddings or a vector database?**
 An embedding places your note near the average meaning of its words, which is the averaging this index exists to avoid. Recall here is exact: the keys you chose, intersected. A wrong key returns nothing instead of the three nearest neighbours, so an agent gets an answer it can trust or no answer at all, with no index to rebuild, no model to pin, and no similarity threshold to tune. Embedding search is the better tool when you do not know what you filed; keys are the better tool when you do.
 
 **Does it replace my photo library or files?**
-No, it points *into* them. For files, photos and pages ais is an index of pointers, not a store of copies: a photo stays in Immich, a file on disk, a page at its URL. You save the *reference* under your own keys and recall it by association; the silo keeps the bytes. It does not compete with Immich or the filesystem, it sits across them as the one associative layer that remembers where a thing is and why it mattered. (Secrets are the one exception: those it stores inline, encrypted, see below.)
+No, it points *into* them: a photo stays in Immich, a file on disk, a page at its URL, and the index holds the *reference* under your own keys. (Secrets are the one exception: those it stores inline, encrypted, see below.)
 
 **Can it hold passwords? Is it a password manager?**
-Yes. A secret is stored encrypted inline (`-e`), so a login lives right next to the context it belongs to, and two things set it apart from a built-in manager. It is **cross-platform**: Apple Keychain and Google Password Manager are locked to one ecosystem, while ais is the same plain-text index on Windows, macOS, Linux, Android, iPhone and the CLI, so your secrets travel with you. And it is **agent-safe**: decryption is interactive (a passphrase you supply at a terminal or in the app), so an agent reading your index sees an opaque `aisc:` marker, not the secret, with no master key or unlocked vault to drain. What it is *not* is a bulk web-login manager: no autofill, no generation, no shared vaults, so for hundreds of site logins a dedicated cross-platform manager is still more convenient. See [`about.txt`](doc/about.txt).
+Yes. A secret is stored encrypted inline (`-e`), so a login lives right next to the context it belongs to, and two things set it apart from a built-in manager. It is **cross-platform**: Apple Keychain and Google Password Manager are locked to one ecosystem, while ais is the same plain-text index on Windows, macOS, Linux, Android, iPhone and the CLI, so your secrets travel with you. And it is **agent-safe**: decryption is interactive (a passphrase you supply at a terminal or in the app), so an agent reading your index sees an opaque `aisc:` marker, not the secret, with no master key or unlocked vault to drain. For hundreds of site logins a dedicated manager is still more convenient: there is no autofill, no generation, no shared vault here ([`about.txt`](doc/about.txt)).
 
 ## Give an agent your index
 
-For an agent the index works like a cache of earlier extraction: a thing is found once and filed, and a later recall costs one line, where grep repeats the whole search on every question. A miss costs the usual search. Recall is exact: a wrong key returns nothing rather than something plausible.
+For an agent the index works like a cache of earlier extraction: a thing is found once and filed, and a later recall costs one line, where grep repeats the whole search on every question.
 
 One line wires it into a client:
 
@@ -76,13 +76,13 @@ One line wires it into a client:
 claude mcp add ais -- ais --mcp        # or: {"mcpServers":{"ais":{"command":"ais","args":["--mcp"]}}}
 ```
 
-That serves `recall`, `find`, `tags`, `timeline` and `due` over stdin/stdout. It is read-only, `ais --mcp rw` adds saving, and there is no delete or edit at any setting. Encrypted values stay opaque. It opens your home index, the current named index, or the one `-f` names, and refuses a `.ais/` it merely found by walking up, because a clone can ship one: a project index is served by naming it, `claude mcp add ais -- ais -f /abs/path/of/project/.ais --mcp`, and that line in the client's configuration is the permission. The full picture is in [`doc/MCP.md`](doc/MCP.md).
+That serves `recall`, `find`, `tags`, `timeline` and `due` over stdin/stdout. It is read-only, `ais --mcp rw` adds saving, and there is no delete or edit at any setting. Encrypted values stay opaque. It refuses a `.ais/` it merely found by walking up, because a clone can ship one; a project index is served by naming it with `-f`. Which index it opens, what it refuses and what a model never sees: [`doc/MCP.md`](doc/MCP.md).
 
-The same index is memory shared between sessions, between you and an agent, and between agents of different models. On your home index the agent asks you for keys. On a project's or a group's index, named with `-f`, it chooses them from the keys already in use, so the next session, or another model, recalls what was saved by the group's words. An agent saves when asked; left alone it rarely does ([measured](experiment/memory/README.md)). Several agents serve one index at once: reads take no lock, and writes serialize under an exclusive lock. The index syncs between laptops, Android phones and iPhones. [Details](doc/MCP.md#a-projects-or-a-groups-index), and [what the plain-text file does not show](doc/MCP.md#what-the-file-does-not-show): locking, crash-safe rewrites, an index that answers in milliseconds at a million records, and a merge that survives edits and deletes on devices that were apart.
+The same index is memory shared between sessions, between you and an agent, and between agents of different models. On your home index the agent asks you for keys. On a project's or a group's index, named with `-f`, it chooses them from the keys already in use, so the next session, or another model, recalls what was saved by the group's words. An agent saves when asked; left alone it rarely does ([measured](experiment/memory/README.md)). [Details](doc/MCP.md#a-projects-or-a-groups-index), and [what the plain-text file does not show](doc/MCP.md#what-the-file-does-not-show): locking, crash-safe rewrites, recall in milliseconds at a million records, and a merge that survives edits and deletes on devices that were apart.
 
 A skill is the other door, for an agent that already has a shell: [`.claude/skills/ais/SKILL.md`](.claude/skills/ais/SKILL.md), copied into your own project's `.claude/skills/`. It drives the CLI, so it can edit and delete records, which the server cannot at any setting.
 
-The measurement: eight questions, five repeats each, `claude-sonnet-4-6` run both ways over the same corpus, the recall arm answering from the recalled row alone. The questions were written by the person who filed the records, so every question matched a key: the table is the cost of a hit, and a question nobody filed under a key costs the usual search. The index reached the agent as CLI tools, which is the same lookup `ais --mcp` serves over a pipe.
+The measurement: eight questions, five repeats each, `claude-sonnet-4-6` run both ways over the same corpus, the recall arm answering from the recalled row alone. The questions were written by the person who filed the records, so every question matched a key: the table is the cost of a hit, and a miss costs the usual search. The index reached the agent as CLI tools, which is the same lookup `ais --mcp` serves over a pipe.
 
 <p align="center">
   <img src="screenshots/agent-tokens.png" width="78%" alt="Tokens a question, file search against recall by key, with the retrieval payload inside each bar, and no model at all at the terminal.">
@@ -103,8 +103,6 @@ cd experiment && python3 analyze.py --csv results_repeats_sanitized.csv
 ```
 
 The shipped harness runs the method over a public photo-library corpus; the headline numbers come from the same method over a private 100k-line code project.
-
-Why keys beat search is in [`about.txt`](doc/about.txt), and [above](#why).
 
 ## Download
 
@@ -140,7 +138,7 @@ Each release file ships beside a matching `…zip.sha256`. Download both, then c
 shasum -a 256 -c ais-*-*.zip.sha256          # macOS / Linux
 ```
 
-Releases are built in the open by GitHub Actions (`.github/workflows/release.yml`), not on anyone's machine.
+Releases are built by GitHub Actions (`.github/workflows/release.yml`).
 
 ## Quick start (from source)
 
@@ -162,7 +160,8 @@ make                 # build ./ais
 | [`doc/about.txt`](doc/about.txt) | What ais is, and what it is not. |
 | [`doc/command_line.txt`](doc/command_line.txt) | Every command and option, the full `ais --help`. |
 | [`doc/MCP.md`](doc/MCP.md) | The `ais --mcp` agent tool: wiring it into a client, which index it opens, what it refuses. |
-| [`doc/NOTES.md`](doc/NOTES.md) | The shape of a note an agent writes: plain-text bullets filed with `ais --doc`, one fact in one place, readable by a person and a machine alike; and why not a document or JSON. |
+| [`doc/dev/HTTP_API.md`](doc/dev/HTTP_API.md) | The `/api/...` routes `ais --serve` answers, for curl or any program: the other agent door. |
+| [`doc/NOTES.md`](doc/NOTES.md) | The shape of a note an agent writes: plain-text bullets filed with `ais --doc`, one fact in one place. |
 | [`doc/SYNC.md`](doc/SYNC.md) | Sync your index between devices: encrypted LAN sync (`--sync`), or through a shared folder a tool like Syncthing keeps in sync (`--sync-folder`). |
 | [`doc/OVERVIEW.md`](doc/OVERVIEW.md) | Why it is built this way, and where it came from. |
 | [`doc/ROADMAP.md`](doc/ROADMAP.md) | What's planned, what is knowingly unfixed, and where to help. |
@@ -173,7 +172,7 @@ make                 # build ./ais
 
 ## See also
 
-[agent-recipes](https://github.com/Anode1/agent-recipes) - short prompts for working with coding agents; ais is one of them (store and recall procedures instead of re-deriving them).
+[agent-recipes](https://github.com/Anode1/agent-recipes): short prompts for working with coding agents; ais is one of them (store and recall procedures instead of re-deriving them).
 
 ## License
 

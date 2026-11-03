@@ -1,12 +1,11 @@
 # Tests
 
-`make ut` runs everything, in two groups so a green core stays committable while a
-GUI is still in progress. The layers also have their own targets (`codeut`, `cliut`,
-`uiut`) for a fast, isolated run.
+`make ut` runs everything, in two groups. The layers also have their own targets
+(`codeut`, `cliut`, `uiut`) for a fast, isolated run.
 
 ## Groups
 
-**CORE -- the commit gate. Keep it green.**
+**CORE: the commit gate. Keep it green.**
 
 | Layer | What it covers | Where |
 |-------|----------------|-------|
@@ -19,13 +18,13 @@ GUI is still in progress. The layers also have their own targets (`codeut`, `cli
 | encrypt over a pty | the CLI `-e` prompts end to end over a real pseudo-terminal | `tests/pty/encrypt.sh` |
 | due hint over a pty | the one-line `N due` hint a recall or `--timeline` prints only at a terminal | `tests/pty/due.sh` |
 
-**GUI -- the front-ends over the one engine. May lag; absent toolchain SKIPs.**
+**GUI: the front-ends over the one engine. May lag; absent toolchain SKIPs.**
 
 | Layer | What it covers | Where | Runs here? |
 |-------|----------------|-------|-----------|
 | web api (uiut) | `ais --serve` endpoints incl. the encrypt save + reveal round-trip | `tests/gui/serve.sh` | yes (needs curl + crypto) |
 | web render (uiut) | the `--serve` page in headless Chrome: it loads and its controls exist by id (post-JS DOM) | `tests/gui/ui.sh` | yes (needs Chrome); else SKIP |
-| web interact (uiut) | click-and-assert: type a query, press Enter, assert the seeded record renders -- driven by a C CDP client | `tests/gui/inter.sh` (+ `cdp.c`, `cdptest.c`) | yes (needs Chrome + cc); else SKIP |
+| web interact (uiut) | click-and-assert: type a query, press Enter, assert the seeded record renders, driven by a C CDP client | `tests/gui/inter.sh` (+ `cdp.c`, `cdptest.c`) | yes (needs Chrome + cc); else SKIP |
 | windows cross-build | that `ais.exe` (CLI, web GUI, Winsock sync) and `ais-gui.exe` (the launcher, `gui/win/`) still cross-compile, the launcher without a warning; running them is `native-windows.yml`'s job on a Windows runner | `tests/gui/windows.sh` | only with MinGW-w64; else SKIP |
 | windows launcher | `ais-gui.exe` on Windows: it starts `ais --serve`, a second start exits at once, `--quit` ends both | `tests/gui/windows-launcher.sh` | only on Windows (Git Bash); else SKIP |
 | windows installer | the setup exe from `installer/ais.iss` on Windows: silent install, the two exes, "AIS" in the Start menu and on the Desktop, the PATH entry, the installed launcher, silent uninstall leaves none of it | `tests/gui/windows-installer.sh` | only on Windows with the setup exe built; else SKIP |
@@ -50,17 +49,16 @@ The three device-driving layers are opt-in beyond a plain run. All three take
     AIS_ANDROID_BOOT=1  sh tests/gui/flutter-sync-android.sh   # boot an AVD headlessly first
     AIS_ANDROID_CLEAR=1 sh tests/gui/flutter-sync-android.sh   # wipe the app's index first (DESTRUCTIVE)
 
-**How to write one of these is in `doc/dev/GUI_TESTING.md`** -- driving Flutter
-by deep link and keyboard rather than by pixel, reaching the host from an
-emulator, reading a device's private index back, and why every one of those
-matters.
+How to write one of these is in `doc/dev/GUI_TESTING.md`: driving Flutter by
+deep link and keyboard rather than by pixel, reaching the host from an
+emulator, reading a device's private index back.
 
 `make ut` prints two groups and a final line like:
 
     CORE: PASS    GUI: PASS    (skipped: 1)
 
 It exits non-zero iff a **non-skipped** layer FAILS. The point of the split: a
-green CORE with a red or skipped GUI is fine to commit -- the CLI/engine is the
+green CORE with a red or skipped GUI is fine to commit. The CLI/engine is the
 contract; a GUI can be merged once its own layer goes green.
 
 ## Conventions
@@ -80,17 +78,16 @@ contract; a GUI can be merged once its own layer goes green.
 - a `--serve` *interaction* (type, press a key, assert the result) -> a case in
   `tests/gui/cdptest.c`, driven by the C CDP client (`make uiut`).
 - a whole new front-end layer -> a `tests/gui/<name>.sh` (exit 0/1/77) and one
-  `layer fail_gui ...` line in `tests/run.sh`. Wire it in the SAME day: the
-  Flutter sync harness sat unwired for weeks and silently stopped testing
-  anything when a control moved.
+  `layer fail_gui ...` line in `tests/run.sh`. Wire it in the SAME day
+  (`doc/dev/GUI_TESTING.md`, "Making a GUI test worth having", has the
+  harness that was not).
 - a Flutter interaction on a real device -> `tests/gui/flutter-sync-android.sh`,
   and read `doc/dev/GUI_TESTING.md` first.
 
 ## Click-and-assert: the C CDP client
 
 `tests/gui/cdp.c` + `cdptest.c` drive the live `--serve` page over the Chrome
-DevTools Protocol, with no chromedriver and no library beyond libc and POSIX
-sockets. What it is and how to extend it: `doc/dev/GUI_TESTING.md`.
+DevTools Protocol. What it is and how to extend it: `doc/dev/GUI_TESTING.md`.
 
 Not covered anywhere yet: visual/screenshot diffing, and any browser other than
 Chrome. For a still image of the GUI, `tests/shot/shot.sh` lets an agent see it.

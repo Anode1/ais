@@ -6,8 +6,7 @@ are the reference; when a rule here is unclear, read the code.
 **Scope: the engine core.** These rules bind the C engine (the `c/` sources behind `ais.h` and
 `embed.h`) and are non-negotiable there. GUI wrappers, language bindings, and plugins sit outside
 the core and follow their host's conventions; they call the engine, they do not relax it. Do not let
-a peripheral's needs leak inward and dilute the core to ordinary C. The point of writing this down is
-that the strictness is the asset: it should not be distilled away by a well-meaning refactor.
+a peripheral's needs leak inward and dilute the core to ordinary C.
 
 ## Language and style
 
@@ -25,8 +24,8 @@ isolatable (the help text, the store, the posting lists, the merge). Names are c
 and literal, for files, types, and variables alike, so a reader infers a file's responsibility
 from its name and a function's from its signature.
 
-Three functions do not meet this bar and are known debts, not precedents: `main()` in `main.c` (~710
-lines), `handle()` in `serve.c` (~620) and `import_run()` in `feed.c` (~430). The first two are flat
+Three functions do not meet this bar and are known debts, not precedents: `main()` in `main.c` (~725
+lines), `handle()` in `serve.c` (~720) and `import_run()` in `feed.c` (~430). The first two are flat
 option/route dispatchers where each case is short and calls out immediately, which is why they have
 been tolerated, but each is long enough that a new case is easy to misplace; `import_run()` is the
 import stream's one loop over every verb. Add work to them by adding a case that delegates, never by growing one
@@ -47,9 +46,10 @@ other than the corpus, (7) and (8) are not:
   1. *FFI return strings and the handle* (`embed.c`): a variable-length result handed across the seam
      to a GUI or binding, owned by the caller and released with `ais_embed_free`. Bounded by one
      result, not the store.
-  2. *Bounded aggregate collectors* (`ais.c`: `ais_keys`, `ais_tags`, `tl_scan`): `ais_keys` takes one
-     fixed block of 65536 names of `AIS_KEY_MAX` (512 B), 32 MiB; `ais_tags` a set sized by key
-     cardinality; `tl_scan` a fixed top-N count. Never sized by record count, and freed before return.
+  2. *Bounded aggregate collectors* (`ais.c`: `ais_keys`, `ais_tags_page`, `tl_scan`,
+     `ais_timeline_key`): `ais_keys` takes one fixed block of 65536 names of `AIS_KEY_MAX` (512 B),
+     32 MiB; `ais_tags_page` a set sized by key cardinality; the two timeline scans a fixed top-N
+     count. Never sized by record count, and freed before return.
   3. *Crypto buffers* (`secret.c`, `crypto/ais_crypto.c`): an AEAD document is authenticated as a
      whole, so the blob and its plaintext are held once, bounded by the document, wiped and freed on
      every path. The Argon2 work area is the KDF's memory cost, capped at 256 MiB.
@@ -86,16 +86,15 @@ other than the corpus, (7) and (8) are not:
 Why this discipline pays, four ways:
 
 - **Safety.** It eliminates the leak / use-after-free / double-free class by construction: the bulk
-  of C's CVEs simply cannot occur where nothing is allocated. This is the avionics and medical-device
-  standard (Power of Ten, MISRA C:2012 rule 21.3), which is why the author's earlier C tools ran
-  unattended in hospitals and medical colleges, shipped as source and precompiled binaries with no
+  of C's CVEs cannot occur where nothing is allocated. It is the avionics and medical-device
+  standard (Lineage, below), and the author's earlier C tools written to it ran unattended in
+  hospitals and medical colleges, shipped as source and precompiled binaries with no
   compatibility trouble.
 - **Low entropy.** The whole memory model fits in your head. Peak footprint is computable by hand from
   the structs held: no allocator state, no ownership graph, no lifetimes to track, nothing hidden to
   reason about. Less to know is less to get wrong, and a reviewer can verify the bound by reading.
 - **Fast execution.** No allocator on the record path means no `malloc` latency and no fragmentation,
-  and reading forward over fixed buffers is cache-friendly and predictable. A 10 GB store and a 10 KB
-  store run in the same small, constant memory.
+  and reading forward over fixed buffers is cache-friendly and predictable.
 - **Portability.** Small static binaries with no dependency surface drop into locked-down environments
   unchanged. A stock C99 toolchain is the only requirement.
 
@@ -124,17 +123,17 @@ Why this discipline pays, four ways:
 
   It exists because `ais_get` tokenizes its keys in place and so needs a mutable copy, and `snprintf`
   would silently truncate where these callers must skip the input instead. Three sites use it
-  (`embed.c`: `ais_embed_get` and `keys_tag`; `serve.c`: `keysof_tag`). Anywhere the guard is not
+  (`embed.c`: `ais_embed_recall_page` and `keys_tag`; `serve.c`: `keysof_tag`). Anywhere the guard is not
   immediately visible above the call, it is a defect. `strcat` and `sprintf` have no sanctioned use.
 - **Single exit via `goto cleanup`** when a function holds a resource (open file, etc.): the
   Linux-kernel idiom: one place to close and return, no leak on any path.
 - **`static` for everything module-private**: a `.c` exposes only what its `.h` declares.
 - **Declare at point of use, `const`-correct, `size_t` for sizes**: the C99 cleanups, not
   K&R top-of-function.
-- Build clean under `-std=c99 -Wall -Wextra`; the suite runs under AddressSanitizer/UBSan on every
-  push and in a pre-push hook (`make codeut-asan`), which is how the memory-safety class is caught
-  rather than by switching language (the rationale is `WHY-C.md`). No build framework: a plain
-  `Makefile` and `cc`. (ant, not Maven.)
+- The suite runs under AddressSanitizer/UBSan on every push to main and every pull request
+  (`sanitizers.yml`) and in the pre-push hook `make hooks` installs (`make codeut-asan`,
+  `make codeut-ubsan`), which is how the memory-safety class is caught (the rationale is
+  `WHY-C.md`). No build framework: a plain `Makefile` and `cc`.
 
 ## Streaming
 
@@ -146,7 +145,7 @@ Why this discipline pays, four ways:
 
 The on-disk format that makes this possible (append-only plain-text store, monotonic ids,
 per-key sharded posting lists, tombstones, compaction, "the store is the source of truth and the
-index is rebuildable") is the subject of `LAYOUT.md`; this file is only about how the *code* is written.
+index is rebuildable") is the subject of `LAYOUT.md`.
 
 ## Damage tolerance and portability (non-negotiable)
 
@@ -168,7 +167,7 @@ None of this is invented here; the parts are canonical, only the assembly is our
 - **Stack-first, no dynamic allocation, footprint bounded by struct sizes** is the safety-critical
   standard: NASA/JPL's *Power of Ten* (Holzmann, 2006), rule 3 (no heap after
   initialization), and MISRA C:2012 rule 21.3, which bans `malloc`/`free`. It is the discipline
-  avionics and medical-device C is held to, which is why code written this way runs unattended.
+  avionics and medical-device C is held to.
 - **Many small files over one blob** (per-key files, rsync-friendly, corruption-local) is the
   Maildir-over-mbox argument.
 - **Plain text as the universal, durable interface** is the Unix philosophy (McIlroy; Raymond,
@@ -179,9 +178,5 @@ None of this is invented here; the parts are canonical, only the assembly is our
 
 ## Testing
 
-- `make ut` runs the tests (the whole suite; `make codeut` runs just the C engine unit tests). `tests/INDEX/store` is both fixture and a worked example of the format.
-
----
-
-Reference: Arnold Robbins, *Linux Programming by Example: The Fundamentals* (Prentice Hall, 2004):
-POSIX `argv`/`getopt`, I/O idioms, and the C99 style this project follows.
+- The targets and layers are in `../../AGENTS.md`, "Build and test". `tests/INDEX/store` is both
+  fixture and a worked example of the format.

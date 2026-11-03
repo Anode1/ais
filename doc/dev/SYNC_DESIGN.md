@@ -44,10 +44,10 @@ spec. See LAYOUT.md (format), BNF.txt (grammar).
   only reprieve, and nothing reaches the engine until it lapses.
 - The id goes to `tomb` as `id|ts|hash`; recall, `--find` and `--dump` suppress
   it. `--compact` drops the record's BODY from the store and KEEPS the
-  tombstone: it is the portable delete fact a peer needs, so collecting it would
-  let any device that still holds the record push it back on the next sync.
-- Tombstones are therefore never garbage-collected, by anyone, at any time. One
-  ~42-byte line each is a rounding error against the store.
+  tombstone, the portable delete fact a peer needs (LAYOUT.md, `tomb`).
+- Tombstones are therefore never garbage-collected by sync. Only the user retires
+  one: `--compact --forget-deleted` blanks the hash, and the next compaction drops
+  a hashless line (as it drops v1 `id`-only lines).
 - Removing a tag is the reversible operation, and it is not a delete: `--untag
   KEY` (and `--update ID -KEY`) leaves every record live, keyless if that was its
   only key, and travels as its own fact (`ktomb`, the `K|` line).
@@ -58,14 +58,15 @@ spec. See LAYOUT.md (format), BNF.txt (grammar).
 ## Sync: bidirectional export/import
 - Merge = `--export` one side, `--import` the other, both ways; two-way
   convergence in one round is the `--sync` verb. The shipped interchange is the
-  `A|`/`D|` merge stream (record-level, tombstone-union, timestamp
-  last-writer-wins); the `+/-` key patch below remains planned, not the wire
+  merge stream (`B| E| C| A| M| D| K| T|`, SYNC_PROTOCOL.md: record-level, tombstone-union,
+  timestamp last-writer-wins); the `+/-` key patch below remains planned, not the wire
   format today.
 - Adds union losslessly (a grow-only CRDT, no clock). Removes propagate as
   tombstones: `D|` for a whole record, `K|` for a single key-detach, both
   content-addressed and resolved last-write-wins by ts.
 - Blobs sync as files (rsync-style), names unique per device (timestamp plus 8
-  random hex), never content-deduped.
+  random hex); only the bodies a live record points at travel, and the one dedup is
+  an arriving body identical to the file already under that name.
 - Git or a file-sync app may TRANSPORT the bytes, but the MERGE must be `--import`
   (value-aware). Never trust git's textual merge of `store`, it id-collides.
 - Idempotent and resumable: a partial/interrupted sync just re-runs to converge.

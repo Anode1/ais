@@ -19,6 +19,14 @@ const _whatAis = (
       'no ads.'
 );
 
+const _reminders = (
+  'Reminders',
+  'A tag like due:2027-04-15 makes a note due from that day. It then waits '
+      'under Due at the top of Recent until you choose Done or Later from its '
+      'menu. The calendar icon beside Tags writes the tag for you; a month, '
+      'due:2027-04, or a year, due:2027, is a reminder too.'
+);
+
 const _find = (
   'Find',
   'Type one or more tags. Two tags find what has both.\n\n'
@@ -42,6 +50,7 @@ const helpSections = <(String, String)>[
         'separated by spaces. Example: tags "wifi guest", text the password. '
         'To save from another app, use its Share button and choose AIS.'
   ),
+  _reminders,
   _find,
   _secrets,
   (
@@ -74,6 +83,7 @@ const helpSectionsIos = <(String, String)>[
     'Tap Add. Type the text, then the tags you would think of later, '
         'separated by spaces. Example: tags "wifi guest", text the password.'
   ),
+  _reminders,
   _find,
   _secrets,
   (

@@ -7,7 +7,7 @@ Every way to move an index between devices, and where each one exists:
 |---|---|---|---|
 | Sync by code (Sync > Host / Join; `--sync`) | CLI, web GUI, Android, iOS | two-way, one round | Built in, encrypted, same Wi-Fi. The phone scans the code with its camera. |
 | One-way LAN (`--export --serve` / `--import <url>`) | CLI | one-way | The older form of the same exchange. |
-| A file (Sync > Export / Import to a file) | web GUI, Android, iOS | either way, by hand | One `.aisb` file, the whole index, carried by email, a messenger or a drive ([below](#by-email-or-any-app-that-carries-a-file)). The CLI does not read it: its `--import` takes text records. |
+| A file (Sync > Export / Import to a file) | web GUI, Android, iOS | either way, by hand | One `.aisb` file, the whole index, carried by email, a messenger or a drive ([below](#by-email-or-any-app-that-carries-a-file)). The CLI reads it too: `ais --import < FILE.aisb`. |
 | A shared folder (Sync > Set a sync folder; `--sync-folder`) | CLI, web GUI, Android | two-way, at every open and change | The set-and-forget path. Syncthing or a mounted drive carries the folder. |
 | Keep a copy in a folder / Restore from a folder | Android | copy out, restore back | Survives an uninstall. Not a sync. |
 | Text (`--dump` / `--import < FILE`) | CLI | either way, by hand | Records only, no documents. |
@@ -15,8 +15,6 @@ Every way to move an index between devices, and where each one exists:
 Syncthing is a separate program, not part of AIS: install it on each device and it keeps
 a chosen folder identical on all of them, in the background, over your own network or an
 encrypted relay when the devices are apart. Open source, on Android, Linux, Windows, macOS.
-AIS's own sync by code is not Syncthing: it needs nothing installed, and runs when you
-press Host and scan.
 
 ## What an index holds (so you know what matters)
 
@@ -113,7 +111,7 @@ On the phone, scan that with the ordinary camera app. The phone recognizes the l
 AIS, and AIS asks you to confirm the sync (a link can come from anywhere, and syncing shares
 this device's records) before it joins. The host waits five minutes for the join, then the
 code expires; press "Show a code" again for a fresh one. The app bundles no QR scanner: your
-phone's own camera does the reading, and AIS just registers the `ais://` link. If you would
+phone's own camera does the reading, and AIS registers the `ais://` link. If you would
 rather not scan, "Scan or type a code" also takes the address and code typed by hand, and the address
 may be a NAME as well as a number, so `http://mylaptop.local:8766` works wherever
 that name resolves (mDNS, your router's DHCP names, `/etc/hosts`). Android
@@ -156,7 +154,7 @@ different networks, or for continuous background syncing, use Syncthing below.
 
     # 1. Install on both devices
     #    Linux computer:   apt install syncthing   (then run: syncthing)
-    #    Windows / macOS:  https://syncthing.net  (SyncTrayzor is a nice Windows wrapper)
+    #    Windows / macOS:  https://syncthing.net  (SyncTrayzor wraps it on Windows)
     #    Android phone:    "Syncthing-Fork" from F-Droid or Play (the maintained app)
 
     # 2. Pair the two devices (one time)
@@ -171,9 +169,7 @@ different networks, or for continuous background syncing, use Syncthing below.
 
     # 4. Never sync the per-device files
     #    In that folder's settings, under Ignore Patterns, add these three lines
-    #    (the same three listed above: each one means something only on the device
-    #    that wrote it, and syncfolder would send a second device chasing the
-    #    first one's path):
+    #    (the same three as above):
     lock
     foldsync
     syncfolder
@@ -214,17 +210,15 @@ files.
     # on each device, whenever you like (a timer, a login script, or by hand)
     ais --sync-folder /path/to/shared/folder
 
-The folder has to exist first. AIS will not create it, and that is deliberate: a
-typo, or a drive that is not plugged in, would otherwise become a brand-new empty
-directory that every run happily reports as synced while nothing ever arrives.
-Sync is what stands in for a backup here, so a pass that silently does nothing is
-the one failure you cannot notice until you need the data.
+The folder has to exist first. AIS will not create it, because a typo, or a drive
+that is not plugged in, would otherwise become an empty directory that every run
+reports as synced while nothing arrives.
 
 For the same reason, a folder you have synced with before is checked for device
 bundles. If it holds none at all, the run stops and says so, because the usual
 causes are a drive that is not mounted and a folder that was emptied or replaced.
-Look at the folder; if it is genuinely the one you want in its current state, run
-it again with `-y`, and it will be accepted from then on.
+Look at the folder; if it is the one you want in its current state, run it again
+with `-y`, and it will be accepted from then on.
 
 A folder is identified by its path, not by the drive behind it, so the very first
 run into a mount point whose drive is not attached writes into the empty directory
@@ -232,16 +226,14 @@ underneath and reports success. Plug the drive in before the first sync to that
 folder.
 
 If you run this from a timer or a login script, send its output somewhere you will
-see it. A refusal that only reaches a cron job's stderr is the same silence this
-check exists to end.
-
-Reading a message and acting on it beats a green tick that means nothing:
+see it. The messages:
 
     no such folder                the path is wrong, or the drive is not plugged in
     not a folder                  the path is a file
-    cannot read that folder       permissions, or a dead network/cloud mount
+    cannot read folder            permissions, or a dead network/cloud mount
     no device bundles in          synced here before, empty now: not mounted/emptied
     cannot write into             read-only or full: others will not see this device
+    nothing could be read from    every bundle there is from a newer ais, or damaged
 
 ## By email, or any app that carries a file
 
@@ -274,13 +266,12 @@ it is imported if the index holds anything private.
 As a single user you are almost always on one device at a time, so conflicts are rare.
 If you do edit the same index on two devices while offline, Syncthing keeps both copies
 and writes a file named like `store.sync-conflict-...`; reconcile by merging the store
-(one record per line, built to merge). Two-writer chaos is a multi-user problem you do
-not have here.
+(one record per line, built to merge).
 
 ## Other no-cloud options
 
     LocalSend / KDE Connect   one-shot manual transfer over Wi-Fi, no background daemon
     git over LAN or SSH       keeps history; push the index to your computer yourself
-    USB cable (adb or MTP)    air-gapped, bulletproof, good for the first big copy
+    USB cable (adb or MTP)    air-gapped, good for the first big copy
 
 Avoid Bluetooth: it is slow and fiddly, and every option above uses Wi-Fi instead.

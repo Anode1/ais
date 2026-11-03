@@ -29,12 +29,12 @@ across devices, and must carry timestamps to resolve add-vs-delete conflicts.
 - **Conflict.** Resolve with **last-write-wins by the record's EFFECTIVE time**: compare the
   latest ADD ts against the latest DELETE ts for that content. Delete-after-add removes it;
   re-add-after-delete keeps it. Deterministic for a single user across their own devices.
-- **Against a `D|`, the record's time is `max(creation ts, last local edit)`**, not the
-  store line's `ts` alone. An edit is a user action, and the same rule that keeps a re-add
+- **Against a `D|`, the record's time is `max(creation ts, last local edit, sts)`**
+  (`mts_effective`), not the store line's `ts` alone. An edit is a user action, and the same rule that keeps a re-add
   must keep an edit: otherwise re-tagging something another device deleted yesterday
   silently loses the most recent thing the user did. The edit time is local, in `mts` (see
-  LAYOUT.md); a record that WINS is marked to EXPORT at that time (`sts`), which is how
-  the decision reaches the other devices, and is the resurrect path's behaviour reached
+  LAYOUT.md); a record that WINS is marked to EXPORT one second past the tombstone, capped
+  at its effective time (`sts`), which is how the decision reaches the other devices, and is the resurrect path's behaviour reached
   from the other side.
 - **Only `D|` asks that question.** `K|` detaches and key attaches compare against the
   store's own `ts`. A detach is a targeted statement about one key; an unrelated edit says
@@ -52,12 +52,9 @@ across devices, and must carry timestamps to resolve add-vs-delete conflicts.
   The rule is the same on both paths deliberately: keeping local relics while dropping
   every peer's live tags would be the worst of both, and it is the local relic that then
   travels as authoritative.
-- **The raise goes one second past the tombstone,** and it
-  applies to the EXPORT rather than to the store line (`sts`, see LAYOUT.md). It only has
-  to outrank that one delete: every further second sweeps up unrelated key tombstones on
-  other devices, because the exported timestamp decides key attaches too. Keeping it out
-  of the line also keeps a `K|` detach's outcome from depending on the order peer bundles
-  were read in.
+- **The raise goes one second past the tombstone,** and it applies to the EXPORT
+  rather than to the store line (`sts`; the rules that bound it are in LAYOUT.md, "mts,
+  the edit clock").
 - **The raise travels beside the record's true time.** The `A|`
   line still exports at the raised timestamp, because that is what the deleting peer
   must see to give up its tombstone. A `C|<true ts>|<hash>` line immediately before it
@@ -111,9 +108,10 @@ something reuses the existing record, and that record's `ts` is the add-ts this 
 scheme compares against a peer's tombstone. Reusing the line without restamping it made the
 resurrection LOCAL ONLY: the record exported as an `A|` older than the delete, the peer kept
 its tombstone and sent the `D|` back, and the re-save died on every device. Saving anything
-the index had ever deleted was therefore impossible, permanently. `ais_put_at` now stamps the
-line with the time it came back (the incoming ts on the merge path, `now` locally), which is
-what "compare the latest ADD ts" above always meant.
+the index had ever deleted was therefore impossible, permanently. `ais_put_at` now records the
+time it came back: a LOCAL re-save restamps the line with `now` (`store_restamp`); on the
+merge path the line is left alone and the incoming ts goes into `sts`, for the reason the
+section above gives. That is what "compare the latest ADD ts" above always meant.
 
 RESOLUTION CAVEAT: `ts` is wall-clock UTC at ONE-SECOND resolution, and ties keep the delete.
 A re-save inside the same second as the delete still loses. That is the same clock dependence
@@ -148,10 +146,9 @@ invents records.
 
 `content_hash(value)`, FNV-1a. Identity has to be derivable from what two devices
 can agree on with NOTHING shared (no key, no pairing, no prior sync), and the value
-is the only such thing. The salting experiment and its reversal, the privacy cost of
-a testable digest, and `--compact --forget-deleted` are in `LAYOUT.md`'s `tomb`
-section. Any change to this digest must survive the test that killed the salt: two
-devices, same value, different creation times, delete on one.
+is the only such thing. The salting experiment and its reversal, the test any change
+to this digest must survive, the privacy cost of a testable digest, and
+`--compact --forget-deleted` are in `LAYOUT.md`'s `tomb` section.
 
 Old tombstones cannot migrate (LAYOUT.md: after a compaction the value their digest
 came from is gone), so a privacy fix cannot work by changing the function: only by
@@ -174,8 +171,7 @@ re-imports the same bundle every pass, and `ais_add` appends unconditionally, so
 without a check the same link stacked up on every round.
 
 An older peer skips `M|` (see the extensibility rule above) and gets the record
-with one link: lossy, but no longer WRONG, and strictly better than the three
-separate records it used to invent.
+with one link: lossy, but no longer WRONG.
 
 Document bodies travel the same stream as `B|<path>|<size>` plus raw bytes. They
 always did for sync bundles, which is why a folder sync carried documents while
@@ -188,8 +184,8 @@ body simply did not exist.
 
 `ais_set_value` replaces one value in place, keeping the id, ts and keys, and the
 fact travels as an EDIT: the value hashing to `<hash>` became `<new value>` at
-`<ts>`. It is recorded in `edits` (kept like `tomb`) and exported FIRST in the
-stream. A peer still holding the old value replaces it in place
+`<ts>`. It is recorded in `edits` (kept like `tomb`) and exported first among the
+record verbs, after the `B|` bodies. A peer still holding the old value replaces it in place
 (`ais_merge_edit`): the record keeps its id, its other values, its tags and its
 key tombstones, and the peer records the fact so it travels on. A peer holding
 no copy records the fact too (a device that joined after the edit must still
@@ -262,7 +258,8 @@ Emitted only when `sts` actually raised the exported timestamp, so a normal inde
 writes none. Keyed to the FIRST value because a multi-value record's later values go
 out as `M|`; a `C|` keyed to one of those would name a line the importer never puts.
 
-The importer holds ONE pending `C|` and spends it on the next `A|`, matched or not:
+The importer holds ONE pending `C|` and spends it on the next `A|` it puts or spools,
+matched or not (an `A|` refused for a bad timestamp or an over-long key leaves it pending):
 the exporter emits the pair adjacently, so a slot that outlives its `A|` could only
 mis-answer some later record. A matching hash makes the `C|` time the `attach_ts`
 argument of `ais_put_at_k` (the value `attach_wins` compares a key attach against)
@@ -355,7 +352,8 @@ Given local index A and incoming index B:
     4. Apply to A:
          winner ADD, not already present -> put the record (idempotent).
          winner DEL                       -> ensure (ts,hash) in A.tomb; record stays suppressed.
-    5. Rebuild idx/off (derived, as today).
+    5. Postings are updated per record as it is put (`ais_post_keys`); nothing rebuilds
+       idx/ or off here, only `--compact` does.
 
 Symmetric: run both directions (A pulls B, then B pulls A) and both converge to the same
 live set. `--import` applies DEL events as well as adds.
@@ -384,8 +382,9 @@ whole-record delete does, but scoped to one key, leaving the record and its othe
 `ais_merge_detach` (the `ktomb`/key-suppress path), `T` via `ais_merge_attach_many`, `E` via
 `ais_merge_edit`, `M` via `ais_merge_addval`, `C` as the next `A`'s attach time, and `B` by
 placing the body under `blobs/`, all under last-write-wins. A plain (unprefixed)
-line fed to `--import` from a file/stdin is treated as an `A` line with ts unknown (oldest), so a
-hand-edited or legacy dump still imports as adds.
+line fed to `--import` from a file/stdin goes through `ais_put`, a local save stamped now
+(newest: it beats any tombstone and restamps a resurrected line), so a hand-edited or
+legacy dump still imports as adds.
 
 ## Deletes resolve a batch at a time
 
@@ -422,11 +421,12 @@ went from 13 s to under 2 s.
 `ktomb` and postings, never the store, so the same seek-then-apply split holds, and the
 wire already emits the detaches in their own run after the deletes. `M|` cannot:
 `ais_merge_addval` appends to the store, and a line added part-way through a pass changes
-what the rest of that pass finds. Nor can `T|`, for the same reason: an attach has to
-reach the authoritative keys field, so `ais_merge_attach` rewrites the record's lines.
+what the rest of that pass finds. `T|` can, and does (`ais_merge_attach_many`, up to `AIS_ATT_BATCH` = 32 facts per store
+pass): an attach rewrites the record's lines, but only after the pass that resolved the hashes.
 
 ## Migration
-None. v1 (`id`) and v2 (`ts|hash`) tombstones coexist, so old indexes keep working without a
+None. v1 (`id`) and v2 (`ts|hash`) tombstones coexist until the next `--compact`, which drops
+the v1 lines (local-only, never exportable), so old indexes keep working without a
 rewrite (see the "no migration" note in the header). The earlier plan to bump `version` and
 rewrite v1 tombstones to `0|hash` on open was not taken.
 
@@ -438,8 +438,6 @@ rewrite v1 tombstones to `0|hash` on open was not taken.
   design (identity is the value alone, above), same as the idempotent put. Acceptable.
 - **An edit travels as `E|`**, applied in place; del + add was tried and reverted (see
   "An edited value travels as E|").
-- **Hash width.** FNV-1a 64-bit, as built; not a security boundary (content is
-  already content-addressed).
 
 ## Open questions
 1. RESOLVED: `ktomb` (key-level) merge is SHIPPED: key-detaches travel as `K|` lines

@@ -35,7 +35,8 @@ SAVE (-v marks the value; bare args and -k are keys; keys are optional)
 
 COMMANDS (--word; operands are bare args, values via -v; an ID is the number
           in the 'id|value' that get and --find print)
-  ais --find TEXT                records whose value contains TEXT (any case)
+  ais --find TEXT                records whose value contains TEXT (any case); a
+                                 --doc body is not searched, only its blobs/ path
   ais --doc [KEY...] < FILE      save a multi-line document as a blob file
                                  (--del removes it; a file you merely POINT at
                                  is never touched)
@@ -43,8 +44,9 @@ COMMANDS (--word; operands are bare args, values via -v; an ID is the number
   ais --add ID -v VALUE          attach another link to record ID
   ais --set ID -v OLD -v NEW     replace ONE of record ID's values, in place
                                  (keeps the id, timeline position and keys)
-  ais --update ID KEY...         edit record ID's keys: KEY attaches, -KEY detaches
-                                 (-KEY needs a preceding --)
+  ais --update ID KEY...         edit record ID's keys: KEY attaches, -KEY detaches.
+                                 Put -- before the first -KEY, or it is read as an
+                                 option:  ais --update 42 rome -- -venice
   ais --del ID                   delete record ID
   ais --untag KEY                remove the tag KEY, KEEPING every record
   ais --del-under KEY            DELETE every record filed under KEY (not just the tag)
@@ -54,9 +56,12 @@ COMMANDS (--word; operands are bare args, values via -v; an ID is the number
                                  --dump emits 'KEY... -v VALUE', which is this
                                  same grammar, so a dump pipes back into --import
                                  as plain records
-                                 (links and documents travel only by --export)
+                                 (links and documents travel only by --export: a
+                                 dump line naming blobs/X imports as that path,
+                                 with no file behind it)
   ais --timeline [N]             the N most recent records, newest first (default 500;
-                                 a GUI pages through older ones on demand)
+                                 a GUI pages through older ones on demand); the time
+                                 is UTC, marked Z (the GUIs and blob names use local)
   ais --due                      the reminders: records filed under a key due:2028,
                                  due:2028-11 or due:2028-11-02 whose day has come,
                                  oldest saved first; a recall or --timeline at a
@@ -127,7 +132,8 @@ OPTIONS
   -v, --value VAL   a value to save (repeatable; -v - reads stdin)
   -k, --key KEY     an explicit key, the same as a bare KEY
   -p KEY            default project prepended to this save ('' = none;
-                    persistent via 'ais --project KEY')
+                    persistent via 'ais --project KEY'): with the project
+                    work, a save typed as alpha is filed as work alpha
   -i, --interactive save interactively: stdin lines are values, prompts for keys
   -e, --encrypt     store the value encrypted (prompts for value + passphrase)
   -y, --yes         assume yes for --del / --del-under / --untag / --compact / --dedupe-docs
@@ -137,7 +143,8 @@ OPTIONS
   --version         print version and exit
 
 EXIT STATUS  0 success; 1 no match, nothing done, or an error (grep semantics);
-             2 unknown option, no arguments, a port out of range, or --mcp refused
+             2 unknown option, no arguments, a port out of range, --mcp refused,
+               or no terminal to confirm on
 
 INDEX LOCATION (when -f is not given; no env vars -- -f is the only override)
   1. the nearest .ais/ at or above the current directory (the walk stops at home)
