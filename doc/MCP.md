@@ -111,7 +111,7 @@ The instructions also tell it to save, unasked, what a later session would
 otherwise have to work out again. Measured, it mostly does not: Sonnet saved
 nothing in six tasks with the server alone, and twice in six with a line in its
 system prompt asking for it. It saved every time the task itself ended with
-"save it" ([`experiment/memory`](../experiment/memory/README.md)). So ask for
+"save it" ([measured](https://github.com/Anode1/articles/tree/main/ais/experiment/memory)). So ask for
 the save, in the task or in the project's agent instructions. The
 bias kept is the group's instead of one person's, and it is still no model's
 average, because every reader recalls by the words the group used.
