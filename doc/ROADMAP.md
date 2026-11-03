@@ -150,7 +150,7 @@ iOS build to TestFlight. Reaching the stores is manual:
   0.3.38 went up on 2026-10-24 and is live; 0.3.39's went up on 2026-10-28;
   0.3.40 changed nothing in the app and was not uploaded; 0.3.42's (build 623,
   the Due group) was submitted for review on 2026-11-02; 0.3.43's (build 627)
-  follows once it is live. The listing text and graphics are
+  is skipped on Play; the next release's build follows 623. The listing text and graphics are
   `fastlane/metadata/android/en-US/` (`doc/public-text.txt` says what goes
   where). The appendix of that file is the way to let CI do the upload.
 - iOS build 556 (0.3.36) is in App Store review, resubmitted 2026-10-14 with
