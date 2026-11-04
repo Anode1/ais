@@ -249,8 +249,9 @@ Each is understood, loses no data, and is left for a stated reason.
 
 - **A capital letter outside ASCII makes a different key.** `key_encode`
   lowercases ASCII only, so `Рецепт` and `рецепт` are two tags, and voice input
-  capitalises the first word. The English user never meets this. The fix is a
-  fixed fold table (Latin-1, Latin Extended-A, Greek, Cyrillic) in `key.c`,
+  capitalises the first word. The English user never meets this. Tag completions already match across
+  the two (`key_fold_cp`, the fold table in `key.c`). The fix for storage is that
+  table in `key_encode`,
   the same table in `find.c`, and recall reading a posting under both names
   when they differ, since an index written before the change files `Рецепт`
   under `idx/Р/`. The store is untouched, the format version stays, an older

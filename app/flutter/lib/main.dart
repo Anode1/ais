@@ -349,7 +349,7 @@ class RecallPage extends StatefulWidget {
   final Voice? voice;
   // Test seam for the tag-suggestion rows: `flutter test` runs with no engine
   // (CI builds no libais.so), so the lookup is injectable. Null = the engine's
-  // whole tag cloud (_tagMatches).
+  // engine's prefix lookup (_tagMatches).
   final List<String> Function(String prefix)? tagLookup;
   // Same seam for the search path: recall and find are injectable so the
   // search tests run engine-less too. Null = the real engine.
@@ -417,11 +417,10 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
   static const int _recallPage = 100;
   int _recallBefore = 0;
   bool _recallMore = false;
-  // Tags likewise: the cursor is the (count, key) of the last row, in the
-  // busiest-first order the engine emits.
+  // Tags: the whole cloud is fetched once per load into _tagsAll (one engine
+  // scan) and _tags shows it _tagsPage rows at a time.
   static const int _tagsPage = 100;
-  int _tagsAfterCount = 0;
-  String _tagsAfterKey = '';
+  List<TagRow> _tagsAll = const [];
   bool _tagsMore = false;
   // Multi-tag search mode: false = AND (under EVERY tag), true = OR (under ANY).
   bool _matchAny = false;
@@ -855,65 +854,40 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
     }
   }
 
-  // Fresh tag-cloud load: page one from the busiest, resetting the cursor and
-  // the typed filter: text left in the field by an earlier search is a query,
-  // not a filter on the cloud.
+  // Fresh tag-cloud load: the whole cloud in one engine call, the first page
+  // shown, and the typed filter reset: text left in the field by an earlier
+  // search is a query, not a filter on the cloud.
   void _loadTags() {
     _tagFilter = null;
     _tagsTyped = '';
-    final page = widget.tagCloud?.call() ??
-        _ais?.tagsPage(afterCount: 0, afterKey: '', count: _tagsPage) ??
-        const [];
+    final all = widget.tagCloud?.call() ?? _ais?.tags() ?? const <TagRow>[];
     setState(() {
-      _tags = page;
-      if (page.isNotEmpty) {
-        _tagsAfterCount = page.last.count;
-        _tagsAfterKey = page.last.key;
-      }
-      _tagsMore = page.length == _tagsPage;
+      _tagsAll = all;
+      _tags = all.take(_tagsPage).toList();
+      _tagsMore = all.length > _tags.length;
     });
   }
 
-  // Page on with the tag cursor: the next slice after the last (count, key).
+  // Show the next _tagsPage rows of the loaded cloud; no engine call.
   void _loadMoreTags() {
-    if (_ais == null || !_tagsMore) return;
-    final page = _ais!.tagsPage(
-        afterCount: _tagsAfterCount, afterKey: _tagsAfterKey, count: _tagsPage);
+    if (!_tagsMore) return;
     setState(() {
-      _tags = [..._tags, ...page];
-      if (page.isNotEmpty) {
-        _tagsAfterCount = page.last.count;
-        _tagsAfterKey = page.last.key;
-      }
-      _tagsMore = page.length == _tagsPage;
+      _tags = _tagsAll.take(_tags.length + _tagsPage).toList();
+      _tagsMore = _tagsAll.length > _tags.length;
     });
   }
 
   // Existing tags starting with [prefix] (case-insensitive), busiest first, at
-  // most six: what the TagSuggestRow under every tag field shows. Pages through
-  // the WHOLE tag cloud (the FFI is cheap), so "rec" finds recipe even when the
-  // Tags view has only its first page loaded. Widget tests inject
-  // widget.tagLookup instead: they run with no engine to page.
+  // most six: what the TagSuggestRow under every tag field shows. One engine
+  // call that reads only the prefix's shard, so it costs by the keys sharing
+  // the prefix, not by the size of the cloud. Widget tests inject
+  // widget.tagLookup instead: they run with no engine.
   List<String> _tagMatches(String prefix) {
     final injected = widget.tagLookup;
     if (injected != null) return injected(prefix);
     final e = _ais;
     if (e == null || prefix.isEmpty) return const [];
-    final p = prefix.toLowerCase();
-    final out = <String>[];
-    var afterCount = 0;
-    var afterKey = '';
-    while (out.length < 6) {
-      final page = e.tagsPage(afterCount: afterCount, afterKey: afterKey, count: _tagsPage);
-      for (final t in page) {
-        if (t.key.toLowerCase().startsWith(p)) out.add(t.key);
-        if (out.length >= 6) break;
-      }
-      if (page.length < _tagsPage) break;
-      afterCount = page.last.count;
-      afterKey = page.last.key;
-    }
-    return out;
+    return e.tagsPrefix(prefix, count: 6).map((t) => t.key).toList();
   }
 
   // Fresh timeline load: page one from the newest, within [_tlFrom, _tlTo].
@@ -2530,8 +2504,7 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
         _recallBefore = 0;
         _recallMore = false;
         _tags = const [];
-        _tagsAfterCount = 0;
-        _tagsAfterKey = '';
+        _tagsAll = const [];
         _tagsMore = false;
         _view = 'recall';
         _searched = false;
@@ -4055,17 +4028,16 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
   }
 
   // The Tags view's list for the text in the search field: tags starting with
-  // it, case-insensitive, from the WHOLE cloud (the paged list may not hold the
-  // match yet). Cached per text: build runs on every keystroke and scroll.
+  // it, case-insensitive, from the whole loaded cloud (_tagsAll), not only the
+  // rows shown. Cached per text: build runs on every keystroke and scroll.
   (String, List<TagRow>)? _tagFilter;
   String _tagsTyped = ''; // what was typed while ON the Tags view
   List<TagRow> _filteredTags(String text) {
     final p = text.trim().toLowerCase();
     final cached = _tagFilter;
     if (cached != null && cached.$1 == p) return cached.$2;
-    final cloud = widget.tagCloud?.call() ?? _ais?.tags() ?? const <TagRow>[];
     final out =
-        cloud.where((t) => t.key.toLowerCase().startsWith(p)).toList();
+        _tagsAll.where((t) => t.key.toLowerCase().startsWith(p)).toList();
     _tagFilter = (p, out);
     return out;
   }
@@ -4077,7 +4049,7 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
     var tags = filtering ? _filteredTags(_tagsTyped) : _tags;
     final more = !filtering && _tagsMore;
     // The active project's row comes first, tinted; this is where projects are
-    // switched, so the list stays whole. A project beyond the loaded page is
+    // switched, so the list stays whole. A project beyond the shown rows is
     // listed without its count.
     if (_project.isNotEmpty && !filtering) {
       final i = tags.indexWhere((t) => t.key == _project);
@@ -4273,7 +4245,7 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
 // field; [onPick] replaces that default where completion means something else
 // (Edit-tags commits a chip), [onCompleted] runs after it (search re-queries:
 // a programmatic controller change fires no onChanged).
-class TagSuggestRow extends StatelessWidget {
+class TagSuggestRow extends StatefulWidget {
   final TextEditingController controller;
   final FocusNode? focusNode;
   final List<String> Function(String prefix) lookup;
@@ -4294,61 +4266,125 @@ class TagSuggestRow extends StatelessWidget {
     return i < 0 ? text : text.substring(i + 1);
   }
 
-  void _apply(String tag) {
-    final text = controller.text;
-    final head = text.substring(0, text.length - _token(text).length);
-    controller.value = TextEditingValue(
-      text: '$head$tag ',
-      selection: TextSelection.collapsed(offset: head.length + tag.length + 1),
-    );
-    onCompleted?.call();
+  @override
+  State<TagSuggestRow> createState() => _TagSuggestRowState();
+}
+
+// The lookup runs 100 ms after the last keystroke, so fast typing costs one
+// lookup for the final token. Until then the previous chips that still match
+// the token stay; an empty token clears them at once.
+class _TagSuggestRowState extends State<TagSuggestRow> {
+  static const Duration _debounce = Duration(milliseconds: 100);
+  Timer? _timer;
+  String _tok = ''; // the token _hits were looked up for
+  List<String> _hits = const [];
+
+  @override
+  void initState() {
+    super.initState();
+    widget.controller.addListener(_onText);
+    _lookupNow();
   }
 
   @override
-  Widget build(BuildContext context) => ValueListenableBuilder<TextEditingValue>(
-        valueListenable: controller,
-        builder: (context, v, _) {
-          final tok = _token(v.text);
-          // A tag already typed in full has nothing left to complete.
-          final tags = tok.isEmpty
-              ? const <String>[]
-              : lookup(tok).where((t) => t != tok).take(_max).toList();
-          if (tags.isEmpty) return const SizedBox.shrink();
-          final cs = Theme.of(context).colorScheme;
-          return Padding(
-            padding: const EdgeInsets.only(top: 6),
-            // One row, never a wrap: scrolls sideways instead of growing down
-            // and pushing the field it belongs to off the keyboard.
-            child: SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: Row(children: [
-                for (final t in tags)
-                  Padding(
-                    padding: const EdgeInsets.only(right: 6),
-                    // Filled and borderless, so a completion never reads as
-                    // the outlined filter chips under the search bar.
-                    child: ActionChip(
-                      label: Text(t),
-                      visualDensity: VisualDensity.compact,
-                      backgroundColor: cs.secondaryContainer,
-                      labelStyle: TextStyle(color: cs.onSecondaryContainer),
-                      side: BorderSide.none,
-                      shape: const StadiumBorder(),
-                      onPressed: () {
-                        if (onPick != null) {
-                          onPick!(t);
-                        } else {
-                          _apply(t);
-                        }
-                        focusNode?.requestFocus();
-                      },
-                    ),
-                  ),
-              ]),
+  void didUpdateWidget(TagSuggestRow old) {
+    super.didUpdateWidget(old);
+    if (old.controller != widget.controller) {
+      old.controller.removeListener(_onText);
+      widget.controller.addListener(_onText);
+      _timer?.cancel();
+      _lookupNow();
+    }
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    widget.controller.removeListener(_onText);
+    super.dispose();
+  }
+
+  void _lookupNow() {
+    final tok = TagSuggestRow._token(widget.controller.text);
+    _tok = tok;
+    _hits = tok.isEmpty ? const [] : widget.lookup(tok);
+  }
+
+  void _onText() {
+    final tok = TagSuggestRow._token(widget.controller.text);
+    if (tok == _tok) return; // a cursor move or a change before the token
+    _timer?.cancel();
+    if (tok.isEmpty) {
+      setState(() {
+        _tok = '';
+        _hits = const [];
+      });
+      return;
+    }
+    setState(() {}); // narrow the shown chips to the new token now
+    _timer = Timer(_debounce, () {
+      if (mounted) setState(_lookupNow);
+    });
+  }
+
+  void _apply(String tag) {
+    final text = widget.controller.text;
+    final tok = TagSuggestRow._token(text);
+    final head = text.substring(0, text.length - tok.length);
+    widget.controller.value = TextEditingValue(
+      text: '$head$tag ',
+      selection: TextSelection.collapsed(offset: head.length + tag.length + 1),
+    );
+    widget.onCompleted?.call();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final tok = TagSuggestRow._token(widget.controller.text);
+    final low = tok.toLowerCase();
+    // A tag already typed in full has nothing left to complete.
+    final tags = tok.isEmpty
+        ? const <String>[]
+        : _hits
+            .where((t) =>
+                t != tok && (tok == _tok || t.toLowerCase().startsWith(low)))
+            .take(TagSuggestRow._max)
+            .toList();
+    if (tags.isEmpty) return const SizedBox.shrink();
+    final cs = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.only(top: 6),
+      // One row, never a wrap: scrolls sideways instead of growing down
+      // and pushing the field it belongs to off the keyboard.
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Row(children: [
+          for (final t in tags)
+            Padding(
+              padding: const EdgeInsets.only(right: 6),
+              // Filled and borderless, so a completion never reads as
+              // the outlined filter chips under the search bar.
+              child: ActionChip(
+                label: Text(t),
+                visualDensity: VisualDensity.compact,
+                backgroundColor: cs.secondaryContainer,
+                labelStyle: TextStyle(color: cs.onSecondaryContainer),
+                side: BorderSide.none,
+                shape: const StadiumBorder(),
+                onPressed: () {
+                  if (widget.onPick != null) {
+                    widget.onPick!(t);
+                  } else {
+                    _apply(t);
+                  }
+                  widget.focusNode?.requestFocus();
+                },
+              ),
             ),
-          );
-        },
-      );
+        ]),
+      ),
+    );
+  }
 }
 
 // The Add form, extracted from _showAdd so a widget test can pump it with a

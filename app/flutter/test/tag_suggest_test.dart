@@ -69,6 +69,30 @@ void main() {
       expect(find.widgetWithText(ActionChip, 'recipe'), findsOneWidget);
     });
 
+    // fast typing runs the lookup once, for the final token, after 100 ms
+    testWidgets('typing three letters quickly looks up once', (tester) async {
+      final asked = <String>[];
+      final ctrl = TextEditingController();
+      addTearDown(ctrl.dispose);
+      await tester.pumpWidget(MaterialApp(
+          home: Scaffold(
+              body: TagSuggestRow(
+                  controller: ctrl,
+                  lookup: (p) {
+                    asked.add(p);
+                    return lookup(p);
+                  }))));
+      for (final t in ['r', 're', 'rec']) {
+        ctrl.text = t;
+        await tester.pump(const Duration(milliseconds: 30));
+      }
+      expect(asked, isEmpty);
+      await tester.pump(const Duration(milliseconds: 150));
+      expect(asked, ['rec']);
+      expect(find.widgetWithText(ActionChip, 'recipe'), findsOneWidget);
+      expect(find.widgetWithText(ActionChip, 'record'), findsOneWidget);
+    });
+
     testWidgets('matching is case-insensitive', (tester) async {
       await pumpRow(tester, text: 'REC');
       expect(find.widgetWithText(ActionChip, 'recipe'), findsOneWidget);
@@ -85,7 +109,7 @@ void main() {
       await tester.enterText(
           find.widgetWithText(TextField, 'Tags'),
           'food rec');
-      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 150)); // the suggestion debounce
       expect(find.widgetWithText(ActionChip, 'recipe'), findsOneWidget);
       await tester.tap(find.widgetWithText(ActionChip, 'recipe'));
       await tester.pump();
@@ -123,7 +147,7 @@ void main() {
       await tester.tap(find.text('open'));
       await tester.pumpAndSettle();
       await tester.enterText(find.byType(TextField), 'hotel ');
-      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 150)); // the suggestion debounce
       await tester.tapAt(const Offset(5, 5));
       await tester.pumpAndSettle();
       expect(find.text('Edit tags'), findsOneWidget);
@@ -152,12 +176,12 @@ void main() {
 
       // an already-chipped tag is not re-offered
       await tester.enterText(find.byType(TextField), 'ho');
-      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 150)); // the suggestion debounce
       expect(find.widgetWithText(ActionChip, 'hotel'), findsOneWidget);
       expect(find.widgetWithText(ActionChip, 'home'), findsNothing);
 
       await tester.enterText(find.byType(TextField), 'rec');
-      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 150)); // the suggestion debounce
       await tester.tap(find.widgetWithText(ActionChip, 'recipe'));
       await tester.pump();
       // committed as a chip, not left in the field
@@ -183,7 +207,7 @@ void main() {
 
       final search = find.byType(TextField).first;
       await tester.enterText(search, 'rec');
-      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 150)); // the suggestion debounce
       expect(find.widgetWithText(ActionChip, 'recipe'), findsOneWidget);
       expect(find.widgetWithText(ActionChip, 'record'), findsOneWidget);
 

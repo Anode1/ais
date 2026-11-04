@@ -1028,12 +1028,15 @@ async function save() {
   if (syncFolderSaved()) syncFolderRun(true);   // and get it into the shared folder
 }
 
-// Tag autocomplete (Flutter parity): up to 6 existing tags (busiest first,
-// from /api/tags) prefix-matched case-insensitively against the token being
-// typed -- tokens split on spaces/commas, an empty token suggests nothing. A
-// tap completes the token plus a trailing space and keeps focus on the field
-// (mousedown preventDefault); DONE runs after it (the search field re-runs
-// the search, the sheet fields just keep typing).
+// Tag autocomplete (Flutter parity): up to 6 existing tags beginning with the
+// token being typed, busiest first and ASCII case-insensitive, as
+// /api/tags?prefix=&count=6 returns them; the engine reads only the index
+// shard the prefix lives in. Tokens split on spaces/commas; an empty token
+// suggests nothing. The fetch waits for 100 ms without typing, so fast typing
+// asks once, for the final prefix. A tap completes the token plus a trailing
+// space and keeps focus on the field (mousedown preventDefault); DONE runs
+// after it (the search field re-runs the search, the sheet fields just keep
+// typing).
 function tagToken(s) {
   var i = Math.max(s.lastIndexOf(' '), s.lastIndexOf(','));
   return i < 0 ? s : s.slice(i + 1);
@@ -1042,15 +1045,12 @@ async function suggestTags(inp, row, done) {
   var tok = tagToken(inp.value);
   row.innerHTML = '';
   if (!tok) return;
-  var t = await (await fetch('/api/tags')).text();
+  var t = await (await fetch('/api/tags?prefix=' + encodeURIComponent(tok) + '&count=6')).text();
   if (tagToken(inp.value) != tok) return;   // typed on: stale
   row.innerHTML = '';
-  var p = tok.toLowerCase(), n = 0;
   t.split('\n').forEach(function (ln) {
-    if (n >= 6 || !ln) return;
+    if (!ln) return;
     var k = ln.slice(ln.indexOf('|') + 1);
-    if (k.toLowerCase().indexOf(p) != 0) return;
-    n++;
     var b = document.createElement('button');
     b.type = 'button'; b.className = 'chip'; b.textContent = k;
     b.onmousedown = function (e) { e.preventDefault(); };   // the field keeps focus
@@ -1064,8 +1064,11 @@ async function suggestTags(inp, row, done) {
   });
 }
 function wireSuggest(id, rowid, done) {
-  var i = $(id);
-  i.addEventListener('input', function () { suggestTags(i, $(rowid), done); });
+  var i = $(id), r = $(rowid), w = 0;
+  i.addEventListener('input', function () {
+    r.innerHTML = ''; clearTimeout(w);   // no chip for the old token
+    w = setTimeout(function () { suggestTags(i, r, done); }, 100);
+  });
 }
 wireSuggest('q', 'qsuggest', function () { setView('recall'); });   // completing = searching
 wireSuggest('vk', 'vksuggest', null);

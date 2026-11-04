@@ -63,6 +63,8 @@ typedef _DueD = Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>);
 // (handle, after_count, after_key, count) -- keyset page over the tag cloud
 typedef _TagsPageC = Pointer<Utf8> Function(Pointer<Void>, Int64, Pointer<Utf8>, Int32);
 typedef _TagsPageD = Pointer<Utf8> Function(Pointer<Void>, int, Pointer<Utf8>, int);
+typedef _TagsPrefixC = Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>, Int32);
+typedef _TagsPrefixD = Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>, int);
 typedef _KeysC = Pointer<Utf8> Function(Pointer<Void>, Int64);
 typedef _KeysD = Pointer<Utf8> Function(Pointer<Void>, int);
 typedef _DefaultSetC = Int32 Function(Pointer<Utf8>);
@@ -160,7 +162,7 @@ class AisEngine {
   late final Pointer<Void> _h;
   late final _OpenD _open = _lib.lookupFunction<_OpenC, _OpenD>('ais_embed_open');
   // recall()/tags() go through the paged entry points (after 0, count 0 = the
-  // whole set), so only the *_page C symbols are bound here.
+  // whole set), so only the *_page C symbols are bound for them.
   late final _RecallPageD _recallPage =
       _lib.lookupFunction<_RecallPageC, _RecallPageD>('ais_embed_recall_page');
   late final _FindD _find = _lib.lookupFunction<_FindC, _FindD>('ais_embed_find');
@@ -180,6 +182,8 @@ class AisEngine {
   late final _DueD _dueFn = _lib.lookupFunction<_DueC, _DueD>('ais_embed_due');
   late final _TagsPageD _tagsPageFn =
       _lib.lookupFunction<_TagsPageC, _TagsPageD>('ais_embed_tags_page');
+  late final _TagsPrefixD _tagsPrefixFn =
+      _lib.lookupFunction<_TagsPrefixC, _TagsPrefixD>('ais_embed_tags_prefix');
   late final _KeysD _keysFn = _lib.lookupFunction<_KeysC, _KeysD>('ais_embed_keys');
   late final _DelD _del = _lib.lookupFunction<_DelC, _DelD>('ais_embed_del');
   late final _UpdateD _update = _lib.lookupFunction<_UpdateC, _UpdateD>('ais_embed_update');
@@ -329,15 +333,35 @@ class AisEngine {
       ak = afterKey.toNativeUtf8();
       p = _tagsPageFn(_h, afterCount, ak, count);
       if (p == nullptr) return const [];
-      return p.toDartString().split('\n').where((l) => l.isNotEmpty).map((l) {
-        final i = l.indexOf('|');
-        return TagRow(l.substring(i + 1), int.tryParse(l.substring(0, i)) ?? 0);
-      }).toList();
+      return _tagRows(p.toDartString());
     } finally {
       if (ak != nullptr) calloc.free(ak);
       if (p != nullptr) _free(p);
     }
   }
+
+  /// The busiest [count] (1..32) tags beginning with [prefix], ASCII
+  /// case-insensitive. The engine reads only the shard the prefix lives in, so
+  /// this costs by the keys sharing the prefix, not by the index.
+  List<TagRow> tagsPrefix(String prefix, {int count = 6}) {
+    Pointer<Utf8> pf = nullptr, p = nullptr;
+    try {
+      pf = prefix.toNativeUtf8();
+      p = _tagsPrefixFn(_h, pf, count);
+      if (p == nullptr) return const [];
+      return _tagRows(p.toDartString());
+    } finally {
+      if (pf != nullptr) calloc.free(pf);
+      if (p != nullptr) _free(p);
+    }
+  }
+
+  // "count|key\n" lines, the row format both tag entry points emit.
+  static List<TagRow> _tagRows(String s) =>
+      s.split('\n').where((l) => l.isNotEmpty).map((l) {
+        final i = l.indexOf('|');
+        return TagRow(l.substring(i + 1), int.tryParse(l.substring(0, i)) ?? 0);
+      }).toList();
 
   /// Record [id]'s keys as one space-separated string, for a chip editor. '' if
   /// the record has no keys or the id is unknown/deleted.

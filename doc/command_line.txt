@@ -74,7 +74,8 @@ COMMANDS (--word; operands are bare args, values via -v; an ID is the number
                                  ais --update ID -- -due:2028-11
                                  A due: key that is not such a date is a plain key;
                                  saving or attaching one says so on stderr
-  ais --tags                     every key with how many records use it (busiest first)
+  ais --tags [PREFIX]            every key with how many records use it (busiest first);
+                                 with PREFIX, the 32 busiest keys that begin with it
   ais --compact                  reclaim space from deleted records; prints
                                  'compacted: N records kept, M deleted dropped'
   ais --compact --forget-deleted also forget WHAT was deleted (sync first:

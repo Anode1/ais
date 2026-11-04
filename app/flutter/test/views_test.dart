@@ -212,7 +212,7 @@ void main() {
     testWidgets('a suggestion tap completes and searches', (tester) async {
       final calls = await pumpPage(tester);
       await tester.enterText(field, 'home rec');
-      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 150)); // the suggestion debounce
       await tester.tap(find.widgetWithText(ActionChip, 'recipe'));
       await tester.pump();
       expect(fieldText(tester), 'home recipe ');
@@ -285,16 +285,18 @@ void main() {
       expect(calls.recall, isEmpty);
     });
 
-    // A full first page (100) means more may exist: a loading row ends the
-    // list. A shorter cloud ends on its last tag.
-    testWidgets('a full page of 100 tags ends in a loading row',
+    // The view shows the cloud 100 rows at a time: a 101st tag appears past a
+    // loading row. A cloud of 100 or fewer ends on its last tag.
+    testWidgets('101 tags show 100, then the 101st past the loading row',
         (tester) async {
-      final big = [for (var i = 0; i < 100; i++) TagRow('t$i', 100 - i)];
+      final big = [for (var i = 0; i < 101; i++) TagRow('t$i', 101 - i)];
       await pumpPage(tester, tags: big);
       await openTab(tester, 'Tags');
-      await tester.dragUntilVisible(find.byType(CircularProgressIndicator),
-          find.byType(ListView), const Offset(0, -500));
-      expect(find.text('t99'), findsOneWidget);
+      expect(find.text('t100'), findsNothing);
+      await tester.dragUntilVisible(
+          find.text('t100'), find.byType(ListView), const Offset(0, -500));
+      expect(find.text('t100'), findsOneWidget);
+      expect(find.byType(CircularProgressIndicator), findsNothing);
     });
 
     testWidgets('99 tags end on the last tag, no loading row', (tester) async {

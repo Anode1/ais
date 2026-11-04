@@ -373,6 +373,19 @@ int ais_tags(ais *a, ais_tag_cb cb, void *ctx);
 int ais_tags_page(ais *a, long after_count, const char *after_key, int count,
                   ais_tag_cb cb, void *ctx);
 
+/* The busiest COUNT keys that begin with PREFIX, in ais_tags order: what a tag
+ * field completes from while the user types. Matching folds case (key_fold_cp:
+ * ASCII, Latin-1, Latin Extended-A, Greek, Cyrillic), so "Rec" finds recipe and
+ * "ре" finds Рецепт. Reads only the idx/<p>/ shards a match can live in: one
+ * for a prefix of two characters or more (two when its non-ASCII first letter
+ * has another case), the shards sharing the first letter for a one-letter
+ * prefix. The cost follows the keys that share the prefix, not the index. The whole cloud
+ * is ais_tags_page. COUNT is 1..AIS_TAGS_PREFIX_MAX, held on the stack. Returns
+ * 0, the callback's stop code, or -1 (bad COUNT, or a PREFIX that encodes to
+ * nothing). */
+#define AIS_TAGS_PREFIX_MAX 32
+int ais_tags_prefix(ais *a, const char *prefix, int count, ais_tag_cb cb, void *ctx);
+
 /* Reclaim space: streaming rewrite of the store dropping tombstoned records and
  * rebuilding the posting index. Tombstones are KEPT: they are the portable delete
  * fact a peer needs, so collecting them would let any device that still holds the

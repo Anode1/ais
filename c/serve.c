@@ -331,7 +331,7 @@ static const char PAGE[] =
 "function ulen(s){return new TextEncoder().encode(s).length}"   /* UTF-8 bytes: the engine's unit */
 "var tlBefore=0,tlDay=null,tlN=0,tlPage=100;"   /* timeline keyset paging state */
 "var rcAfter=0,rcN=0,rcMore=false,rcQ='',rcOr='';"   /* recall keyset paging */
-"var tgAfterc=0,tgAfterk='',tgN=0,tgMore=false;"           /* tags keyset paging */
+"var tgAll=[],tgN=0,tgMore=false;"           /* the tag cloud, paged here */
 "var dateOpen=false,MON=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];"
 "function anyTag(){return $('anyk').getAttribute('aria-pressed')=='true'}"
 /* The project: one tag the page keeps active. Recent lists only its items, a
@@ -619,20 +619,20 @@ static const char PAGE[] =
 "tlN+=L.length;$('count').textContent=tlN+' item'+(tlN==1?'':'s');"
 "if(L.length==tlPage){var b=document.createElement('button');b.id='tlmore';b.className='loadmore';"
 "b.textContent='Load more';b.onclick=pageMore;o.appendChild(b)}}"
-/* Tags keyset-paged too: the cursor is the (count, key) of the last row, in the
- * busiest-first order the engine emits; `more` appends the next slice. */
+/* Tags: a fresh load fetches the whole cloud once (busiest first) and `more`
+ * appends its next tlPage rows from memory. Every /api/tags call scans the
+ * whole index, so the engine is asked once per load, not once per page. */
 "async function loadTags(more){var o=$('out');var g=viewGen;"
-"if(!more){tgAfterc=0;tgAfterk='';tgN=0;o.className='';o.innerHTML=''}"
-"var u='/api/tags?count='+tlPage+(tgAfterk?'&afterc='+tgAfterc+'&afterk='+encodeURIComponent(tgAfterk):'');"
-"var L=(await(await fetch(u)).text()).split('\\n').filter(function(s){return s.length});"
+"if(!more){tgN=0;o.className='';o.innerHTML='';"
+"var t=await(await fetch('/api/tags')).text();"
 "if(g!=viewGen)return;"                                  /* the view moved on: drop it */
+"tgAll=t.split('\\n').filter(function(s){return s.length});"
+/* the project's row moves to the top (or is added there, count unknown) */
+"if(proj&&tgAll.length){var pi=-1;tgAll.forEach(function(ln,i){if(ln.slice(ln.indexOf('|')+1)==proj)pi=i});"
+"tgAll.unshift(pi>=0?tgAll.splice(pi,1)[0]:'|'+proj)}}"
+"var L=tgAll.slice(tgN,tgN+tlPage);"
 "var mb=$('tgmore');if(mb)mb.remove();"
 "if(!tgN&&!L.length){o.innerHTML='<p class=empty>No tags yet.</p>';$('count').textContent='';tgMore=false;return}"
-/* the cursor is the last row in the engine's order, before the project's row
- * moves to the top of the first page (or is added there, count unknown) */
-"if(L.length){var last=L[L.length-1],lp=last.indexOf('|');tgAfterc=+last.slice(0,lp);tgAfterk=last.slice(lp+1)}"
-"if(proj){var pi=-1;L.forEach(function(ln,i){if(ln.slice(ln.indexOf('|')+1)==proj)pi=i});"
-"if(pi>=0){var pl=L.splice(pi,1)[0];if(!more)L.unshift(pl)}else if(!more)L.unshift('|'+proj)}"
 "L.forEach(function(ln){var p=ln.indexOf('|'),c=ln.slice(0,p),k=ln.slice(p+1);"
 "var row=document.createElement('div');row.className='tagrow'+(k==proj?' proj':'');"
 "var b=document.createElement('button');b.className='taglink';b.textContent=k;"
@@ -654,7 +654,7 @@ static const char PAGE[] =
 "box.appendChild(pj);box.appendChild(u);if(c!=='')box.appendChild(x);m.onclick=function(){popToggle(m,box)};"
 "row.appendChild(b);row.appendChild(n);row.appendChild(m);row.appendChild(box);o.appendChild(row)});"
 "tgN+=L.length;$('count').textContent=tgN+' tag'+(tgN==1?'':'s');"
-"if(L.length==tlPage){tgMore=true;var mo=document.createElement('button');mo.id='tgmore';mo.className='loadmore';mo.textContent='Load more';mo.onclick=pageMore;o.appendChild(mo)}else tgMore=false}"
+"if(tgN<tgAll.length){tgMore=true;var mo=document.createElement('button');mo.id='tgmore';mo.className='loadmore';mo.textContent='Load more';mo.onclick=pageMore;o.appendChild(mo)}else tgMore=false}"
 /* The two tag-level operations, opposite in consequence: untag reuses the record
  * delete's deferred-commit + Undo window (nothing has been sent to the engine yet,
  * so the Undo really does undo); delete-under gets a modal with a preview, an escape hatch to untag, and
@@ -750,25 +750,29 @@ static const char PAGE[] =
 "if(rt.indexOf('merged')==0)note('Already saved. Moved to today.');"
 "else if(proj&&vkOut)note('Saved outside '+proj);"
 "if(syncFolderSaved())syncFolderRun(true)}"
-/* Tag autocomplete (Flutter parity): up to 6 existing tags (busiest first,
- * from /api/tags) prefix-matched case-insensitively against the token being
- * typed -- tokens split on spaces/commas, an empty token suggests nothing. A
- * tap completes the token plus a trailing space and keeps focus on the field
- * (mousedown preventDefault); DONE runs after it (the search field re-runs
- * the search, the sheet fields just keep typing). */
+/* Tag autocomplete (Flutter parity): up to 6 existing tags beginning with the
+ * token being typed, busiest first and ASCII case-insensitive, as
+ * /api/tags?prefix=&count=6 returns them; the engine reads only the index
+ * shard the prefix lives in. Tokens split on spaces/commas; an empty token
+ * suggests nothing. The fetch waits for 100 ms without typing, so fast typing
+ * asks once, for the final prefix. A tap completes the token plus a trailing
+ * space and keeps focus on the field (mousedown preventDefault); DONE runs
+ * after it (the search field re-runs the search, the sheet fields just keep
+ * typing). */
 "function tagToken(s){var i=Math.max(s.lastIndexOf(' '),s.lastIndexOf(','));return i<0?s:s.slice(i+1)}"
 "async function suggestTags(inp,row,done){var tok=tagToken(inp.value);row.innerHTML='';if(!tok)return;"
-"var t=await(await fetch('/api/tags')).text();"
+"var t=await(await fetch('/api/tags?prefix='+encodeURIComponent(tok)+'&count=6')).text();"
 "if(tagToken(inp.value)!=tok)return;"                    /* typed on: stale */
-"row.innerHTML='';var p=tok.toLowerCase(),n=0;"
-"t.split('\\n').forEach(function(ln){if(n>=6||!ln)return;var k=ln.slice(ln.indexOf('|')+1);"
-"if(k.toLowerCase().indexOf(p)!=0)return;n++;"
+"row.innerHTML='';"
+"t.split('\\n').forEach(function(ln){if(!ln)return;var k=ln.slice(ln.indexOf('|')+1);"
 "var b=document.createElement('button');b.type='button';b.className='chip';b.textContent=k;"
 "b.onmousedown=function(e){e.preventDefault()};"         /* the field keeps focus */
 "b.onclick=function(){var v=inp.value;inp.value=v.slice(0,v.length-tagToken(v).length)+k+' ';"
 "row.innerHTML='';inp.focus();if(done)done()};"
 "row.appendChild(b)})}"
-"function wireSuggest(id,rowid,done){var i=$(id);i.addEventListener('input',function(){suggestTags(i,$(rowid),done)})}"
+"function wireSuggest(id,rowid,done){var i=$(id),r=$(rowid),w=0;"
+"i.addEventListener('input',function(){r.innerHTML='';clearTimeout(w);"   /* no chip for the old token */
+"w=setTimeout(function(){suggestTags(i,r,done)},100)})}"
 "wireSuggest('q','qsuggest',function(){setView('recall')});"   /* completing = searching */
 "wireSuggest('vk','vksuggest',null);"
 "wireSuggest('edtag','edsuggest',null);"
@@ -1832,6 +1836,7 @@ static void handle(ais *a, int fd)
     int meta = 0;                         /* ?meta=1: /api/get lines carry keys too   */
     long afterc = 0;                      /* ?afterc= count cursor for /api/tags paging */
     char *afterk = nokeys;                /* ?afterk= key cursor for /api/tags paging */
+    char *tprefix = nokeys;               /* ?prefix= for /api/tags: completions only */
     char *docv = nokeys;                  /* ?v= stored blobs/ value for /api/doc     */
     char *findq = nokeys;                 /* ?q= value substring for /api/find        */
     long body_len = 0;                    /* Content-Length, for a big POST body      */
@@ -2015,6 +2020,9 @@ static void handle(ais *a, int fd)
         } else if (strncmp(query, "afterk=", 7) == 0) {
             afterk = query + 7;
             url_decode(afterk);
+        } else if (strncmp(query, "prefix=", 7) == 0) {
+            tprefix = query + 7;
+            url_decode(tprefix);
         } else if (strncmp(query, "count=", 6) == 0) {
             count = atoi(query + 6);
         } else if (strncmp(query, "from=", 5) == 0) {
@@ -2317,8 +2325,15 @@ static void handle(ais *a, int fd)
         struct sink s;
         s.a = a; s.fd = fd;
         send_head(fd, "text/plain");
-        /* keyset page over the busiest-first cloud: afterk "" = the first page */
-        ais_tags_page(a, afterc, afterk[0] ? afterk : NULL, count, tag_sink, &s);
+        if (tprefix[0]) {
+            /* ?prefix=: the busiest completions of a typed prefix, read from its
+             * shard alone (the per-keystroke call); count defaults to 6 */
+            int want = (count >= 1 && count <= AIS_TAGS_PREFIX_MAX) ? count : 6;
+            ais_tags_prefix(a, tprefix, want, tag_sink, &s);
+        } else {
+            /* keyset page over the busiest-first cloud: afterk "" = the first page */
+            ais_tags_page(a, afterc, afterk[0] ? afterk : NULL, count, tag_sink, &s);
+        }
     } else if (strcmp(method, "GET") == 0 && strcmp(path, "/api/where") == 0) {
         send_head(fd, "text/plain");          /* the current store (index dir) */
         write_all(fd, a->dir, strlen(a->dir));

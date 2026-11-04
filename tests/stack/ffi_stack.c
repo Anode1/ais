@@ -47,6 +47,12 @@ static void *work(void *unused)
         char *r = ais_embed_due(h, "2030-01-01");
         g_rc = (r == NULL || r[0] == '\0') ? 7 : 0;
         ais_embed_free(r);
+    } else if (strcmp(g_mode, "tags") == 0) {
+        /* the app's tag completions, one per keystroke: a shard readdir, a
+         * posting count per candidate, the tomb set and the top-N on the stack. */
+        char *r = ais_embed_tags_prefix(h, "a", 6);
+        g_rc = (r == NULL || r[0] == '\0') ? 8 : 0;
+        ais_embed_free(r);
     } else if (strcmp(g_mode, "links") == 0) {
         /* the app's links import: a bookmarks HTML or a links CSV, parsed in
          * its own frame, then the batched store pass. */
@@ -67,7 +73,7 @@ int main(int argc, char **argv)
     size_t kb;
 
     if (argc < 5) {
-        fprintf(stderr, "usage: %s KB INDEX FOLDER|LINKS store|resurrect|folder|links|due\n", argv[0]);
+        fprintf(stderr, "usage: %s KB INDEX FOLDER|LINKS store|resurrect|folder|links|due|tags\n", argv[0]);
         return 2;
     }
     kb = (size_t)atol(argv[1]);

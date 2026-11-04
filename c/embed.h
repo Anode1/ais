@@ -219,6 +219,15 @@ char *ais_embed_tags(void *handle);
 char *ais_embed_tags_page(void *handle, long after_count, const char *after_key,
                           int count);
 
+/* The busiest COUNT tags beginning with PREFIX as "count|key\n" lines, case
+ * folded for ASCII, Latin-1, Latin Extended-A, Greek and Cyrillic: what a tag
+ * field completes from per keystroke. Reads only
+ * the shards a match can live in, so it costs by the keys sharing the prefix,
+ * not by the index. COUNT is 1..AIS_TAGS_PREFIX_MAX (32). Free with
+ * ais_embed_free(). "" when nothing starts so; NULL only on bad args /
+ * allocation failure. */
+char *ais_embed_tags_prefix(void *handle, const char *prefix, int count);
+
 /* Record ID's keys as one space-separated string of encoded posting names
  * (lowercased, busiest first), not the stored KEYS field. Free with
  * ais_embed_free(). Returns "" (empty, not NULL) if the record has no keys or

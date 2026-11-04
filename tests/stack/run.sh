@@ -79,6 +79,12 @@ check() {                       # check <mode> <label> <limit-KB>
         "$root/c/ais" -f "$idx" --init >/dev/null
         "$root/c/ais" -f "$idx" -v "flush the tank" tank due:2020 >/dev/null
         m=due
+    elif [ "$mode" = tags ]; then
+        "$root/c/ais" -f "$idx" --init >/dev/null
+        "$root/c/ais" -f "$idx" -v "one" alpha apple >/dev/null
+        "$root/c/ais" -f "$idx" -v "two" alpha >/dev/null
+        "$root/c/ais" -f "$idx" --del 2 -y >/dev/null       # a tomb, so the id set is read
+        m=tags
     else
         "$root/c/ais" -f "$idx" --init >/dev/null
         m=$mode
@@ -98,7 +104,7 @@ check() {                       # check <mode> <label> <limit-KB>
     fi
 }
 
-# Measured floors today: 224 / 288 / 352 / 340 / 340 / 160 KB (a CSV and an HTML
+# Measured floors today: 224 / 288 / 352 / 340 / 340 / 160 / 144 KB (a CSV and an HTML
 # alike, since each parser's frame is gone before the store pass runs). Each
 # limit is one 64 KB step above its floor, exactly one AIS_LINE_MAX buffer of
 # room, so re-adding a line-sized buffer to any of these paths trips it, which
@@ -109,5 +115,6 @@ check folder    "import a shared folder"   400   # the app's auto-sync   (floor 
 check links     "import a links CSV"       404   # the app's Import bookmarks (floor 340)
 check linkshtml "import a bookmarks HTML"  404   # the same path, the HTML parser (floor 340)
 check due       "the due rows (Recent on open)" 224   # readdir + ais_get + a seek per row (floor 160)
+check tags      "tag completions (a keystroke)" 208   # shard readdir + tomb set + top-N (floor 144)
 
 exit $rc

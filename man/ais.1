@@ -336,8 +336,13 @@ first says
 on stderr. The exit status is 1 when nothing is due. No alarm, no clock time, no
 process: a due record is seen when ais is used.
 .TP
-.B \-\-tags
-Every key with how many records use it, busiest first.
+.B \-\-tags " [PREFIX]"
+Every key with how many records use it, busiest first. With
+.IR PREFIX ,
+the 32 busiest keys that begin with it, any case (Latin, Greek and Cyrillic
+letters), read from
+the keys' own shard of the index rather than the whole cloud: the call a
+tag field completes from while the user types.
 .TP
 .B \-\-compact
 Reclaim the space of deleted records and rebuild the index, then print

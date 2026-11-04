@@ -2287,6 +2287,134 @@ static void test_tags_page(void)
     scratch_rm(dir);
 }
 
+/* ---- ais_tags_prefix: the busiest keys beginning with a prefix, shard-read --- */
+static void test_tags_prefix(void)
+{
+    const char *dir = "/tmp/ais_ut_tagsprefix";
+    ais a;
+    struct tagvec v;
+    long id;
+
+    build_fixture(&a, dir);
+    /* fixture keys starting with n: network (2), nfs (1) */
+    v.n = 0;
+    CHECK(ais_tags_prefix(&a, "n", 6, collect_tag, &v) == 0, "tags_prefix: n -> 0");
+    CHECK(v.n == 2 && strcmp(v.t[0].key, "network") == 0 && v.t[0].count == 2 &&
+          strcmp(v.t[1].key, "nfs") == 0 && v.t[1].count == 1,
+          "tags_prefix: one letter spans shards, busiest first");
+    v.n = 0;
+    ais_tags_prefix(&a, "ne", 6, collect_tag, &v);
+    CHECK(v.n == 1 && strcmp(v.t[0].key, "network") == 0, "tags_prefix: two letters, one shard");
+    v.n = 0;
+    ais_tags_prefix(&a, "NET", 6, collect_tag, &v);
+    CHECK(v.n == 1 && strcmp(v.t[0].key, "network") == 0, "tags_prefix: ASCII case-insensitive");
+    v.n = 0;
+    ais_tags_prefix(&a, "network", 6, collect_tag, &v);
+    CHECK(v.n == 1, "tags_prefix: a whole key is its own completion");
+    /* c (2), compression (1), config (1): ties by key ascending; count caps the list */
+    v.n = 0;
+    ais_tags_prefix(&a, "c", 6, collect_tag, &v);
+    CHECK(v.n == 3 && strcmp(v.t[0].key, "c") == 0 && strcmp(v.t[1].key, "compression") == 0 &&
+          strcmp(v.t[2].key, "config") == 0, "tags_prefix: ais_tags order (count desc, key asc)");
+    v.n = 0;
+    ais_tags_prefix(&a, "c", 2, collect_tag, &v);
+    CHECK(v.n == 2 && strcmp(v.t[1].key, "compression") == 0, "tags_prefix: count keeps the best N");
+    v.n = 0;
+    CHECK(ais_tags_prefix(&a, "zz", 6, collect_tag, &v) == 0 && v.n == 0, "tags_prefix: no match -> empty");
+    CHECK(ais_tags_prefix(&a, "", 6, collect_tag, &v) == -1, "tags_prefix: empty prefix -> -1");
+    CHECK(ais_tags_prefix(&a, "n", 0, collect_tag, &v) == -1, "tags_prefix: count 0 -> -1");
+    CHECK(ais_tags_prefix(&a, "n", AIS_TAGS_PREFIX_MAX + 1, collect_tag, &v) == -1,
+          "tags_prefix: count past the cap -> -1");
+    /* a key whose only record is deleted leaves the completions (counts are live) */
+    id = ais_put(&a, "nebula", "the only record under it");
+    v.n = 0;
+    ais_tags_prefix(&a, "ne", 6, collect_tag, &v);
+    CHECK(v.n == 2, "tags_prefix: a new key appears at once");
+    CHECK(ais_del(&a, id) == 0, "tags_prefix: delete its record");
+    v.n = 0;
+    ais_tags_prefix(&a, "ne", 6, collect_tag, &v);
+    CHECK(v.n == 1 && strcmp(v.t[0].key, "network") == 0, "tags_prefix: a dead-only key is not offered");
+    /* non-ASCII first character: the shard is the whole character */
+    ais_put(&a, "日本語 日記", "kanji keys");
+    v.n = 0;
+    ais_tags_prefix(&a, "日", 6, collect_tag, &v);
+    CHECK(v.n == 2, "tags_prefix: a non-ASCII one-character prefix");
+    v.n = 0;
+    ais_tags_prefix(&a, "日本", 6, collect_tag, &v);
+    CHECK(v.n == 1 && strcmp(v.t[0].key, "日本語") == 0, "tags_prefix: a non-ASCII longer prefix");
+    /* a tomb past the in-memory set's cap (4096 ids) takes the per-id file
+     * check instead: same answers, dead-only key still hidden, counts live */
+    {
+        char tpath[AIS_PATH_MAX];
+        FILE *tf;
+        int i;
+        struct tagvec before, after;
+        before.n = 0;
+        ais_tags(&a, collect_tag, &before);
+        snprintf(tpath, sizeof tpath, "%s/tomb", dir);
+        tf = fopen(tpath, "a");
+        CHECK(tf != NULL, "tags: can grow the tomb");
+        for (i = 0; i < AIS_TAGS_PREFIX_MAX * 128 + 1; i++)   /* 4097 unknown ids */
+            fprintf(tf, "%d||\n", 900000 + i);
+        fclose(tf);
+        after.n = 0;
+        ais_tags(&a, collect_tag, &after);
+        CHECK(after.n == before.n, "tags: an oversized tomb lists the same keys");
+        {
+            int same = (after.n == before.n);
+            for (i = 0; same && i < before.n; i++)
+                same = (after.t[i].count == before.t[i].count &&
+                        strcmp(after.t[i].key, before.t[i].key) == 0);
+            CHECK(same, "tags: an oversized tomb gives the same counts and order");
+        }
+        v.n = 0;
+        ais_tags_prefix(&a, "ne", 6, collect_tag, &v);
+        CHECK(v.n == 1 && strcmp(v.t[0].key, "network") == 0,
+              "tags_prefix: an oversized tomb still hides the dead-only key");
+    }
+    /* non-ASCII case: keys keep it on disk (two shards), completions fold it */
+    ais_put(&a, "Рецепт", "capitalised by the keyboard");
+    ais_put(&a, "рецепт2 рис", "typed lower");
+    ais_put(&a, "Éclair éclat", "Latin-1 both ways");
+    v.n = 0;
+    ais_tags_prefix(&a, "ре", 6, collect_tag, &v);
+    CHECK(v.n == 2, "tags_prefix: lower Cyrillic prefix finds both cases");
+    v.n = 0;
+    ais_tags_prefix(&a, "Ре", 6, collect_tag, &v);
+    CHECK(v.n == 2, "tags_prefix: capitalised Cyrillic prefix finds both cases");
+    v.n = 0;
+    ais_tags_prefix(&a, "РЕЦЕП", 6, collect_tag, &v);
+    CHECK(v.n == 2, "tags_prefix: the fold covers the whole prefix");
+    v.n = 0;
+    ais_tags_prefix(&a, "р", 6, collect_tag, &v);
+    CHECK(v.n == 3, "tags_prefix: one Cyrillic letter spans both case shards");
+    v.n = 0;
+    ais_tags_prefix(&a, "éc", 6, collect_tag, &v);
+    CHECK(v.n == 2, "tags_prefix: Latin-1 folds too");
+    CHECK(key_fold_cp(0x401) == 0x451 && key_upper_cp(0x451) == 0x401, "fold: Ё <-> ё");
+    CHECK(key_fold_cp(0x3A3) == 0x3C3 && key_fold_cp(0x3A2) == 0x3A2, "fold: Σ -> σ, the gap stays");
+    CHECK(key_fold_cp(0x139) == 0x13A && key_fold_cp(0x138) == 0x138, "fold: Ĺ -> ĺ, ĸ alone");
+    CHECK(key_fold_cp(0xD7) == 0xD7 && key_upper_cp(0xF7) == 0xF7, "fold: × and ÷ are not letters");
+    CHECK(key_fold_prefix("x\xff", "X\xff") == 1 && key_fold_prefix("ab", "abc") == 0,
+          "fold_prefix: a stray byte compares as itself; a longer prefix fails");
+
+    /* the embed seam: same rows as "count|key" lines */
+    {
+        void *h = ais_embed_open(dir);
+        char *r = ais_embed_tags_prefix(h, "ne", 6);
+        CHECK(r != NULL && strcmp(r, "2|network\n") == 0, "embed tags_prefix: count|key rows");
+        ais_embed_free(r);
+        r = ais_embed_tags_prefix(h, "zz", 6);
+        CHECK(r != NULL && r[0] == '\0', "embed tags_prefix: no match -> empty string");
+        ais_embed_free(r);
+        CHECK(ais_embed_tags_prefix(h, "ne", 0) == NULL, "embed tags_prefix: bad count -> NULL");
+        ais_embed_close(h);
+    }
+
+    ais_close(&a);
+    scratch_rm(dir);
+}
+
 static void test_embed(void)
 {
     const char *dir = "/tmp/ais_ut_embed";
@@ -8066,6 +8194,7 @@ int main(void)
     printf("keyset pages (get_page / tags_page):\n");
     test_get_page();
     test_tags_page();
+    test_tags_prefix();
     printf("put_value (one paste -> one record):\n");
     test_put_value();
     test_doc_discard();

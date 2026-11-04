@@ -45,4 +45,19 @@ int key_fsdecode(const char *name, char *out, size_t outsz);
 int key_fsname_win(const char *enc, char *out, size_t outsz);
 int key_fsdecode_win(const char *name, char *out, size_t outsz);
 
+/* Case folding for MATCHING a typed prefix against stored keys. key_encode
+ * lowercases ASCII only, so a stored key keeps its non-ASCII case and a phone
+ * keyboard capitalises the first letter it types; a completion must meet
+ * both. The table covers ASCII, Latin-1, Latin Extended-A, Greek and Cyrillic;
+ * everything else folds to itself. key_utf8_cp decodes one character (an
+ * invalid byte decodes as itself, length 1); key_utf8_put encodes one, up to
+ * four bytes, returning the length. key_upper_cp is the inverse of the fold,
+ * for the other spelling of a first letter. key_fold_prefix is 1 when KEY
+ * begins with PREFIX under the fold, both encoded. */
+unsigned long key_utf8_cp(const char *s, int *len);
+int key_utf8_put(unsigned long c, char *out);
+unsigned long key_fold_cp(unsigned long c);
+unsigned long key_upper_cp(unsigned long c);
+int key_fold_prefix(const char *key, const char *prefix);
+
 #endif /* AIS_KEY_H */

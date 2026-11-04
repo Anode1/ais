@@ -188,7 +188,8 @@ tombstones anyway.
 keeps a deleted record's id until the next compaction, so counting lines reported
 tags that answer nothing: the tag list said "notes 120" while querying `notes`
 returned zero, and in the GUIs, where the tag list IS how you browse, tapping it
-gave 0 results. `ais_tags`/`ais_keys` skip tombstoned ids and omit a key whose
+gave 0 results. `ais_tags`/`ais_keys` skip tombstoned ids (the tomb is read once
+per scan into a stack set of 4096 ids; past that, the per-id file check) and omit a key whose
 every record is dead. Gated on `tomb_active()`, a single stat, so an index with
 nothing deleted pays nothing. Pruning at delete time instead would turn an O(1)
 append into a walk of every key the record carries, on the phone's hot path.
@@ -250,7 +251,12 @@ cannot be opened would leave the record in the store, in `--timeline` and in
 failing, so an index written before the refusal rebuilds rather than failing
 forever.
 The prefix keeps the index human-walkable: `ls idx/ap/` shows keys beginning
-with `ap`. No hashing: keys are human words, kept as themselves (git shards by a
+with `ap`, and it is what `ais_tags_prefix` (a tag field's completions) reads: one
+shard for a prefix of two characters or more (two when a non-ASCII first letter
+has another case, since keys keep that case on disk), the shards sharing the
+letter for one, so a keystroke costs the keys that share the prefix, not the index.
+Matching folds case with `key_fold_cp` (ASCII, Latin-1, Latin Extended-A, Greek,
+Cyrillic). No hashing: keys are human words, kept as themselves (git shards by a
 hash prefix because its keys are hashes; ours are words). (If a prefix bucket
 ever grows large, split it adaptively by the next character.) Each key being its
 own small file is also why sync is cheap: `rsync` transfers only the keys that
@@ -596,7 +602,7 @@ The two are one keystroke apart and opposite in consequence; GUI.md carries the
 locked wording every surface uses and the web-GUI obligations.
 
     ais [-f DIR] --del ID | --dump | --keys | --stats | --compact
-    ais [-f DIR] --tags | --timeline [N]   browse keys, or records newest-first (N is 1..10000)
+    ais [-f DIR] --tags [PREFIX] | --timeline [N]   browse keys (PREFIX: the 32 busiest that begin so), or records newest-first (N is 1..10000)
     ais [-f DIR] --due                     the records whose due:DATE key has come (below),
                                            each a --timeline row with the id in front
     ais [-f DIR] --import < FILE | --where | --project [KEY] | --serve [PORT]

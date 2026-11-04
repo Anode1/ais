@@ -154,3 +154,88 @@ int key_fsdecode(const char *name, char *out, size_t outsz)
     return key_fsname(name, out, outsz);
 }
 #endif
+
+/* ---- case folding for matching -------------------------------------------- */
+
+unsigned long key_utf8_cp(const char *s, int *len)
+{
+    const unsigned char *u = (const unsigned char *)s;
+    unsigned long c;
+    int n, i;
+
+    if (u[0] < 0x80)       { *len = 1; return u[0]; }
+    else if ((u[0] & 0xE0) == 0xC0) { n = 2; c = u[0] & 0x1F; }
+    else if ((u[0] & 0xF0) == 0xE0) { n = 3; c = u[0] & 0x0F; }
+    else if ((u[0] & 0xF8) == 0xF0) { n = 4; c = u[0] & 0x07; }
+    else                   { *len = 1; return u[0]; }   /* a stray byte: itself */
+    for (i = 1; i < n; i++) {
+        if ((u[i] & 0xC0) != 0x80) { *len = 1; return u[0]; }  /* truncated */
+        c = (c << 6) | (u[i] & 0x3F);
+    }
+    *len = n;
+    return c;
+}
+
+int key_utf8_put(unsigned long c, char *out)
+{
+    if (c < 0x80)      { out[0] = (char)c; return 1; }
+    if (c < 0x800)     { out[0] = (char)(0xC0 | (c >> 6));
+                         out[1] = (char)(0x80 | (c & 0x3F)); return 2; }
+    if (c < 0x10000)   { out[0] = (char)(0xE0 | (c >> 12));
+                         out[1] = (char)(0x80 | ((c >> 6) & 0x3F));
+                         out[2] = (char)(0x80 | (c & 0x3F)); return 3; }
+    out[0] = (char)(0xF0 | (c >> 18));
+    out[1] = (char)(0x80 | ((c >> 12) & 0x3F));
+    out[2] = (char)(0x80 | ((c >> 6) & 0x3F));
+    out[3] = (char)(0x80 | (c & 0x3F));
+    return 4;
+}
+
+/* Latin Extended-A pairs upper/lower by adjacent code points, even/odd in
+ * U+0100-0137 and U+014A-0177, odd/even in U+0139-0148 and U+0179-017E. The
+ * singletons (U+0130 I-dot, U+0131, U+0138, U+0149, U+0178, U+017F) fold to
+ * themselves. */
+unsigned long key_fold_cp(unsigned long c)
+{
+    if (c < 0x80)                       return (c >= 'A' && c <= 'Z') ? c + 32 : c;
+    if (c >= 0xC0 && c <= 0xDE)         return (c == 0xD7) ? c : c + 32;   /* Latin-1 */
+    if (c >= 0x100 && c <= 0x137)       return (c % 2 == 0) ? c + 1 : c;   /* Latin Ext-A */
+    if (c >= 0x139 && c <= 0x148)       return (c % 2 == 1) ? c + 1 : c;
+    if (c >= 0x14A && c <= 0x177)       return (c % 2 == 0) ? c + 1 : c;
+    if (c >= 0x179 && c <= 0x17E)       return (c % 2 == 1) ? c + 1 : c;
+    if (c >= 0x391 && c <= 0x3A9)       return (c == 0x3A2) ? c : c + 32;  /* Greek */
+    if (c >= 0x400 && c <= 0x40F)       return c + 80;                     /* Cyrillic Ѐ-Џ */
+    if (c >= 0x410 && c <= 0x42F)       return c + 32;                     /* Cyrillic А-Я */
+    return c;
+}
+
+unsigned long key_upper_cp(unsigned long c)
+{
+    if (c < 0x80)                       return (c >= 'a' && c <= 'z') ? c - 32 : c;
+    if (c >= 0xE0 && c <= 0xFE)         return (c == 0xF7) ? c : c - 32;
+    if (c >= 0x101 && c <= 0x138)       return (c % 2 == 1) ? c - 1 : c;
+    if (c >= 0x13A && c <= 0x149)       return (c % 2 == 0) ? c - 1 : c;
+    if (c >= 0x14B && c <= 0x178)       return (c % 2 == 1) ? c - 1 : c;
+    if (c >= 0x17A && c <= 0x17F)       return (c % 2 == 0) ? c - 1 : c;
+    if (c >= 0x3B1 && c <= 0x3C9)       return (c == 0x3C2) ? c : c - 32;
+    if (c >= 0x450 && c <= 0x45F)       return c - 80;
+    if (c >= 0x430 && c <= 0x44F)       return c - 32;
+    return c;
+}
+
+int key_fold_prefix(const char *key, const char *prefix)
+{
+    while (*prefix != '\0') {
+        int lk, lp;
+        unsigned long ck, cp;
+        if (*key == '\0')
+            return 0;
+        ck = key_utf8_cp(key, &lk);
+        cp = key_utf8_cp(prefix, &lp);
+        if (key_fold_cp(ck) != key_fold_cp(cp))
+            return 0;
+        key += lk;
+        prefix += lp;
+    }
+    return 1;
+}

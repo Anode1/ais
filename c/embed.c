@@ -557,6 +557,17 @@ char *ais_embed_tags(void *handle)
     return ais_embed_tags_page(handle, 0, NULL, 0);   /* whole cloud */
 }
 
+char *ais_embed_tags_prefix(void *handle, const char *prefix, int count)
+{
+    struct buf b = { NULL, 0, 0 };
+    struct emit_ctx c = { &b, 0 };
+
+    if (handle == NULL || prefix == NULL || count < 1 || count > AIS_TAGS_PREFIX_MAX)
+        return NULL;
+    ais_tags_prefix((ais *)handle, prefix, count, tag_emit, &c);   /* -1: nothing starts so, "" */
+    return buf_finish(&b, c.oom);
+}
+
 /* ---- keys: a record's CURRENT (visible) keys, by id ---------------------- */
 /* The store line's keys field records every key ATTACHED (an attach rewrites it;
  * see LAYOUT.md), not which are still live: a DETACH leaves the key in the field

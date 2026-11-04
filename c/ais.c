@@ -91,7 +91,9 @@ static int  store_set_keys(ais *a, long id, const char *keys);
 AIS_NOINLINE static int resurrect_keys(ais *a, long id, const char *want);
 static int  keys_contains(const char *keys, const char *tok);
 static int  store_restamp(ais *a, long id, const char *ts);
-static long tag_count_file(const ais *a, const char *path, int dead);
+struct tomb_ids;
+static const struct tomb_ids *tomb_ids_load(const ais *a, struct tomb_ids *t);
+static long tag_count_file(const ais *a, const char *path, const struct tomb_ids *t);
 
 /* Does an attach of TOK win against a prior detach? 1 = attach, 0 = leave the
  * detach standing, -1 on error. On the merge path ATTACH_TS is the record's
@@ -1950,13 +1952,60 @@ static int key_name_cmp(const void *pa, const void *pb)
     return strcmp((const char *)pa, (const char *)pb);
 }
 
+/* The tomb's ids, read ONCE per tag scan and searched in memory: the per-posting
+ * tomb_contains() reopened and rescanned the tomb file for every id of every key,
+ * which on a phone was the cost of the tag cloud. Fixed size, on the stack: a tomb
+ * past the cap sets OVER and the scan falls back to the per-id file check. */
+#define TOMB_IDS_MAX 4096
+struct tomb_ids { long id[TOMB_IDS_MAX]; int n; int over; };
+
+static int tomb_ids_cb(long id, const char *ts, const char *hash, void *ctx)
+{
+    struct tomb_ids *t = ctx;
+    (void)ts; (void)hash;
+    if (t->n >= TOMB_IDS_MAX) { t->over = 1; return -2; }
+    t->id[t->n++] = id;
+    return 0;
+}
+
+static int long_cmp(const void *pa, const void *pb)
+{
+    long a = *(const long *)pa, b = *(const long *)pb;
+    return (a < b) ? -1 : (a > b);
+}
+
+static int tomb_ids_has(const ais *a, const struct tomb_ids *t, long id)
+{
+    if (t->over)
+        return tomb_contains(a, id) == 1;
+    return bsearch(&id, t->id, (size_t)t->n, sizeof(long), long_cmp) != NULL;
+}
+
+/* Fill T from the tomb. Returns T when any record is deleted (count live ids
+ * only), NULL when none is (a plain line count is right). An unreadable tomb
+ * goes to the per-id file check, which then fails too and counts every id
+ * live, as it always did. */
+static const struct tomb_ids *tomb_ids_load(const ais *a, struct tomb_ids *t)
+{
+    int dead = tomb_active(a);
+    if (dead == 0)
+        return NULL;
+    t->n = 0; t->over = 0;
+    if (dead < 0 || tomb_each(a, tomb_ids_cb, t) == -1)
+        t->over = 1;
+    qsort(t->id, (size_t)t->n, sizeof(long), long_cmp);
+    return t;
+}
+
 int ais_keys(ais *a, ais_key_cb cb, void *ctx)
 {
     char idxdir[AIS_PATH_MAX];
     struct key_buf b;
     DIR *idx = NULL;
     struct dirent *pe;
-    int i, rc = 0, dead;
+    int i, rc = 0;
+    struct tomb_ids tombbuf;
+    const struct tomb_ids *tomb;
 
     b.names = NULL;
     b.n = 0;
@@ -1967,9 +2016,7 @@ int ais_keys(ais *a, ais_key_cb cb, void *ctx)
     idx = opendir(idxdir);
     if (idx == NULL)
         return 0;   /* no idx/ yet: no keys */
-    dead = tomb_active(a);
-    if (dead < 0)
-        dead = 1;
+    tomb = tomb_ids_load(a, &tombbuf);   /* NULL: nothing deleted */
 
     /* one bounded heap block holding the collected key names */
     b.names = malloc((size_t)b.cap * sizeof(b.names[0]));
@@ -2000,9 +2047,9 @@ int ais_keys(ais *a, ais_key_cb cb, void *ctx)
             /* Skip a key whose every record is deleted -- the posting keeps their
              * ids until compaction. Same rule as ais_tags; free if nothing is
              * deleted. */
-            if (dead && snprintf(kpath, sizeof kpath, "%s/%s", pdir, ke->d_name)
+            if (tomb != NULL && snprintf(kpath, sizeof kpath, "%s/%s", pdir, ke->d_name)
                             < (int)sizeof kpath &&
-                tag_count_file(a, kpath, dead) == 0)
+                tag_count_file(a, kpath, tomb) == 0)
                 continue;
             if (key_fsdecode(ke->d_name, kname, sizeof kname) != 0)
                 continue;           /* not a name this platform wrote */
@@ -2476,7 +2523,7 @@ struct tag_entry {
  * tombstone count: with nothing deleted (the common case) this is a plain newline
  * count, and only an index that has seen deletes pays for the id parse and the tomb
  * lookup. */
-static long tag_count_file(const ais *a, const char *path, int dead)
+static long tag_count_file(const ais *a, const char *path, const struct tomb_ids *t)
 {
     char buf[8192];
     FILE *fp;
@@ -2506,9 +2553,9 @@ static long tag_count_file(const ais *a, const char *path, int dead)
             }
             if (buf[i] != '\n')
                 continue;
-            if (!dead)                          /* nothing deleted: just count */
+            if (t == NULL)                      /* nothing deleted: just count */
                 n++;
-            else if (indig == 1 && tomb_contains(a, id) != 1)
+            else if (indig == 1 && !tomb_ids_has(a, t, id))
                 n++;
             id = 0; indig = 0; ndig = 0;
         }
@@ -2530,7 +2577,9 @@ int ais_tags_page(ais *a, long after_count, const char *after_key, int count,
 {
     char idxdir[AIS_PATH_MAX];
     struct tag_entry *tags = NULL;
-    int ntags = 0, cap = AIS_KEYS_LIST_MAX, i, rc = 0, emitted = 0, dead;
+    int ntags = 0, cap = AIS_KEYS_LIST_MAX, i, rc = 0, emitted = 0;
+    struct tomb_ids tombbuf;
+    const struct tomb_ids *tomb;
     DIR *idx;
     struct dirent *pe;
 
@@ -2539,9 +2588,7 @@ int ais_tags_page(ais *a, long after_count, const char *after_key, int count,
     idx = opendir(idxdir);
     if (idx == NULL)
         return 0;             /* no idx/ yet: no tags */
-    dead = tomb_active(a);    /* nothing deleted -> skip the per-id liveness check */
-    if (dead < 0)
-        dead = 1;             /* unreadable tomb: filter rather than over-report */
+    tomb = tomb_ids_load(a, &tombbuf);   /* NULL: nothing deleted, plain counts */
 
     tags = malloc((size_t)cap * sizeof(tags[0]));
     if (tags == NULL) {
@@ -2573,7 +2620,7 @@ int ais_tags_page(ais *a, long after_count, const char *after_key, int count,
                 continue;
             if (key_fsdecode(ke->d_name, tags[ntags].key, sizeof(tags[ntags].key)) != 0)
                 continue;                 /* not a name this platform wrote */
-            tags[ntags].count = tag_count_file(a, kpath, dead);
+            tags[ntags].count = tag_count_file(a, kpath, tomb);
             if (tags[ntags].count == 0)
                 continue;                 /* every record under it is deleted */
             ntags++;
@@ -2608,4 +2655,127 @@ cleanup:
 int ais_tags(ais *a, ais_tag_cb cb, void *ctx)
 {
     return ais_tags_page(a, 0, NULL, 0, cb, ctx);   /* whole cloud, no cursor */
+}
+
+/* Keep the best CAP entries of a stream in tag_cmp order, in a fixed array: the
+ * top-N a prefix lookup returns, with no heap and no sort afterwards. */
+static void tag_top_insert(struct tag_entry *top, int *n, int cap,
+                           const struct tag_entry *e)
+{
+    int i;
+
+    if (*n == cap && tag_cmp(e, &top[cap - 1]) >= 0)
+        return;                           /* no better than the worst kept */
+    i = (*n < cap) ? (*n)++ : cap - 1;    /* a free slot, or the worst's */
+    while (i > 0 && tag_cmp(e, &top[i - 1]) < 0) {
+        top[i] = top[i - 1];
+        i--;
+    }
+    top[i] = *e;
+}
+
+/* One shard idx/<p>/: every key in it that begins with ENC under key_fold_cp
+ * and still has a live record goes through tag_top_insert. */
+static void tags_prefix_dir(const ais *a, const char *pdir, const char *enc,
+                            const struct tomb_ids *tomb,
+                            struct tag_entry *top, int *n, int cap)
+{
+    DIR *pd;
+    struct dirent *ke;
+    struct tag_entry e;
+
+    pd = opendir(pdir);
+    if (pd == NULL)
+        return;                           /* no such shard: nothing starts so */
+    while ((ke = readdir(pd)) != NULL) {
+        char kpath[AIS_PATH_MAX];
+        if (ke->d_name[0] == '.')
+            continue;
+        if (key_fsdecode(ke->d_name, e.key, sizeof(e.key)) != 0)
+            continue;                     /* not a name this platform wrote */
+        if (!key_fold_prefix(e.key, enc))
+            continue;
+        if (snprintf(kpath, sizeof(kpath), "%s/%s", pdir, ke->d_name)
+                >= (int)sizeof(kpath))
+            continue;
+        e.count = tag_count_file(a, kpath, tomb);
+        if (e.count == 0)
+            continue;                     /* every record under it is deleted */
+        tag_top_insert(top, n, cap, &e);
+    }
+    closedir(pd);
+}
+
+int ais_tags_prefix(ais *a, const char *prefix, int count, ais_tag_cb cb, void *ctx)
+{
+    char enc[AIS_KEY_MAX];
+    char fs[AIS_KEY_MAX * 3];             /* Windows: a reserved byte takes three */
+    char pre[AIS_PREFIX_MAX];
+    char idxdir[AIS_PATH_MAX], pdir[AIS_PATH_MAX];
+    struct tag_entry top[AIS_TAGS_PREFIX_MAX];
+    struct tomb_ids tombbuf;
+    const struct tomb_ids *tomb;
+    size_t plen;
+    int n = 0, i, rc = 0;
+
+    if (prefix == NULL || count < 1 || count > AIS_TAGS_PREFIX_MAX)
+        return -1;
+    if (key_encode(prefix, enc, sizeof(enc)) != 0)
+        return -1;                        /* encodes to nothing: no key starts so */
+    plen = strlen(enc);
+    if (snprintf(idxdir, sizeof(idxdir), "%s/idx", a->dir) >= (int)sizeof(idxdir))
+        return -1;
+    tomb = tomb_ids_load(a, &tombbuf);    /* NULL: nothing deleted, plain counts */
+
+    if (plen == 1 && (unsigned char)enc[0] < 0x80) {
+        /* One ASCII letter: the shards are idx/<c?>/ for every second character,
+         * plus idx/<c>/ for the one-letter key itself. Walk idx/ and take the
+         * shards whose name starts with it. */
+        DIR *idx = opendir(idxdir);
+        struct dirent *pe;
+        if (idx == NULL)
+            return 0;                     /* no idx/ yet: no tags */
+        while ((pe = readdir(idx)) != NULL) {
+            char dname[AIS_KEY_MAX];
+            if (pe->d_name[0] == '.')
+                continue;
+            if (key_fsdecode(pe->d_name, dname, sizeof(dname)) != 0 || dname[0] != enc[0])
+                continue;
+            if (snprintf(pdir, sizeof(pdir), "%s/%s", idxdir, pe->d_name)
+                    >= (int)sizeof(pdir))
+                continue;
+            tags_prefix_dir(a, pdir, enc, tomb, top, &n, count);
+        }
+        closedir(idx);
+    } else {
+        /* Two characters or more, or a non-ASCII first character: the same shard
+         * post_path files the key in (the prefix of its on-disk name). A
+         * non-ASCII first letter keeps its case on disk, so its other spelling
+         * is a second shard: typed "ре" must find "Рецепт". */
+        char alt[AIS_KEY_MAX], pre2[AIS_PREFIX_MAX];
+        unsigned long c0, c1;
+        int l0;
+        if (key_fsname(enc, fs, sizeof(fs)) != 0 || key_prefix(fs, pre, sizeof(pre)) != 0)
+            return -1;
+        if (snprintf(pdir, sizeof(pdir), "%s/%s", idxdir, pre) >= (int)sizeof(pdir))
+            return -1;
+        tags_prefix_dir(a, pdir, enc, tomb, top, &n, count);
+        c0 = key_utf8_cp(enc, &l0);
+        c1 = (key_fold_cp(c0) != c0) ? key_fold_cp(c0) : key_upper_cp(c0);
+        if (c1 != c0 && c0 >= 0x80 && plen - (size_t)l0 + 4 < sizeof(alt)) {
+            int l1 = key_utf8_put(c1, alt);
+            memcpy(alt + l1, enc + l0, plen - (size_t)l0 + 1);   /* with the NUL */
+            if (key_fsname(alt, fs, sizeof(fs)) == 0 && key_prefix(fs, pre2, sizeof(pre2)) == 0 &&
+                strcmp(pre2, pre) != 0 &&
+                snprintf(pdir, sizeof(pdir), "%s/%s", idxdir, pre2) < (int)sizeof(pdir))
+                tags_prefix_dir(a, pdir, enc, tomb, top, &n, count);
+        }
+    }
+
+    for (i = 0; i < n; i++) {
+        rc = cb(top[i].key, top[i].count, ctx);
+        if (rc != 0)
+            break;
+    }
+    return rc;
 }

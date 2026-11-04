@@ -287,6 +287,10 @@ rm -f "$TT"/next_id "$TT"/off "$TT"/multi
 tags=$("$AIS" -f "$TT" --tags)
 ok    "tags: the shared key is listed"          "shared"    "$tags"
 ok    "tags: busiest first (shared, count 2)"   "2  shared" "$(printf '%s\n' "$tags" | head -1)"
+ok    "tags PREFIX: the keys beginning so"        "2  shared" "$("$AIS" -f "$TT" --tags sh)"
+ok    "tags PREFIX: ASCII case-insensitive"      "2  shared" "$("$AIS" -f "$TT" --tags SH)"
+ok    "tags PREFIX: one letter spans shards"     "beta"      "$("$AIS" -f "$TT" --tags b)"
+okempty "tags PREFIX: no key starts so -> empty"   "$("$AIS" -f "$TT" --tags zz)"
 tl=$("$AIS" -f "$TT" --timeline)
 ok    "timeline: dateless record shown first"   "(undated)" "$(printf '%s\n' "$tl" | head -1)"
 ok    "timeline: hand-pasted record survived"   "pasted with no date" "$tl"

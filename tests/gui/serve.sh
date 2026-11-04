@@ -80,6 +80,22 @@ no "tags page 2 excludes page 1 key" "pgk"      "$TG2"
 curl -s "$B/api/get?keys=pgk" | cut -d'|' -f1 | while read -r pid; do
   [ -n "$pid" ] && curl -s -X POST "$B/api/del?id=$pid" >/dev/null; done
 
+# --- /api/tags?prefix=: the autocomplete's completions, busiest first ---------
+# zeta x3, zebra x2, zinc x1, zoom x1: zeta/zebra share 'ze', zinc/zoom do not
+for v in a b c; do printf "pz zeta $v" | curl -s -X POST --data-binary @- "$B/api/put?keys=zeta" >/dev/null; done
+for v in a b;   do printf "pz zebra $v" | curl -s -X POST --data-binary @- "$B/api/put?keys=zebra" >/dev/null; done
+printf 'pz zinc' | curl -s -X POST --data-binary @- "$B/api/put?keys=zinc" >/dev/null
+printf 'pz zoom' | curl -s -X POST --data-binary @- "$B/api/put?keys=zoom" >/dev/null
+ok "prefix ze: only the ze keys, busiest first" "3|zeta 2|zebra" "$(curl -s "$B/api/tags?prefix=ze&count=6" | tr '\n' ' ')"
+ok "prefix z: spans different second letters"   "3|zeta 2|zebra 1|zinc 1|zoom" "$(curl -s "$B/api/tags?prefix=z&count=6" | tr '\n' ' ')"
+ok "prefix ZE: uppercase matches"               "3|zeta 2|zebra" "$(curl -s "$B/api/tags?prefix=ZE&count=6" | tr '\n' ' ')"
+empty "prefix zq: no keys, empty"               "$(curl -s "$B/api/tags?prefix=zq&count=6")"
+ok "count=1: one row"                           "1" "$(curl -s "$B/api/tags?prefix=z&count=1" | grep -c .)"
+ok "count=1: the busiest"                       "3|zeta" "$(curl -s "$B/api/tags?prefix=z&count=1")"
+curl -s "$B/api/find?q=pz" | cut -d'|' -f1 | while read -r pid; do
+  [ -n "$pid" ] && curl -s -X POST "$B/api/del?id=$pid" >/dev/null; done
+empty "prefix fixtures removed"                 "$(curl -s "$B/api/tags?prefix=z&count=6")"
+
 # --- CSRF: cross-origin browser calls to the API are refused ----------------
 # A page's fetch sends Sec-Fetch-Site: cross-site or same-origin; curl sends none.
 ok "csrf: cross-site GET refused"  "cross-origin request refused" \

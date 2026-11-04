@@ -777,7 +777,13 @@ int main(int argc, char **argv)
         switch (cmd) {
         case CMD_DUMP:  ais_dump(&a, stdout); break;
         case CMD_KEYS:  if (ais_keys(&a, print_key, stdout) < 0) die("keys failed"); break;
-        case CMD_TAGS:  if (ais_tags(&a, print_tag, stdout) < 0) die("tags failed"); break;
+        case CMD_TAGS:
+            if (optind < argc) {          /* --tags PREFIX: the busiest keys starting so;
+                                           * -1 is a PREFIX no key can start with: nothing */
+                ais_tags_prefix(&a, argv[optind], AIS_TAGS_PREFIX_MAX, print_tag, stdout);
+            } else if (ais_tags(&a, print_tag, stdout) < 0)
+                die("tags failed");
+            break;
         case CMD_TIMELINE: {
             int lim = 0;                                   /* optional N */
             if (optind < argc) {
