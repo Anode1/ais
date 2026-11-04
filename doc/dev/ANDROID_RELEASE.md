@@ -89,7 +89,7 @@ An account costs $25 once. A **personal** account created after late 2023 must
 pass the closed test below before production unlocks; an **organization** account
 skips it but needs D-U-N-S verification.
 
-## 4. Closed testing: 20 testers, 14 continuous days
+## 4. Closed testing: 12 testers, 14 continuous days
 
 What Google counts is installs **through Play**, so the GitHub `.apk` is
 invisible to this process and counts for nothing.
@@ -108,12 +108,18 @@ invisible to this process and counts for nothing.
   the tester who asked for a fix may be in the share that never receives it.
 - Add the testers' Google-account emails (or a Google Group) and send them the
   opt-in link; each accepts and installs AIS from Play.
-- Keep at least 20 opted in for 14 straight days. An opt-out drops the count and
+- Keep at least 12 opted in for 14 straight days. An opt-out drops the count and
   effectively pauses the clock, and opening the app a few times is the engagement
   the production review looks for.
 
-20 is a hard floor: plan on recruiting 15 to 20 real people, each on their own
-account and device. This is the Android twin of TestFlight.
+12 is a hard floor (it was 20 when AIS passed): plan on recruiting 15 real
+people, each on their own account and device. This is the Android twin of
+TestFlight.
+
+The test is over once Production unlocks, and enrolled testers see a Beta badge
+on the listing for as long as they stay on the track's tester list. AIS's track
+(Alpha, last release build 460) was paused and its tester list emptied on
+2026-11-04; everyone updates from Production.
 
 ## 5. Production
 
@@ -166,4 +172,4 @@ unconfigured runs skip it. The Gradle Play Publisher plugin
 (`com.github.triplet.play`) is the same API configured in Gradle instead.
 
 Never automatable: account ownership and identity verification, recruiting and
-keeping the 20 testers, and the first production review.
+keeping the testers, and the first production review.
