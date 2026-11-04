@@ -8,6 +8,11 @@ Before tagging, run `scripts/release-notes.sh vX.Y.Z`: it prepends the commit
 subjects since the previous tag, then edit them down to what a user needs to
 know. The old entries below the two newest are the raw subjects.
 
+## v0.3.44 (2026-11-04)
+
+- Tag suggestions and the Tags view no longer stall on a large index, in the app, the web page and the PWA. A Cyrillic or accented first letter typed in either case finds the tag: "ре" finds "Рецепт".
+- CLI: `ais --tags PREFIX` lists the 32 busiest keys beginning with PREFIX. API: `/api/tags?prefix=P&count=N`.
+
 ## v0.3.43 (2026-11-02)
 
 - A calendar icon in the Tags field, in the app, the web page and the PWA, writes a `due:YYYY-MM-DD` tag for you; a month or a year is still typed by hand. Help gains Reminders and Projects.
