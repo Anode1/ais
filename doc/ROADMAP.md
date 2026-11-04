@@ -260,6 +260,14 @@ Each is understood, loses no data, and is left for a stated reason.
   translation is a separate piece of work, wanted only when a request or the
   install figures name a country.
 
+- **An ASCII letter followed by a cased non-ASCII letter shards by bytes.**
+  `key_prefix` takes two bytes when the first character is ASCII, so `aé` and
+  `aÉ` file under two shards, each named by half a UTF-8 sequence, and a tag
+  completion typed one way does not see a key stored the other way. Rare: it
+  needs a key that mixes scripts in its first two letters. The fix is a
+  two-character prefix in `key_prefix`, which changes where such keys are filed,
+  so it comes with `--compact` re-filing them and a note in LAYOUT.md.
+
 - **An edit reaches a device that predates v0.3.21 as a second record.** The
   `E|` verb that carries an in-place edit is skipped by an older build, which
   keeps the old text beside the new until it is updated. Updating every device

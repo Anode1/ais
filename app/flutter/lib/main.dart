@@ -4292,8 +4292,10 @@ class _TagSuggestRowState extends State<TagSuggestRow> {
     if (old.controller != widget.controller) {
       old.controller.removeListener(_onText);
       widget.controller.addListener(_onText);
+    }
+    if (old.controller != widget.controller || old.lookup != widget.lookup) {
       _timer?.cancel();
-      _lookupNow();
+      _lookupNow(); // a new field or a new source: the chips follow it
     }
   }
 
