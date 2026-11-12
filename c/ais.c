@@ -8,6 +8,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>   /* the two case shards of a prefix: one directory on a case-insensitive disk */
 
 #include "ais.h"
 #include "compact.h"
@@ -2666,6 +2667,9 @@ static void tag_top_insert(struct tag_entry *top, int *n, int cap,
 
     if (*n == cap && tag_cmp(e, &top[cap - 1]) >= 0)
         return;                           /* no better than the worst kept */
+    for (i = 0; i < *n; i++)
+        if (strcmp(top[i].key, e->key) == 0)
+            return;                       /* seen: the same shard read twice */
     i = (*n < cap) ? (*n)++ : cap - 1;    /* a free slot, or the worst's */
     while (i > 0 && tag_cmp(e, &top[i - 1]) < 0) {
         top[i] = top[i - 1];
@@ -2753,21 +2757,28 @@ int ais_tags_prefix(ais *a, const char *prefix, int count, ais_tag_cb cb, void *
          * non-ASCII first letter keeps its case on disk, so its other spelling
          * is a second shard: typed "ре" must find "Рецепт". */
         char alt[AIS_KEY_MAX], pre2[AIS_PREFIX_MAX];
+        struct stat s1, s2;
         unsigned long c0, c1;
-        int l0;
+        int l0, have1;
         if (key_fsname(enc, fs, sizeof(fs)) != 0 || key_prefix(fs, pre, sizeof(pre)) != 0)
             return -1;
         if (snprintf(pdir, sizeof(pdir), "%s/%s", idxdir, pre) >= (int)sizeof(pdir))
             return -1;
         tags_prefix_dir(a, pdir, enc, tomb, top, &n, count);
+        have1 = (stat(pdir, &s1) == 0);
         c0 = key_utf8_cp(enc, &l0);
         c1 = (key_fold_cp(c0) != c0) ? key_fold_cp(c0) : key_upper_cp(c0);
         if (c1 != c0 && c0 >= 0x80 && plen - (size_t)l0 + 4 < sizeof(alt)) {
             int l1 = key_utf8_put(c1, alt);
             memcpy(alt + l1, enc + l0, plen - (size_t)l0 + 1);   /* with the NUL */
+            /* On a case-insensitive disk (macOS, Windows) idx/Р/ and idx/р/ are
+             * one directory: the same inode, skip it. Windows reports no inode;
+             * there tag_top_insert drops the second reading of each key. */
             if (key_fsname(alt, fs, sizeof(fs)) == 0 && key_prefix(fs, pre2, sizeof(pre2)) == 0 &&
                 strcmp(pre2, pre) != 0 &&
-                snprintf(pdir, sizeof(pdir), "%s/%s", idxdir, pre2) < (int)sizeof(pdir))
+                snprintf(pdir, sizeof(pdir), "%s/%s", idxdir, pre2) < (int)sizeof(pdir) &&
+                !(have1 && stat(pdir, &s2) == 0 && s1.st_ino != 0 &&
+                  s1.st_dev == s2.st_dev && s1.st_ino == s2.st_ino))
                 tags_prefix_dir(a, pdir, enc, tomb, top, &n, count);
         }
     }

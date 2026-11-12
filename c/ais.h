@@ -378,7 +378,8 @@ int ais_tags_page(ais *a, long after_count, const char *after_key, int count,
  * ASCII, Latin-1, Latin Extended-A, Greek, Cyrillic), so "Rec" finds recipe and
  * "ре" finds Рецепт. Reads only the idx/<p>/ shards a match can live in: one
  * for a prefix of two characters or more (two when its non-ASCII first letter
- * has another case), the shards sharing the first letter for a one-letter
+ * has another case and the disk keeps the cases apart), the shards sharing the
+ * first letter for a one-letter
  * prefix. The cost follows the keys that share the prefix, not the index. The whole cloud
  * is ais_tags_page. COUNT is 1..AIS_TAGS_PREFIX_MAX, held on the stack. Returns
  * 0, the callback's stop code, or -1 (bad COUNT, or a PREFIX that encodes to

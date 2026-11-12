@@ -2372,7 +2372,8 @@ static void test_tags_prefix(void)
         CHECK(v.n == 1 && strcmp(v.t[0].key, "network") == 0,
               "tags_prefix: an oversized tomb still hides the dead-only key");
     }
-    /* non-ASCII case: keys keep it on disk (two shards), completions fold it */
+    /* non-ASCII case: keys keep it on disk (two shards; one on a case-insensitive
+     * disk, where the lookup must not read it twice), completions fold it */
     ais_put(&a, "Рецепт", "capitalised by the keyboard");
     ais_put(&a, "рецепт2 рис", "typed lower");
     ais_put(&a, "Éclair éclat", "Latin-1 both ways");
@@ -2391,6 +2392,29 @@ static void test_tags_prefix(void)
     v.n = 0;
     ais_tags_prefix(&a, "éc", 6, collect_tag, &v);
     CHECK(v.n == 2, "tags_prefix: Latin-1 folds too");
+    /* a case-insensitive disk (macOS, Windows) makes idx/Р/ and idx/р/ ONE
+     * directory, which the CI runner's APFS showed: every Cyrillic key came back
+     * twice. A symlink stands in for that disk here; the lookup reads the
+     * directory once (same inode) and would drop a repeat anyway. */
+    {
+        const char *d2 = "/tmp/ais_ut_tagsprefix_ci";
+        ais b;
+        char cmd[AIS_PATH_MAX * 2];
+        scratch_rm(d2);
+        CHECK(ais_open(&b, d2) == 0, "tags_prefix(ci): scratch index opens");
+        ais_put(&b, "Рецепт Рис", "both capitalised: one shard");
+        snprintf(cmd, sizeof cmd, "ln -s '%s/idx/Р' '%s/idx/р'", d2, d2);
+        CHECK(system(cmd) == 0, "tags_prefix(ci): the lower-case shard is the upper-case one");
+        v.n = 0;
+        ais_tags_prefix(&b, "ре", 6, collect_tag, &v);
+        CHECK(v.n == 1 && strcmp(v.t[0].key, "Рецепт") == 0,
+              "tags_prefix(ci): one directory under two names is read once");
+        v.n = 0;
+        ais_tags_prefix(&b, "р", 6, collect_tag, &v);
+        CHECK(v.n == 2, "tags_prefix(ci): a one-letter prefix is not doubled either");
+        ais_close(&b);
+        scratch_rm(d2);
+    }
     CHECK(key_fold_cp(0x401) == 0x451 && key_upper_cp(0x451) == 0x401, "fold: Ё <-> ё");
     CHECK(key_fold_cp(0x3A3) == 0x3C3 && key_fold_cp(0x3A2) == 0x3A2, "fold: Σ -> σ, the gap stays");
     CHECK(key_fold_cp(0x139) == 0x13A && key_fold_cp(0x138) == 0x138, "fold: Ĺ -> ĺ, ĸ alone");

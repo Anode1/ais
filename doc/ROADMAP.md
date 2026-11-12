@@ -59,6 +59,54 @@ described one is in git at `313fb42:doc/dev/IOS_NATIVE.md`.
 A browser **PWA** (`app/`) is a parallel, lower-friction track (see
 [`dev/DISTRIBUTION.md`](dev/DISTRIBUTION.md) for the WASM/standalone plan).
 
+### Scale: a save that does not read the store
+
+Measured 2026-11-04 on Linux with a warm page cache, after the tag-completion
+fix of v0.3.44 (a keystroke reads one shard: 3.3 ms for a one-letter prefix at
+28.6k tags, 0.13 ms for two letters, independent of the record count):
+
+| Operation | 10k records | 110k records | Grows with |
+| --- | --- | --- | --- |
+| save a new value | 3.0 ms | 22.6 ms | store size, about 2.3 ms per MB |
+| open the Tags view | 13.6 ms | 111 ms | tag count, one file per tag |
+| Recent, 20 rows | 0.9 ms | 1.1 ms | nothing |
+| recall a tag of 7654 records | | 116 ms | result count |
+| `--import` of 110k `KEY -v VALUE` lines | | 17 min | records squared |
+
+An old phone pays roughly ten times these; that factor is unmeasured.
+
+Three items, in order:
+
+1. **Save without the store scan.** `ais_put_at_k` enforces "a value names one
+   record" with `store_find_value`, a parse of every store line. At a million
+   records that is a 90 MB read per save, about 200 ms here and seconds on an
+   iPhone 11, paid again by every incoming record on sync and by every line of
+   a `KEY -v VALUE` import (only the `A|` format spools its lookups; LAYOUT.md's
+   "an import does not pay it" holds for that format alone). The rule stays;
+   the lookup moves to an index: `hash/<p>/<content_hash>` holding the id,
+   written beside the postings at put, rebuilt by `--compact`, disposable like
+   `idx/`. A hit is confirmed by reading the store line back, the check
+   `feed.c`'s batch already makes (FNV-1a is not a security hash).
+   `store_find_value` stays as the fallback while the directory is absent, so an
+   index written before the change works until its next compaction.
+
+2. **The Tags view without one file per tag.** `ais_tags_page` counts every
+   posting file on each call, and its collector stops at 65,536 distinct tags
+   (`AIS_KEYS_LIST_MAX`), where the view fails. At 286k tags the scan is about
+   a second here. A `cloud` file, one `count|key` line per tag sorted busiest
+   first, rewritten by compaction and kept current by put, update and delete,
+   makes the view one read. Until then the three Tags views load the cloud once
+   per open, not per page.
+
+3. **Spool the `KEY -v VALUE` import** as the `A|` path does, unless item 1
+   makes the lookup cheap enough to leave it per line.
+
+Why now: Marina's iPhone 11 stalled for seconds at a few thousand tags, a size
+no test had run; the fixture under `tests/` is a few dozen records. A generated
+index of 100k records as a timing layer (`tests/scale/`), asserting that save,
+completion and Recent stay under fixed bounds, shows the next size-proportional
+cost before a user meets it.
+
 ### F-Droid (Android)
 
 Publish the Android build on **F-Droid**, the free/open app store: a reproducible
@@ -149,13 +197,13 @@ iOS build to TestFlight. Reaching the stores is manual:
   Production track, following [`dev/ANDROID_RELEASE.md`](dev/ANDROID_RELEASE.md);
   0.3.38 went up on 2026-10-24 and is live; 0.3.39's went up on 2026-10-28;
   0.3.40 changed nothing in the app and was not uploaded; Production is build
-  627 (0.3.43) since 2026-11-03; 0.3.44's (build 634) follows. The listing
+  627 (0.3.43) since 2026-11-03; 0.3.44's (build 635) follows. The listing
   text and graphics are `fastlane/metadata/android/en-US/`
   (`doc/public-text.txt` says what goes where). The appendix of that file is the way to let CI do the upload.
 - iOS build 556 (0.3.36) is in App Store review, resubmitted 2026-10-14 with
   the notes and recording Apple asked for ([`dev/IOS_TODO.md`](dev/IOS_TODO.md)
   section 9); release it by hand after approval, then put the App Store link
-  in the README. The v0.3.44 tag puts build 634 on TestFlight; it goes to
+  in the README. The v0.3.44 tag puts build 635 on TestFlight; it goes to
   review as an update once 556 is through.
 - The official MCP Registry: 0.3.37 was published by hand on 2026-10-15;
   from v0.3.38 the release job publishes each tag's entry itself, and
@@ -228,7 +276,7 @@ reports instead of gating (see the note in `.github/workflows/flutter.yml`), and
 the Android layers carry the real UI coverage. Fixing it would be worth it: the
 desktop harness needs no device and runs in seconds.
 
-### 4. Seven limits are knowingly left
+### 4. Eight limits are knowingly left
 
 Each is understood, loses no data, and is left for a stated reason.
 
@@ -286,6 +334,11 @@ Each is understood, loses no data, and is left for a stated reason.
   copies beside the record kept and deletes what is confirmed. Automatic it
   cannot be, because by design two records pointing at identical bytes are two
   notes.
+
+- **A save reads the whole store, and the Tags view opens one file per tag.**
+  22.6 ms and 111 ms at 110k records on a desktop, about ten times that on an
+  old phone, both growing with the index. The plan and the numbers are "Scale"
+  under Planned.
 
 - **Import bookmarks refuses Pocket's zip; the user opens it and picks the
   `part_NNNNNN.csv` files inside.** Reading the zip in place means an inflate

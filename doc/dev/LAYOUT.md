@@ -253,7 +253,8 @@ forever.
 The prefix keeps the index human-walkable: `ls idx/ap/` shows keys beginning
 with `ap`, and it is what `ais_tags_prefix` (a tag field's completions) reads: one
 shard for a prefix of two characters or more (two when a non-ASCII first letter
-has another case, since keys keep that case on disk), the shards sharing the
+has another case, since keys keep that case on disk; one again on a
+case-insensitive disk, where the two names are one directory), the shards sharing the
 letter for one, so a keystroke costs the keys that share the prefix, not the index.
 Matching folds case with `key_fold_cp` (ASCII, Latin-1, Latin Extended-A, Greek,
 Cyrillic). No hashing: keys are human words, kept as themselves (git shards by a
