@@ -99,8 +99,9 @@ uiut: all
 	@sh tests/gui/ui.sh "$(CURDIR)/c/ais"
 	@sh tests/gui/inter.sh "$(CURDIR)/c/ais"
 
-# ut = the whole suite (tests/run.sh): codeut, the FFI stack budget, cliut,
-# loopback and mesh sync, upgrade, encrypt and the due hint over a pty, uiut, the wrapper
+# ut = the whole suite (tests/run.sh): codeut, the FFI stack budget and
+# long width, cliut, loopback and mesh sync, upgrade, encrypt and the due hint
+# over a pty, uiut, the wrapper
 # build-checks and the Flutter and Android layers, each PASS / FAIL / SKIP. The
 # one command to run before committing -- a green core with a skipped GUI layer
 # is still committable.

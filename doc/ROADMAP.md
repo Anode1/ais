@@ -245,7 +245,11 @@ Each needs hardware or time rather than code:
   2026-10-09 an iPhone on 0.3.34 synced with an Android phone on 0.3.29 over
   Wi-Fi. Every other sync test went through emulator NAT
   (`10.0.2.2`) or `adb forward` over loopback. Still untested: `.local`/mDNS
-  names, a router with client isolation, and the armeabi-v7a ABI.
+  names, a router with client isolation, and the armeabi-v7a ABI. No test
+  runs the app on a 32-bit ABI: build 627 crashed there (Play reported three
+  SIGSEGV clusters, one user each) because the Dart binding declared a C
+  `long` as 64 bits. `tests/ffi-abi.sh` now refuses that declaration; the fix
+  itself has not run on a 32-bit device.
 - **The iPhone checks in [`dev/IOS_TODO.md`](dev/IOS_TODO.md) section 8**:
   a cold-start scan, the second join after the local-network alert, and the
   2026-10-09 speech fixes (one phrase per session, the Search tab brought

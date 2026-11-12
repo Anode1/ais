@@ -6,27 +6,31 @@ import 'dart:isolate';
 import 'package:ffi/ffi.dart';
 
 // --- C signatures (native) and their Dart shapes -------------------------
+// A C `long` is bound as Long, never as a fixed 64-bit integer. It is 32 bits
+// on armeabi-v7a, where a 64-bit argument shifts every argument after it, and
+// on 64-bit Windows, where a 64-bit return reads 32 bits the engine never set.
+// tests/ffi-abi.sh fails on the fixed-width type names.
 typedef _OpenC = Pointer<Void> Function(Pointer<Utf8>);
 typedef _OpenD = Pointer<Void> Function(Pointer<Utf8>);
 // (handle, keys, or_mode, after_id, count) -- keyset page for infinite scroll
-typedef _RecallPageC = Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>, Int32, Int64, Int32);
+typedef _RecallPageC = Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>, Int32, Long, Int32);
 typedef _RecallPageD = Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>, int, int, int);
 typedef _FindC = Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>);
 typedef _FindD = Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>);
-typedef _StoreC = Int64 Function(Pointer<Void>, Pointer<Utf8>, Pointer<Utf8>);
+typedef _StoreC = Long Function(Pointer<Void>, Pointer<Utf8>, Pointer<Utf8>);
 typedef _StoreD = int Function(Pointer<Void>, Pointer<Utf8>, Pointer<Utf8>);
-typedef _StoreEncC = Int64 Function(Pointer<Void>, Pointer<Utf8>, Pointer<Utf8>, Pointer<Utf8>);
+typedef _StoreEncC = Long Function(Pointer<Void>, Pointer<Utf8>, Pointer<Utf8>, Pointer<Utf8>);
 typedef _StoreEncD = int Function(Pointer<Void>, Pointer<Utf8>, Pointer<Utf8>, Pointer<Utf8>);
 typedef _RevealC = Pointer<Utf8> Function(Pointer<Utf8>, Pointer<Utf8>);
 typedef _RevealD = Pointer<Utf8> Function(Pointer<Utf8>, Pointer<Utf8>);
 typedef _DisplayC = Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>);
 typedef _DisplayD = Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>);
-typedef _DelC = Int32 Function(Pointer<Void>, Int64);
+typedef _DelC = Int32 Function(Pointer<Void>, Long);
 typedef _DelD = int Function(Pointer<Void>, int);
-typedef _UpdateC = Int32 Function(Pointer<Void>, Int64, Pointer<Utf8>);
+typedef _UpdateC = Int32 Function(Pointer<Void>, Long, Pointer<Utf8>);
 typedef _UpdateD = int Function(Pointer<Void>, int, Pointer<Utf8>);
 typedef _SetValTextC = Int32 Function(
-    Pointer<Void>, Int64, Pointer<Utf8>, Pointer<Utf8>, Pointer<Utf8>, Int32);
+    Pointer<Void>, Long, Pointer<Utf8>, Pointer<Utf8>, Pointer<Utf8>, Int32);
 typedef _SetValTextD = int Function(
     Pointer<Void>, int, Pointer<Utf8>, Pointer<Utf8>, Pointer<Utf8>, int);
 typedef _PullC = Int32 Function(Pointer<Void>, Pointer<Utf8>, Pointer<Utf8>);
@@ -36,13 +40,13 @@ typedef _ServeD = int Function(Pointer<Void>, int, Pointer<Utf8>);
 typedef _BundleC = Int32 Function(Pointer<Void>, Pointer<Utf8>);   // (handle, path)
 typedef _BundleD = int Function(Pointer<Void>, Pointer<Utf8>);
 // (handle, path, marker out-buffer, its size)
-typedef _LinksC = Int64 Function(Pointer<Void>, Pointer<Utf8>, Pointer<Utf8>, IntPtr);
+typedef _LinksC = Long Function(Pointer<Void>, Pointer<Utf8>, Pointer<Utf8>, IntPtr);
 typedef _LinksD = int Function(Pointer<Void>, Pointer<Utf8>, Pointer<Utf8>, int);
-typedef _NextIdC = Int64 Function(Pointer<Void>);                 // (handle)
+typedef _NextIdC = Long Function(Pointer<Void>);                 // (handle)
 typedef _NextIdD = int Function(Pointer<Void>);
 typedef _FoldC = Int32 Function(Pointer<Void>, Pointer<Utf8>, Int32); // (handle, path, force)
 typedef _FoldD = int Function(Pointer<Void>, Pointer<Utf8>, int);
-typedef _CountC = Int64 Function(Pointer<Void>);                  // (handle)
+typedef _CountC = Long Function(Pointer<Void>);                  // (handle)
 typedef _CountD = int Function(Pointer<Void>);
 typedef _CompactC = Int32 Function(Pointer<Void>, Int32);         // (handle, forget)
 typedef _CompactD = int Function(Pointer<Void>, int);
@@ -50,22 +54,22 @@ typedef _FreeC = Void Function(Pointer<Utf8>);
 typedef _FreeD = void Function(Pointer<Utf8>);
 typedef _CloseC = Void Function(Pointer<Void>);
 typedef _CloseD = void Function(Pointer<Void>);
-typedef _TimelineC = Pointer<Utf8> Function(Pointer<Void>, Int64, Int32, Pointer<Utf8>, Pointer<Utf8>);
+typedef _TimelineC = Pointer<Utf8> Function(Pointer<Void>, Long, Int32, Pointer<Utf8>, Pointer<Utf8>);
 typedef _TimelineD = Pointer<Utf8> Function(Pointer<Void>, int, int, Pointer<Utf8>, Pointer<Utf8>);
 // (handle, key, before, count, from, to) -- the timeline page under one tag
 typedef _TimelineKeyC = Pointer<Utf8> Function(
-    Pointer<Void>, Pointer<Utf8>, Int64, Int32, Pointer<Utf8>, Pointer<Utf8>);
+    Pointer<Void>, Pointer<Utf8>, Long, Int32, Pointer<Utf8>, Pointer<Utf8>);
 typedef _TimelineKeyD = Pointer<Utf8> Function(
     Pointer<Void>, Pointer<Utf8>, int, int, Pointer<Utf8>, Pointer<Utf8>);
 // (handle, today): the rows under an elapsed due:DATE key, id ascending
 typedef _DueC = Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>);
 typedef _DueD = Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>);
 // (handle, after_count, after_key, count) -- keyset page over the tag cloud
-typedef _TagsPageC = Pointer<Utf8> Function(Pointer<Void>, Int64, Pointer<Utf8>, Int32);
+typedef _TagsPageC = Pointer<Utf8> Function(Pointer<Void>, Long, Pointer<Utf8>, Int32);
 typedef _TagsPageD = Pointer<Utf8> Function(Pointer<Void>, int, Pointer<Utf8>, int);
 typedef _TagsPrefixC = Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>, Int32);
 typedef _TagsPrefixD = Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>, int);
-typedef _KeysC = Pointer<Utf8> Function(Pointer<Void>, Int64);
+typedef _KeysC = Pointer<Utf8> Function(Pointer<Void>, Long);
 typedef _KeysD = Pointer<Utf8> Function(Pointer<Void>, int);
 typedef _DefaultSetC = Int32 Function(Pointer<Utf8>);
 typedef _DefaultSetD = int Function(Pointer<Utf8>);
