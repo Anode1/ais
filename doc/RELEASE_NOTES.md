@@ -8,6 +8,10 @@ Before tagging, run `scripts/release-notes.sh vX.Y.Z`: it prepends the commit
 subjects since the previous tag, then edit them down to what a user needs to
 know. The old entries below the two newest are the raw subjects.
 
+## v0.3.46 (2026-11-12)
+
+- The app no longer crashes on 32-bit ARM Android phones (armeabi-v7a). It crashed there on opening Recent and on any action on a record.
+
 ## v0.3.45 (2026-11-11)
 
 v0.3.44 was tagged on 2026-11-04 and published nothing: its build failed on macOS, where the completions listed every Cyrillic or accented tag twice. This release carries its content with that fixed.
