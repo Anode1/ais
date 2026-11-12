@@ -82,7 +82,8 @@ PKG=com.aisindex.ais
 app="$root/app/flutter"
 adb32() { "$ADB" -s "$serial" "$@"; }
 rlog=$(mktemp "${TMPDIR:-/tmp}/ais_rel32.XXXXXX")
-( cd "$app" && flutter build apk --release --target-platform android-arm ) >"$rlog" 2>&1 || {
+. "$root/tests/gui/android-apk.sh"
+apk_build "$app" release android-arm "$rlog" || {
     echo "  FAIL release APK build"; tail -15 "$rlog" | sed 's/^/       /'; rm -f "$rlog"; exit 1; }
 rm -f "$rlog"
 apk="$app/build/app/outputs/flutter-apk/app-release.apk"

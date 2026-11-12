@@ -84,7 +84,8 @@ case "$abi" in
     *)           echo "  SKIP unsupported device ABI '$abi'"; exit 77 ;;
 esac
 
-( cd "$app" && flutter build apk --debug --target-platform "$plat" ) >"$work/build.log" 2>&1 || {
+. "$root/tests/gui/android-apk.sh"
+apk_build "$app" debug "$plat" "$work/build.log" || {
     echo "  FAIL could not build the debug APK"; sed 's/^/       /' "$work/build.log" | tail -8; exit 1; }
 "$ADB" install -r "$app/build/app/outputs/flutter-apk/app-debug.apk" >"$work/install.log" 2>&1 || {
     echo "  FAIL could not install the APK"; sed 's/^/       /' "$work/install.log" | tail -5; exit 1; }

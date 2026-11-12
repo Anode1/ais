@@ -12,6 +12,7 @@
 # a non-skipped layer FAILS.
 #
 # Usage:  make ut        (or  sh tests/run.sh)
+#         AIS_UT_ANDROID32=1 make ut     also the app on 32-bit ARM, whatever changed
 
 root=$(cd "$(dirname "$0")/.." && pwd)
 AIS="$root/c/ais"
@@ -49,6 +50,7 @@ layer fail_core "due hint over a pty"   sh "$root/tests/pty/due.sh" "$AIS"
 layer fail_core "engine on a 32-bit ABI" sh "$root/tests/abi32/run.sh"
 
 echo "GUI  (one engine, many front-ends; absent toolchain = SKIP)"
+AIS_APK_RUN="ut$$"; export AIS_APK_RUN      # the Android layers share one APK build
 sub
 layer fail_gui  "web api (uiut)"        sh "$root/tests/gui/serve.sh" "$AIS"
 layer fail_gui  "web render (uiut)"     sh "$root/tests/gui/ui.sh" "$AIS"
@@ -59,7 +61,17 @@ layer fail_gui  "windows installer"     sh "$root/tests/gui/windows-installer.sh
 layer fail_gui  "flutter app"           sh "$root/tests/gui/flutter.sh"
 layer fail_gui  "flutter sync ui"       sh "$root/tests/gui/flutter-sync.sh"
 layer fail_gui  "flutter add/edit/delete" sh "$root/tests/gui/flutter-crud-android.sh"
-layer fail_gui  "flutter on 32-bit ARM"  sh "$root/tests/gui/flutter-crud-android32.sh"
+# Two more Gradle builds and a pass under ARM translation: run when asked
+# (AIS_UT_ANDROID32=1, which the release gate sets) or when the FFI seam differs
+# from the last tag. tests/ffi-abi.sh guards the binding on every run.
+last=$(git -C "$root" describe --tags --abbrev=0 2>/dev/null)
+if [ -n "${AIS_UT_ANDROID32:-}" ] || [ -z "$last" ] ||
+   ! git -C "$root" diff --quiet "$last" -- app/flutter/lib/ais_ffi.dart c/embed.h c/embed.c; then
+    layer fail_gui  "flutter on 32-bit ARM"  sh "$root/tests/gui/flutter-crud-android32.sh"
+else
+    printf '  %-26s %s\n' "flutter on 32-bit ARM" "SKIP (FFI seam unchanged since $last; AIS_UT_ANDROID32=1 runs it)"
+    skips=$((skips + 1))
+fi
 layer fail_gui  "flutter sync (android)" sh "$root/tests/gui/flutter-sync-android.sh"
 layer fail_gui  "flutter host (android)"  sh "$root/tests/gui/flutter-host-android.sh"
 

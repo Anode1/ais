@@ -105,9 +105,10 @@ case $abi in
     armeabi-v7a) tp=android-arm ;;
     *)           echo "  SKIP unknown device ABI $abi"; exit 77 ;;
 esac
-( cd "$app" && flutter build apk --debug --target-platform "$tp" ) >"$work/build.log" 2>&1 || {
+. "$root/tests/gui/android-apk.sh"
+apk_build "$app" debug "$tp" "$work/build.log" || {
     echo "  FAIL APK build"; tail -15 "$work/build.log" | sed 's/^/       /'; exit 1; }
-apk=$(find "$app/build/app/outputs" -name '*debug*.apk' | head -1)
+apk="$app/build/app/outputs/flutter-apk/app-debug.apk"
 [ -n "$apk" ] || { echo "  FAIL no APK produced"; exit 1; }
 "$ADB" install -r -d "$apk" >"$work/install.log" 2>&1 || {
     echo "  FAIL could not install the APK"; tail -5 "$work/install.log" | sed 's/^/       /'; exit 1; }

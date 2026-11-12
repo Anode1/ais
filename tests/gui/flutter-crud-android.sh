@@ -157,9 +157,10 @@ tp=${AIS_ANDROID_TP:-$tp}
 # AIS_ANDROID_MODE=profile builds compiled code: the debug build's JIT dies
 # inside the ARM translator. A profile APK is still debuggable, so run-as works.
 mode=${AIS_ANDROID_MODE:-debug}
-( cd "$app" && flutter build apk "--$mode" --target-platform "$tp" ) >"$work/build.log" 2>&1 || {
+. "$root/tests/gui/android-apk.sh"
+apk_build "$app" "$mode" "$tp" "$work/build.log" || {
     echo "  FAIL APK build"; tail -15 "$work/build.log" | sed 's/^/       /'; exit 1; }
-apk=$(find "$app/build/app/outputs" -name "*$mode*.apk" | head -1)
+apk="$app/build/app/outputs/flutter-apk/app-$mode.apk"
 [ -n "$apk" ] || { echo "  FAIL no APK produced"; exit 1; }
 # The debug APK carries libais.so for every ABI, so the device would pick its
 # own; --abi makes it install and run the one under test.

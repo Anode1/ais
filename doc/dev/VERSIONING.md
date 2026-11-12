@@ -123,7 +123,8 @@ The tag is the release. Everything below exists because the tag is also what
 five other files quote, and a tag pushed before they agree ships a build that
 names the previous version.
 
-**1. Gate.** `make ut` green, then `make codeut-asan` and `make codeut-ubsan`
+**1. Gate.** `AIS_UT_ANDROID32=1 make ut` green (the variable adds the app on
+32-bit ARM, which an everyday run skips while the FFI seam is unchanged), then `make codeut-asan` and `make codeut-ubsan`
 (the pre-push hook and `sanitizers.yml` run the last two, `make hooks` installs
 the hook). Build from a clean tree: `AIS_VERSION` is stamped at compile time, and only
 `main.o` is rebuilt when it changes (`version.stamp`), so `ais.o`, which holds
