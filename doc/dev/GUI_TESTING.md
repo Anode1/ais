@@ -188,6 +188,16 @@ normal `make ut` stays fast; `AIS_ANDROID_BOOT=1` lets it start one.
 
 ---
 
+### The app on a 32-bit ABI (`flutter-crud-android32.sh`)
+
+Every device and emulator here was 64-bit, and the app crashed on
+armeabi-v7a from the first binding (June 2026) until v0.3.46. The script's header has the setup and the
+three traps: no usable 32-bit ARM image (an Android 11 x86_64 image translates
+ARM instead), the debug build's JIT dies in the translator (build `--profile`),
+and the APK carries every ABI's `libais.so`, so `adb install` needs `--abi`.
+The three older Android layers pin `ANDROID_SERIAL` to the first device,
+since a bare `adb` refuses when two emulators are attached.
+
 ## Making a GUI test worth having
 
 - **Prove it can fail.** A test that has never gone red is a claim, not a test.

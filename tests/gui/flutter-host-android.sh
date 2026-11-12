@@ -38,6 +38,9 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 dev=$("$ADB" devices | awk 'NR>1 && $2=="device" {print $1; exit}')
+# Two devices attached (the 32-bit emulator beside the usual one) make a bare
+# adb refuse; pin the first unless the caller named one.
+[ -z "$dev" ] || { ANDROID_SERIAL=${ANDROID_SERIAL:-$dev}; export ANDROID_SERIAL; }
 if [ -z "$dev" ]; then
     [ -n "${AIS_ANDROID_BOOT:-}" ] || { echo "  SKIP no device attached (AIS_ANDROID_BOOT=1 to boot an AVD)"; exit 77; }
     [ -x "$EMU" ] || { echo "  SKIP no emulator and no device attached"; exit 77; }

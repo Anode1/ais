@@ -38,6 +38,9 @@ command -v flutter >/dev/null 2>&1 || { echo "  SKIP no flutter SDK"; exit 77; }
 # An already-running device is used as-is; otherwise boot an AVD headlessly.
 booted_here=""
 dev=$("$ADB" devices | awk 'NR>1 && $2=="device" {print $1; exit}')
+# Two devices attached (the 32-bit emulator beside the usual one) make a bare
+# adb refuse; pin the first unless the caller named one.
+[ -z "$dev" ] || { ANDROID_SERIAL=${ANDROID_SERIAL:-$dev}; export ANDROID_SERIAL; }
 if [ -z "$dev" ]; then
     # Booting an AVD costs a minute or two, too much for every `make ut`: with
     # nothing attached this SKIPs, and AIS_ANDROID_BOOT=1 starts one.

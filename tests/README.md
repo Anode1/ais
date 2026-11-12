@@ -18,6 +18,7 @@
 | mesh sync (four devices) | the merge across a four-device topology with saves, edits, deletes, detaches and re-attaches between legs | `tests/mesh.sh` |
 | encrypt over a pty | the CLI `-e` prompts end to end over a real pseudo-terminal | `tests/pty/encrypt.sh` |
 | due hint over a pty | the one-line `N due` hint a recall or `--timeline` prints only at a terminal | `tests/pty/due.sh` |
+| engine on a 32-bit ABI | codeut, cliut and the web API suite built and run in an i386 Debian container, where `long`, `size_t` and `time_t` are 32 bits as on an armeabi-v7a phone; SKIPs without Docker | `tests/abi32/` |
 
 **GUI: the front-ends over the one engine. May lag; absent toolchain SKIPs.**
 
@@ -32,6 +33,7 @@
 | flutter app | `dart analyze` of `app/flutter` (FFI binding + widgets); `flutter test`: the widget tests, which pin each view's RESTING behaviour through the page's injected hooks (tag cloud, recall, find, tag lookup), not only the last change. The Tags view once had none, a design change filtered it by stale search text, and a reader found it, not a gate | `tests/gui/flutter.sh` | analyze if Dart present; else SKIP |
 | flutter sync ui | the real Host/Join UI on the **Linux desktop** build, against a CLI peer | `tests/gui/flutter-sync.sh` | needs bash, flutter, xdotool, ImageMagick `import`, xvfb-run, clang, ninja, libgtk-3-dev; else SKIP |
 | flutter add/edit/delete | the everyday loop on the **shipped APK**: add a record through the Add sheet, change its tags, delete it, each step asserted against the app's own index | `tests/gui/flutter-crud-android.sh` | needs adb + an attached device; else SKIP |
+| flutter on 32-bit ARM | the same loop with the **armeabi-v7a** build, on an x86_64 emulator image that translates ARM: the app as a 32-bit phone runs it. With a C `long` bound as 64 bits it dies at launch | `tests/gui/flutter-crud-android32.sh` | needs the device `emulator-5556` or the AVD `ais_test32` (setup in the script); else SKIP |
 | flutter sync (android) | the real Host/Join UI on the **shipped APK**: `ais://` pairing link, then records cross both ways | `tests/gui/flutter-sync-android.sh` | needs adb + an attached device; else SKIP |
 | flutter host (android) | the app as the sync HOST: a CLI peer joins from the address and token it shows | `tests/gui/flutter-host-android.sh` | needs adb + an attached device; else SKIP |
 

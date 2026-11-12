@@ -101,7 +101,7 @@ uiut: all
 
 # ut = the whole suite (tests/run.sh): codeut, the FFI stack budget, the
 # banned names, cliut, loopback and mesh sync, upgrade, encrypt and the due hint
-# over a pty, uiut, the wrapper
+# over a pty, the engine again in a 32-bit container, uiut, the wrapper
 # build-checks and the Flutter and Android layers, each PASS / FAIL / SKIP. The
 # one command to run before committing -- a green core with a skipped GUI layer
 # is still committable.

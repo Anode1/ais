@@ -45,6 +45,9 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 dev=$("$ADB" devices | awk 'NR>1 && $2=="device" {print $1; exit}')
+# Two devices attached (the 32-bit emulator beside the usual one) make a bare
+# adb refuse; pin the first unless the caller named one.
+[ -z "$dev" ] || { ANDROID_SERIAL=${ANDROID_SERIAL:-$dev}; export ANDROID_SERIAL; }
 if [ -z "$dev" ]; then
     [ -n "${AIS_ANDROID_BOOT:-}" ] || { echo "  SKIP no device attached (AIS_ANDROID_BOOT=1 to boot an AVD)"; exit 77; }
     [ -x "$EMU" ] || { echo "  SKIP no emulator and no device attached"; exit 77; }
@@ -147,12 +150,28 @@ case $abi in
     armeabi-v7a) tp=android-arm ;;
     *)           echo "  SKIP unknown device ABI $abi"; exit 77 ;;
 esac
-( cd "$app" && flutter build apk --debug --target-platform "$tp" ) >"$work/build.log" 2>&1 || {
+# AIS_ANDROID_TP builds for another ABI the device also runs: android-arm on an
+# x86_64 image that translates ARM is the app as a 32-bit phone runs it
+# (flutter-crud-android32.sh).
+tp=${AIS_ANDROID_TP:-$tp}
+# AIS_ANDROID_MODE=profile builds compiled code: the debug build's JIT dies
+# inside the ARM translator. A profile APK is still debuggable, so run-as works.
+mode=${AIS_ANDROID_MODE:-debug}
+( cd "$app" && flutter build apk "--$mode" --target-platform "$tp" ) >"$work/build.log" 2>&1 || {
     echo "  FAIL APK build"; tail -15 "$work/build.log" | sed 's/^/       /'; exit 1; }
-apk=$(find "$app/build/app/outputs" -name '*debug*.apk' | head -1)
+apk=$(find "$app/build/app/outputs" -name "*$mode*.apk" | head -1)
 [ -n "$apk" ] || { echo "  FAIL no APK produced"; exit 1; }
-"$ADB" install -r -d "$apk" >"$work/install.log" 2>&1 || {
+# The debug APK carries libais.so for every ABI, so the device would pick its
+# own; --abi makes it install and run the one under test.
+"$ADB" install -r -d ${AIS_ANDROID_WANT_ABI:+--abi "$AIS_ANDROID_WANT_ABI"} "$apk" >"$work/install.log" 2>&1 || {
     echo "  FAIL could not install the APK"; tail -5 "$work/install.log" | sed 's/^/       /'; exit 1; }
+if [ -n "${AIS_ANDROID_WANT_ABI:-}" ]; then
+    got=$("$ADB" shell dumpsys package "$PKG" 2>/dev/null | tr -d '\r' |
+          sed -n 's/.*primaryCpuAbi=//p' | head -1)
+    [ "$got" = "$AIS_ANDROID_WANT_ABI" ] || {
+        echo "  FAIL the app installed as '$got', not $AIS_ANDROID_WANT_ABI"; exit 1; }
+    echo "  ok   the app runs as $got"
+fi
 
 "$ADB" shell am force-stop "$PKG" >/dev/null 2>&1 || true
 "$ADB" shell monkey -p "$PKG" -c android.intent.category.LAUNCHER 1 >/dev/null 2>&1

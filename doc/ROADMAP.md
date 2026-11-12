@@ -245,11 +245,13 @@ Each needs hardware or time rather than code:
   2026-10-09 an iPhone on 0.3.34 synced with an Android phone on 0.3.29 over
   Wi-Fi. Every other sync test went through emulator NAT
   (`10.0.2.2`) or `adb forward` over loopback. Still untested: `.local`/mDNS
-  names, a router with client isolation, and the armeabi-v7a ABI. No test
-  runs the app on a 32-bit ABI: build 627 crashed there (Play reported three
-  SIGSEGV clusters, one user each) because the Dart binding declared a C
-  `long` as 64 bits. `tests/ffi-abi.sh` now refuses that declaration; the fix
-  itself has not run on a 32-bit device. The folder pass that drops itself
+  names, a router with client isolation, and a real armeabi-v7a phone. Build
+  627 crashed on that ABI (Play reported three SIGSEGV clusters, one user
+  each) because the Dart binding declared a C `long` as 64 bits.
+  `tests/ffi-abi.sh` refuses that declaration, `tests/abi32/` runs the engine
+  in a 32-bit container, and `tests/gui/flutter-crud-android32.sh` runs the
+  armeabi-v7a app under an emulator's ARM translation, where the old binding
+  dies at launch. Translation is not the hardware. The folder pass that drops itself
   when a sync took the handle during its wait (v0.3.47) has no test either:
   it needs the engine library and an Android storage tree in one widget test.
 - **The iPhone checks in [`dev/IOS_TODO.md`](dev/IOS_TODO.md) section 8**:

@@ -3,7 +3,8 @@
 #
 #   CORE  the must-pass gate: engine tests (codeut), the FFI stack budget, the
 #         banned names, CLI black-box (cliut), loopback and mesh sync, upgrade,
-#         encrypt and the due hint over a pty.
+#         encrypt and the due hint over a pty, and the engine, CLI and web API
+#         again in a 32-bit container.
 #   GUI   the front-ends over the one engine. A layer whose toolchain is absent
 #         (no curl/Chrome, no MinGW, no Flutter SDK) reports SKIP, not FAIL.
 #
@@ -34,7 +35,7 @@ layer() {  # layer FAILVAR LABEL CMD...
 bar; echo "ais test suite"; bar
 make -C "$root/c" >/dev/null 2>&1 || { echo "build FAILED -- aborting"; exit 1; }
 
-echo "CORE  (engine, cli, ffi, sync, upgrade, pty -- the must-pass gate; keep green)"
+echo "CORE  (engine, cli, ffi, sync, upgrade, pty, 32-bit -- the must-pass gate; keep green)"
 sub
 layer fail_core "engine (codeut)"       make -C "$root/c" ut
 layer fail_core "ffi stack budget"     sh "$root/tests/stack/run.sh"
@@ -45,6 +46,7 @@ layer fail_core "mesh sync (four devices)" sh "$root/tests/mesh.sh" "$AIS"
 layer fail_core "upgrade from a release" sh "$root/tests/upgrade.sh" "$AIS"
 layer fail_core "encrypt over a pty"    sh "$root/tests/pty/encrypt.sh" "$AIS"
 layer fail_core "due hint over a pty"   sh "$root/tests/pty/due.sh" "$AIS"
+layer fail_core "engine on a 32-bit ABI" sh "$root/tests/abi32/run.sh"
 
 echo "GUI  (one engine, many front-ends; absent toolchain = SKIP)"
 sub
@@ -57,6 +59,7 @@ layer fail_gui  "windows installer"     sh "$root/tests/gui/windows-installer.sh
 layer fail_gui  "flutter app"           sh "$root/tests/gui/flutter.sh"
 layer fail_gui  "flutter sync ui"       sh "$root/tests/gui/flutter-sync.sh"
 layer fail_gui  "flutter add/edit/delete" sh "$root/tests/gui/flutter-crud-android.sh"
+layer fail_gui  "flutter on 32-bit ARM"  sh "$root/tests/gui/flutter-crud-android32.sh"
 layer fail_gui  "flutter sync (android)" sh "$root/tests/gui/flutter-sync-android.sh"
 layer fail_gui  "flutter host (android)"  sh "$root/tests/gui/flutter-host-android.sh"
 
