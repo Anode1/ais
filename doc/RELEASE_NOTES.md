@@ -8,6 +8,14 @@ Before tagging, run `scripts/release-notes.sh vX.Y.Z`: it prepends the commit
 subjects since the previous tag, then edit them down to what a user needs to
 know. The old entries below the two newest are the raw subjects.
 
+## v0.3.47 (2026-11-12)
+
+- App: a note holding bytes that are not UTF-8 (a bookmarks CSV saved by Excel, for one) no longer stops Recent and the Tags view from opening; the byte shows as "�".
+- App, Android: a folder sync no longer writes while a Join, an import or a locked save is running, or after the library was switched.
+- App: Edit text on one paragraph over 4,095 bytes shows the whole paragraph after saving. The preview of a long Cyrillic or CJK document ends on a whole letter, in the app and on the web page.
+- CLI: `--add ID` and `--set ID` refuse an ID that is not a number from 1 with exit 2, as `--update` and `--del` do.
+- Imported bookmarks dated after 2038 keep the import time on a 32-bit phone.
+
 ## v0.3.46 (2026-11-12)
 
 - The app no longer crashes on 32-bit ARM Android phones (armeabi-v7a). It crashed there on opening Recent and on any action on a record.

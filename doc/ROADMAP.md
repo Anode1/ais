@@ -183,7 +183,7 @@ there. An intent filter for `.aisb` (VIEW and SEND) that routes to the same
 merge, behind the confirmation the `ais://sync` link already shows, removes
 that step.
 
-## Known gaps, as of v0.3.46
+## Known gaps, as of v0.3.47
 
 Four things are open: the release chores that remain, what is barely verified, a
 test that cannot see, and defects left on purpose with the reason for each.
@@ -197,13 +197,13 @@ iOS build to TestFlight. Reaching the stores is manual:
   Production track, following [`dev/ANDROID_RELEASE.md`](dev/ANDROID_RELEASE.md);
   0.3.38 went up on 2026-10-24 and is live; 0.3.39's went up on 2026-10-28;
   0.3.40 changed nothing in the app and was not uploaded; Production is build
-  627 (0.3.43) since 2026-11-03; 0.3.46's (build 638) follows. The listing
+  627 (0.3.43) since 2026-11-03; 0.3.47's (build 640) follows. The listing
   text and graphics are `fastlane/metadata/android/en-US/`
   (`doc/public-text.txt` says what goes where). The appendix of that file is the way to let CI do the upload.
 - iOS build 556 (0.3.36) is in App Store review, resubmitted 2026-10-14 with
   the notes and recording Apple asked for ([`dev/IOS_TODO.md`](dev/IOS_TODO.md)
   section 9); release it by hand after approval, then put the App Store link
-  in the README. The v0.3.46 tag puts build 638 on TestFlight; it goes to
+  in the README. The v0.3.47 tag puts build 640 on TestFlight; it goes to
   review as an update once 556 is through.
 - The official MCP Registry: 0.3.37 was published by hand on 2026-10-15;
   from v0.3.38 the release job publishes each tag's entry itself, and
@@ -249,7 +249,9 @@ Each needs hardware or time rather than code:
   runs the app on a 32-bit ABI: build 627 crashed there (Play reported three
   SIGSEGV clusters, one user each) because the Dart binding declared a C
   `long` as 64 bits. `tests/ffi-abi.sh` now refuses that declaration; the fix
-  itself has not run on a 32-bit device.
+  itself has not run on a 32-bit device. The folder pass that drops itself
+  when a sync took the handle during its wait (v0.3.47) has no test either:
+  it needs the engine library and an Android storage tree in one widget test.
 - **The iPhone checks in [`dev/IOS_TODO.md`](dev/IOS_TODO.md) section 8**:
   a cold-start scan, the second join after the local-network alert, and the
   2026-10-09 speech fixes (one phrase per session, the Search tab brought
