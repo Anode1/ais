@@ -8,7 +8,9 @@ Before tagging, run `scripts/release-notes.sh vX.Y.Z`: it prepends the commit
 subjects since the previous tag, then edit them down to what a user needs to
 know. The old entries below the two newest are the raw subjects.
 
-## v0.3.44 (2026-11-04)
+## v0.3.45 (2026-11-11)
+
+v0.3.44 was tagged on 2026-11-04 and published nothing: its build failed on macOS, where the completions listed every Cyrillic or accented tag twice. This release carries its content with that fixed.
 
 - Tag suggestions and the Tags view no longer stall on a large index, in the app, the web page and the PWA. A Cyrillic or accented first letter typed in either case finds the tag: "ре" finds "Рецепт".
 - CLI: `ais --tags PREFIX` lists the 32 busiest keys beginning with PREFIX. API: `/api/tags?prefix=P&count=N`.
