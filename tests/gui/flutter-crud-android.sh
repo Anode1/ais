@@ -297,6 +297,21 @@ sleep 10
 ui_dump | grep -q "$DUE" && bad "due: the due record is back after its delete" \
                          || ok "due: the due record is gone"
 
+# AIS_CRUD_KEEP=1 leaves ONE live record behind, on purpose: the 32-bit layer
+# then opens this index with the release build, and an empty Recent never
+# reaches the code that crashed there. Only for a device the caller owns.
+if [ -n "${AIS_CRUD_KEEP:-}" ]; then
+    KEEP="KEEP-$$"
+    tap_text 'Add something' 3 || tap_text 'Add' 5 || { echo "  FAIL no Add control for the kept record"; exit 1; }
+    sleep 3
+    type_into 1 "$KEEP" || { echo "  FAIL could not type the kept record"; exit 1; }
+    type_into 2 "$TAG1" || { echo "  FAIL could not type the kept record's tag"; exit 1; }
+    tap_text 'Save' 5 || { echo "  FAIL no Save button for the kept record"; exit 1; }
+    sleep 4
+    store | grep -q "$KEEP" && ok "keep: one live record is left for the next check" \
+                            || bad "keep: the kept record never reached the index"
+fi
+
 if [ "$fail" -eq 0 ]; then
     echo "  ok   flutter add / update / delete / due on Android (asserted on the index)"
     exit 0

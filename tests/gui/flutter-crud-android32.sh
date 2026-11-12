@@ -25,6 +25,9 @@
 # attached, AIS_ANDROID_BOOT=1 boots the AVD $AIS_AVD32 (default ais_test32)
 # headless on that port.
 #
+# After that pass it installs the armeabi-v7a RELEASE build and asserts it
+# launches and stays up (see the last section).
+#
 # Exit 0 = pass, 1 = fail, 77 = SKIP (no device, no AVD, no toolchain).
 
 root=$(cd "$(dirname "$0")/../.." && pwd)
@@ -65,4 +68,51 @@ fi
 "$ADB" -s "$serial" shell am broadcast -a android.intent.action.CLOSE_SYSTEM_DIALOGS >/dev/null 2>&1
 
 ANDROID_SERIAL=$serial AIS_ANDROID_TP=android-arm AIS_ANDROID_WANT_ABI=armeabi-v7a \
-    AIS_ANDROID_MODE=profile sh "$root/tests/gui/flutter-crud-android.sh"
+    AIS_ANDROID_MODE=profile AIS_CRUD_KEEP=1 sh "$root/tests/gui/flutter-crud-android.sh" || exit $?
+
+# --- the release build itself: launch and stay up ----------------------------
+# The profile build above is compiled like the release but is not the file
+# users install. A release APK is not debuggable, so nothing here can read its
+# index; the check is that it opens Recent and is still alive, which is what
+# build 627 could not do on this ABI. It installs over the profile build (a
+# local release is signed with the debug key when android/key.properties is
+# absent) and so opens the index the pass above left, which holds one live
+# record (AIS_CRUD_KEEP): on an empty index the old binding did not crash.
+PKG=com.aisindex.ais
+app="$root/app/flutter"
+adb32() { "$ADB" -s "$serial" "$@"; }
+rlog=$(mktemp "${TMPDIR:-/tmp}/ais_rel32.XXXXXX")
+( cd "$app" && flutter build apk --release --target-platform android-arm ) >"$rlog" 2>&1 || {
+    echo "  FAIL release APK build"; tail -15 "$rlog" | sed 's/^/       /'; rm -f "$rlog"; exit 1; }
+rm -f "$rlog"
+apk="$app/build/app/outputs/flutter-apk/app-release.apk"
+[ -f "$apk" ] || { echo "  FAIL no release APK at $apk"; exit 1; }
+if ! adb32 install -r -d --abi armeabi-v7a "$apk" >/dev/null 2>&1; then
+    # another signing key (key.properties present): replace the app outright
+    adb32 uninstall "$PKG" >/dev/null 2>&1
+    adb32 install --abi armeabi-v7a "$apk" >/dev/null 2>&1 || {
+        echo "  FAIL could not install the release APK"; exit 1; }
+fi
+pkginfo=$(adb32 shell dumpsys package "$PKG" 2>/dev/null | tr -d '\r')
+case $pkginfo in
+    *primaryCpuAbi=armeabi-v7a*) ;;
+    *) echo "  FAIL the release APK did not install as armeabi-v7a"; exit 1 ;;
+esac
+case $pkginfo in
+    *DEBUGGABLE*) echo "  FAIL the installed APK is debuggable, so it is not the release build"; exit 1 ;;
+esac
+adb32 logcat -c >/dev/null 2>&1
+adb32 shell am force-stop "$PKG" >/dev/null 2>&1
+adb32 shell monkey -p "$PKG" -c android.intent.category.LAUNCHER 1 >/dev/null 2>&1
+sleep 20
+pid=$(adb32 shell pidof "$PKG" 2>/dev/null | tr -d '\r')
+died=$(adb32 logcat -d 2>/dev/null | grep -c "Fatal signal.*$PKG\|Fatal signal.*om.aisindex")
+# leave the device as the next run expects it: the release build would refuse
+# run-as, and a differently signed one would refuse the profile install
+adb32 uninstall "$PKG" >/dev/null 2>&1
+if [ -z "$pid" ] || [ "$died" -gt 0 ]; then
+    echo "  FAIL the armeabi-v7a release build did not stay up (pid '$pid', $died fatal signals)"
+    adb32 shell am broadcast -a android.intent.action.CLOSE_SYSTEM_DIALOGS >/dev/null 2>&1
+    exit 1
+fi
+echo "  ok   the armeabi-v7a release build opens Recent and stays up"
