@@ -1,5 +1,6 @@
 // ais_ffi.dart -- Dart FFI binding to the AIS C engine (see ../../../c/embed.h).
 // Marshals strings across the boundary; same `id|value` contract as the CLI.
+import 'dart:convert' show utf8;
 import 'dart:ffi';
 import 'dart:io' show Platform;
 import 'dart:isolate';
@@ -10,6 +11,13 @@ import 'package:ffi/ffi.dart';
 // on armeabi-v7a, where a 64-bit argument shifts every argument after it, and
 // on 64-bit Windows, where a 64-bit return reads 32 bits the engine never set.
 // tests/ffi-abi.sh fails on the fixed-width type names.
+/// An engine string as Dart text. The engine stores any bytes (a CSV imported
+/// in a Windows codepage, a record synced from a Latin-1 terminal), and the
+/// strict decode threw on one such record for the whole page it was on, which
+/// the app reported as an index it could not open. A bad byte becomes U+FFFD.
+String engineText(Pointer<Utf8> p) =>
+    utf8.decode(p.cast<Uint8>().asTypedList(p.length), allowMalformed: true);
+
 typedef _OpenC = Pointer<Void> Function(Pointer<Utf8>);
 typedef _OpenD = Pointer<Void> Function(Pointer<Utf8>);
 // (handle, keys, or_mode, after_id, count) -- keyset page for infinite scroll
@@ -124,7 +132,7 @@ class AisIndex {
     final buf = calloc<Uint8>(4096);
     try {
       final rc = _locate(buf.cast<Utf8>(), 4096);
-      return rc == 0 ? buf.cast<Utf8>().toDartString() : null;
+      return rc == 0 ? engineText(buf.cast<Utf8>()) : null;
     } finally {
       calloc.free(buf);
     }
@@ -152,7 +160,7 @@ class AisIndex {
     try {
       final p = _lib.lookupFunction<_VersionC, _VersionD>('ais_version')();
       if (p == nullptr) return null;
-      final v = p.toDartString();
+      final v = engineText(p);
       return v.isEmpty ? null : v;
     } catch (_) {
       return null; // symbol absent (ArgumentError) or the library would not load
@@ -222,15 +230,13 @@ class AisEngine {
   /// page on. A page shorter than [count] means there are no more. count <= 0
   /// returns the whole match set (what [recall] does).
   List<Hit> recallPage(String keys, {bool orMode = false, int after = 0, int count = 0}) {
-    // try/finally frees the input AND the engine's result buffer even if
-    // toDartString() throws on invalid UTF-8.
+    // try/finally frees the input AND the engine's result buffer on a throw.
     Pointer<Utf8> k = nullptr, p = nullptr;
     try {
       k = keys.toNativeUtf8();
       p = _recallPage(_h, k, orMode ? 1 : 0, after, count);
       if (p == nullptr) return const [];
-      return p
-          .toDartString()
+      return engineText(p)
           .split('\n')
           .where((l) => l.isNotEmpty)
           .map((l) {
@@ -253,8 +259,7 @@ class AisEngine {
       n = needle.toNativeUtf8();
       p = _find(_h, n);
       if (p == nullptr) return const [];
-      return p
-          .toDartString()
+      return engineText(p)
           .split('\n')
           .where((l) => l.isNotEmpty)
           .map((l) {
@@ -289,7 +294,7 @@ class AisEngine {
         p = _timelineKeyFn(_h, k, before, count, f, t);
       }
       if (p == nullptr) return const [];
-      return _rows(p.toDartString());
+      return _rows(engineText(p));
     } finally {
       if (f != nullptr) calloc.free(f);
       if (t != nullptr) calloc.free(t);
@@ -318,7 +323,7 @@ class AisEngine {
     try {
       p = _dueFn(_h, d);
       if (p == nullptr) return const [];
-      return _rows(p.toDartString());
+      return _rows(engineText(p));
     } finally {
       calloc.free(d);
       if (p != nullptr) _free(p);
@@ -337,7 +342,7 @@ class AisEngine {
       ak = afterKey.toNativeUtf8();
       p = _tagsPageFn(_h, afterCount, ak, count);
       if (p == nullptr) return const [];
-      return _tagRows(p.toDartString());
+      return _tagRows(engineText(p));
     } finally {
       if (ak != nullptr) calloc.free(ak);
       if (p != nullptr) _free(p);
@@ -353,7 +358,7 @@ class AisEngine {
       pf = prefix.toNativeUtf8();
       p = _tagsPrefixFn(_h, pf, count);
       if (p == nullptr) return const [];
-      return _tagRows(p.toDartString());
+      return _tagRows(engineText(p));
     } finally {
       if (pf != nullptr) calloc.free(pf);
       if (p != nullptr) _free(p);
@@ -373,7 +378,7 @@ class AisEngine {
     final p = _keysFn(_h, id);
     if (p == nullptr) return '';
     try {
-      return p.toDartString();
+      return engineText(p);
     } finally {
       _free(p);
     }
@@ -417,7 +422,7 @@ class AisEngine {
       p = passphrase.toNativeUtf8();
       r = _reveal(v, p);
       if (r == nullptr) return null;
-      return r.toDartString();
+      return engineText(r);
     } finally {
       if (v != nullptr) calloc.free(v);
       if (p != nullptr) calloc.free(p);
@@ -434,7 +439,7 @@ class AisEngine {
       v = value.toNativeUtf8();
       p = _displayFn(_h, v);
       if (p == nullptr) return value;
-      return p.toDartString();
+      return engineText(p);
     } finally {
       if (v != nullptr) calloc.free(v);
       if (p != nullptr) _free(p);
@@ -475,7 +480,7 @@ class AisEngine {
         p = passphrase.toNativeUtf8();
         r = fn(v, p);
         if (r == nullptr) return null;
-        return r.toDartString();
+        return engineText(r);
       } finally {
         if (v != nullptr) calloc.free(v);
         if (p != nullptr) calloc.free(p);
@@ -585,7 +590,7 @@ class AisEngine {
       final m = calloc<Uint8>(32);
       try {
         final rc = fn(Pointer<Void>.fromAddress(addr), p, m.cast<Utf8>(), 32);
-        return (rc, rc >= 0 ? m.cast<Utf8>().toDartString() : '');
+        return (rc, rc >= 0 ? engineText(m.cast<Utf8>()) : '');
       } finally {
         calloc.free(p);
         calloc.free(m);
@@ -694,14 +699,14 @@ class AisEngine {
   /// -1 a mismatch, an unknown id or an IO error. The store is left untouched
   /// on every failure.
   (int, String?) setValueText(int id, String oldValue, String text) {
-    const outSz = 4096; // a stored line or a blobs/ path, never near this
+    const outSz = 65536; // AIS_LINE_MAX: the longest line the engine stores inline
     Pointer<Utf8> o = nullptr, n = nullptr;
     final out = calloc<Uint8>(outSz).cast<Utf8>();
     try {
       o = oldValue.toNativeUtf8();
       n = text.toNativeUtf8();
       final rc = _setValueText(_h, id, o, n, out, outSz);
-      return (rc, rc == 0 ? out.toDartString() : null);
+      return (rc, rc == 0 ? engineText(out) : null);
     } finally {
       if (o != nullptr) calloc.free(o);
       if (n != nullptr) calloc.free(n);

@@ -915,7 +915,8 @@ int main(int argc, char **argv)
             long id; int j;
             if (optind >= argc) die("--add needs an ID");
             if (nval == 0) die("--add needs at least one -v VALUE");
-            id = atol(argv[optind]);
+            id = id_operand("add", argv[optind]);
+            if (id < 0) { ais_close(&a); return 2; }
             for (j = 0; j < nval; j++) {
                 int arc = ais_add(&a, id, values[j]);
                 if (arc == -2)
@@ -935,7 +936,8 @@ int main(int argc, char **argv)
             long id;
             if (optind >= argc) die("--set needs an ID");
             if (nval != 2) die("--set needs -v OLD_VALUE -v NEW_VALUE");
-            id = atol(argv[optind]);
+            id = id_operand("set", argv[optind]);
+            if (id < 0) { ais_close(&a); return 2; }
             /* Doc-aware: a multi-line NEW_VALUE goes to a fresh blob, editing a
              * document means OLD_VALUE is its "blobs/" path. The refusal below
              * names the likely cause, not a certain one. */

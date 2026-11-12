@@ -2846,6 +2846,13 @@ static void test_doc_display(void)
     CHECK(n < 0 && strcmp(out, "blobs/nope.txt") == 0,
           "doc_display: an absent blob falls back to the path (viewer badges it)");
 
+    /* a cap that lands inside a 2-byte letter drops the whole letter */
+    idd = ais_put_value(&a, "cyr", "ab\n\xD0\xB6\xD0\xB6\xD0\xB6\xD0\xB6");
+    g_pv[0] = '\0'; ais_record(&a, idd, grab_value, NULL);
+    n = ais_doc_display(&a, g_pv, out, 12);
+    CHECK(n == 10 && strcmp(out, "ab\n\xD0\xB6\xD0\xB6\xE2\x80\xA6") == 0,
+          "doc_display: a truncated document is cut on a character, not a byte");
+
     ais_close(&a);
     scratch_rm(dir);
 }
@@ -7840,6 +7847,54 @@ static void test_import_links_pocket(void)
 
 /* Instapaper: Unread/Archive/Starred are buckets (no key), a user folder is a
  * key, marker instapaper, Timestamp sets the save time. */
+/* A "created" epoch past 2038 keeps its date where time_t holds it, and is
+ * unknown (the import time) on a 32-bit time_t; it is never cast into 1963. */
+static void test_import_links_epoch_2100(void)
+{
+    const char *dir = "/tmp/ais_ut_lnk_2100";
+    struct tlvec v;
+    const struct tlrow *r;
+    long n, sk;
+    ais a;
+
+    scratch_rm(dir);
+    ais_open(&a, dir);
+    n = links_import(&a, "URL,Title,Selection,Folder,Timestamp\r\n"
+                         "https://f.example/1,Far,,Unread,4102444800\r\n", &sk);
+    r = tl_row(&a, &v, "https://f.example/1");
+    CHECK(n == 1 && r != NULL &&
+          (sizeof(time_t) >= 8 ? strncmp(r->ts, "2100-01-01", 10) == 0
+                               : strncmp(r->ts, "19", 2) != 0),
+          "links epoch: 4102444800 is 2100-01-01, or unknown on a 32-bit time_t");
+    ais_close(&a);
+    scratch_rm(dir);
+}
+
+/* The edit path hands back the stored line whole when the caller's buffer is
+ * AIS_LINE_MAX, which is what the app passes; 4096 bytes cut it unmarked. */
+static void test_set_value_text_returns_whole_line(void)
+{
+    const char *dir = "/tmp/ais_ut_setval_whole";
+    static char line[5001], nv[AIS_LINE_MAX], small[4096];
+    long id;
+    ais a;
+
+    memset(line, 'x', sizeof line - 1);
+    line[sizeof line - 1] = '\0';
+    scratch_rm(dir);
+    ais_open(&a, dir);
+    id = ais_put_value(&a, "k", "short");
+    CHECK(ais_set_value_text(&a, id, "short", line, nv, sizeof nv) == 0 &&
+          strcmp(nv, line) == 0,
+          "set_value_text: a 5000-byte line comes back whole in AIS_LINE_MAX");
+    CHECK(ais_set_value_text(&a, id, line, "short", small, sizeof small) == 0 &&
+          ais_set_value_text(&a, id, "short", line, small, sizeof small) == 0 &&
+          strlen(small) == sizeof small - 1,
+          "set_value_text: a 4096-byte buffer receives it cut (why the app passes more)");
+    ais_close(&a);
+    scratch_rm(dir);
+}
+
 static void test_import_links_instapaper(void)
 {
     const char *dir = "/tmp/ais_ut_lnk_insta";
@@ -8372,6 +8427,8 @@ int main(void)
     test_import_parse_helpers();
     test_import_links_pocket();
     test_import_links_instapaper();
+    test_import_links_epoch_2100();
+    test_set_value_text_returns_whole_line();
     test_import_links_raindrop();
     test_import_links_header_words();
     test_import_links_shapes();

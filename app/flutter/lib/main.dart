@@ -1774,6 +1774,9 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
     await _tryFolder(dir, messenger);
   }
 
+  // _folderPass's code for a pass abandoned before it wrote (see the re-check).
+  static const int _folderPassDropped = 1;
+
   // One folder pass, returning the engine's code (0 synced; see syncFolderProblem).
   // A path goes straight to the engine. A tree is mirrored: peer bundles in,
   // prune to what the tree holds, the engine's pass on the mirror, our own
@@ -1792,6 +1795,10 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
       names = null;
     }
     if (names == null) return -4;
+    // The await above let the UI run: a Join, an import or an encrypted save
+    // may now hold the handle on another isolate, or the library was switched
+    // and ENG is closed. The pass is dropped; the next save or open runs one.
+    if (_syncBusy || !identical(_ais, eng)) return _folderPassDropped;
     pruneMirror(mirror, names.whereType<String>().toSet());
     final code = eng.syncFolderCode(mirror.path, force: force);
     if (code != 0) return code;
@@ -1815,6 +1822,10 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
       {bool force = false}) async {
     if (_ais == null) return;
     final code = await _folderPass(dir, force: force);
+    if (code == _folderPassDropped) {
+      _syncBlocks();
+      return;
+    }
     final problem = AisEngine.syncFolderProblem(code);
     if (!mounted) return;
     if (problem == null) {
@@ -1875,7 +1886,7 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
       _folderPassAgain = false;
       _runFolderSync(silent: true);
     }
-    if (_ais == null) return;
+    if (_ais == null || code == _folderPassDropped) return;
     final problem = AisEngine.syncFolderProblem(code);
     if (problem == null) {
       // Clear on ANY success, so the same problem is reported again if it returns.
@@ -4191,7 +4202,14 @@ class _RecallPageState extends State<RecallPage> with WidgetsBindingObserver {
       if (h != null) {
         id = h.store(k, value);
       } else if (encrypt) {
-        id = await _ais!.storeEncryptedAsync(k, value, passphrase);
+        // The seal runs off-isolate on the shared handle: hold the sync flag so
+        // a scanned pairing link or a folder pass cannot write beside it.
+        _syncBusy = true;
+        try {
+          id = await _ais!.storeEncryptedAsync(k, value, passphrase);
+        } finally {
+          _syncBusy = false;
+        }
       } else {
         id = _ais!.store(k, value);
       }

@@ -271,6 +271,8 @@ static void ts_from_cell(const char *cell, char *out, size_t osz)
         struct tm *gt;
         if (v > 100000000000LL)
             v /= 1000;                             /* milliseconds */
+        if (sizeof(time_t) < 8 && v > 0x7fffffffLL)
+            return;                                /* past 2038 on a 32-bit time_t: unknown */
         t = (time_t)v;
         gt = gmtime(&t);
         if (gt == NULL || strftime(out, osz, "%Y-%m-%dT%H:%M:%SZ", gt) == 0)

@@ -233,6 +233,13 @@ aid=$("$AIS" -f "$AD" -v firstlink note)
 out=$("$AIS" -f "$AD" note)
 ok "add: original value still present"     "firstlink"  "$out"
 ok "add: added value attached to record"   "secondlink" "$out"
+# an ID that is not a number from 1 is a usage error, as --update and --del treat it
+out=$("$AIS" -f "$AD" --add abc -v x 2>&1); arc=$?
+ok "add: a non-numeric ID is refused"      "needs a record ID" "$out"
+ok "add: and exits 2"                      "^2$" "$arc"
+out=$("$AIS" -f "$AD" --set 0 -v firstlink -v x 2>&1); arc=$?
+ok "set: ID 0 is refused"                  "needs a record ID" "$out"
+ok "set: and exits 2"                      "^2$" "$arc"
 "$AIS" -f "$AD" -v third other >/dev/null
 "$AIS" -f "$AD" -y --del 2 >/dev/null
 st=$("$AIS" -f "$AD" --stats)

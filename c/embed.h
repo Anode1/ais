@@ -19,8 +19,9 @@
  *   its timeout (300 s) waiting for a peer, and ais_embed_sync_pull blocks for
  *   the transfer. The Flutter app runs them on a background isolate.
  * - ONE CALLER PER HANDLE. The handle is single-writer, so a recall issued while
- *   a sync runs on the same handle is a data race. Calls serialize onto one
- *   queue.
+ *   a sync runs on the same handle is a data race. The Flutter app has no
+ *   queue: it holds _syncBusy for every off-isolate call and refuses or drops
+ *   a writer that would run beside one.
  * - ONE SYNC AT A TIME. A scanned pairing link can arrive while a sync is
  *   already running; the Flutter app keeps a _syncBusy flag and refuses the
  *   second.

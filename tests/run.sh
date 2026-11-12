@@ -1,8 +1,8 @@
 #!/bin/sh
 # run.sh -- the whole ais test suite (what `make ut` runs), in two groups:
 #
-#   CORE  the must-pass gate: engine tests (codeut), the FFI stack budget and
-#         long width, CLI black-box (cliut), loopback and mesh sync, upgrade,
+#   CORE  the must-pass gate: engine tests (codeut), the FFI stack budget, the
+#         banned names, CLI black-box (cliut), loopback and mesh sync, upgrade,
 #         encrypt and the due hint over a pty.
 #   GUI   the front-ends over the one engine. A layer whose toolchain is absent
 #         (no curl/Chrome, no MinGW, no Flutter SDK) reports SKIP, not FAIL.
@@ -38,7 +38,7 @@ echo "CORE  (engine, cli, ffi, sync, upgrade, pty -- the must-pass gate; keep gr
 sub
 layer fail_core "engine (codeut)"       make -C "$root/c" ut
 layer fail_core "ffi stack budget"     sh "$root/tests/stack/run.sh"
-layer fail_core "ffi long width"       sh "$root/tests/ffi-abi.sh"
+layer fail_core "banned names (grep)"  sh "$root/tests/ffi-abi.sh"
 layer fail_core "cli (cliut)"           sh "$root/tests/cli.sh" "$AIS"
 layer fail_core "two-way sync (loopback)" sh "$root/tests/sync.sh" "$AIS"
 layer fail_core "mesh sync (four devices)" sh "$root/tests/mesh.sh" "$AIS"

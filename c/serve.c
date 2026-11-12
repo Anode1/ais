@@ -2008,15 +2008,15 @@ static void handle(ais *a, int fd)
             force = (query[6] == '1');       /* sync a remembered folder that is now empty */
 #endif
         } else if (strncmp(query, "id=", 3) == 0) {
-            reqid = atol(query + 3);
+            reqid = strtol(query + 3, NULL, 10);
         } else if (strncmp(query, "before=", 7) == 0) {
-            before = atol(query + 7);
+            before = strtol(query + 7, NULL, 10);
         } else if (strncmp(query, "after=", 6) == 0) {
-            after = atol(query + 6);
+            after = strtol(query + 6, NULL, 10);
         } else if (strncmp(query, "meta=", 5) == 0) {
             meta = (query[5] == '1');
         } else if (strncmp(query, "afterc=", 7) == 0) {
-            afterc = atol(query + 7);
+            afterc = strtol(query + 7, NULL, 10);
         } else if (strncmp(query, "afterk=", 7) == 0) {
             afterk = query + 7;
             url_decode(afterk);

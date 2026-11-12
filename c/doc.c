@@ -398,6 +398,17 @@ long ais_doc_display(const ais *a, const char *value, char *out, size_t outsz)
     if (got == cap && cap > 0) {           /* more remained? probe one byte */
         char probe;
         if (fread(&probe, 1, 1, f) == 1) {
+            /* cut on a character: drop a UTF-8 sequence the cap split, which
+             * a strict decoder (Dart's) refuses for the whole text */
+            size_t i = got, need;
+            while (i > 0 && got - i < 3 && ((unsigned char)out[i - 1] & 0xC0) == 0x80)
+                i--;
+            if (i > 0 && (unsigned char)out[i - 1] >= 0xC0) {
+                unsigned char lead = (unsigned char)out[i - 1];
+                need = lead >= 0xF0 ? 4 : lead >= 0xE0 ? 3 : 2;
+                if (got - (i - 1) < need)
+                    got = i - 1;
+            }
             memcpy(out + got, "\xE2\x80\xA6", 3);
             got += 3;
         }
