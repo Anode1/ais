@@ -204,7 +204,9 @@ path, and that is what is matched.
 .B \-\-add \fIID\fR \-v \fIVALUE\fR
 Attach another value to record ID (repeat
 .B \-v
-for several).
+for several). An ID that is not a number from 1 is a usage error (exit 2),
+here and for
+.BR \-\-set .
 .TP
 .B \-\-set \fIID\fR \-v \fIOLD\fR \-v \fINEW\fR
 Replace ONE of record ID's values, in place: the record keeps its id, its place in
