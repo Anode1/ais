@@ -57,7 +57,13 @@ notes,links,bookmarks,tags,offline,index,search,private,reminders,passwords,plai
 Support URL:    https://github.com/Anode1/ais/issues
 Marketing URL:  https://github.com/Anode1/ais
 Copyright:      2026 Vasili Gavrilov
-Review notes:   fastlane/metadata/ios/en-US/review_information/notes.txt
+Review notes:   carried over from the previous version; the long form Apple
+                asked for in October is
+                fastlane/metadata/ios/en-US/review_information/notes.txt
+
+What's New: one line per item from doc/RELEASE_NOTES.md since the version on
+the store, app items only. Paste from a file, never from a terminal: the store
+keeps every line break.
 
 Description:
 

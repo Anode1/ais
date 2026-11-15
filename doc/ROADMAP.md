@@ -205,8 +205,8 @@ iOS build to TestFlight. Reaching the stores is manual:
   (`doc/public-text.txt` says what goes where). The appendix of that file is the way to let CI do the upload.
 - iOS build 556 (0.3.36) is on the App Store since 2026-11-15
   ([`dev/IOS_TODO.md`](dev/IOS_TODO.md) section 9). Each later build goes to
-  review by hand as a new version; build 640 (0.3.47) is on TestFlight and
-  not yet submitted.
+  review by hand as a new version; build 640 (0.3.47) was submitted on
+  2026-11-15.
 - The official MCP Registry: 0.3.37 was published by hand on 2026-10-15;
   from v0.3.38 the release job publishes each tag's entry itself, and
   [`dev/VERSIONING.md`](dev/VERSIONING.md) step 5 has the fallback.
