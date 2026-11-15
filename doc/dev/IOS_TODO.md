@@ -201,5 +201,5 @@ A sync between the iPhone (0.3.34) and an Android phone (0.3.29) succeeded on
       links it.
 - [x] 2026-11-15: version 0.3.47 (build 640) submitted as an update with
       the listing text from `doc/public-text.txt`, which drops the
-      shared-folder line and "iPad"; manual release, Waiting for Review.
-- [ ] Verdict on 0.3.47, then Release This Version.
+      shared-folder line and "iPad"; automatic release, Waiting for Review.
+- [ ] Verdict on 0.3.47; it releases itself on approval.
