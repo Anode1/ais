@@ -193,4 +193,11 @@ A sync between the iPhone (0.3.34) and an Android phone (0.3.29) succeeded on
 - [x] Reply sent 2026-10-14 with the notes text and the video.
 - [x] The same text and video under App Review Information > Notes;
       resubmitted 2026-10-14, Waiting for Review.
-- [ ] Verdict. Release is manual after approval.
+- [x] Rejected 2026-10-29 under Guideline 2.3.10, Accurate Metadata: the
+      promotional text named Android. Rewritten without another platform's
+      name and build 556 resubmitted the same day.
+- [x] Approved 2026-11-13: build 556 is eligible for distribution.
+- [ ] Release This Version on the version page (release is manual). The
+      store page answered 404 on 2026-11-15.
+- [ ] Then the App Store link in the README, and the current TestFlight
+      build submitted as an update.

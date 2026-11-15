@@ -104,7 +104,7 @@ The measurement is the paper *Key Lookup versus File Search for a Coding Agent*,
 
 > **<https://play.google.com/store/apps/details?id=com.aisindex.ais>**
 
-**iPhone**: the same app, built for iOS and in TestFlight; the App Store link lands here once the listing is approved.
+**iPhone**: the same app, built for iOS and in TestFlight; the App Store listing passed review on 2026-11-13 and its link lands here once it is released.
 
 **macOS and Linux**: one line installs or updates:
 
