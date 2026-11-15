@@ -46,8 +46,8 @@ The **Android** app has shipped (above); **iOS** is the next focus. The same
 (`ais_engine.podspec`), and CI builds the app unsigned on macOS and launches it
 on a simulator, where the engine opens an index. A tag builds, signs and
 uploads the app to TestFlight, where it is installed for internal testers and
-has synced with an Android phone (Known gaps 2). What is left is the manual
-release of the approved App Store build and the device checks in
+has synced with an Android phone (Known gaps 2). The App Store has build 556
+since 2026-11-15. What is left is the device checks in
 [`dev/IOS_TODO.md`](dev/IOS_TODO.md) section 8. No interface work, since the
 screens are shared with Android, and no core changes.
 Issue [#1](https://github.com/Anode1/ais/issues/1) carries the brief: what is
@@ -203,11 +203,10 @@ iOS build to TestFlight. Reaching the stores is manual:
   release. The listing
   text and graphics are `fastlane/metadata/android/en-US/`
   (`doc/public-text.txt` says what goes where). The appendix of that file is the way to let CI do the upload.
-- iOS build 556 (0.3.36) passed App Store review on 2026-11-13
-  ([`dev/IOS_TODO.md`](dev/IOS_TODO.md) section 9) and waits for its manual
-  release; the App Store link goes in the README once the page is up. The
-  v0.3.47 tag puts build 640 on TestFlight; it goes to review as an update
-  after 556 is released.
+- iOS build 556 (0.3.36) is on the App Store since 2026-11-15
+  ([`dev/IOS_TODO.md`](dev/IOS_TODO.md) section 9). Each later build goes to
+  review by hand as a new version; build 640 (0.3.47) is on TestFlight and
+  not yet submitted.
 - The official MCP Registry: 0.3.37 was published by hand on 2026-10-15;
   from v0.3.38 the release job publishes each tag's entry itself, and
   [`dev/VERSIONING.md`](dev/VERSIONING.md) step 5 has the fallback.

@@ -197,7 +197,8 @@ A sync between the iPhone (0.3.34) and an Android phone (0.3.29) succeeded on
       promotional text named Android. Rewritten without another platform's
       name and build 556 resubmitted the same day.
 - [x] Approved 2026-11-13: build 556 is eligible for distribution.
-- [ ] Release This Version on the version page (release is manual). The
-      store page answered 404 on 2026-11-15.
-- [ ] Then the App Store link in the README, and the current TestFlight
-      build submitted as an update.
+- [x] Released by hand 2026-11-15; the store page is up and the README
+      links it.
+- [ ] The current TestFlight build submitted as an update. Its description
+      must drop the shared-folder line, which the app hides on iOS, and the
+      promotional text must drop iPad (the build is iPhone only).
