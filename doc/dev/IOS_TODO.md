@@ -199,6 +199,6 @@ A sync between the iPhone (0.3.34) and an Android phone (0.3.29) succeeded on
 - [x] Approved 2026-11-13: build 556 is eligible for distribution.
 - [x] Released by hand 2026-11-15; the store page is up and the README
       links it.
-- [ ] The current TestFlight build submitted as an update. Its description
-      must drop the shared-folder line, which the app hides on iOS, and the
-      promotional text must drop iPad (the build is iPhone only).
+- [ ] The current TestFlight build submitted as an update. Every field's text
+      is in `doc/public-text.txt`; the 0.3.36 listing still has the
+      shared-folder line and "iPad" in the promotional text.

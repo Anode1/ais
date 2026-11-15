@@ -44,7 +44,22 @@ APP STORE LISTING (iOS)
 -----------------------
 (paste into App Store Connect: the description field; the Play text minus what
 iOS does not have: share-to-AIS, folder sync and keep-a-copy, replaced by the
-file export line. Keep it in step with full_description.txt.)
+file export line. Keep it in step with full_description.txt. No field may name
+another mobile platform or iPad: Apple rejected the promotional text for
+"Android" under Guideline 2.3.10, and the build is iPhone only.)
+
+Promotional text:
+The same notes on your iPhone and on your computer. No account, no server.
+
+Keywords:
+notes,links,bookmarks,tags,offline,index,search,private,reminders,passwords,plaintext
+
+Support URL:    https://github.com/Anode1/ais/issues
+Marketing URL:  https://github.com/Anode1/ais
+Copyright:      2026 Vasili Gavrilov
+Review notes:   fastlane/metadata/ios/en-US/review_information/notes.txt
+
+Description:
 
 AIS keeps the things you want to find again: links, notes, file paths, commands, passwords. You save each one under tags you choose, and find it later by typing those tags.
 
