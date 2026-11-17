@@ -46,8 +46,8 @@ The **Android** app has shipped (above); **iOS** is the next focus. The same
 (`ais_engine.podspec`), and CI builds the app unsigned on macOS and launches it
 on a simulator, where the engine opens an index. A tag builds, signs and
 uploads the app to TestFlight, where it is installed for internal testers and
-has synced with an Android phone (Known gaps 2). The App Store has build 556
-since 2026-11-15. What is left is the device checks in
+has synced with an Android phone (Known gaps 2). The app is on the
+[App Store](https://apps.apple.com/app/ais-index/id6820540879). What is left is the device checks in
 [`dev/IOS_TODO.md`](dev/IOS_TODO.md) section 8. No interface work, since the
 screens are shared with Android, and no core changes.
 Issue [#1](https://github.com/Anode1/ais/issues/1) carries the brief: what is
