@@ -208,3 +208,23 @@ A sync between the iPhone (0.3.34) and an Android phone (0.3.29) succeeded on
       2027-01-31 for existing apps.
 - [ ] After the next submission: the China banners are gone from the
       version page.
+
+## 10. Moving a tester from TestFlight to the store copy
+
+The TestFlight build and the store version of one tag are the same binary and
+share one slot on the phone. A TestFlight build stops opening 90 days after its
+upload. Deleting the app deletes the index: it lives in the app's Documents
+folder and is excluded from iCloud backup.
+
+- [ ] Back up the index: sync it to another device, or Menu, Sync & backup,
+      Export to a file.
+- [ ] In TestFlight, open AIS Index and turn off Automatic Updates, so the
+      next tag's test build does not replace the store copy.
+- [ ] Open <https://apps.apple.com/app/ais-index/id6820540879> on the phone.
+      Get, Update or the cloud icon installs over the TestFlight build and
+      keeps the index.
+- [ ] If the page offers only Open: delete the app, install it from the
+      store, and sync or import the index back. Which button appears when the
+      two versions are equal has not been observed; record it here.
+- [ ] The app's name on the home screen has lost its orange dot, which marks
+      a TestFlight copy.
