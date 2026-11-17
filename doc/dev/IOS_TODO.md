@@ -224,7 +224,10 @@ folder and is excluded from iCloud backup.
       Get, Update or the cloud icon installs over the TestFlight build and
       keeps the index.
 - [ ] If the page offers only Open: delete the app, install it from the
-      store, and sync or import the index back. Which button appears when the
-      two versions are equal has not been observed; record it here.
+      store, and sync or import the index back.
 - [ ] The app's name on the home screen has lost its orange dot, which marks
       a TestFlight copy.
+
+Done on Marina's iPhone on 2026-11-17 (0.3.47, build 640 on both sides): the
+store copy runs and the index is there. Which button the store page showed
+was not recorded.
