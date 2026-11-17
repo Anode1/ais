@@ -104,7 +104,7 @@ The measurement is the paper *Key Lookup versus File Search for a Coding Agent*,
 
 > **<https://play.google.com/store/apps/details?id=com.aisindex.ais>**
 
-**iPhone**: the app is on the App Store:
+**iPhone**: the app is on the App Store, where a search for "AIS Index" finds it:
 
 > **<https://apps.apple.com/app/ais-index/id6820540879>**
 
