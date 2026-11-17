@@ -203,3 +203,8 @@ A sync between the iPhone (0.3.34) and an Android phone (0.3.29) succeeded on
       the listing text from `doc/public-text.txt`, which drops the
       shared-folder line and "iPad"; automatic release, Waiting for Review.
 - [x] 0.3.47 approved and released 2026-11-16; the store page serves it.
+- [x] 2026-11-17: the two China mainland declarations in App Compliance
+      (Security Assessment, AIGC services) answered as not applicable; due
+      2027-01-31 for existing apps.
+- [ ] After the next submission: the China banners are gone from the
+      version page.
