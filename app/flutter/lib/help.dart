@@ -51,6 +51,14 @@ const _secrets = (
       'about 6000 letters, fewer in other alphabets.'
 );
 
+const _links = (
+  'Links from another app',
+  "Menu, Import bookmarks takes a browser's bookmarks file, or the CSV that "
+      'Pocket, Instapaper or Raindrop export. Each link is filed under its own '
+      'tags and folder words plus one tag naming the source (pocket, bookmark), '
+      'so the batch is found as one. Undo removes what the import added.'
+);
+
 const helpSections = <(String, String)>[
   _whatAis,
   (
@@ -77,13 +85,7 @@ const helpSections = <(String, String)>[
         'devices on the same Wi-Fi, encrypted. A sync folder (Syncthing, a '
         'cloud drive) works too.'
   ),
-  (
-    'Links from another app',
-    "Menu, Import bookmarks takes a browser's bookmarks file, or the CSV that "
-        'Pocket, Instapaper or Raindrop export. Each link is filed under its own '
-        'tags and folder words plus one tag naming the source (pocket, bookmark), '
-        'so the batch is found as one. Undo removes what the import added.'
-  ),
+  _links,
 ];
 
 const helpSectionsIos = <(String, String)>[
@@ -110,6 +112,7 @@ const helpSectionsIos = <(String, String)>[
         'what is under the code. The transfer goes directly between the two '
         'devices on the same Wi-Fi, encrypted.'
   ),
+  _links,
 ];
 
 class HelpPage extends StatelessWidget {

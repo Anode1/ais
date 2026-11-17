@@ -91,7 +91,7 @@ void main() {
       expect(text, isNot(contains(absent)), reason: 'iOS help names $absent');
     }
     for (final present in ['Export to a file', 'Import from a file',
-        'Import a backup file', 'Show a code']) {
+        'Import a backup file', 'Show a code', 'Import bookmarks']) {
       expect(text, contains(present), reason: 'iOS help lost $present');
     }
   });
